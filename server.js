@@ -112,6 +112,38 @@ app.get('/api/calls/:callId', async (req, res) => {
   }
 });
 
+// Get summary for a specific earnings call
+app.get('/api/summary/:callId', async (req, res) => {
+  try {
+    const { callId } = req.params;
+
+    // Find the most recent summary for this call
+    const summary = await prisma.summary.findFirst({
+      where: { callId: callId },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!summary) {
+      return res.status(404).json({
+        success: false,
+        error: 'Summary not found for this call'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: summary
+    });
+  } catch (error) {
+    console.error('Error fetching summary:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch summary',
+      message: error.message
+    });
+  }
+});
+
 // Summarize an earnings call
 app.post('/api/calls/:callId/summarize', async (req, res) => {
   try {
