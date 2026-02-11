@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
 const jobQueue = require('./lib/jobQueue');
 
@@ -10,6 +11,7 @@ const port = process.env.PORT || 8000;
 const prisma = new PrismaClient();
 
 // Middleware
+app.use(cors());
 app.use(express.json());
 
 // Test database connection
