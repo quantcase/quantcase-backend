@@ -1,37 +1,41 @@
 # QuantCase Backend
 
-## Setup
+# Setup
 
-  # 1. Install dependencies
+1. Install dependencies
   npm install
   npx prisma db pull
   npx prisma generate
 
-  # 2. Push schema to database
+2. Push schema to database
   npx prisma db push
 
-  # 3. Start server
+3. Start server
   npm start
 
-  Available Commands:
+4. Available Commands:
+    npm run dev          # Development with auto-reload
+    npm run db:push      # Push schema changes to database
+    npm run db:generate  # Generate Prisma Client
+    npm run db:studio    # Open Prisma Studio (database GUI)
+    npm run db:seed      # Seed sample data
 
-  npm run dev          # Development with auto-reload
-  npm run db:push      # Push schema changes to database
-  npm run db:generate  # Generate Prisma Client
-  npm run db:studio    # Open Prisma Studio (database GUI)
-  npm run db:seed      # Seed sample data
 
-## Database Management
+# REDIS SETUP
+sudo apt update
+sudo apt install redis-tools # for redis-cli
+sudo snap install redis
+sudo snap set redis service.start=true
+
+
+# Database Management
 
 ```bash
 # View your data in Prisma Studio
 npx prisma studio
-
-# Reset database (careful: deletes all data)
-npx prisma db push --force-reset
 ```
 
-## API Endpoints
+# API Endpoints
 
 ### Health Check
 ```bash
