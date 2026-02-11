@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model earnings_calls {
+  id                    String    @id(map: "earnings_calls_pkey1")
+  company               String
+  fiscal_year           String?
+  quarter               String?
+  call_date             String?
+  transcript_url        String?
+  transcript_text       String?
+  ppt_url               String?
+  ppt_text              String?
+  created_at            DateTime? @default(now()) @db.Timestamp(6)
+  updated_at            DateTime? @default(now()) @db.Timestamp(6)
+  basic_industry        String?
+  company_name          String?
+  quarterly_result      String?
+  quarterly_result_url  String?
+  quarterly_result_text String?
+
+  @@index([company, fiscal_year, quarter])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model earnings_calls_1 {
+  id              String    @id(map: "earnings_calls_test_pkey")
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  transcript_url  String?
+  transcript_text String?
+  ppt_url         String?
+  ppt_text        String?
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  updated_at      DateTime? @default(now()) @db.Timestamp(6)
+  basic_industry  String?
+  company_name    String?
+
+  @@index([company, fiscal_year, quarter], map: "earnings_calls_test_company_fiscal_year_quarter_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model earnings_calls_2 {
+  id              String    @id(map: "earnings_calls_new_pkey")
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  transcript_url  String?
+  transcript_text String?
+  ppt_url         String?
+  ppt_text        String?
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  updated_at      DateTime? @default(now()) @db.Timestamp(6)
+  basic_industry  String?
+  company_name    String?
+
+  @@index([company, fiscal_year, quarter], map: "earnings_calls_new_company_fiscal_year_quarter_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model earnings_calls_test {
+  id                    String    @id(map: "earnings_calls_pkey")
+  company               String
+  fiscal_year           String?
+  quarter               String?
+  call_date             String?
+  transcript_url        String?
+  transcript_text       String?
+  ppt_url               String?
+  ppt_text              String?
+  created_at            DateTime? @default(now()) @db.Timestamp(6)
+  updated_at            DateTime? @default(now()) @db.Timestamp(6)
+  quarterly_result      String?
+  quarterly_result_url  String?
+  quarterly_result_text String?
+
+  @@index([company, fiscal_year, quarter], map: "idx_company_fy_quarter")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model kv_store_abda8bef {
+  key   String @id
+  value Json
+
+  @@index([key])
+  @@index([key], map: "kv_store_abda8bef_key_idx1")
+  @@index([key], map: "kv_store_abda8bef_key_idx2")
+  @@index([key], map: "kv_store_abda8bef_key_idx3")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model nse_equity {
+  id       Int       @id(map: "nse_daily_data_pkey") @default(autoincrement())
+  symbol   String?
+  datetime DateTime? @db.Timestamp(6)
+  open     Float?
+  high     Float?
+  low      Float?
+  close    Float?
+  volume   BigInt?
+
+  @@unique([symbol, datetime], map: "unique_symbol_datetime")
+}
+
+model nse_index {
+  id       Int       @id @default(autoincrement())
+  sector   String?
+  datetime DateTime? @db.Date
+  open     Decimal?  @db.Decimal
+  high     Decimal?  @db.Decimal
+  low      Decimal?  @db.Decimal
+  close    Decimal?  @db.Decimal
+  volume   BigInt?
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model users {
+  id         BigInt   @id @default(autoincrement())
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  email      String?
+  password   String?
+  role       String?
+}
+
+// Jobs table for API
+model Job {
+  id        String   @id @default(uuid())
+  callId    String   @map("call_id")
+  type      String
+  status    String   @default("pending")
+  bullmqId  String?  @unique @map("bullmq_id")
+  result    Json?
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("jobs")
+  @@index([callId])
+  @@index([status])
+}
+
+// Summaries table for storing extracted call data
+model Summary {
+  id                 String   @id @default(uuid())
+  callId             String   @map("call_id")
+  entities           Json?
+  promises           Json?
+  milestones         Json?
+  metrics            Json?
+  governanceSignals  Json?    @map("governance_signals")
+  notablePatterns    Json?    @map("notable_patterns")
+  managementScore    Float?   @map("management_score")
+  confidence         Json?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("summaries")
+  @@index([callId])
+}
