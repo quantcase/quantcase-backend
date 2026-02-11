@@ -66,3 +66,7 @@ curl -X GET http://localhost:8000/api/jobs/<JOB_ID>
 ```
 CALLS = ["CANFINHOME_FY2026_Q3", "TCS_FY2026_Q3"]
 ```
+
+
+## START SERVER AFTER SSH
+pm2 start "npm run dev" --name "quantcase-backend" -- --port 8000
