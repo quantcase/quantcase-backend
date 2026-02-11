@@ -57,3 +57,8 @@ curl -X POST http://localhost:8000/api/calls/CANFINHOME_FY2026_Q3/summarize
 ```bash
 curl -X GET http://localhost:8000/api/jobs/<JOB_ID>
 ```
+
+### Sample Call IDs
+```
+CALLS = ["CANFINHOME_FY2026_Q3", "TCS_FY2026_Q3"]
+```

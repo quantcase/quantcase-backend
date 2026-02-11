@@ -19,8 +19,9 @@ const anthropic = new Anthropic({
   apiKey: process.env['CLAUDE_API_KEY'],
 });
 
-// const LLMClient = openaiClient.chat.completions;
-const LLMClient = anthropic.messages;
+// Switch between LLM providers:
+// const LLMClient = openaiClient.chat.completions;  // For OpenAI
+const LLMClient = anthropic.messages;  // For Claude (current)
 
 console.log('LLM Client initialized:', LLMClient);
 
@@ -34,10 +35,10 @@ const connection = new Redis({
 
 
 async function processSummarizationJob(job) {
-  console.log(`Processing job ${job.id}:`, job.callId);
+  const { callId, transcriptText, pptText, type } = job.data;
+  console.log(`Processing BullMQ job ${job.id} (callId: ${callId}, type: ${type})`);
 
   try {
-    const { callId, transcriptText, pptText } = job.data;
     const combinedText = [
       transcriptText || '',
       pptText || ''
@@ -46,11 +47,19 @@ async function processSummarizationJob(job) {
       throw new Error(`No transcript or PPT text available for call ${callId}`);
     }
 
-    // Update database job status to in_progress
-    await prisma.job.update({
+    // Update database job status to processing (upsert if doesn't exist)
+    console.log(`Updating database job with bullmqId: ${job.id}`);
+    const dbJob = await prisma.job.upsert({
       where: { bullmqId: job.id },
-      data: { status: 'processing' }
+      update: { status: 'processing' },
+      create: {
+        callId: callId,
+        type: type || 'summarization',
+        status: 'processing',
+        bullmqId: job.id
+      }
     });
+    console.log(`Database job ${dbJob.id} updated to processing`);
     await job.updateProgress(25);
 
     // Use character limit for testing
@@ -62,8 +71,9 @@ async function processSummarizationJob(job) {
 
     await job.updateProgress(50);
 
-    console.log('Calling OpenAI API...');
-    const completion = await LLMClient.create({
+    console.log('Calling Claude API with streaming...');
+    // Use streaming to avoid timeout errors for long-running requests
+    const stream = LLMClient.stream({
       model: 'claude-sonnet-4-5-20250929',
       max_tokens: MAX_TOKENS,
       messages: [
@@ -76,6 +86,9 @@ async function processSummarizationJob(job) {
         format: summarySchema
       }
     });
+
+    // Get the final message without handling individual events
+    const completion = await stream.finalMessage();
 
     await job.updateProgress(75);
 
@@ -126,14 +139,25 @@ async function processSummarizationJob(job) {
   } catch (error) {
     console.error(`Job ${job.id} failed:`, error);
 
-    // Update database job with error
-    await prisma.job.update({
-      where: { bullmqId: job.id },
-      data: {
-        status: 'failed',
-        error: error.message
-      }
-    });
+    // Update database job with error (upsert if doesn't exist)
+    try {
+      await prisma.job.upsert({
+        where: { bullmqId: job.id },
+        update: {
+          status: 'failed',
+          error: error.message
+        },
+        create: {
+          callId: callId,
+          type: type || 'summarization',
+          status: 'failed',
+          bullmqId: job.id,
+          error: error.message
+        }
+      });
+    } catch (dbError) {
+      console.error(`Failed to update job ${job.id} in database:`, dbError);
+    }
 
     throw error;
   }
