@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
 const jobQueue = require('./lib/jobQueue');
+const { getManagementAnalysis } = require('./controllers/managementController');
 
 const app = express();
 const port = process.env.PORT || 8000;
@@ -145,6 +146,9 @@ app.get('/api/summary/:callId', async (req, res) => {
     });
   }
 });
+
+// Get management analysis (transformed summary data)
+app.get('/api/management/analysis', getManagementAnalysis);
 
 // Summarize an earnings call
 app.post('/api/calls/:callId/summarize', async (req, res) => {

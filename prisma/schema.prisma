@@ -154,13 +154,11 @@ model Summary {
   id                 String   @id @default(uuid())
   callId             String   @map("call_id")
   entities           Json?
-  promises           Json?
   milestones         Json?
-  metrics            Json?
+  riskDisclosures    Json?    @map("risk_disclosures")
   governanceSignals  Json?    @map("governance_signals")
-  notablePatterns    Json?    @map("notable_patterns")
-  managementScore    Float?   @map("management_score")
-  confidence         Json?
+  tone               String?
+  confidence         String?
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 

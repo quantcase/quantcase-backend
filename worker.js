@@ -104,15 +104,10 @@ async function processSummarizationJob(job) {
       data: {
         callId: callId,
         entities: extractedData.entities || null,
-        promises: extractedData.promises || null,
-        milestones: extractedData.guidance || null,
-        metrics: extractedData.guidance || null,
+        milestones: extractedData.milestones || null,
+        riskDisclosures: extractedData.risk_disclosures || null,
         governanceSignals: extractedData.governance_signals || null,
-        notablePatterns: {
-          risk_disclosures: extractedData.risk_disclosures || [],
-          tone: extractedData.tone || null
-        },
-        managementScore: null, // Can be calculated later based on the data
+        tone: extractedData.tone || null,
         confidence: extractedData.confidence || null
       }
     });

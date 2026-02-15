@@ -2,6 +2,36 @@ const summarySchema = {
   type: "json_schema",
   schema: {
     type: "object",
+    $defs: {
+      targetItem: {
+        type: "object",
+        properties: {
+          statement: { type: "string" },
+          current_value: { type: "string" },
+          targeted_value: { type: "string" },
+          metric_name: { type: "string" },
+          initialTime: { type: "string" },
+          targetTime: { type: "string" }
+        },
+        required: ["statement", "current_value", "targeted_value", "metric_name", "initialTime", "targetTime"],
+        additionalProperties: false
+      },
+      milestoneCategory: {
+        type: "object",
+        properties: {
+          financial_targets: {
+            type: "array",
+            items: { $ref: "#/$defs/targetItem" }
+          },
+          conceptual_targets: {
+            type: "array",
+            items: { $ref: "#/$defs/targetItem" }
+          }
+        },
+        required: ["financial_targets", "conceptual_targets"],
+        additionalProperties: false
+      }
+    },
     properties: {
       entities: {
         type: "object",
@@ -13,32 +43,15 @@ const summarySchema = {
         required: ["people", "business_segments", "geographies"],
         additionalProperties: false
       },
-      promises: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            statement: { type: "string" },
-            metric: { type: "string" },
-            target: { type: "string" },
-            timeline: { type: "string" }
-          },
-          required: ["statement", "metric", "target", "timeline"],
-          additionalProperties: false
-        }
-      },
-      guidance: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            metric: { type: "string" },
-            guided_value: { type: "string" },
-            period: { type: "string" }
-          },
-          required: ["metric", "guided_value", "period"],
-          additionalProperties: false
-        }
+      milestones: {
+        type: "object",
+        properties: {
+          future_goals: { $ref: "#/$defs/milestoneCategory" },
+          failure_disclosures: { $ref: "#/$defs/milestoneCategory" },
+          success_disclosures: { $ref: "#/$defs/milestoneCategory" }
+        },
+        required: ["future_goals", "failure_disclosures", "success_disclosures"],
+        additionalProperties: false
       },
       risk_disclosures: {
         type: "array",
@@ -66,7 +79,7 @@ const summarySchema = {
       tone: { type: "string", enum: ["confident", "neutral", "defensive", "promotional"] },
       confidence: { type: "string", enum: ["high", "medium", "low"] }
     },
-    required: ["entities", "promises", "guidance", "risk_disclosures", "governance_signals", "tone", "confidence"],
+    required: ["entities", "milestones", "risk_disclosures", "governance_signals", "tone", "confidence"],
     additionalProperties: false
   }
 };
