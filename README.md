@@ -47,6 +47,11 @@ curl -X GET http://localhost:8000/health
 curl -X GET http://localhost:8000/api/calls
 ```
 
+### Get Stocks List
+```bash
+curl -X GET http://localhost:8000/api/transcript-stocks
+```
+
 ### Get Specific Call
 ```bash
 curl -X GET http://localhost:8000/api/calls/CANFINHOME_FY2026_Q3

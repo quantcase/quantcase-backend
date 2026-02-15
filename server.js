@@ -147,6 +147,39 @@ app.get('/api/summary/:callId', async (req, res) => {
   }
 });
 
+// Get all unique companies
+app.get('/api/transcript-stocks', async (req, res) => {
+  try {
+    const companies = await prisma.earnings_calls.findMany({
+      distinct: ['company'],
+      select: {
+        company: true,
+        company_name: true,
+        basic_industry: true
+      },
+      orderBy: {
+        company: 'asc'
+      }
+    });
+
+    // Filter out entries where company is null or empty
+    const companyList = companies
+      .filter(item => item.company && item.company.trim().length > 0);
+
+    res.json({
+      success: true,
+      data: companyList
+    });
+  } catch (error) {
+    console.error('Error fetching unique companies:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch companies',
+      message: error.message
+    });
+  }
+});
+
 // Get management analysis (transformed summary data)
 app.get('/api/management/analysis', getManagementAnalysis);
 
