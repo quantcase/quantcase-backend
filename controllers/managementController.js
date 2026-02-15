@@ -94,9 +94,9 @@ const getManagementAnalysis = async (req, res) => {
     });
 
     if (!call) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
-        error: 'Call not found'
+        error: 'Analysis not found'
       });
     }
 
@@ -107,9 +107,9 @@ const getManagementAnalysis = async (req, res) => {
     });
 
     if (!summary) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
-        error: 'Summary not found for this call'
+        error: 'Analysis not found for this call'
       });
     }
 
@@ -149,7 +149,7 @@ const getManagementAnalysis = async (req, res) => {
     const successConceptual = (milestones.success_disclosures?.conceptual_targets || []).map(target => ({
       id: `guidance-${recordId++}`,
       period: target.targetTime || "Past",
-      metric: target.metric_name || "",
+      metric: target.statement || "",
       targeted_value: target.targeted_value || "",
       current_value: target.current_value || "Achieved",
       variance: "-",
@@ -172,7 +172,7 @@ const getManagementAnalysis = async (req, res) => {
     const failureConceptual = (milestones.failure_disclosures?.conceptual_targets || []).map(target => ({
       id: `guidance-${recordId++}`,
       period: target.targetTime || "Past",
-      metric: target.metric_name || "",
+      metric: target.statement || "",
       targeted_value: target.targeted_value || "",
       current_value: target.current_value || "Missed",
       variance: "-",
@@ -195,7 +195,7 @@ const getManagementAnalysis = async (req, res) => {
     const futureConceptual = (milestones.future_goals?.conceptual_targets || []).map(target => ({
       id: `guidance-${recordId++}`,
       period: target.targetTime || "TBD",
-      metric: target.metric_name || "",
+      metric: target.statement || "",
       targeted_value: target.targeted_value || "",
       current_value: target.current_value || "Pending",
       variance: "-",

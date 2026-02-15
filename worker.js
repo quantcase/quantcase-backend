@@ -99,9 +99,18 @@ async function processSummarizationJob(job) {
     // Parse the JSON response
     const extractedData = JSON.parse(responseText);
 
-    // Save to Summary table
-    const summaryRecord = await prisma.summary.create({
-      data: {
+    // Save to Summary table (upsert to update existing summaries)
+    const summaryRecord = await prisma.summary.upsert({
+      where: { callId: callId },
+      update: {
+        entities: extractedData.entities || null,
+        milestones: extractedData.milestones || null,
+        riskDisclosures: extractedData.risk_disclosures || null,
+        governanceSignals: extractedData.governance_signals || null,
+        tone: extractedData.tone || null,
+        confidence: extractedData.confidence || null
+      },
+      create: {
         callId: callId,
         entities: extractedData.entities || null,
         milestones: extractedData.milestones || null,

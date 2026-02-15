@@ -152,7 +152,7 @@ model Job {
 // Summaries table for storing extracted call data
 model Summary {
   id                 String   @id @default(uuid())
-  callId             String   @map("call_id")
+  callId             String   @unique @map("call_id")
   entities           Json?
   milestones         Json?
   riskDisclosures    Json?    @map("risk_disclosures")

@@ -52,6 +52,12 @@ curl -X GET http://localhost:8000/api/calls
 curl -X GET http://localhost:8000/api/transcript-stocks
 ```
 
+### Get Transcripts for a stock
+```bash
+curl -X GET http://localhost:8000/api/transcript-calls?symbol=ADANIPOWER
+```
+
+
 ### Get Specific Call
 ```bash
 curl -X GET http://localhost:8000/api/calls/CANFINHOME_FY2026_Q3

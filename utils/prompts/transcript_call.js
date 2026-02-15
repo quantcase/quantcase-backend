@@ -36,11 +36,12 @@ Extract milestone information organized into three categories:
 
 **Target Schema** (applies to all financial_targets and conceptual_targets):
 - statement: Full description of the target/goal
-- current_value: Current state or value (use "N/A" if not applicable for conceptual targets)
-- targeted_value: The goal or desired state
-- metric_name: Name of the metric (e.g., "revenue", "EPS", "margin", "product launch", "market expansion")
-- initialTime: When the target was first set or announced (extract from context or use current call date)
-- targetTime: When the target is/was expected to be achieved
+- metric_name: If financial_targets, the yfinance key to look up the metric (e.g., "revenue", "forwardEps", "profitMargins"). If conceptual_targets, a human readable text about the concept outcome being talked about (e.g., "product launch", "market expansion", "carbon neutrality")
+  * IMPORTANT: Only use yfinance keys you are confident about. Do not guess or use incorrect yfinance keys for financial metrics.
+- current_value: Current state or value (use "N/A" if not applicable for conceptual targets). For financial_targets, include the metric value with units (e.g., "INR 459 crore", "$125M revenue", "15.2% margin")
+- targeted_value: The goal or desired state. For financial_targets, include the metric value with units (e.g., "INR 786 crore", "$150M revenue", "18% margin")
+- initial_time: When the target was first set or announced (extract from context or use current call date)
+- target_time: When the target is/was expected to be achieved
 
 **risk_disclosures**
 Identify risks mentioned and assess disclosure quality:

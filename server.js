@@ -180,6 +180,51 @@ app.get('/api/transcript-stocks', async (req, res) => {
   }
 });
 
+// Get transcripts by company symbol
+app.get('/api/transcript-calls', async (req, res) => {
+  try {
+    const { symbol } = req.query;
+
+    if (!symbol) {
+      return res.status(400).json({
+        success: false,
+        error: 'Symbol query parameter is required'
+      });
+    }
+
+    // exclude values of transcript_text and ppt_text in final object to reduce payload size
+    const calls = await prisma.earnings_calls.findMany({
+      where: {
+        company: symbol
+      },
+      select: {
+        id: true,
+        company: true,
+        company_name: true,
+        basic_industry: true,
+        fiscal_year: true,
+        call_date: true,
+        quarter: true,
+        ppt_url: true,
+        transcript_text: false, // Exclude transcript_text
+        ppt_text: false // Exclude ppt_text
+      }
+    });
+
+    res.json({
+      success: true,
+      data: calls.reverse() // reverse the order
+    });
+  } catch (error) {
+    console.error('Error fetching transcripts by symbol:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch transcripts',
+      message: error.message
+    });
+  }
+});
+
 // Get management analysis (transformed summary data)
 app.get('/api/management/analysis', getManagementAnalysis);
 
@@ -247,7 +292,16 @@ app.get('/api/jobs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
     const job = await prisma.job.findUnique({
-      where: { id: jobId }
+      where: { id: jobId },
+      select: {
+        id: true,
+        callId: true,
+        type: true,
+        status: true,
+        bullmqId: true,
+        createdAt: true,
+        updatedAt: true
+      }
     });
 
     if (!job) {
@@ -258,26 +312,20 @@ app.get('/api/jobs/:jobId', async (req, res) => {
     }
 
     // Get BullMQ job status if bullmqId exists
-    let bullmqStatus = null;
+    let bullmqObject = null;
     if (job.bullmqId) {
       try {
-        bullmqStatus = await jobQueue.getJobStatus('summarization', job.bullmqId);
+        bullmqObject = await jobQueue.getJobStatus('summarization', job.bullmqId);
       } catch (err) {
         console.error('Error fetching BullMQ status:', err);
       }
     }
 
-    // Optionally include the call data
-    const call = await prisma.earnings_calls.findUnique({
-      where: { id: job.callId }
-    });
-
     res.json({
       success: true,
       data: {
         ...job,
-        bullmqStatus: bullmqStatus,
-        call: call
+        bullmqObject: bullmqObject,
       }
     });
   } catch (error) {

@@ -10,10 +10,10 @@ const summarySchema = {
           current_value: { type: "string" },
           targeted_value: { type: "string" },
           metric_name: { type: "string" },
-          initialTime: { type: "string" },
-          targetTime: { type: "string" }
+          initial_time: { type: "string" },
+          target_time: { type: "string" }
         },
-        required: ["statement", "current_value", "targeted_value", "metric_name", "initialTime", "targetTime"],
+        required: ["statement", "current_value", "targeted_value", "metric_name", "initial_time", "target_time"],
         additionalProperties: false
       },
       milestoneCategory: {
