@@ -1,3 +1,6 @@
+const { FINCRUX_METRICS } = require("../constants");
+
+
 function transcriptExtractorPrompt(transcriptText) {
   return `You are an expert financial analyst extracting structured intelligence from an earnings call transcript to assess management integrity and quality of disclosure.
 
@@ -36,8 +39,9 @@ Extract milestone information organized into three categories:
 
 **Target Schema** (applies to all financial_targets and conceptual_targets):
 - statement: Full description of the target/goal
-- metric_name: If financial_targets, the yfinance key to look up the metric (e.g., "revenue", "forwardEps", "profitMargins"). If conceptual_targets, a human readable text about the concept outcome being talked about (e.g., "product launch", "market expansion", "carbon neutrality")
-  * IMPORTANT: Only use yfinance keys you are confident about. Do not guess or use incorrect yfinance keys for financial metrics.
+- metric_name: If financial_targets, use one of the FINCRUX_METRICS standard metric names (e.g., "Sales", "Net Profit", "EPS in Rs", "ROE", "ROCE", "OPM %"). If conceptual_targets, a human readable text about the concept outcome being talked about (e.g., "product launch", "market expansion", "carbon neutrality")
+  * IMPORTANT: Only use FINCRUX_METRICS names from this list: ${FINCRUX_METRICS.join(', ')}
+  * Choose the closest matching metric name from the list above. If no exact match exists, use the most semantically similar metric.
 - current_value: Current state or value (use "N/A" if not applicable for conceptual targets). For financial_targets, include the metric value with units (e.g., "INR 459 crore", "$125M revenue", "15.2% margin")
 - targeted_value: The goal or desired state. For financial_targets, include the metric value with units (e.g., "INR 786 crore", "$150M revenue", "18% margin")
 - initial_time: When the target was first set or announced (extract from context or use current call date)

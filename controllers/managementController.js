@@ -137,7 +137,7 @@ const getManagementAnalysis = async (req, res) => {
     // Add success disclosures (ACHIEVED status)
     const successFinancial = (milestones.success_disclosures?.financial_targets || []).map(target => ({
       id: `guidance-${recordId++}`,
-      period: target.targetTime || "Past",
+      period: target.target_time || "Past",
       metric: target.metric_name || "",
       targeted_value: target.targeted_value || "",
       current_value: target.current_value || "Achieved",
@@ -148,7 +148,7 @@ const getManagementAnalysis = async (req, res) => {
 
     const successConceptual = (milestones.success_disclosures?.conceptual_targets || []).map(target => ({
       id: `guidance-${recordId++}`,
-      period: target.targetTime || "Past",
+      period: target.target_time || "Past",
       metric: target.statement || "",
       targeted_value: target.targeted_value || "",
       current_value: target.current_value || "Achieved",
@@ -160,7 +160,7 @@ const getManagementAnalysis = async (req, res) => {
     // Add failure disclosures (MISSED status)
     const failureFinancial = (milestones.failure_disclosures?.financial_targets || []).map(target => ({
       id: `guidance-${recordId++}`,
-      period: target.targetTime || "Past",
+      period: target.target_time || "Past",
       metric: target.metric_name || "",
       targeted_value: target.targeted_value || "",
       current_value: target.current_value || "Missed",
@@ -171,7 +171,7 @@ const getManagementAnalysis = async (req, res) => {
 
     const failureConceptual = (milestones.failure_disclosures?.conceptual_targets || []).map(target => ({
       id: `guidance-${recordId++}`,
-      period: target.targetTime || "Past",
+      period: target.target_time || "Past",
       metric: target.statement || "",
       targeted_value: target.targeted_value || "",
       current_value: target.current_value || "Missed",
@@ -183,7 +183,7 @@ const getManagementAnalysis = async (req, res) => {
     // Add future goals (PENDING status)
     const futureFinancial = (milestones.future_goals?.financial_targets || []).map(target => ({
       id: `guidance-${recordId++}`,
-      period: target.targetTime || "TBD",
+      period: target.target_time || "TBD",
       metric: target.metric_name || "",
       targeted_value: target.targeted_value || "",
       current_value: target.current_value || "Pending",
@@ -194,7 +194,7 @@ const getManagementAnalysis = async (req, res) => {
 
     const futureConceptual = (milestones.future_goals?.conceptual_targets || []).map(target => ({
       id: `guidance-${recordId++}`,
-      period: target.targetTime || "TBD",
+      period: target.target_time || "TBD",
       metric: target.statement || "",
       targeted_value: target.targeted_value || "",
       current_value: target.current_value || "Pending",
