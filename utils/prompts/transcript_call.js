@@ -1,73 +1,143 @@
 const { FINCRUX_METRICS } = require("../constants");
 
+/**
+ * @param {string} transcriptText
+ * @param {Array<{id: string, abbr: string, full_form: string, type: 'standalone'|'ratio', denomination?: string, numerator_abbr?: string, denominator_abbr?: string}>} existingKpis
+ * @param {string} callDate - ISO date string of the earnings call e.g. "2024-11-14"
+ * @param {string} [fiscalYearEnd="03-31"] - MM-DD, e.g. "03-31" for Indian FY
+ */
+function transcriptExtractorPrompt(transcriptText, existingKpis, callDate, fiscalYearEnd = "03-31") {
+  const kpiReference = existingKpis.map(k => {
+    const base = `${k.abbr} (${k.full_form}, type: ${k.type}`;
+    if (k.type === 'standalone') return `${base}, denomination: ${k.denomination})`;
+    if (k.type === 'ratio') return `${base}, numerator: ${k.numerator_abbr}, denominator: ${k.denominator_abbr})`;
+    return `${base})`;
+  }).join('\n  ');
 
-function transcriptExtractorPrompt(transcriptText) {
-  return `You are an expert financial analyst extracting structured intelligence from an earnings call transcript to assess management integrity and quality of disclosure.
+  return `You are an expert financial analyst extracting structured intelligence from an earnings call transcript to assess management integrity, disclosure quality, and industry positioning.
+
+CALL DATE: ${callDate}
+FISCAL YEAR END (MM-DD): ${fiscalYearEnd}
 
 TRANSCRIPT:
 ${transcriptText}
 
 ----------------------
 
-EXTRACTION GUIDELINES:
+## AVAILABLE KPIs (from database)
+When referencing any KPI in your output, always use its exact \`abbr\` from this list:
 
-**entities**
-- people: Key executives, board members, or individuals mentioned by name
-- business_segments: Product lines, divisions, or business units discussed
-- geographies: Countries, regions, or markets mentioned
+  ${kpiReference}
 
-**milestones**
-Extract milestone information organized into three categories:
-
-1. **future_goals** - New targets and goals announced during this call:
-   - financial_targets: Quantitative metrics with specific numbers
-     * Examples: EPS targets, revenue growth goals, margin expansion, P/E ratio objectives, EBITDA targets, cost reduction goals
-   - conceptual_targets: Qualitative or non-quantitative strategic goals
-     * Examples: "become the leading AI media company", "launch 3000 new outlets", "achieve carbon neutrality", "expand into 5 new markets"
-
-2. **failure_disclosures** - Previously announced targets that were missed or will be missed:
-   - financial_targets: Quantitative targets that failed
-     * Examples: "Q3 revenue target of $500M missed, actual was $450M", "annual EPS guidance of $5.00 reduced to $4.50"
-   - conceptual_targets: Qualitative goals that were not achieved
-     * Examples: "planned product launch delayed", "market expansion postponed"
-
-3. **success_disclosures** - Previously announced targets that were achieved or exceeded:
-   - financial_targets: Quantitative targets that succeeded
-     * Examples: "exceeded Q3 revenue target of $400M with $425M", "achieved margin expansion goal of 15%"
-   - conceptual_targets: Qualitative goals that were accomplished
-     * Examples: "successfully launched new product line as planned", "completed acquisition of competitor"
-
-**Target Schema** (applies to all financial_targets and conceptual_targets):
-- statement: Full description of the target/goal
-- metric_name: If financial_targets, use one of the FINCRUX_METRICS standard metric names (e.g., "Sales", "Net Profit", "EPS in Rs", "ROE", "ROCE", "OPM %"). If conceptual_targets, a human readable text about the concept outcome being talked about (e.g., "product launch", "market expansion", "carbon neutrality")
-  * IMPORTANT: Only use FINCRUX_METRICS names from this list: ${FINCRUX_METRICS.join(', ')}
-  * Choose the closest matching metric name from the list above. If no exact match exists, use the most semantically similar metric.
-- current_value: Current state or value (use "N/A" if not applicable for conceptual targets). For financial_targets, include the metric value with units (e.g., "INR 459 crore", "$125M revenue", "15.2% margin")
-- targeted_value: The goal or desired state. For financial_targets, include the metric value with units (e.g., "INR 786 crore", "$150M revenue", "18% margin")
-- initial_time: When the target was first set or announced (extract from context or use current call date)
-- target_time: When the target is/was expected to be achieved
-
-**risk_disclosures**
-Identify risks mentioned and assess disclosure quality:
-- risk: Description of the risk or challenge
-- severity: "low", "medium", or "high" based on potential impact
-- disclosed_early: true if proactively disclosed, false if only mentioned when pressed by analysts
-
-**governance_signals**
-Assess management's governance quality (boolean flags):
-- transparent: Are they forthcoming with information and clear in explanations?
-- defensive_language: Do they deflect, avoid specifics, or use evasive language when questioned?
-- capital_allocation_clarity: Is their capital allocation strategy clearly articulated?
-
-**tone**
-Overall management tone: "confident", "neutral", "defensive", or "promotional"
-
-**confidence**
-Your confidence in the assessment: "high", "medium", or "low"
+If you encounter a KPI that is NOT in the above list, do NOT invent an abbr. Instead, collect it in the \`new_kpis\` array (schema defined below) and reference it by the abbr you assign there.
 
 ----------------------
 
-Be thorough but precise. If a field has no data (e.g., no promises made), return an empty array. All required fields must be present.`;
+## DATE FORMATTING RULES
+- All dates must be in YYYY-MM-DD format.
+- If a date is vague, resolve it to the LAST DAY of the implied period:
+  - "next fiscal year" → last day of the next fiscal year based on FISCAL YEAR END
+  - "by Q3" → last day of Q3 relative to the fiscal year end
+  - "H1" → last day of the first half of the fiscal year
+  - "near term" / "shortly" → 6 months from CALL DATE
+  - "medium term" → 18 months from CALL DATE
+  - "long term" → 36 months from CALL DATE
+- If truly unresolvable, use null.
+
+----------------------
+
+## OUTPUT SCHEMA
+
+Return ONLY a valid JSON object with the following top-level keys:
+
+### 1. entities
+{
+  "people": [{ "name": string, "role": string }],
+  "business_segments": [string],
+  "geographies": [string]
+}
+
+### 2. milestones
+Organized into three sub-keys: future_goals, failure_disclosures, success_disclosures.
+Each has financial_targets and conceptual_targets arrays.
+
+**Financial Target Object:**
+{
+  "statement": string,              // Full natural language description
+  "kpi_abbr": string,               // Must match an abbr from AVAILABLE KPIs or new_kpis
+  "current_value": number | null,   // Decimal only, no units/currency text, use absolute values
+  "targeted_value": number | null,  // Decimal only, no units/currency text, use absolute values
+  "initial_time": "YYYY-MM-DD",     // When this target was first announced
+  "target_time": "YYYY-MM-DD"       // When it is/was expected to be achieved
+}
+
+**Conceptual Target Object:**
+{
+  "statement": string,
+  "concept": string,                // e.g. "product launch", "market expansion"
+  "current_state": string | null,
+  "targeted_state": string,
+  "initial_time": "YYYY-MM-DD",
+  "target_time": "YYYY-MM-DD" | null
+}
+
+### 3. risk_disclosures
+[{
+  "risk": string,
+  "severity": "low" | "medium" | "high",
+  "disclosed_early": boolean
+}]
+
+### 4. governance_signals
+{
+  "transparent": boolean,
+  "defensive_language": boolean,
+  "capital_allocation_clarity": boolean
+}
+
+### 5. tone
+"confident" | "neutral" | "defensive" | "promotional"
+
+### 6. industry_analysis
+{
+  "kpis": [{
+    "kpi_abbr": string,             // abbr from AVAILABLE KPIs or new_kpis
+    "value": number | null,
+    "statement": string             // original statement from transcript
+  }],
+  "growth_drivers": [string],       // Array of statements describing tailwinds
+  "headwinds": [string]             // Array of statements describing risks/challenges at industry level
+}
+
+### 7. new_kpis
+KPIs encountered in the transcript that were NOT in the AVAILABLE KPIs list.
+Each must be fully classified per schema:
+
+[{
+  "abbr": string,                   // Short uppercase abbreviation you're assigning, e.g. "ARPU"
+  "full_form": string,              // Full name, e.g. "Average Revenue Per User"
+  "type": "standalone" | "ratio",
+
+  // Include only if type = "standalone":
+  "denomination": "INR" | "USD" | "percentage" | "days" | "times" | "units",
+
+  // Include only if type = "ratio":
+  "numerator_abbr": string,         // abbr of numerator KPI (from AVAILABLE KPIs or other new_kpis)
+  "denominator_abbr": string        // abbr of denominator KPI (from AVAILABLE KPIs or other new_kpis)
+}]
+
+### 8. confidence
+"high" | "medium" | "low"
+
+----------------------
+
+## IMPORTANT RULES
+1. current_value and targeted_value for financial targets must be raw decimals only (e.g. 459.5, not "INR 459 crore"). The denomination is encoded in the KPI's own schema.
+2. Scale consistency: if the KPI denomination is INR and the transcript says "INR 459 crore", store 459.5 crore as 459.5 (keep crore scale consistent — do NOT convert to absolute rupees unless the DB KPI is defined in absolute rupees).
+3. Never hallucinate KPI abbrs. If unsure, add to new_kpis.
+4. new_kpis entries can reference each other in numerator_abbr/denominator_abbr as long as the referenced abbr also appears in new_kpis or AVAILABLE KPIs.
+5. If a section has no data, return an empty array or null as appropriate — never omit the key.
+6. Return ONLY the JSON. No explanation, no markdown fences.`;
 }
 
 module.exports = { transcriptExtractorPrompt };

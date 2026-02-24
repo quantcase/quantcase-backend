@@ -78,6 +78,7 @@ model earnings_calls_test {
   transcript_text       String?
   ppt_url               String?
   ppt_text              String?
+  updated_ppt_text      String?   // ← add this
   created_at            DateTime? @default(now()) @db.Timestamp(6)
   updated_at            DateTime? @default(now()) @db.Timestamp(6)
   quarterly_result      String?
@@ -151,17 +152,54 @@ model Job {
 
 // Summaries table for storing extracted call data
 model Summary {
-  id                 String   @id @default(uuid())
-  callId             String   @unique @map("call_id")
-  entities           Json?
-  milestones         Json?
-  riskDisclosures    Json?    @map("risk_disclosures")
-  governanceSignals  Json?    @map("governance_signals")
-  tone               String?
-  confidence         String?
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  id                String   @id @default(uuid())
+  callId            String   @unique @map("call_id")
+  entities          Json?
+  milestones        Json?
+  riskDisclosures   Json?    @map("risk_disclosures")
+  governanceSignals Json?    @map("governance_signals")
+  industryAnalysis  Json?    @map("industry_analysis")  // new
+  tone              String?
+  confidence        String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt      @map("updated_at")
 
   @@map("summaries")
   @@index([callId])
+}
+model Kpi {
+  id             String   @id @default(uuid())
+  abbr           String   @unique
+  full_form      String
+  type           KpiType
+  denomination   DenominationType?   // only for standalone
+  numerator_id   String?             // only for ratio
+  denominator_id String?             // only for ratio
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt  @map("updated_at")
+
+  numerator      Kpi?     @relation("KpiRatioNumerator",   fields: [numerator_id],   references: [id])
+  denominator    Kpi?     @relation("KpiRatioDenominator", fields: [denominator_id], references: [id])
+
+  // Back-relations (required by Prisma for self-referential)
+  usedAsNumerator   Kpi[] @relation("KpiRatioNumerator")
+  usedAsDenominator Kpi[] @relation("KpiRatioDenominator")
+
+  @@map("kpis")
+  @@index([abbr])
+  @@index([type])
+}
+
+enum KpiType {
+  standalone
+  ratio
+}
+
+enum DenominationType {
+  INR
+  USD
+  percentage
+  days
+  times
+  units
 }
