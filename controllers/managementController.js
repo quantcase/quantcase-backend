@@ -1,360 +1,329 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-/**
- * Calculate transparency score based on governance signals and risk disclosures
- */
+// ─── Score helpers ────────────────────────────────────────────────────────────
+function parseCallId(callId) {
+  // e.g. "ADANIENSOL_FY2026_Q3" → { fiscalYear: 2026, quarter: 3 }
+  const match = callId.match(/_FY(\d{4})_Q(\d)/);
+  if (!match) return { fiscalYear: 0, quarter: 0 };
+  return { fiscalYear: parseInt(match[1]), quarter: parseInt(match[2]) };
+}
 const calculateTransparencyScore = (governanceSignals, riskDisclosures) => {
-  let score = 50; // Base score
-
+  let score = 50;
   if (governanceSignals?.transparent) score += 35;
   if (!governanceSignals?.defensive_language) score += 15;
-
-  // Bonus for early risk disclosure
   const earlyDisclosures = Array.isArray(riskDisclosures)
-    ? riskDisclosures.filter(r => r.disclosed_early).length
-    : 0;
+    ? riskDisclosures.filter(r => r.disclosed_early).length : 0;
   if (earlyDisclosures > 0) score += Math.min(earlyDisclosures * 5, 20);
-
   return Math.min(score, 100);
 };
 
-/**
- * Calculate guidance accuracy score based on milestones
- */
-const calculateGuidanceAccuracy = (milestones) => {
-  if (!milestones) return 50;
-
-  const successes = (milestones.success_disclosures?.financial_targets?.length || 0) +
-                    (milestones.success_disclosures?.conceptual_targets?.length || 0);
-  const failures = (milestones.failure_disclosures?.financial_targets?.length || 0) +
-                   (milestones.failure_disclosures?.conceptual_targets?.length || 0);
-
-  if (successes + failures === 0) return 50; // No data
-
-  const hitRate = (successes / (successes + failures)) * 100;
-  return Math.round(hitRate);
-};
-
-/**
- * Calculate capital allocation score
- */
 const calculateCapitalAllocationScore = (governanceSignals) => {
-  let score = 50; // Base score
-
+  let score = 50;
   if (governanceSignals?.capital_allocation_clarity) score += 30;
   if (governanceSignals?.transparent) score += 20;
-
   return Math.min(score, 100);
 };
 
-/**
- * Calculate overall management score
- */
-const calculateOverallScore = (transparency, guidance, capital) => {
-  // Weighted average: transparency 40%, guidance 35%, capital 25%
-  return Math.round(transparency * 0.4 + guidance * 0.35 + capital * 0.25);
-};
+const calculateOverallScore = (transparency, guidance, capital) =>
+  Math.round(transparency * 0.4 + guidance * 0.35 + capital * 0.25);
+
+const getOverallTrust = (score) =>
+  score >= 80 ? "HIGH" : score >= 60 ? "MODERATE" : "LOW";
+
+const getRating = (score) =>
+  score >= 70 ? "HIGH" : score >= 50 ? "MODERATE" : "LOW";
+
+const getConfidenceLevel = (confidence) =>
+  confidence ? confidence.toUpperCase() : "MEDIUM";
+
+// ─── Matching helpers ─────────────────────────────────────────────────────────
+
+function matchTarget(goal, candidatePool, type) {
+  if (type === 'financial') {
+    return candidatePool.find(c => {
+      if (c.kpi_abbr?.trim().toLowerCase() !== goal.kpi_abbr?.trim().toLowerCase()) return false;
+      // Disclosure must have come after the goal was set but before/at deadline
+      if (!c.target_time || !goal.target_time) return false;
+      return new Date(c.target_time) < new Date(goal.target_time);
+    }) ?? null;
+  }
+
+  // Conceptual
+  return candidatePool.find(c => {
+    const timeOk = c.target_time && goal.target_time
+      ? new Date(c.target_time) < new Date(goal.target_time)
+      : true; // if no dates, don't filter on time
+    if (!timeOk) return false;
+
+    if (c.concept && goal.concept) {
+      return c.concept.toLowerCase().includes(goal.concept.toLowerCase()) ||
+             goal.concept.toLowerCase().includes(c.concept.toLowerCase());
+    }
+    const goalWords = new Set(
+      goal.statement.toLowerCase().split(/\s+/).filter(w => w.length > 4)
+    );
+    const candWords = c.statement?.toLowerCase() ?? '';
+    return [...goalWords].filter(w => candWords.includes(w)).length >= 3;
+  }) ?? null;
+}
+
+function calcVariance(targeted, actual) {
+  const t = parseFloat(targeted);
+  const a = parseFloat(actual);
+  if (isNaN(t) || isNaN(a) || t === 0) return null;
+  return Math.round(((a - t) / Math.abs(t)) * 100);
+}
+
+// ─── Core guidance builder ────────────────────────────────────────────────────
 
 /**
- * Determine overall trust level based on score
+ * For each transcript except the latest, take its future_goals and try to
+ * match them against success/failure disclosures in ALL subsequent transcripts.
+ * Latest transcript's future goals are completely skipped (verdict still out).
  */
-const getOverallTrust = (score) => {
-  if (score >= 80) return "HIGH";
-  if (score >= 60) return "MODERATE";
-  return "LOW";
-};
+function buildGuidanceRecords(summaries) {
+  const records = [];
+  let recordId    = 0;
+  let hiddenCount  = 0;
+  let achievedCount = 0;
+  let missedCount  = 0;
 
-/**
- * Get confidence level from summary
- */
-const getConfidenceLevel = (confidence) => {
-  if (!confidence) return "MEDIUM";
-  return typeof confidence === 'string' ? confidence.toUpperCase() : "MEDIUM";
-};
+  const scorableSummaries = summaries.slice(0, summaries.length - 1);
 
-/**
- * Get management analysis for a specific earnings call
- * Query params: callId (required), timeframe (optional, default: 'rolling_3_year')
- */
+  for (let i = 0; i < scorableSummaries.length; i++) {
+    const source     = scorableSummaries[i];
+    const subsequent = summaries.slice(i + 1);
+
+    const allSuccessFinancial  = subsequent.flatMap(s => s.milestones?.success_disclosures?.financial_targets  ?? []);
+    const allSuccessConceptual = subsequent.flatMap(s => s.milestones?.success_disclosures?.conceptual_targets ?? []);
+    const allFailureFinancial  = subsequent.flatMap(s => s.milestones?.failure_disclosures?.financial_targets  ?? []);
+    const allFailureConceptual = subsequent.flatMap(s => s.milestones?.failure_disclosures?.conceptual_targets ?? []);
+
+    // ── Financial ──
+    for (const goal of (source.milestones?.future_goals?.financial_targets ?? [])) {
+      const successMatch = matchTarget(goal, allSuccessFinancial, 'financial');
+      const failureMatch = matchTarget(goal, allFailureFinancial, 'financial');
+      const match = successMatch ?? failureMatch;
+
+      const hasFutureCandidate = [...allSuccessFinancial, ...allFailureFinancial].some(c =>
+        c.kpi_abbr?.trim().toLowerCase() === goal.kpi_abbr?.trim().toLowerCase() &&
+        c.target_time && goal.target_time &&
+        new Date(c.target_time) >= new Date(goal.target_time)
+      );
+
+      let status;
+      if      (successMatch)       status = 'ACHIEVED';
+      else if (failureMatch)       status = 'MISSED';
+      else if (hasFutureCandidate) status = 'PENDING';
+      else                         status = 'HIDDEN';
+
+      if      (status === 'ACHIEVED') achievedCount++;
+      else if (status === 'MISSED')   missedCount++;
+      else if (status === 'HIDDEN')   hiddenCount++;
+
+      records.push({
+        id:             `guidance-${recordId++}`,
+        source_call:    source.callId,
+        source_date:    source.callDate,
+        period:         goal.target_time    ?? 'TBD',
+        metric:         goal.kpi_abbr       ?? '',
+        statement:      goal.statement,
+        targeted_value: goal.targeted_value ?? null,
+        current_value:  match?.current_value ?? null,
+        variance_pct:   status === 'ACHIEVED' || status === 'MISSED'
+                          ? calcVariance(goal.targeted_value, match?.current_value)
+                          : null,
+        status,
+        target_type:    'financial'
+      });
+    }
+
+    // ── Conceptual ──
+    for (const goal of (source.milestones?.future_goals?.conceptual_targets ?? [])) {
+      const successMatch = matchTarget(goal, allSuccessConceptual, 'conceptual');
+      const failureMatch = matchTarget(goal, allFailureConceptual, 'conceptual');
+
+      const hasFutureCandidate = [...allSuccessConceptual, ...allFailureConceptual].some(c => {
+        const conceptMatch = c.concept && goal.concept &&
+          (c.concept.toLowerCase().includes(goal.concept.toLowerCase()) ||
+           goal.concept.toLowerCase().includes(c.concept.toLowerCase()));
+        return conceptMatch &&
+          c.target_time && goal.target_time &&
+          new Date(c.target_time) >= new Date(goal.target_time);
+      });
+
+      let status;
+      if      (successMatch)       status = 'ACHIEVED';
+      else if (failureMatch)       status = 'MISSED';
+      else if (hasFutureCandidate) status = 'PENDING';
+      else                         status = 'HIDDEN';
+
+      if      (status === 'ACHIEVED') achievedCount++;
+      else if (status === 'MISSED')   missedCount++;
+      else if (status === 'HIDDEN')   hiddenCount++;
+
+      records.push({
+        id:             `guidance-${recordId++}`,
+        source_call:    source.callId,
+        source_date:    source.callDate,
+        period:         goal.target_time    ?? 'TBD',
+        metric:         goal.concept        ?? '',
+        statement:      goal.statement,
+        targeted_value: goal.targeted_state ?? null,
+        current_value:  successMatch?.current_state ?? failureMatch?.current_state ?? null,
+        variance_pct:   null,
+        status,
+        target_type:    'conceptual'
+      });
+    }
+  }
+
+  const total         = achievedCount + missedCount + hiddenCount;
+  const hitRate       = total > 0 ? Math.round((achievedCount / total) * 100) : 50;
+  const guidanceScore = total > 0 ? Math.round((achievedCount / total) * 100) : 50;
+
+  return { records, hiddenCount, achievedCount, missedCount, hitRate, guidanceScore };
+}
+
+// ─── Controller ───────────────────────────────────────────────────────────────
+
 const getManagementAnalysis = async (req, res) => {
   try {
     const { callId, timeframe = 'rolling_3_year' } = req.query;
 
     if (!callId) {
-      return res.status(400).json({
-        success: false,
-        error: 'callId query parameter is required'
-      });
+      return res.status(400).json({ success: false, error: 'callId is required' });
     }
 
-    // Fetch the earnings call
-    const call = await prisma.earnings_calls.findUnique({
-      where: { id: callId }
-    });
+    // Fetch the requested call to get company identifier
+   // Extract company prefix from callId (e.g. "ADANIENSOL" from "ADANIENSOL_FY2026_Q3")
+const companyPrefix = callId.split('_FY')[0];
 
-    if (!call) {
-      return res.status(400).json({
-        success: false,
-        error: 'Analysis not found'
-      });
-    }
+const rawSummaries = await prisma.summary.findMany({
+  where:   { callId: { startsWith: companyPrefix } },
+  orderBy: { createdAt: 'desc' },
+  take:    3
+});
 
-    // Find the most recent summary for this call
-    const summary = await prisma.summary.findFirst({
-      where: { callId: callId },
-      orderBy: { createdAt: 'desc' }
-    });
+if (rawSummaries.length === 0) {
+  return res.status(404).json({ success: false, error: 'No summaries found for this company' });
+}
 
-    if (!summary) {
-      return res.status(400).json({
-        success: false,
-        error: 'Analysis not found for this call'
-      });
-    }
+// Sort oldest → newest using callId parsing
+const summaries = rawSummaries
+  .map(s => ({ ...s, callDate: s.createdAt }))
+  .sort((a, b) => {
+    const pa = parseCallId(a.callId);
+    const pb = parseCallId(b.callId);
+    if (pa.fiscalYear !== pb.fiscalYear) return pa.fiscalYear - pb.fiscalYear;
+    return pa.quarter - pb.quarter;
+  });
 
-    // Extract data from summary
-    const governanceSignals = summary.governanceSignals || {};
-    const riskDisclosures = Array.isArray(summary.riskDisclosures) ? summary.riskDisclosures : [];
-    const milestones = summary.milestones || {};
+console.log('Sorted summaries:', summaries.map(s => s.callId));
+    const latest          = summaries[summaries.length - 1];
+    const governanceSignals = latest.governanceSignals ?? {};
+    const riskDisclosures  = Array.isArray(latest.riskDisclosures) ? latest.riskDisclosures : [];
 
-    // Calculate scores
+    // ── Cross-transcript guidance accuracy ───────────────────────────────────
+    const { records, hiddenCount, achievedCount, missedCount, hitRate, guidanceScore } =
+      buildGuidanceRecords(summaries);
+
+    // ── Scores ───────────────────────────────────────────────────────────────
     const transparencyScore = calculateTransparencyScore(governanceSignals, riskDisclosures);
-    const guidanceScore = calculateGuidanceAccuracy(milestones);
-    const capitalScore = calculateCapitalAllocationScore(governanceSignals);
-    const overallScore = calculateOverallScore(transparencyScore, guidanceScore, capitalScore);
-    const overallTrust = getOverallTrust(overallScore);
+    const capitalScore      = calculateCapitalAllocationScore(governanceSignals);
+    const overallScore      = calculateOverallScore(transparencyScore, guidanceScore, capitalScore);
 
-    // Determine ratings
-    const transparencyRating = transparencyScore >= 70 ? "HIGH" : transparencyScore >= 50 ? "MODERATE" : "LOW";
-    const guidanceRating = guidanceScore >= 70 ? "HIGH" : guidanceScore >= 50 ? "MODERATE" : "LOW";
-    const capitalRating = capitalScore >= 70 ? "HIGH" : capitalScore >= 50 ? "MODERATE" : "LOW";
-
-    // Map guidance records from all sources (future goals, successes, failures)
-    const guidanceRecords = [];
-    let recordId = 0;
-
-    // Add success disclosures (ACHIEVED status)
-    const successFinancial = (milestones.success_disclosures?.financial_targets || []).map(target => ({
-      id: `guidance-${recordId++}`,
-      period: target.target_time || "Past",
-      metric: target.metric_name || "",
-      targeted_value: target.targeted_value || "",
-      current_value: target.current_value || "Achieved",
-      variance: "-",
-      status: "ACHIEVED",
-      target_type: "financial"
-    }));
-
-    const successConceptual = (milestones.success_disclosures?.conceptual_targets || []).map(target => ({
-      id: `guidance-${recordId++}`,
-      period: target.target_time || "Past",
-      metric: target.statement || "",
-      targeted_value: target.targeted_value || "",
-      current_value: target.current_value || "Achieved",
-      variance: "-",
-      status: "ACHIEVED",
-      target_type: "conceptual"
-    }));
-
-    // Add failure disclosures (MISSED status)
-    const failureFinancial = (milestones.failure_disclosures?.financial_targets || []).map(target => ({
-      id: `guidance-${recordId++}`,
-      period: target.target_time || "Past",
-      metric: target.metric_name || "",
-      targeted_value: target.targeted_value || "",
-      current_value: target.current_value || "Missed",
-      variance: "-",
-      status: "MISSED",
-      target_type: "financial"
-    }));
-
-    const failureConceptual = (milestones.failure_disclosures?.conceptual_targets || []).map(target => ({
-      id: `guidance-${recordId++}`,
-      period: target.target_time || "Past",
-      metric: target.statement || "",
-      targeted_value: target.targeted_value || "",
-      current_value: target.current_value || "Missed",
-      variance: "-",
-      status: "MISSED",
-      target_type: "conceptual"
-    }));
-
-    // Add future goals (PENDING status)
-    const futureFinancial = (milestones.future_goals?.financial_targets || []).map(target => ({
-      id: `guidance-${recordId++}`,
-      period: target.target_time || "TBD",
-      metric: target.metric_name || "",
-      targeted_value: target.targeted_value || "",
-      current_value: target.current_value || "Pending",
-      variance: "-",
-      status: "PENDING",
-      target_type: "financial"
-    }));
-
-    const futureConceptual = (milestones.future_goals?.conceptual_targets || []).map(target => ({
-      id: `guidance-${recordId++}`,
-      period: target.target_time || "TBD",
-      metric: target.statement || "",
-      targeted_value: target.targeted_value || "",
-      current_value: target.current_value || "Pending",
-      variance: "-",
-      status: "PENDING",
-      target_type: "conceptual"
-    }));
-
-    // Combine all guidance records
-    guidanceRecords.push(
-      ...successFinancial,
-      ...successConceptual,
-      ...failureFinancial,
-      ...failureConceptual,
-      ...futureFinancial,
-      ...futureConceptual
-    );
-
-    // Map risk disclosures to notable patterns
-    const mappedNotablePatterns = riskDisclosures.map((risk, index) => {
-      let category = "neutral";
-      if (risk.severity === "high") category = "negative";
-      else if (risk.severity === "low") category = "positive";
-
-      return {
-        id: `risk-${index}`,
-        title: risk.risk || "",
-        description: risk.disclosed_early ? "Disclosed early in the call" : "Disclosed when questioned",
-        category
-      };
-    });
-
-    // Calculate success/failure counts for milestone tracking
-    const successCount = (milestones.success_disclosures?.financial_targets?.length || 0) +
-                        (milestones.success_disclosures?.conceptual_targets?.length || 0);
-    const failureCount = (milestones.failure_disclosures?.financial_targets?.length || 0) +
-                        (milestones.failure_disclosures?.conceptual_targets?.length || 0);
-    const hitRate = successCount + failureCount > 0
-      ? Math.round((successCount / (successCount + failureCount)) * 100)
-      : 0;
-
-    // Build governance signals array based on actual data
+    // ── Governance signal pills ───────────────────────────────────────────────
     const governanceSignalsArray = [];
-    let signalId = 1;
+    let sigId = 1;
 
-    // Transparency signals
     if (governanceSignals.transparent) {
-      const earlyDisclosures = riskDisclosures.filter(r => r.disclosed_early);
-      if (earlyDisclosures.length > 0) {
-        governanceSignalsArray.push({
-          id: String(signalId++),
-          text: `${earlyDisclosures.length} risk(s) disclosed early and explicitly`,
-          isPositive: true
-        });
-      }
-      governanceSignalsArray.push({
-        id: String(signalId++),
-        text: "Management demonstrates transparency in communications",
-        isPositive: true
-      });
+      const early = riskDisclosures.filter(r => r.disclosed_early);
+      if (early.length > 0)
+        governanceSignalsArray.push({ id: String(sigId++), text: `${early.length} risk(s) disclosed proactively`, isPositive: true });
+      governanceSignalsArray.push({ id: String(sigId++), text: "Management demonstrates transparency", isPositive: true });
     }
+    if (governanceSignals.capital_allocation_clarity)
+      governanceSignalsArray.push({ id: String(sigId++), text: "Clear capital allocation strategy communicated", isPositive: true });
+    if (governanceSignals.defensive_language)
+      governanceSignalsArray.push({ id: String(sigId++), text: "Defensive or evasive language detected", isPositive: false });
+    if (achievedCount > 0)
+      governanceSignalsArray.push({ id: String(sigId++), text: `${achievedCount} past target(s) achieved`, isPositive: true });
+    if (missedCount > 0)
+      governanceSignalsArray.push({ id: String(sigId++), text: `${missedCount} past target(s) missed`, isPositive: false });
+    if (hiddenCount > 0)
+      governanceSignalsArray.push({ id: String(sigId++), text: `${hiddenCount} past target(s) never revisited`, isPositive: false });
 
-    // Capital allocation signals
-    if (governanceSignals.capital_allocation_clarity) {
-      governanceSignalsArray.push({
-        id: String(signalId++),
-        text: "Clear capital allocation strategy communicated",
-        isPositive: true
-      });
-    }
+    // ── Notable patterns ──────────────────────────────────────────────────────
+    const notablePatterns = riskDisclosures.map((risk, i) => ({
+      id:          `risk-${i}`,
+      title:       risk.risk,
+      description: risk.disclosed_early ? "Disclosed proactively" : "Disclosed when pressed",
+      category:    risk.severity === 'high' ? 'negative' : risk.severity === 'low' ? 'positive' : 'neutral'
+    }));
 
-    // Defensive language warning
-    if (governanceSignals.defensive_language) {
-      governanceSignalsArray.push({
-        id: String(signalId++),
-        text: "Defensive or evasive language detected in responses",
-        isPositive: false
-      });
-    }
-
-    // Milestone tracking signals
-    if (successCount > 0) {
-      governanceSignalsArray.push({
-        id: String(signalId++),
-        text: `${successCount} previously announced target(s) achieved`,
-        isPositive: true
-      });
-    }
-    if (failureCount > 0) {
-      governanceSignalsArray.push({
-        id: String(signalId++),
-        text: `${failureCount} previously announced target(s) missed`,
-        isPositive: false
-      });
-    }
-
-    // Build response
-    const response = {
-      company: {
-        name: summary.callId,
-        ticker: call.company_name || call.company || null,
-        exchange: "NSE",
-        industry: summary.entities?.business_segments?.join(', ') || null,
-        callDate: call.call_date || null,
-        confidenceLevel: getConfidenceLevel(summary.confidence)
-      },
-      scores: [
-        {
-          factor: "Guidance Accuracy",
-          rating: guidanceRating,
-          descriptor: hitRate >= 75 ? "Consistent Delivery" : hitRate >= 50 ? "Mixed Track Record" : "Inconsistent"
-        },
-        {
-          factor: "Disclosure Honesty",
-          rating: transparencyRating,
-          descriptor: transparencyScore >= 70 ? "Transparent Ops" : transparencyScore >= 50 ? "Adequate Disclosure" : "Limited Transparency"
-        },
-        {
-          factor: "Capital Allocation",
-          rating: capitalRating,
-          descriptor: capitalScore >= 70 ? "Value Accretive" : capitalScore >= 50 ? "Adequate Strategy" : "Unclear Direction"
-        }
-      ],
-      trust: {
-        overall: overallTrust,
-        subfactors: {
-          guidanceAccuracy: guidanceScore,
-          disclosureHonesty: transparencyScore,
-          capitalAllocation: capitalScore
-        }
-      },
-      governanceSignals: governanceSignalsArray,
-      consistency: {
-        score: Math.min(overallScore / 25, 4.0), // Convert 0-100 to 0-4 scale
-        maxScore: 4.0,
-        hitRate: hitRate,
-        disclosurePattern: governanceSignals.transparent && riskDisclosures.some(r => r.disclosed_early)
-          ? "Early & Explicit"
-          : governanceSignals.transparent
-          ? "Transparent"
-          : "Reactive"
-      },
-      guidanceRecords,
-      notablePatterns: mappedNotablePatterns,
-      selectedTimeframe: timeframe
-    };
     res.json({
       success: true,
-      data: response
+      data: {
+        company: {
+          name:               latest.callId,
+         // ticker:             call.company_name ?? call.company ?? null,
+          exchange:           "NSE",
+          industry:           latest.entities?.business_segments?.join(', ') ?? null,
+ //         callDate:           call.call_date ?? null,
+          confidenceLevel:    getConfidenceLevel(latest.confidence),
+          transcriptsAnalyzed: summaries.length
+        },
+        scores: [
+          {
+            factor:     "Guidance Accuracy",
+            rating:     getRating(guidanceScore),
+            descriptor: hitRate >= 75 ? "Consistent Delivery" : hitRate >= 50 ? "Mixed Track Record" : "Inconsistent"
+          },
+          {
+            factor:     "Disclosure Honesty",
+            rating:     getRating(transparencyScore),
+            descriptor: transparencyScore >= 70 ? "Transparent Ops" : transparencyScore >= 50 ? "Adequate Disclosure" : "Limited Transparency"
+          },
+          {
+            factor:     "Capital Allocation",
+            rating:     getRating(capitalScore),
+            descriptor: capitalScore >= 70 ? "Value Accretive" : capitalScore >= 50 ? "Adequate Strategy" : "Unclear Direction"
+          }
+        ],
+        trust: {
+          overall: getOverallTrust(overallScore),
+          subfactors: {
+            guidanceAccuracy:  guidanceScore,
+            disclosureHonesty: transparencyScore,
+            capitalAllocation: capitalScore
+          }
+        },
+        governanceSignals: governanceSignalsArray,
+        consistency: {
+          score:            Math.min(overallScore / 25, 4.0),
+          maxScore:         4.0,
+          hitRate,
+          hiddenCount,
+          disclosurePattern: governanceSignals.transparent && riskDisclosures.some(r => r.disclosed_early)
+            ? "Early & Explicit"
+            : governanceSignals.transparent ? "Transparent" : "Reactive"
+        },
+        guidanceRecords: records,
+        notablePatterns,
+        selectedTimeframe: timeframe
+      }
     });
+
   } catch (error) {
-    console.error('Error fetching management analysis:', error);
+    console.error('Error in getManagementAnalysis:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch management analysis',
+      error:   'Internal server error',
       message: error.message
     });
   }
 };
 
-module.exports = {
-  getManagementAnalysis
-};
+module.exports = { getManagementAnalysis };
