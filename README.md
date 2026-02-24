@@ -1,39 +1,19 @@
 # QuantCase Backend
 
-# Setup
+## PRISMA
+npx prisma db pull
+npx prisma generate
+npx prisma db push
 
-1. Install dependencies
-  npm install
-  npx prisma db pull
-  npx prisma generate
-
-2. Push schema to database
-  npx prisma db push
-
-3. Start server
-  npm start
-
-4. Available Commands:
-    npm run dev          # Development with auto-reload
-    npm run db:push      # Push schema changes to database
-    npm run db:generate  # Generate Prisma Client
-    npm run db:studio    # Open Prisma Studio (database GUI)
-    npm run db:seed      # Seed sample data
-
-
-# REDIS SETUP
+## REDIS SETUP
 sudo apt update
 sudo apt install redis-tools # for redis-cli
 sudo snap install redis
 sudo snap set redis service.start=true
 
-
-# Database Management
-
-```bash
-# View your data in Prisma Studio
-npx prisma studio
-```
+## PM2 SETUP
+pm2 start "npm run dev" --name "quantcase-backend" -- --port 8000
+pm2 start "npm run worker:dev" --name "quantcase-worker"
 
 # API Endpoints
 
@@ -79,5 +59,3 @@ CALLS = ["CANFINHOME_FY2026_Q3", "TCS_FY2026_Q3"]
 ```
 
 
-## START SERVER AFTER SSH
-pm2 start "npm run dev" --name "quantcase-backend" -- --port 8000

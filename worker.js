@@ -81,13 +81,6 @@ async function processSummarizationJob(job) {
       throw new Error(`No transcript or PPT text available for call ${callId}`);
     }
 
-    // ── Mark job as processing ──
-    const dbJob = await prisma.job.upsert({
-      where:  { bullmqId: job.id },
-      update: { status: 'processing' },
-      create: { callId, type: type || 'summarization', status: 'processing', bullmqId: job.id }
-    });
-    console.log(`DB job ${dbJob.id} → processing`);
     await job.updateProgress(10);
 
     // ── Fetch context needed for prompt ──
@@ -155,32 +148,11 @@ async function processSummarizationJob(job) {
     console.log(`Summary saved: ${summaryRecord.id}`);
     await job.updateProgress(100);
 
-    // ── Mark job completed ──
-    await prisma.job.update({
-      where: { bullmqId: job.id },
-      data: {
-        status: 'completed',
-        result: { summaryId: summaryRecord.id, extractedData }
-      }
-    });
-
     console.log(`Job ${job.id} completed successfully`);
     return { summaryId: summaryRecord.id, extractedData };
 
   } catch (error) {
     console.error(`Job ${job.id} failed:`, error);
-    try {
-      await prisma.job.upsert({
-        where:  { bullmqId: job.id },
-        update: { status: 'failed', error: error.message },
-        create: {
-          callId, type: type || 'summarization',
-          status: 'failed', bullmqId: job.id, error: error.message
-        }
-      });
-    } catch (dbError) {
-      console.error(`Failed to update job ${job.id} in DB:`, dbError);
-    }
     throw error;
   }
 }
@@ -189,7 +161,7 @@ async function processSummarizationJob(job) {
 
 const summarizationWorker = new Worker('summarization', processSummarizationJob, {
   connection,
-  concurrency: 5,
+  concurrency: 1,
   limiter: { max: 10, duration: 1000 }
 });
 

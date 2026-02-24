@@ -256,7 +256,7 @@ app.post('/api/calls/:callId/summarize', async (req, res) => {
       });
     }
 
-    // Add job to queue (creates BullMQ job + database entry)
+    // Add job to queue
     const job = await jobQueue.addJob('summarization', {
       callId: callId,
       type: 'summarization',
@@ -270,11 +270,10 @@ app.post('/api/calls/:callId/summarize', async (req, res) => {
       message: 'Summarization job created and queued',
       job: {
         id: job.id,
-        callId: job.callId,
-        type: job.type,
-        status: job.status,
-        bullmqId: job.bullmqId,
-        createdAt: job.createdAt
+        callId: callId,
+        type: 'summarization',
+        status: 'pending',
+        createdAt: new Date(job.timestamp).toISOString()
       }
     });
   } catch (error) {
@@ -291,18 +290,7 @@ app.post('/api/calls/:callId/summarize', async (req, res) => {
 app.get('/api/jobs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const job = await prisma.job.findUnique({
-      where: { id: jobId },
-      select: {
-        id: true,
-        callId: true,
-        type: true,
-        status: true,
-        bullmqId: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    });
+    const job = await jobQueue.getJobStatus('summarization', jobId);
 
     if (!job) {
       return res.status(404).json({
@@ -311,22 +299,9 @@ app.get('/api/jobs/:jobId', async (req, res) => {
       });
     }
 
-    // Get BullMQ job status if bullmqId exists
-    let bullmqObject = null;
-    if (job.bullmqId) {
-      try {
-        bullmqObject = await jobQueue.getJobStatus('summarization', job.bullmqId);
-      } catch (err) {
-        console.error('Error fetching BullMQ status:', err);
-      }
-    }
-
     res.json({
       success: true,
-      data: {
-        ...job,
-        bullmqObject: bullmqObject,
-      }
+      data: job
     });
   } catch (error) {
     console.error('Error fetching job:', error);
