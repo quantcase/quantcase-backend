@@ -154,13 +154,14 @@ model Job {
 model Summary {
   id                String   @id @default(uuid())
   callId            String   @unique @map("call_id")
-  entities          Json?
-  milestones        Json?
-  riskDisclosures   Json?    @map("risk_disclosures")
-  governanceSignals Json?    @map("governance_signals")
-  industryAnalysis  Json?    @map("industry_analysis")  // new
-  tone              String?
-  confidence        String?
+  kpis              Json?                              // from QE worker: [{kpi_abbr, value}]
+  entities          Json?                              // from transcript worker
+  milestones        Json?                              // from transcript worker
+  riskDisclosures   Json?    @map("risk_disclosures")  // from transcript worker
+  governanceSignals Json?    @map("governance_signals") // from transcript worker
+  industryAnalysis  Json?    @map("industry_analysis")  // from transcript worker
+  tone              String?                            // from transcript worker
+  confidence        String?                            // from transcript worker
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt      @map("updated_at")
 
@@ -168,15 +169,17 @@ model Summary {
   @@index([callId])
 }
 model Kpi {
-  id             String   @id @default(uuid())
-  abbr           String   @unique
+  id             String            @id @default(uuid())
+  abbr           String            @unique
   full_form      String
   type           KpiType
-  denomination   DenominationType?   // only for standalone
-  numerator_id   String?             // only for ratio
-  denominator_id String?             // only for ratio
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt  @map("updated_at")
+  denomination   DenominationType?            // only for standalone
+  numerator_id   String?                      // only for ratio
+  denominator_id String?                      // only for ratio
+  industry       String[]          @default([])
+  source         KpiSource
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt      @map("updated_at")
 
   numerator      Kpi?     @relation("KpiRatioNumerator",   fields: [numerator_id],   references: [id])
   denominator    Kpi?     @relation("KpiRatioDenominator", fields: [denominator_id], references: [id])
@@ -187,6 +190,7 @@ model Kpi {
 
   @@map("kpis")
   @@index([abbr])
+  @@index([source])
   @@index([type])
 }
 
@@ -202,4 +206,34 @@ enum DenominationType {
   days
   times
   units
+}
+
+enum KpiSource {
+  transcript
+  QE
+}
+
+model pe_data {
+  id         Int      @id @default(autoincrement())
+  company    String
+  date       DateTime @db.Date
+  pe         Float?
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([company])
+  @@index([company, date])
+}
+
+model OFactorResult {
+  id             String   @id @default(uuid())
+  callId         String   @unique @map("call_id")
+  subjectTicker  String   @map("subject_ticker")
+  peerTickers    String[] @map("peer_tickers")
+  result         Json                              // full parsed Claude output (OFactorResponseSchema shape)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt      @map("updated_at")
+
+  @@map("ofactor_results")
+  @@index([callId])
+  @@index([subjectTicker])
 }

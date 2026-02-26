@@ -47,22 +47,19 @@ async function getExistingKpisForPrompt() {
 }
 
 /**
- * Fetch the earnings call record so we can pass call_date to the prompt.
+ * Fetch call_date and basic_industry for the given call.
  */
-async function getCallDate(callId) {
-  // Try main table first, fall back gracefully
+async function getCallInfo(callId) {
   const call = await prisma.earnings_calls.findUnique({
-    where: { id: callId },
-    select: { call_date: true }
+    where:  { id: callId },
+    select: { call_date: true, basic_industry: true }
   });
-  // call_date is stored as String in schema — normalise to YYYY-MM-DD
+  let callDate = null;
   if (call?.call_date) {
     const d = new Date(call.call_date);
-    if (!isNaN(d)) return d.toISOString().slice(0, 10);
-    // Already YYYY-MM-DD or similar string — return as-is
-    return call.call_date.slice(0, 10);
+    callDate = !isNaN(d) ? d.toISOString().slice(0, 10) : call.call_date.slice(0, 10);
   }
-  // Fallback: today
+  return { callDate, basicIndustry: call?.basic_industry ?? null };
 }
 
 // ─── Main job processor ──────────────────────────────────────────────────────
@@ -84,11 +81,11 @@ async function processSummarizationJob(job) {
     await job.updateProgress(10);
 
     // ── Fetch context needed for prompt ──
-    const [existingKpis, callDate] = await Promise.all([
+    const [existingKpis, { callDate, basicIndustry }] = await Promise.all([
       getExistingKpisForPrompt(),
-      getCallDate(callId)
+      getCallInfo(callId)
     ]);
-    console.log(`Loaded ${existingKpis.length} KPIs from DB. Call date: ${callDate}`);
+    console.log(`Loaded ${existingKpis.length} KPIs from DB. Call date: ${callDate}, industry: ${basicIndustry}`);
     await job.updateProgress(25);
 
     // ── Build prompt ──
@@ -119,9 +116,9 @@ async function processSummarizationJob(job) {
     const extractedData = JSON.parse(cleaned);
 
     // ── Persist new KPIs first (before summary, so abbrs resolve correctly) ──
-    if (extractedData.new_kpis?.length > 0) {
-      console.log(`Upserting ${extractedData.new_kpis.length} new KPIs...`);
-      const kpiResult = await upsertNewKpis(extractedData.new_kpis);
+    if (extractedData.new_kpis?.length > 0 || extractedData.kpis?.length > 0) {
+      console.log(`Processing KPIs — existing: ${extractedData.kpis?.length ?? 0}, new: ${extractedData.new_kpis?.length ?? 0}`);
+      const kpiResult = await upsertNewKpis(extractedData, basicIndustry, 'transcript');
       console.log('KPI upsert results:', kpiResult);
       if (kpiResult.failed.length > 0) {
         console.warn('KPI upsert failures:', kpiResult.failed);
@@ -135,7 +132,9 @@ async function processSummarizationJob(job) {
       milestones:       extractedData.milestones         ?? null,
       riskDisclosures:  extractedData.risk_disclosures   ?? null,
       governanceSignals:extractedData.governance_signals ?? null,
-      industryAnalysis: extractedData.industry_analysis  ?? null,
+      industryAnalysis: extractedData.industry_analysis
+      ? { ...extractedData.industry_analysis, industry: basicIndustry }
+      : (basicIndustry ? { industry: basicIndustry } : null),
       tone:             extractedData.tone               ?? null,
       confidence:       extractedData.confidence         ?? null
     };
@@ -145,7 +144,7 @@ async function processSummarizationJob(job) {
       update: summaryPayload,
       create: { callId, ...summaryPayload }
     });
-    console.log(`Summary saved: ${summaryRecord.id}`);
+    console.log(`Summary updated: ${summaryRecord.id}`);
     await job.updateProgress(100);
 
     console.log(`Job ${job.id} completed successfully`);

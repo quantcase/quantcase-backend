@@ -4,7 +4,10 @@ const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
 const jobQueue = require('./lib/jobQueue');
 const { getManagementAnalysis } = require('./controllers/managementController');
-
+const { fetchMultipleTickerFinancials, calculateIndustryMetrics } = require('./utils/fincrux_helper');
+const { getHistoricPeForTickers } = require('./db-utils/getHistoricPe');
+const { OFactorResponseSchema } = require('./utils/constants');
+const { getOFactorResult } = require('./db-utils/upsertOFactor');
 const app = express();
 const port = process.env.PORT || 8000;
 
@@ -228,6 +231,33 @@ app.get('/api/transcript-calls', async (req, res) => {
 // Get management analysis (transformed summary data)
 app.get('/api/management/analysis', getManagementAnalysis);
 
+// Extract KPI values from a quarterly earnings PDF
+app.post('/api/calls/:callId/extract-qe', async (req, res) => {
+  try {
+    const { callId } = req.params;
+
+    const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
+    if (!call) {
+      return res.status(404).json({ success: false, error: 'Call not found' });
+    }
+
+    if (!call.quarterly_result_url?.trim()) {
+      return res.status(400).json({ success: false, error: 'No quarterly_result_url for this call' });
+    }
+
+    const job = await jobQueue.addJob('qe_extraction', { callId, type: 'qe_extraction' });
+
+    res.json({
+      success: true,
+      message: 'QE extraction job created and queued',
+      job: { id: job.id, callId: job.callId, type: job.type, status: job.status, bullmqId: job.bullmqId, createdAt: job.createdAt }
+    });
+  } catch (error) {
+    console.error('Error creating QE extraction job:', error);
+    res.status(500).json({ success: false, error: 'Failed to create QE extraction job', message: error.message });
+  }
+});
+
 // Summarize an earnings call
 app.post('/api/calls/:callId/summarize', async (req, res) => {
   try {
@@ -286,7 +316,74 @@ app.post('/api/calls/:callId/summarize', async (req, res) => {
   }
 });
 
-// Get job status
+// Enqueue an OFactor analysis job for a call
+// Body: { subjectTicker: string, peerTickers: string[] }
+app.post('/api/calls/:callId/opportunity/analysis', async (req, res) => {
+  try {
+    const { callId } = req.params;
+    const { subjectTicker, peerTickers } = req.body;
+
+    if (!subjectTicker) {
+      return res.status(400).json({ success: false, error: 'subjectTicker is required in request body' });
+    }
+    // peerTickers is optional — defaults to empty array
+    const resolvedPeerTickers = Array.isArray(peerTickers) ? peerTickers : [];
+
+    const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
+    if (!call) {
+      return res.status(404).json({ success: false, error: 'Call not found' });
+    }
+
+    const job = await jobQueue.addJob('ofactor_analysis', {
+      callId,
+      type:          'ofactor_analysis',
+      subjectTicker,
+      peerTickers:   resolvedPeerTickers,
+    });
+
+    res.json({
+      success: true,
+      message: 'OFactor analysis job created and queued',
+      job: {
+        id:        job.id,
+        callId,
+        type:      'ofactor_analysis',
+        status:    'pending',
+        createdAt: new Date(job.timestamp).toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('Error creating OFactor analysis job:', error);
+    res.status(500).json({ success: false, error: 'Failed to create OFactor analysis job', message: error.message });
+  }
+});
+
+// Return the stored OFactor result for a call (poll after job completes)
+app.get('/api/calls/:callId/opportunity/analysis', async (req, res) => {
+  try {
+    const { callId } = req.params;
+
+    const record = await getOFactorResult(callId);
+
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'OFactor analysis not yet available — trigger via POST first' });
+    }
+
+    res.json({ success: true, data: record.result });
+  } catch (error) {
+    console.error('Error fetching OFactor analysis:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch OFactor analysis', message: error.message });
+  }
+});
+
+// Return the OFactor schema as a reference template
+app.get('/api/opportunity/analysis', (req, res) => {
+  res.json({ success: true, data: OFactorResponseSchema });
+});
+
+
+
+
 app.get('/api/jobs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -312,6 +409,11 @@ app.get('/api/jobs/:jobId', async (req, res) => {
     });
   }
 });
+
+
+
+// Industry context: financials + historic PE for a ticker and its peers
+// Optional query param: ?peers=TICKER1,TICKER2  (overrides auto peer selection)
 
 // 404 handler
 app.use((_, res) => {

@@ -132,12 +132,11 @@ Each must be fully classified per schema:
 ----------------------
 
 ## IMPORTANT RULES
-1. current_value and targeted_value for financial targets must be raw decimals only (e.g. 459.5, not "INR 459 crore"). The denomination is encoded in the KPI's own schema.
-2. Scale consistency: if the KPI denomination is INR and the transcript says "INR 459 crore", store 459.5 crore as 459.5 (keep crore scale consistent — do NOT convert to absolute rupees unless the DB KPI is defined in absolute rupees).
-3. Never hallucinate KPI abbrs. If unsure, add to new_kpis.
-4. new_kpis entries can reference each other in numerator_abbr/denominator_abbr as long as the referenced abbr also appears in new_kpis or AVAILABLE KPIs.
-5. If a section has no data, return an empty array or null as appropriate — never omit the key.
-6. Return ONLY the JSON. No explanation, no markdown fences.`;
+1. Never hallucinate KPI abbrs. If unsure, add to new_kpis.
+2. For industry metrics, metrics should only be related to industry like CAGR,market size, etc. Stock specific metrics should not be included.
+3. new_kpis entries can reference each other in numerator_abbr/denominator_abbr as long as the referenced abbr also appears in new_kpis or AVAILABLE KPIs.
+4. If a section has no data, return an empty array or null as appropriate — never omit the key.
+4. Return ONLY the JSON. No explanation, no markdown fences.`;
 }
 
 module.exports = { transcriptExtractorPrompt };
