@@ -1,18 +1,19 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('./lib/prisma');
 const jobQueue = require('./lib/jobQueue');
 const { getManagementAnalysis } = require('./controllers/managementController');
+const { createDealAnalysis } = require('./controllers/dealController');
 const { fetchMultipleTickerFinancials, calculateIndustryMetrics } = require('./utils/fincrux_helper');
 const { getHistoricPeForTickers } = require('./db-utils/getHistoricPe');
 const { OFactorResponseSchema } = require('./utils/constants');
 const { getOFactorResult } = require('./db-utils/upsertOFactor');
+const { getDealResult, getLatestDealResult } = require('./db-utils/upsertDealResult');
+const { mapToDealResponseSchema } = require('./utils/dealMapper');
 const app = express();
 const port = process.env.PORT || 8000;
 
-// Initialize Prisma Client
-const prisma = new PrismaClient();
 
 // Middleware
 app.use(cors());
@@ -359,7 +360,7 @@ app.post('/api/calls/:callId/opportunity/analysis', async (req, res) => {
 });
 
 // Return the stored OFactor result for a call (poll after job completes)
-app.get('/api/calls/:callId/opportunity/analysis', async (req, res) => {
+app.get('/api/calls/:callId/analysis', async (req, res) => {
   try {
     const { callId } = req.params;
 
@@ -381,8 +382,40 @@ app.get('/api/opportunity/analysis', (req, res) => {
   res.json({ success: true, data: OFactorResponseSchema });
 });
 
+app.get('/api/deal/analysis', async (req, res) => {
+  const { callId } = req.query;
+  if (!callId) {
+    return res.status(400).json({ success: false, error: 'callId query parameter is required' });
+  }
+  try {
+    const record = (await getDealResult(callId)) ?? (await getLatestDealResult());
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'No deal analysis available yet — trigger via POST first' });
+    }
+    res.json({ success: true, data: mapToDealResponseSchema(record.result), inputs: record.inputs });
+  } catch (error) {
+    console.error('Error fetching deal analysis:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch deal analysis', message: error.message });
+  }
+});
 
+// Enqueue a deal analysis job — computes EPS/PE inputs, then queues Claude call
+app.post('/api/calls/:callId/deal/analysis', createDealAnalysis);
 
+// Return the stored deal result for a call (poll after job completes)
+app.get('/api/calls/:callId/deal', async (req, res) => {
+  try {
+    const { callId } = req.params;
+    const record = await getDealResult(callId);
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'Deal analysis not yet available — trigger via POST first' });
+    }
+    res.json({ success: true, data: mapToDealResponseSchema(record.result), inputs: record.inputs });
+  } catch (error) {
+    console.error('Error fetching deal result:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch deal result', message: error.message });
+  }
+});
 
 app.get('/api/jobs/:jobId', async (req, res) => {
   try {

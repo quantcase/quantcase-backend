@@ -1,5 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../lib/prisma');
 
 // ─── Score helpers ────────────────────────────────────────────────────────────
 function parseCallId(callId) {
@@ -7,6 +6,17 @@ function parseCallId(callId) {
   const match = callId.match(/_FY(\d{4})_Q(\d)/);
   if (!match) return { fiscalYear: 0, quarter: 0 };
   return { fiscalYear: parseInt(match[1]), quarter: parseInt(match[2]) };
+}
+
+// Indian fiscal year: FY2026 Q1 = Apr–Jun 2025, Q2 = Jul–Sep 2025, Q3 = Oct–Dec 2025, Q4 = Jan–Mar 2026
+function getQuarterEndDate(fiscalYear, quarter) {
+  switch (quarter) {
+    case 1: return new Date(`${fiscalYear - 1}-06-30`);
+    case 2: return new Date(`${fiscalYear - 1}-09-30`);
+    case 3: return new Date(`${fiscalYear - 1}-12-31`);
+    case 4: return new Date(`${fiscalYear}-03-31`);
+    default: return null;
+  }
 }
 const calculateTransparencyScore = (governanceSignals, riskDisclosures) => {
   let score = 50;
@@ -82,6 +92,8 @@ function calcVariance(targeted, actual) {
  * match them against success/failure disclosures in ALL subsequent transcripts.
  * Latest transcript's future goals are completely skipped (verdict still out).
  */
+const GUIDANCE_TOLERANCE_PCT = 5; // within 5% of target counts as achieved
+
 function buildGuidanceRecords(summaries) {
   const records = [];
   let recordId    = 0;
@@ -89,22 +101,37 @@ function buildGuidanceRecords(summaries) {
   let achievedCount = 0;
   let missedCount  = 0;
 
+  // "Has a quarter passed" = we have a transcript for it or later
+  const latestCallId = summaries[summaries.length - 1].callId;
+  const { fiscalYear: latestFY, quarter: latestQ } = parseCallId(latestCallId);
+  const latestCoveredDate = getQuarterEndDate(latestFY, latestQ) ?? new Date();
+
   const scorableSummaries = summaries.slice(0, summaries.length - 1);
 
   for (let i = 0; i < scorableSummaries.length; i++) {
     const source     = scorableSummaries[i];
     const subsequent = summaries.slice(i + 1);
 
-    const allSuccessFinancial  = subsequent.flatMap(s => s.milestones?.success_disclosures?.financial_targets  ?? []);
-    const allSuccessConceptual = subsequent.flatMap(s => s.milestones?.success_disclosures?.conceptual_targets ?? []);
-    const allFailureFinancial  = subsequent.flatMap(s => s.milestones?.failure_disclosures?.financial_targets  ?? []);
-    const allFailureConceptual = subsequent.flatMap(s => s.milestones?.failure_disclosures?.conceptual_targets ?? []);
+    // Tag each disclosure with its source summary so we can fall back to kpis[]
+    const allSuccessFinancial  = subsequent.flatMap(s => (s.milestones?.success_disclosures?.financial_targets  ?? []).map(t => ({ ...t, _summary: s })));
+    const allSuccessConceptual = subsequent.flatMap(s => (s.milestones?.success_disclosures?.conceptual_targets ?? []).map(t => ({ ...t, _summary: s })));
+    const allFailureFinancial  = subsequent.flatMap(s => (s.milestones?.failure_disclosures?.financial_targets  ?? []).map(t => ({ ...t, _summary: s })));
+    const allFailureConceptual = subsequent.flatMap(s => (s.milestones?.failure_disclosures?.conceptual_targets ?? []).map(t => ({ ...t, _summary: s })));
+
+    // If match.current_value is null, look up the value in the source summary's kpis[]
+    const resolveKpiValue = (match, kpiAbbr) => {
+      if (!match) return null;
+      if (match.current_value != null) return match.current_value;
+      const kpi = (match._summary?.kpis ?? []).find(
+        k => k.kpi_abbr?.trim().toLowerCase() === kpiAbbr?.trim().toLowerCase()
+      );
+      return kpi?.value ?? null;
+    };
 
     // ── Financial ──
     for (const goal of (source.milestones?.future_goals?.financial_targets ?? [])) {
       const successMatch = matchTarget(goal, allSuccessFinancial, 'financial');
       const failureMatch = matchTarget(goal, allFailureFinancial, 'financial');
-      const match = successMatch ?? failureMatch;
 
       const hasFutureCandidate = [...allSuccessFinancial, ...allFailureFinancial].some(c =>
         c.kpi_abbr?.trim().toLowerCase() === goal.kpi_abbr?.trim().toLowerCase() &&
@@ -112,11 +139,28 @@ function buildGuidanceRecords(summaries) {
         new Date(c.target_time) >= new Date(goal.target_time)
       );
 
+      // Resolve current_value: try match field first, then fall back to kpis[] in the source summary
+      const successValue = resolveKpiValue(successMatch, goal.kpi_abbr);
+      const failureValue = resolveKpiValue(failureMatch, goal.kpi_abbr);
+      const currentValue = successValue ?? failureValue;
+
+      // Deadline is "in the future" if we don't yet have a transcript covering that quarter
+      const deadlineIsFuture = goal.target_time && new Date(goal.target_time) > latestCoveredDate;
+      // Only compute variance when we actually have a value (null short-circuit was a bug)
+      const successVariance   = successValue != null ? calcVariance(goal.targeted_value, successValue) : null;
+      // Within tolerance band counts as achieved (e.g. -3% on a 296194 target is fine)
+      const targetActuallyMet = successMatch && successVariance !== null && successVariance >= -GUIDANCE_TOLERANCE_PCT;
+
       let status;
-      if      (successMatch)       status = 'ACHIEVED';
-      else if (failureMatch)       status = 'MISSED';
-      else if (hasFutureCandidate) status = 'PENDING';
-      else                         status = 'HIDDEN';
+      if      (targetActuallyMet)                                   status = 'ACHIEVED';
+      else if (failureMatch || (successMatch && !deadlineIsFuture)) status = 'MISSED';
+      else if (deadlineIsFuture || hasFutureCandidate)              status = 'PENDING';
+      else                                                          status = 'HIDDEN';
+
+      // If we have a match but couldn't find a numeric value anywhere, flag it
+      if ((status === 'ACHIEVED' || status === 'MISSED') && currentValue === null) {
+        status = 'KPI_MATCHING_NOT_FOUND';
+      }
 
       if      (status === 'ACHIEVED') achievedCount++;
       else if (status === 'MISSED')   missedCount++;
@@ -130,9 +174,9 @@ function buildGuidanceRecords(summaries) {
         metric:         goal.kpi_abbr       ?? '',
         statement:      goal.statement,
         targeted_value: goal.targeted_value ?? null,
-        current_value:  match?.current_value ?? null,
+        current_value:  currentValue,
         variance_pct:   status === 'ACHIEVED' || status === 'MISSED'
-                          ? calcVariance(goal.targeted_value, match?.current_value)
+                          ? calcVariance(goal.targeted_value, currentValue)
                           : null,
         status,
         target_type:    'financial'
@@ -153,11 +197,13 @@ function buildGuidanceRecords(summaries) {
           new Date(c.target_time) >= new Date(goal.target_time);
       });
 
+      const deadlineIsFuture = goal.target_time && new Date(goal.target_time) > latestCoveredDate;
+
       let status;
-      if      (successMatch)       status = 'ACHIEVED';
-      else if (failureMatch)       status = 'MISSED';
-      else if (hasFutureCandidate) status = 'PENDING';
-      else                         status = 'HIDDEN';
+      if      (successMatch && !deadlineIsFuture) status = 'ACHIEVED';
+      else if (failureMatch && !deadlineIsFuture) status = 'MISSED';
+      else if (deadlineIsFuture || hasFutureCandidate) status = 'PENDING';
+      else                                             status = 'HIDDEN';
 
       if      (status === 'ACHIEVED') achievedCount++;
       else if (status === 'MISSED')   missedCount++;

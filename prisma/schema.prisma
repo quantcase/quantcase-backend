@@ -26,6 +26,7 @@ model earnings_calls {
   quarterly_result_url  String?
   quarterly_result_text String?
 
+  @@unique([company, fiscal_year, quarter], map: "earnings_calls_unique_key")
   @@index([company, fiscal_year, quarter])
 }
 
@@ -214,14 +215,24 @@ enum KpiSource {
 }
 
 model pe_data {
-  id         Int      @id @default(autoincrement())
+  id         BigInt    @id @default(autoincrement())
   company    String
-  date       DateTime @db.Date
-  pe         Float?
+  date       DateTime  @db.Date
+  pe         Decimal?  @db.Decimal
   created_at DateTime? @default(now()) @db.Timestamp(6)
 
+  @@unique([company, date], map: "pe_data_company_date_key")
   @@index([company])
-  @@index([company, date])
+}
+
+model SubstituteKpi {
+  id             String   @id @default(uuid())
+  primaryKpiAbbr String   @unique @map("primary_kpi_abbr")
+  substitutes    String[]                                   // ordered list, index 0 = highest priority
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("substitute_kpis")
+  @@index([primaryKpiAbbr])
 }
 
 model OFactorResult {
@@ -236,4 +247,18 @@ model OFactorResult {
   @@map("ofactor_results")
   @@index([callId])
   @@index([subjectTicker])
+}
+
+model DealResult {
+  id        String   @id @default(uuid())
+  callId    String   @unique @map("call_id")
+  ticker    String
+  result    Json                              // full parsed Claude output (DealResponseSchema shape)
+  inputs    Json                              // EPS/PE CAGR inputs used to generate the result
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  @@map("deal_results")
+  @@index([callId])
+  @@index([ticker])
 }
