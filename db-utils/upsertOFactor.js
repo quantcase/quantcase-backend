@@ -1,10 +1,7 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 
-// Singleton — reuse one connection across all callers in the same process
-let _prisma;
 function getPrisma() {
-  if (!_prisma) _prisma = new PrismaClient();
-  return _prisma;
+  return prisma;
 }
 
 /**

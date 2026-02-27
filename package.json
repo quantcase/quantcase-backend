@@ -12,6 +12,8 @@
     "worker:qe:dev": "nodemon worker_qe.js",
     "worker:ofactor": "node worker_ofactor.js",
     "worker:ofactor:dev": "nodemon worker_ofactor.js",
+    "worker:deal": "node worker_deal.js",
+    "worker:deal:dev": "nodemon worker_deal.js",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",

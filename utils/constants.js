@@ -53,4 +53,100 @@ OFactorResponseSchema =
 
 
 
-module.exports = { FINCRUX_METRICS,OFactorResponseSchema };
+ DealResponseSchema =                                                                                                            
+     {                                                                                               
+     "scenario_framework": {                                                                               
+       "meta": {                                                                                           
+         "section_id": "scenario_framework",                                                               
+         "title": "Scenario Framework"
+       },
+       "bear": {
+         "points": [
+           "Macro headwinds delay projects",
+           "Competition intensifies, margin pressure",
+           "Revenue growth slows to 8-10%",
+           "Multiple compresses to peer avg"
+         ]
+       },
+       "base": {
+         "points": [
+           "Steady execution on current pipeline",
+           "Revenue growth sustains at 14-16%",
+           "Margins stable to slightly improving",
+           "Multiple sustains at current levels"
+         ]
+       },
+       "bull": {
+         "points": [
+           "Infrastructure supercycle accelerates",
+           "Market share gains continue (15%+)",
+           "Revenue growth 20%+, margin expansion",
+           "Multiple rerates on quality recognition"
+         ]
+       }
+     },
+     "target_price_matrix": {
+       "meta": {
+         "section_id": "target_price_matrix",
+         "title": "Target Price Matrix (FY26 Exit)"
+       },
+       "holding_period": "3-year holding period",
+       "current_price": "₹168",
+       "bear": {
+         "eps_cagr": "8.2%",
+         "fy_eps": "₹6.3",
+         "exit_pe": "22-25x",
+         "pe_rationale": "Multiple compression to peer avg",
+         "target_range": "₹140-160",
+         "from_cmp": "-17%",
+         "cagr": "CAGR: -6.0% p.a.",
+         "probability": 20
+       },
+       "base": {
+         "eps_cagr": "16.8%",
+         "fy_eps": "₹8.8",
+         "exit_pe": "30-35x",
+         "pe_rationale": "Maintain premium on execution",
+         "target_range": "₹265-310",
+         "from_cmp": "+68%",
+         "cagr": "CAGR: +17.2% p.a.",
+         "probability": 55
+       },
+       "bull": {
+         "eps_cagr": "24.6%",
+         "fy_eps": "₹12.0",
+         "exit_pe": "35-40x",
+         "pe_rationale": "Quality premium expansion",
+         "target_range": "₹420-480",
+         "from_cmp": "+150%",
+         "cagr": "CAGR: +35.4% p.a.",
+         "probability": 25
+       }
+     },
+     "risk_reward_summary": {
+       "meta": {
+         "section_id": "risk_reward_summary"
+       },
+       "probability_weighted_return": {
+         "label": "Probability-Weighted Return",
+         "value": "+58%",
+         "description": "Expected value: ₹265",
+         "subtitle": "16.6% CAGR over 3 years"
+       },
+       "risk_reward_ratio": {
+         "label": "Risk-Reward Ratio",
+         "value": "3.8x",
+         "description": "Upside potential (₹450) vs downside risk (₹150)",
+         "subtitle": "From current price of ₹168"
+       },
+       "downside_protection": {
+         "label": "Downside Protection",
+         "value": "-17%",
+         "description": "Limited downside even in bear case given quality metrics",
+         "subtitle": "Strong execution track record"
+       }
+     }
+   }
+ 
+
+module.exports = { FINCRUX_METRICS,OFactorResponseSchema,DealResponseSchema };

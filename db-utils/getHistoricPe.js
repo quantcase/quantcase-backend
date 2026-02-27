@@ -1,7 +1,6 @@
 // db-utils/getHistoricPe.js
 
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const prisma = require('../lib/prisma');
 
 /**
  * Map a Date object to a quarter label ("YYYYQN").
@@ -41,7 +40,7 @@ async function fetchTickerPeHistory(ticker) {
     const key = dateToQuarterKey(new Date(row.date));
     if (!quarterMap.has(key)) quarterMap.set(key, { sum: 0, count: 0 });
     const q = quarterMap.get(key);
-    q.sum += row.pe;
+    q.sum += Number(row.pe); // Prisma returns Decimal — must convert to JS number before arithmetic
     q.count += 1;
   }
 
