@@ -22,48 +22,37 @@ async function getSubjectSummaries(companyPrefix) {
 
 /**
  * Auto-discover up to 2 peer companies in the same industry.
- * Uses earnings_calls.basic_industry for reliable matching, then fetches
- * the latest summary per peer ticker.
+ * Queries Summary.industryAnalysis directly (peers may not have
+ * basic_industry set on their earnings_calls row).
+ * Ticker is extracted by splitting on '_FY' to handle tickers that
+ * contain underscores (e.g. "HDFC_BANK_FY2026_Q3" → "HDFC_BANK").
  */
 async function getAutoPeerSummaries(subjectTicker, industry) {
   if (!industry || industry === 'Unknown Industry') return [];
 
-  // Find other earnings calls in the same industry
-  const peerCalls = await prisma.earnings_calls.findMany({
+  // Find all summaries in the same industry, excluding the subject ticker
+  const allPeerSummaries = await prisma.summary.findMany({
     where: {
-      basic_industry: industry,
-      NOT: { id: { startsWith: subjectTicker } }
+      industryAnalysis: { path: ['industry'], equals: industry },
+      NOT: { callId: { startsWith: subjectTicker } }
     },
-    select:  { id: true },
-    orderBy: { id: 'desc' }
+    orderBy: { createdAt: 'desc' }
   });
 
-  // Extract up to 2 unique peer tickers
-  const seen       = new Set();
-  const peerTickers = [];
-  for (const c of peerCalls) {
-    const ticker = c.id.split('_')[0];
+  // Keep the latest summary per peer ticker (split on _FY to extract ticker)
+  const seen = new Map(); // ticker → summary
+  for (const s of allPeerSummaries) {
+    const ticker = s.callId.split('_FY')[0];
     if (!seen.has(ticker)) {
-      seen.add(ticker);
-      peerTickers.push(ticker);
-      if (peerTickers.length >= 2) break;
+      seen.set(ticker, s);
+      if (seen.size >= 2) break;
     }
   }
 
+  const peerTickers = [...seen.keys()];
   console.log(`[OFactor] Auto-discovered peer tickers for "${industry}": ${peerTickers.join(', ') || 'none'}`);
-  if (peerTickers.length === 0) return [];
 
-  // Fetch 1 latest summary per peer ticker
-  const summaries = await Promise.all(
-    peerTickers.map(ticker =>
-      prisma.summary.findFirst({
-        where:   { callId: { startsWith: ticker } },
-        orderBy: { createdAt: 'desc' }
-      })
-    )
-  );
-
-  return summaries.filter(Boolean);
+  return [...seen.values()];
 }
 
 // ─── Processor ───────────────────────────────────────────────────────────────
@@ -95,8 +84,8 @@ async function processOFactorJob(job) {
     await job.updateProgress(20);
 
     // ── Auto-discover peer companies from same industry ────────────────────────
-    const peerSummaries         = await getAutoPeerSummaries(subjectTicker, fallbackIndustry);
-    const autoDiscoveredTickers = [...new Set(peerSummaries.map(s => s.callId.split('_')[0]))];
+    const peerSummaries         = await getAutoPeerSummaries(subjectTicker, industry);
+    const autoDiscoveredTickers = [...new Set(peerSummaries.map(s => s.callId.split('_FY')[0]))];
     console.log(`Subject summaries: ${subjectSummaries.length}, Peer summaries: ${peerSummaries.length} (peers: ${autoDiscoveredTickers.join(', ') || 'none'})`);
     await job.updateProgress(30);
 
@@ -105,9 +94,9 @@ async function processOFactorJob(job) {
     const [stockEps, stockPe, industryEps, industryPe, industryOpmResult] = await Promise.all([
       helper.stockEpsCagr(subjectTicker),
       helper.stockPeCagr(subjectTicker),
-      fallbackIndustry !== 'Unknown Industry' ? helper.industryEpsCagr(fallbackIndustry) : Promise.resolve(null),
-      fallbackIndustry !== 'Unknown Industry' ? helper.industryPeCagr(fallbackIndustry)  : Promise.resolve(null),
-      fallbackIndustry !== 'Unknown Industry' ? helper.industryOpm(fallbackIndustry)     : Promise.resolve(null),
+      industry !== 'Unknown Industry' ? helper.industryEpsCagr(industry) : Promise.resolve(null),
+      industry !== 'Unknown Industry' ? helper.industryPeCagr(industry)  : Promise.resolve(null),
+      industry !== 'Unknown Industry' ? helper.industryOpm(industry)     : Promise.resolve(null),
     ]);
     console.log(`[OFactor] stockEps:`, stockEps, '| stockPe:', stockPe);
     console.log(`[OFactor] industryEps:`, industryEps, '| industryPe:', industryPe, '| industryOpm:', industryOpmResult);

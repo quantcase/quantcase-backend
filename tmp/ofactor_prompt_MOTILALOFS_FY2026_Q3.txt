@@ -3,7 +3,7 @@ Synthesise the pre-computed financial metrics and qualitative signals from earni
 
 SUBJECT COMPANY : MOTILALOFS | MOTILALOFS
 INDUSTRY        : Stockbroking & Allied
-PEER COMPANIES  : N/A
+PEER COMPANIES  : IIFLCAPS, ANGELONE
 
 ══════════════════════════════════════════════════════════
 A. PRE-COMPUTED METRICS (use these directly — do not re-derive)
@@ -18,9 +18,9 @@ Subject Stock — MOTILALOFS
     (latest P/E: 23.21, historical avg P/E: 15.95)
 
 Industry
-  EPS CAGR  : N/A
-  P/E CAGR  : N/A
-  Avg OPM   : N/A
+  EPS CAGR  : -52.86% (5yr_cagr, undefined periods) [4/4 tickers]
+  P/E CAGR  : 32.95% (5yr_cagr, undefined periods) (avg latest P/E: 27.45)
+  Avg OPM   : 38.42% (via "OPM", 4 data points)
 
 ══════════════════════════════════════════════════════════
 B. TRANSCRIPT & MANAGEMENT COMMENTARY
@@ -140,7 +140,99 @@ Tone: confident
 Confidence: high
 
 ### PEER TRANSCRIPTS
-(No peer transcript summaries available)
+
+[Call: IIFLCAPS_FY2026_Q1]
+Segments: Institutional Equities, Investment Banking, Retail Broking, Wealth Management, Financial Product Distribution, Insurance
+Management Financial Targets (forward guidance):
+  • Management expects the non-institutional (retail/wealth) cost-to-income ratio to remain elevated at around 75% for FY26, with scale benefits expected to trickle in from next year.
+  • Distribution AUM of Rs. 357 billion is a key focus area for growth going forward.
+Management Conceptual Guidance:
+  • Management plans to increase the number of wealth RMs from approximately 50 to 75-100 during FY26. (by 2026-03-31)
+  • IIFL Capital is transforming its legacy retail broking segment into a full wealth management and financial planning practice targeting HNI and UHNI clients with AUM of Rs. 5 crores and above.
+  • Company plans to build its own manufacturing practice in AIF and PMS while maintaining an open architecture model.
+  • Management plans to improve segmented disclosure once the wealth management business reaches a critical mass.
+  • Investment banking pipeline is described as strong and management is optimistic about deal closure for full year FY26. (by 2026-03-31)
+Achieved / Confirmed Milestones:
+  ✓ Consolidated revenue increased 19% quarter-on-quarter and 6% year-on-year to Rs. 680 crores in Q1 FY26. [actual=6804000000]
+  ✓ PAT increased 37% quarter-on-quarter from Rs. 128 crores in Q4 FY25 to Rs. 176 crores in Q1 FY26. [actual=1755000000]
+  ✓ Institutional and Investment Banking revenue virtually doubled quarter-on-quarter from Q4 FY25 to Q1 FY26, with approximately Rs. 150 crores from brokerage and Rs. 50 crores from banking. [actual=500000000]
+  ✓ Financial Product Distribution income increased 37% year-on-year to Rs. 145 crores in Q1 FY26 due to increased focus on asset gathering. [actual=1451000000]
+  ✓ Distribution AUM reached Rs. 357 billion as of June 30, 2025, growing 14% year-on-year. [actual=357000000000]
+  ✓ Other income increased 1524% year-on-year and 73% quarter-on-quarter to Rs. 63 crores in Q1 FY26, primarily due to mark-to-market gains on BSE share investments. [actual=630000000]
+  ✓ Net worth increased to Rs. 27 billion in Q1 FY26 from Rs. 25.1 billion at end of FY25. [actual=27000000000]
+  ✓ Mutual Fund AUM grew to Rs. 165.3 billion in Q1 FY26 from Rs. 143 billion in FY25. [actual=165300000000]
+  ✓ IIFL Capital completed 13 investment banking transactions in Q1 FY26 including 6 IPOs, 1 rights issue, 1 OFS and 5 private equity/placement transactions, and filed 13 DRHPs.
+  ✓ Cash market share improved to 2.57% in Q1 FY26 from 2.51% in Q4 FY25.
+  ✓ About 50 HNI and UHNI wealth RMs have been hired as part of the wealth management build-out.
+Missed / Failed Milestones:
+  ✗ Retail brokerage revenue declined 28% year-on-year due to regulatory changes effective December 2024 reducing the number of F&O expiry days.
+  ✗ PAT declined 4% year-on-year from Rs. 1,823 million in Q1 FY25 to Rs. 1,755 million in Q1 FY26.
+  ✗ Wealth management revenues in FY25 were approximately Rs. 40 crores against costs of approximately Rs. 70 crores, resulting in a loss of approximately Rs. 30 crores.
+  ✗ Average daily turnover declined approximately 31% year-on-year from Rs. 3,22,782 crores in Q1 FY25 to Rs. 2,23,232 crores in Q1 FY26.
+  ✗ Life insurance first year premium collected in Q1 FY26 was Rs. 10 crores, down from Rs. 23 crores in Q4 FY25 and Rs. 14 crores in Q1 FY25, indicating a decline in insurance distribution momentum.
+Current Quarter KPIs: FEECOMINC=42302.65, INTEXP=3771.71, FINCOS=3771.71, REV=52293.64, TOTALINC=58539.5, OTHERINC=6245.86, EMPBEN=15960.84, D&A=1291.88, FEECOM=10836.1, OTHEREXP=6133.9, OPEX=37994.43, PBT=20545.07, CURDEFTAX=3914.35, DEFTAX=773.3, TAX=4687.65, PAT=15857.42, OCIREM=-138, OCITAX=34.73, OCI=-103.27, TCI=15754.15, PAIDUP=6199.62, OTHEREQ=215754.73, EPSBAS=5.12, EPSDIL=4.85, EPS=5.12, TAX=4687.65
+Industry Analysis (from transcript):
+  KPIs: MKTSHR=0.62, MKTSHR=2.57, AVGTURNOVER=22323200000000
+  Growth Drivers: India's macroeconomic outlook remains strong supported by easing inflation and lower interest rate scenario.; Healthy monsoon and benign oil prices supporting macroeconomic stability.; Economy is showing signs of improving consumption as interest rate benefits start trickling down.; Strong demand for wealth management services from HNI and UHNI clients driving asset gathering.; Mutual Fund AUM and Distribution AUM are growing strongly driven by increased financial product adoption.; Revival in primary capital markets with strong IPO pipeline and investment banking deal activity.; Growing live SIP transactions indicating sustained retail investor participation in equity markets.
+  Headwinds: Regulatory changes reducing the number of F&O expiry days have significantly reduced industry-wide F&O volumes and brokerage revenues.; Market volatility may slow investment banking deal execution and pipeline conversion.; Average daily F&O turnover declined approximately 31% year-on-year due to regulatory impact on the broader industry.
+High-Severity Risks:
+  ⚠ Regulatory changes effective December 2024 reducing the number of F&O expiry days caused a ~30% decline in average daily F&O turnover year-on-year and a 28% decline in retail brokerage revenue.
+Tone: confident
+Confidence: high
+
+---
+
+[Call: ANGELONE_FY2026_Q1]
+Segments: Broking (Direct), Broking (Assisted), Mutual Fund Distribution, Credit Distribution, Insurance Distribution, Wealth Management (Ionic Wealth), Asset Management (Angel One AMC), Margin Trading Funding, Depository Operations
+Management Financial Targets (forward guidance):
+  • Management expects to exit Q4 FY26 with a decent visibility on OPM returning to normal levels (implied 40-45% OPM target). [target OPM=40, by 2026-03-31]
+  • Normalized operating margin expected to absorb approximately 2-2.5% impact from new business incubation (AMC and Wealth Management) in the short term.
+  • Estimated full year ESOP cost for FY2026 grants and carry-over grants is ₹2.1 billion. [target ESOPEXP=2100000000, by 2026-03-31]
+  • ESOP cost expected to be approximately ₹55 crores per quarter for next 3 quarters of FY26. [target ESOPEXP=550000000, by 2026-03-31]
+Management Conceptual Guidance:
+  • Angel One aims to become India's most trusted fintech brand empowering a billion lives by leveraging data and technology.
+  • Angel One plans to scale credit business beyond its core broking customer base and begin offering secured credit products. (by 2026-12-31)
+  • AMC plans to launch commodity-based passive products and continue expanding equity product suite. (by 2026-12-31)
+  • Angel One aims to become a category leader in passive investing in India.
+  • Ionic Wealth aims to deepen its UHNI and HNI client base and expand its digital-first wealth platform.
+  • Angel One plans to continue leveraging Agentic AI to automate workflows improving speed, accuracy and cost efficiency. (by 2026-12-31)
+  • Management will disclose more detailed financial information about wealth and AMC businesses as they scale up.
+Achieved / Confirmed Milestones:
+  ✓ Gross revenues increased by 8.1% quarter-on-quarter to ₹11.4 billion in Q1 FY26. [actual=11400000000]
+  ✓ Net revenues grew by 7.3% quarter-on-quarter to ₹8.9 billion in Q1 FY26. [actual=8900000000]
+  ✓ Total gross broking income increased by 9.1% sequentially to ₹6.9 billion. [actual=6900000000]
+  ✓ Total interest income rose by 5.5% quarter-on-quarter to ₹3.6 billion driven by higher client funding book and deposits. [actual=3600000000]
+  ✓ Period ending client funding book reached an all-time high of ₹48 billion in Q1 FY26. [actual=48000000000]
+  ✓ Average client funding book (MTF book) reached ₹42 billion, up 4.3% quarter-on-quarter. [actual=42000000000]
+  ✓ Normalized PAT after adjusting for IPL and variable pay effects grew by 26% quarter-on-quarter to approximately ₹1.9 billion. [actual=1900000000]
+  ✓ Normalized operating margin increased to 34.3% quarter-on-quarter excluding IPL costs and variable pay reversal. [actual=34.3]
+  ✓ Consolidated net worth stood at ₹55.7 billion as of June 30, 2025. [actual=55700000000]
+  ✓ Cumulative credit disbursals reached ₹9.3 billion within a year of launching the credit distribution offering. [actual=9300000000]
+  ✓ Distribution business income grew by 11% to ₹349 million supported by credit, insurance and IPO distribution. [actual=349000000]
+  ✓ AMC AUM stood at over ₹3.4 billion as of June 30, 2025. [actual=3400000000]
+  ✓ Ionic Wealth crossed ₹5,000 crores AUM with over 1,000 clients across 9 cities. [actual=50000000000]
+  ✓ Underlying operating expenses excluding IPL costs declined by 9.9% quarter-on-quarter to ₹3.1 billion. [actual=3100000000]
+  ✓ Total demat account market share stands at 16.3% with incremental acquisition market share of 21.7%.
+  ✓ Angel One is second largest contributor in new SIP registrations in India with 1.9 million new SIPs added in Q1 FY26.
+  ✓ AMC achieved AUM traction with zero marketing expenditure through organic and education-led distribution.
+  ✓ 88% of newly onboarded clients in Q1 FY26 came from Tier 2, 3 and beyond, demonstrating digital reach into India's interior markets.
+  ✓ Over 3 million customers engaged with Angel One's mutual fund offering as of June 2025, up from 1.2 million a year ago.
+Missed / Failed Milestones:
+  ✗ Reported PAT for Q1 FY26 was ₹1.1 billion, lower by 34% quarter-on-quarter, impacted by IPL spend and variable pay reversal effects.
+  ✗ Reported operating margin was 21.8%, lower sequentially due to IPL costs and prior quarter variable pay reversal.
+  ✗ LTV to CAC ratio not refreshed due to F&O regulatory impact; previously disclosed as approximately 6x, down from 8x earlier.
+  ✗ F&O market share gains have not materialized consistently post-regulatory changes; June showed subdued activity after gains in May.
+  ✗ New business incubation margin impact has increased slightly compared to prior quarter, now at 2.6% vs guided 2-2.5%.
+Current Quarter KPIs: TAX=486.79, OPEX=9376.89, INTEXP=828.51, PAT=1339.13, D&A=283.96, FEECOM=1688.98, OTHERINC=32.67, TOTALINC=11202.81, FINCOS=828.51, OTHEREXP=4138.06, PBT=1825.92, CURDEFTAX=487.83, DEFTAX=-1.04, OCITAX=2.49, OCI=-7.41, TCI=1331.72, EPSDIL=14.38, EPS=14.81, IMPFIN=-4.96, REV=11170.14, EMPBEN=2442.34, OCIREM=-9.9, PAIDUP=905.46, EPSBAS=14.81, GROSSINTINC=3532.82, IPLSPEND=1117.01
+Industry Analysis (from transcript):
+  KPIs: CUST=115000000, MFAUM_PCT_GDP=20, MFSIPFLOW=270000000000, GDPG=6, INFL=2.7, REPORATEKPI=5.5, GDPG=2.6
+  Growth Drivers: India's young and growing population with increasing wealth and digital openness driving financial services adoption.; Low penetration of demat accounts (only 115 million unique PAN holders with demat accounts vs large population), indicating vast untapped market.; Mutual fund AUM below 20% of GDP with SIP inflows at all-time high of ₹270 billion/month, indicating structural growth in mutual fund adoption.; Insurance penetration lagging global norms, creating large addressable market for insurance distribution.; Fixed income, credit and protection products concentrated in top cities, leaving most of India underserved.; Household credit to GDP ratio less than half of global average, representing massive structural underpenetration in credit.; India's GDP growth tracking above 6% providing strong macroeconomic tailwind for financial services.; Inflation moderation to 2.7% and stable repo rate at 5.5% creating supportive monetary environment.; Rising investor participation from Tier 2 and Tier 3 cities expanding addressable market.; IPO monetization and integration of technology/AI accelerating wealth creation opportunities.; Digital adoption and regulatory support for fintech innovation creating enabling environment.; India moving from product to portfolio solution approach in wealth management, mirroring US shift that drove 3-4x profit multiples.; Regulatory recalibration making ecosystem more robust for sustainable long-term growth.
+  Headwinds: Global trade tensions, especially US-China tariffs, raising sector input costs by 15-20% and causing market volatility.; Global GDP growth slowing to 2.6% in 2025 with persistent inflation keeping central banks cautious.; Regulatory recalibration in index derivatives creating near-term reduction in F&O volumes and retail activity.; FII outflows in recent quarters dampening retail sentiment and market momentum.; Tepid retail participation in F&O segment post index derivative regulation changes.
+High-Severity Risks:
+  ⚠ Regulatory recalibration in index derivatives segment (2024 regulations) has reduced F&O volumes and impacted retail participation, creating near-term revenue headwinds.
+  ⚠ Market-dependent revenue model: retail activity in F&O and equity segments is correlated with FII inflows and market momentum, creating earnings volatility.
+Tone: confident
+Confidence: high
 
 ══════════════════════════════════════════════════════════
 C. ANALYSIS INSTRUCTIONS

@@ -373,12 +373,12 @@ class FinHelper {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async _industryTickers(industry) {
-    const rows = await this.prisma.earnings_calls.findMany({
-      where:    { basic_industry: industry },
-      select:   { company: true },
-      distinct: ['company'],
+    const rows = await this.prisma.summary.findMany({
+      where:  { industryAnalysis: { path: ['industry'], equals: industry } },
+      select: { callId: true },
     });
-    return rows.map(r => r.company);
+    // Extract unique tickers from callId (format: TICKER_FYXXXX_QX)
+    return [...new Set(rows.map(r => r.callId.split('_FY')[0]))];
   }
 }
 
