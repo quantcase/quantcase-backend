@@ -1,36 +1,20 @@
 'use strict';
 
+const { getHistoricPeForTickers } = require('../db-utils/getHistoricPe');
+
+// Ordered fallback list for operating margin — index 0 = highest priority.
+// Falls back further via substitute_kpis table at runtime.
+const OPM_KPI_PRIORITY = ['OPM', 'EBITDA', 'EBITDAM', 'NIM', 'CTI'];
+
 /**
  * FinHelper — financial KPI calculation utility
  *
  * Layers:
- *  1. Math primitives   — pure static functions (growth, CAGR, margin, ratio, average)
- *  2. KPI resolver      — extracts value from Summary.kpis JSON, falls back through substitute_kpis
- *  3. Per-call extractors — thin wrappers that call resolveKpi for each of the 8 indicators
- *  4. Stock aggregators — time series + latestGrowth + CAGR across all periods for a ticker
- *  5. Industry aggregators — revenue CAGR and OPM growth averaged across all peers
- *  6. Generic ratio    — resolves two KPIs and returns their ratio (per period or single)
- *  7. Prefetch helper  — single 3-query DB fetch of all indicator data, frontend-ready shape
- *
- * Usage:
- *   const helper = new FinHelper(prisma);
- *   const data   = await helper.prefetchStockKpis('RELIANCE');
+ *  1. Math primitives  — pure static functions (growth, CAGR, margin, ratio, average)
+ *  2. Time series      — fetch KPI values from DB quarterly summaries
+ *  3. Stock-level CAGR — EPS CAGR (DB) and P/E CAGR (pe_data table)
+ *  4. Industry-level   — aggregate EPS and PE CAGR across all tickers in an industry
  */
-
-const DAYS_PER_QUARTER = 365.25 / 4; // ~91.31
-
-// Primary KPIs for the 9 tracked indicators
-const INDICATOR_ABBRS = {
-  revenue:         { primary: 'REV',    label: 'Revenue',                    unit: 'INR'        },
-  opm:             { primary: 'OPM',    label: 'Operating Profit Margin',     unit: 'percentage' },
-  roce:            { primary: 'ROCE',   label: 'Return on Capital Employed',  unit: 'percentage' },
-  borrowings:      { primary: 'DEBT',   label: 'Borrowings',                  unit: 'INR'        },
-  fcf:             { primary: 'FCF',    label: 'Free Cash Flow',              unit: 'INR'        },
-  ccc:             { primary: 'CCC',    label: 'Cash Conversion Cycle',       unit: 'days'       },
-  interest:        { primary: 'INTEXP', label: 'Interest Expense',            unit: 'INR'        },
-  activeCustomers: { primary: 'CUST',   label: 'Active Customers',            unit: 'units'      },
-  eps:             { primary: 'EPS',    label: 'Earnings Per Share',          unit: 'INR'        },
-};
 
 class FinHelper {
   /**
@@ -38,8 +22,6 @@ class FinHelper {
    */
   constructor(prisma) {
     this.prisma = prisma;
-    /** @type {Map<string, string[]>} session-scoped substitute cache */
-    this._substituteCache = new Map();
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -78,12 +60,9 @@ class FinHelper {
   }
 
   /**
-   * Market-cap-weighted average of a values array.
-   * Pairs where either value or weight is null/zero are skipped.
-   * Falls back to simple average when no valid weights exist.
-   *
+   * Market-cap-weighted average. Falls back to simple average when no valid weights exist.
    * @param {(number|null)[]} values
-   * @param {(number|null)[]} weights   - same length as values; typically market caps
+   * @param {(number|null)[]} weights
    */
   static weightedAverage(values, weights) {
     let weightedSum = 0;
@@ -96,70 +75,23 @@ class FinHelper {
       totalWeight += w;
     }
     if (totalWeight > 0) return weightedSum / totalWeight;
-    // If no weights are usable, fall back to simple average
     return FinHelper.average(values);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 2 — KPI resolver (DB + substitute fallback)
+  // Layer 2 — Time series from DB summaries
   // ─────────────────────────────────────────────────────────────────────────────
 
-  /** Load substitutes from DB (or return from cache) */
-  async _getSubstitutes(primaryAbbr) {
-    if (this._substituteCache.has(primaryAbbr)) {
-      return this._substituteCache.get(primaryAbbr);
-    }
-    const row = await this.prisma.substituteKpi.findUnique({
-      where:  { primaryKpiAbbr: primaryAbbr },
-      select: { substitutes: true },
-    });
-    const subs = row?.substitutes ?? [];
-    this._substituteCache.set(primaryAbbr, subs);
-    return subs;
-  }
-
-  /** Extract a numeric KPI value from a Summary.kpis array [{kpi_abbr, value}] */
-  static _extractFromKpis(kpisArr, abbr) {
-    if (!Array.isArray(kpisArr)) return null;
-    const match = kpisArr.find(k => k.kpi_abbr === abbr);
-    if (match == null) return null;
-    const v = parseFloat(match.value);
-    return isNaN(v) ? null : v;
-  }
-
   /**
-   * Resolve a KPI from a kpis array, falling back to substitutes in priority order.
+   * Fetch all quarterly values for a KPI abbr across all periods of a ticker.
+   * If the primary abbr yields no data for a period, falls back to substitutes
+   * from the substitute_kpis table (ordered by priority, index 0 = highest).
    *
-   * @param {Array<{kpi_abbr: string, value: any}>} kpisArr
-   * @param {string} primaryAbbr
-   * @returns {Promise<{ value: number|null, resolvedAbbr: string, isSubstitute: boolean }>}
+   * @param {string} ticker    - earnings_calls.company
+   * @param {string} abbr      - KPI abbreviation e.g. 'EPS'
+   * @returns {Promise<Array<{ callId, period, fiscal_year, quarter, call_date, value, abbrUsed }>>}
    */
-  async resolveKpi(kpisArr, primaryAbbr) {
-    const direct = FinHelper._extractFromKpis(kpisArr, primaryAbbr);
-    if (direct != null) {
-      return { value: direct, resolvedAbbr: primaryAbbr, isSubstitute: false };
-    }
-
-    const substitutes = await this._getSubstitutes(primaryAbbr);
-    for (const sub of substitutes) {
-      const v = FinHelper._extractFromKpis(kpisArr, sub);
-      if (v != null) {
-        return { value: v, resolvedAbbr: sub, isSubstitute: true };
-      }
-    }
-
-    return { value: null, resolvedAbbr: primaryAbbr, isSubstitute: false };
-  }
-
-  /**
-   * Fetch sorted time series for a KPI across all periods of a ticker.
-   * Makes 2 DB queries (calls + summaries).
-   *
-   * @param {string} ticker         - earnings_calls.company value
-   * @param {string} primaryAbbr
-   * @returns {Promise<Array<{ callId, period, fiscal_year, quarter, call_date, value, resolvedAbbr, isSubstitute }>>}
-   */
-  async getTimeSeries(ticker, primaryAbbr) {
+  async getTimeSeries(ticker, abbr) {
     const calls = await this.prisma.earnings_calls.findMany({
       where:   { company: ticker },
       select:  { id: true, fiscal_year: true, quarter: true, call_date: true },
@@ -173,337 +105,273 @@ class FinHelper {
     });
     const summaryMap = new Map(summaries.map(s => [s.callId, s.kpis]));
 
-    const series = [];
-    for (const call of calls) {
-      const kpisArr  = summaryMap.get(call.id) ?? [];
-      const resolved = await this.resolveKpi(kpisArr, primaryAbbr);
-      series.push({
-        callId:      call.id,
-        period:      _periodLabel(call),
-        fiscal_year: call.fiscal_year,
-        quarter:     call.quarter,
-        call_date:   call.call_date,
-        ...resolved,
-      });
+    // Load substitutes for this abbr once (ordered priority list)
+    const subRow = await this.prisma.substituteKpi.findUnique({
+      where: { primaryKpiAbbr: abbr },
+    });
+    const fallbackAbbrs = subRow?.substitutes ?? [];
+    const abbrCandidates = [abbr, ...fallbackAbbrs];
+
+    return calls.map(call => {
+      const kpisArr = summaryMap.get(call.id) ?? [];
+      if (!Array.isArray(kpisArr)) {
+        return { callId: call.id, period: _periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
+      }
+
+      // Try primary then substitutes in priority order
+      for (const candidate of abbrCandidates) {
+        const match = kpisArr.find(k => k.kpi_abbr === candidate && k.value != null);
+        if (match) {
+          const raw = parseFloat(match.value);
+          return {
+            callId:      call.id,
+            period:      _periodLabel(call),
+            fiscal_year: call.fiscal_year,
+            quarter:     call.quarter,
+            call_date:   call.call_date,
+            value:       !isNaN(raw) ? raw : null,
+            abbrUsed:    candidate,
+          };
+        }
+      }
+
+      return { callId: call.id, period: _periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Layer 3 — Stock-level CAGR
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * EPS CAGR for a single stock from DB quarterly summaries.
+   * Falls back to latest value when base EPS is non-positive or < 2 periods.
+   */
+  async stockEpsCagr(ticker, targetYears = 5) {
+    const series     = await this.getTimeSeries(ticker, 'EPS');
+    const withValues = series.filter(s => s.value != null);
+
+    console.log(`[EPS] ${ticker} — ${series.length} periods total, ${withValues.length} with values`);
+    withValues.forEach(s => console.log(`  ${s.period}  eps=${s.value}`));
+
+    if (withValues.length === 0) {
+      return { value: null, type: 'no_data', periodsUsed: 0 };
     }
-    return series;
-  }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 3 — Per-call extractors (thin wrappers over resolveKpi)
-  // ─────────────────────────────────────────────────────────────────────────────
+    const latest = withValues.at(-1);
+    if (withValues.length === 1) {
+      return { value: latest.value, type: 'latest_value', periodsUsed: 1,
+               note: 'Only one period available — CAGR not computable' };
+    }
 
-  revenue        (kpisArr) { return this.resolveKpi(kpisArr, 'REV');    }
-  opm            (kpisArr) { return this.resolveKpi(kpisArr, 'OPM');    }
-  roce           (kpisArr) { return this.resolveKpi(kpisArr, 'ROCE');   }
-  borrowings     (kpisArr) { return this.resolveKpi(kpisArr, 'DEBT');   }
-  fcf            (kpisArr) { return this.resolveKpi(kpisArr, 'FCF');    }
-  ccc            (kpisArr) { return this.resolveKpi(kpisArr, 'CCC');    }
-  interest       (kpisArr) { return this.resolveKpi(kpisArr, 'INTEXP'); }
-  activeCustomers(kpisArr) { return this.resolveKpi(kpisArr, 'CUST');   }
+    const first = withValues.at(0);
+    let spanYears;
+    if (first.call_date && latest.call_date) {
+      const ms = new Date(latest.call_date) - new Date(first.call_date);
+      spanYears = ms / (1000 * 60 * 60 * 24 * 365.25);
+    } else {
+      spanYears = withValues.length / 4;
+    }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 4 — Stock-level aggregators
-  // ─────────────────────────────────────────────────────────────────────────────
+    if (spanYears <= 0) {
+      return { value: latest.value, type: 'latest_value', periodsUsed: withValues.length,
+               note: 'Zero time span' };
+    }
 
-  /**
-   * Latest period-over-period growth for a single KPI.
-   * @returns {Promise<number|null>}  percentage
-   */
-  async stockKpiGrowth(ticker, primaryAbbr) {
-    const series     = await this.getTimeSeries(ticker, primaryAbbr);
-    const withValues = series.filter(s => s.value != null);
-    if (withValues.length < 2) return null;
-    return FinHelper.growth(withValues.at(-1).value, withValues.at(-2).value);
-  }
-
-  /**
-   * CAGR over `years` annual periods (default 3).
-   * Uses earliest → latest available data points; pass explicit `years` for annualized rate.
-   * @returns {Promise<number|null>}  percentage
-   */
-  async stockKpiCAGR(ticker, primaryAbbr, years = 3) {
-    const series     = await this.getTimeSeries(ticker, primaryAbbr);
-    const withValues = series.filter(s => s.value != null);
-    if (withValues.length < 2) return null;
-    return FinHelper.cagr(withValues.at(0).value, withValues.at(-1).value, years);
-  }
-
-  /**
-   * All 8 indicators for a stock — growth + CAGR — in one batched call.
-   * Makes 2 DB queries regardless of indicator count.
-   *
-   * @param {string} ticker
-   * @returns {Promise<StockMetricsResult|null>}
-   */
-  async stockMetrics(ticker) {
-    const { calls, summaryMap } = await this._fetchCallsAndSummaries(ticker);
-    if (!calls.length) return null;
-
-    const kpis = await _buildKpisBlock(calls, summaryMap, this);
+    const cagrValue = FinHelper.cagr(first.value, latest.value, spanYears);
+    if (cagrValue == null || isNaN(cagrValue)) {
+      return { value: latest.value, type: 'latest_value', periodsUsed: withValues.length,
+               note: 'CAGR undefined (negative/zero base EPS) — returning latest value' };
+    }
 
     return {
-      ticker,
-      companyName: calls.at(-1)?.company_name ?? ticker,
-      industry:    calls.at(-1)?.basic_industry ?? null,
-      totalPeriods: calls.length,
-      periods:     calls.map(_periodMeta),
-      kpis,
+      value:       parseFloat(cagrValue.toFixed(2)),
+      type:        spanYears >= 4 ? '5yr_cagr' : 'partial_cagr',
+      spanYears:   parseFloat(spanYears.toFixed(2)),
+      periodsUsed: withValues.length,
+      firstValue:  first.value,
+      latestValue: latest.value,
+    };
+  }
+
+  /**
+   * P/E CAGR for a single stock from quarterly PE history (pe_data table).
+   */
+  async stockPeCagr(ticker, targetYears = 5) {
+    const [result] = await getHistoricPeForTickers([ticker]);
+    console.log(`[PE] ${ticker} — ${result?.quarterlyPe?.length ?? 0} quarterly buckets`);
+
+    if (!result || result.error) {
+      return { value: null, type: result?.error ? 'error' : 'no_data', periodsUsed: 0 };
+    }
+
+    const qpe = result.quarterlyPe ?? [];
+    if (qpe.length === 0) return { value: null, type: 'no_data', periodsUsed: 0 };
+
+    qpe.forEach(q => console.log(`  [PE] ${q.quarter}  avgPe=${q.avgPe}  dataPoints=${q.dataPoints}`));
+
+    const latestPe = qpe.at(-1).avgPe;
+    const avgPe    = FinHelper.average(qpe.map(q => q.avgPe));
+
+    if (qpe.length === 1) {
+      return { value: latestPe, type: 'latest_value', periodsUsed: 1, latestPe,
+               avgPe, note: 'Only one quarter available' };
+    }
+
+    const firstYear = _quarterLabelToYear(qpe.at(0).quarter);
+    const lastYear  = _quarterLabelToYear(qpe.at(-1).quarter);
+    const spanYears = (firstYear != null && lastYear != null)
+      ? (lastYear - firstYear)
+      : qpe.length * 0.25;
+
+    const firstPe = qpe.at(0).avgPe;
+
+    if (spanYears <= 0) {
+      return { value: latestPe, type: 'latest_value', periodsUsed: qpe.length,
+               latestPe, avgPe: avgPe != null ? parseFloat(avgPe.toFixed(2)) : null,
+               note: 'Zero time span' };
+    }
+
+    const cagrValue = FinHelper.cagr(firstPe, latestPe, spanYears);
+    if (cagrValue == null || isNaN(cagrValue)) {
+      return { value: latestPe, type: 'latest_value', periodsUsed: qpe.length,
+               latestPe, avgPe: avgPe != null ? parseFloat(avgPe.toFixed(2)) : null,
+               note: 'CAGR undefined — returning latest PE' };
+    }
+
+    return {
+      value:       parseFloat(cagrValue.toFixed(2)),
+      type:        spanYears >= 4 ? '5yr_cagr' : 'partial_cagr',
+      spanYears:   parseFloat(spanYears.toFixed(2)),
+      periodsUsed: qpe.length,
+      firstPe,
+      latestPe,
+      avgPe:       avgPe != null ? parseFloat(avgPe.toFixed(2)) : null,
     };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 5 — Industry aggregators
+  // Layer 4 — Industry-level CAGR
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Revenue CAGR across all companies in an industry.
-   * Pass `marketCapMap` for market-cap-weighted result; omit for simple average.
-   *
-   * @param {string}  industry        - earnings_calls.basic_industry value
-   * @param {number}  years
-   * @param {{ marketCapMap?: Record<string,number> }} [opts]
-   *   marketCapMap — { [ticker]: marketCapValue } — any ticker absent from the map
-   *                  is excluded from weighting (but still included in simple avg).
-   * @returns {Promise<number|null>}  percentage
+   * Average EPS CAGR across all tickers in an industry.
+   * Only tickers with computable CAGR (not latest_value fallbacks) are included.
    */
-  async industryRevenueGrowthCAGR(industry, years = 3, { marketCapMap = null } = {}) {
+  async industryEpsCagr(industry, targetYears = 5) {
     const tickers = await this._industryTickers(industry);
-    const cagrs   = await Promise.all(tickers.map(t => this.stockKpiCAGR(t, 'REV', years)));
-    if (marketCapMap) {
-      const weights = tickers.map(t => marketCapMap[t] ?? null);
-      return FinHelper.weightedAverage(cagrs, weights);
-    }
-    return FinHelper.average(cagrs);
-  }
+    console.log(`[Industry EPS] "${industry}" — ${tickers.length} tickers:`, tickers);
+    if (!tickers.length) return { value: null, type: 'no_data', tickerCount: 0 };
 
-  /**
-   * Latest OPM growth across all companies in an industry.
-   * Pass `marketCapMap` for market-cap-weighted result; omit for simple average.
-   *
-   * @param {string}  industry
-   * @param {{ marketCapMap?: Record<string,number> }} [opts]
-   * @returns {Promise<number|null>}  percentage
-   */
-  async industryOPMGrowth(industry, { marketCapMap = null } = {}) {
-    const tickers = await this._industryTickers(industry);
-    const growths = await Promise.all(tickers.map(t => this.stockKpiGrowth(t, 'OPM')));
-    if (marketCapMap) {
-      const weights = tickers.map(t => marketCapMap[t] ?? null);
-      return FinHelper.weightedAverage(growths, weights);
-    }
-    return FinHelper.average(growths);
-  }
+    const results = await Promise.allSettled(
+      tickers.map(t => this.stockEpsCagr(t, targetYears))
+    );
 
-  /**
-   * EPS CAGR for a single stock.
-   * Substitute fallback order: EPS → EPSBAS → EPSDIL → PAT (via substitute_kpis).
-   *
-   * @param {string} ticker
-   * @param {number} years  - annualisation denominator (default 3)
-   * @returns {Promise<number|null>}  percentage
-   */
-  async stockEpsCAGR(ticker, years = 3) {
-    return this.stockKpiCAGR(ticker, 'EPS', years);
-  }
-
-  /**
-   * EPS CAGR across all companies in an industry.
-   * Pass `marketCapMap` for market-cap-weighted result; omit for simple average.
-   *
-   * @param {string}  industry        - earnings_calls.basic_industry value
-   * @param {number}  years
-   * @param {{ marketCapMap?: Record<string,number> }} [opts]
-   * @returns {Promise<number|null>}  percentage
-   */
-  async industryEpsCAGR(industry, years = 3, { marketCapMap = null } = {}) {
-    const tickers = await this._industryTickers(industry);
-    const cagrs   = await Promise.all(tickers.map(t => this.stockKpiCAGR(t, 'EPS', years)));
-    if (marketCapMap) {
-      const weights = tickers.map(t => marketCapMap[t] ?? null);
-      return FinHelper.weightedAverage(cagrs, weights);
-    }
-    return FinHelper.average(cagrs);
-  }
-
-  /**
-   * Average P/E ratio for a stock over the past `nQuarters` calendar quarters.
-   * Queries pe_data (daily rows) and averages all data points in the window.
-   *
-   * @param {string} ticker
-   * @param {number} nQuarters  - look-back window in quarters (default 3)
-   * @returns {Promise<{
-   *   ticker:     string,
-   *   nQuarters:  number,
-   *   fromDate:   Date,
-   *   toDate:     Date,
-   *   average:    number|null,
-   *   dataPoints: number,
-   *   timeSeries: Array<{ date: Date, pe: number }>
-   * }>}
-   */
-  async stockPeAverage(ticker, nQuarters = 3) {
-    const toDate   = new Date();
-    const fromDate = new Date(toDate);
-    fromDate.setDate(fromDate.getDate() - Math.round(nQuarters * DAYS_PER_QUARTER));
-
-    const rows = await this.prisma.pe_data.findMany({
-      where: {
-        company: ticker,
-        date:    { gte: fromDate, lte: toDate },
-      },
-      select:  { date: true, pe: true },
-      orderBy: { date: 'asc' },
+    results.forEach((r, i) => {
+      const v = r.status === 'fulfilled'
+        ? `value=${r.value.value}, type=${r.value.type}`
+        : `REJECTED: ${r.reason?.message}`;
+      console.log(`[Industry EPS] ${tickers[i]} → ${v}`);
     });
 
-    const timeSeries = rows
-      .map(r => ({ date: r.date, pe: parseFloat(r.pe) }))
-      .filter(r => !isNaN(r.pe));
+    const cagrValues = results
+      .filter(r => r.status === 'fulfilled' && r.value.value != null && !isNaN(r.value.value) && r.value.type.includes('cagr'))
+      .map(r => r.value.value);
 
+    const avg = FinHelper.average(cagrValues);
     return {
-      ticker,
-      nQuarters,
-      fromDate,
-      toDate,
-      average:    FinHelper.average(timeSeries.map(r => r.pe)),
-      dataPoints: timeSeries.length,
-      timeSeries,
+      value:            avg != null ? parseFloat(avg.toFixed(2)) : null,
+      type:             '5yr_cagr',
+      tickerCount:      tickers.length,
+      validTickerCount: cagrValues.length,
+      tickers,
+    };
+  }
+
+  /**
+   * Average P/E CAGR across all tickers in an industry.
+   */
+  async industryPeCagr(industry, targetYears = 5) {
+    const tickers = await this._industryTickers(industry);
+    console.log(`[Industry PE] "${industry}" — ${tickers.length} tickers:`, tickers);
+    if (!tickers.length) return { value: null, type: 'no_data', tickerCount: 0 };
+
+    const results = await Promise.allSettled(
+      tickers.map(t => this.stockPeCagr(t, targetYears))
+    );
+
+    const settled = results.map((r, i) => {
+      if (r.status === 'fulfilled') {
+        console.log(`[Industry PE] ${tickers[i]} → value=${r.value.value}, type=${r.value.type}, latestPe=${r.value.latestPe}`);
+        return r.value;
+      }
+      console.log(`[Industry PE] ${tickers[i]} → REJECTED:`, r.reason?.message);
+      return null;
+    }).filter(Boolean);
+
+    const cagrValues = settled.filter(r => r.value != null && !isNaN(r.value) && r.type.includes('cagr')).map(r => r.value);
+    const latestPes  = settled.filter(r => r.latestPe != null && !isNaN(r.latestPe)).map(r => r.latestPe);
+
+    const avgCagr   = FinHelper.average(cagrValues);
+    const avgLatest = FinHelper.average(latestPes);
+    return {
+      value:            avgCagr   != null ? parseFloat(avgCagr.toFixed(2))   : null,
+      type:             '5yr_cagr',
+      tickerCount:      tickers.length,
+      validTickerCount: cagrValues.length,
+      avgLatestPe:      avgLatest != null ? parseFloat(avgLatest.toFixed(2)) : null,
+      tickers,
     };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 6 — Generic ratio calculator
+  // Layer 5 — Industry OPM
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Compute numeratorAbbr / denominatorAbbr for every period of a ticker.
-   * Both KPIs respect substitute fallback.
+   * Average OPM % across all summaries for tickers in an industry.
+   * Tries OPM_KPI_PRIORITY in order, then any additional substitutes from the
+   * substitute_kpis table, using the first abbr that yields numeric values.
    *
-   * @param {string}  ticker
-   * @param {string}  numeratorAbbr
-   * @param {string}  denominatorAbbr
-   * @param {string}  [period]  - e.g. "FY25-Q1"; if given, returns single object instead of array
-   * @returns {Promise<Array|object|null>}
+   * @param {string} industry - earnings_calls.basic_industry value
+   * @returns {Promise<{ value: number|null, abbrUsed: string|null, sampleSize: number }>}
    */
-  async calcRatio(ticker, numeratorAbbr, denominatorAbbr, period = null) {
-    const [numSeries, denSeries] = await Promise.all([
-      this.getTimeSeries(ticker, numeratorAbbr),
-      this.getTimeSeries(ticker, denominatorAbbr),
-    ]);
+  async industryOpm(industry) {
+    const tickers = await this._industryTickers(industry);
+    if (!tickers.length) return { value: null, abbrUsed: null, sampleSize: 0 };
 
-    const denMap     = new Map(denSeries.map(s => [s.period, s]));
-    const ratioSeries = numSeries.map(n => {
-      const d = denMap.get(n.period);
-      return {
-        period:      n.period,
-        callId:      n.callId,
-        value:       FinHelper.ratio(n.value, d?.value ?? null),
-        numerator:   { value: n.value,   resolvedAbbr: n.resolvedAbbr, isSubstitute: n.isSubstitute },
-        denominator: { value: d?.value ?? null, resolvedAbbr: d?.resolvedAbbr ?? denominatorAbbr, isSubstitute: d?.isSubstitute ?? false },
-      };
-    });
-
-    if (period) return ratioSeries.find(r => r.period === period) ?? null;
-    return ratioSeries;
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 7 — Prefetch helper (DB helper for frontend)
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Fetch ALL indicator data for a stock in exactly 3 DB queries.
-   * Warm-fills the substitute cache as a side effect.
-   *
-   * Query plan:
-   *   1. earnings_calls  WHERE company = ticker
-   *   2. summaries       WHERE call_id IN (...)
-   *   3. substitute_kpis WHERE primary_kpi_abbr IN (8 primaries)
-   *
-   * All subsequent resolveKpi calls are in-memory (cache hits).
-   *
-   * @param {string} ticker
-   * @returns {Promise<PrefetchResult|null>}
-   */
-  async prefetchStockKpis(ticker) {
-    // Q1 — all calls for this ticker
     const calls = await this.prisma.earnings_calls.findMany({
-      where:   { company: ticker },
-      select:  {
-        id:             true,
-        fiscal_year:    true,
-        quarter:        true,
-        call_date:      true,
-        basic_industry: true,
-        company_name:   true,
-      },
-      orderBy: [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
+      where:   { company: { in: tickers } },
+      select:  { id: true },
     });
-    if (!calls.length) return null;
-
-    // Q2 — all summaries for those calls
     const summaries = await this.prisma.summary.findMany({
       where:  { callId: { in: calls.map(c => c.id) } },
-      select: { callId: true, kpis: true },
+      select: { kpis: true },
     });
-    const summaryMap = new Map(summaries.map(s => [s.callId, s.kpis]));
 
-    // Q3 — all substitutes for the 8 indicator primaries (bulk, warm cache)
-    const primaryAbbrs = Object.values(INDICATOR_ABBRS).map(i => i.primary);
-    await this._warmSubstituteCache(primaryAbbrs);
+    const allKpis = summaries.flatMap(s => Array.isArray(s.kpis) ? s.kpis : []);
 
-    // In-memory: build indicator time series + stats
-    const kpis = await _buildKpisBlock(calls, summaryMap, this);
+    // Build candidate list: static priority + DB substitutes for 'OPM'
+    const subRow = await this.prisma.substituteKpi.findUnique({ where: { primaryKpiAbbr: 'OPM' } });
+    const candidates = [...new Set([...OPM_KPI_PRIORITY, ...(subRow?.substitutes ?? [])])];
 
-    return {
-      ticker,
-      companyName:  calls.at(-1)?.company_name   ?? ticker,
-      industry:     calls.at(-1)?.basic_industry ?? null,
-      totalPeriods: calls.length,
-      periods:      calls.map(_periodMeta),
-      kpis,
-    };
+    for (const abbr of candidates) {
+      const vals = allKpis
+        .filter(k => k.kpi_abbr === abbr && k.value != null)
+        .map(k => parseFloat(k.value))
+        .filter(v => !isNaN(v));
+      if (vals.length > 0) {
+        const avg = parseFloat((vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(2));
+        return { value: avg, abbrUsed: abbr, sampleSize: vals.length };
+      }
+    }
+    return { value: null, abbrUsed: null, sampleSize: 0 };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Private helpers
   // ─────────────────────────────────────────────────────────────────────────────
 
-  /** Bulk-load substitute rows into cache in a single query */
-  async _warmSubstituteCache(primaryAbbrs) {
-    const missing = primaryAbbrs.filter(a => !this._substituteCache.has(a));
-    if (!missing.length) return;
-    const rows = await this.prisma.substituteKpi.findMany({
-      where:  { primaryKpiAbbr: { in: missing } },
-      select: { primaryKpiAbbr: true, substitutes: true },
-    });
-    for (const row of rows) {
-      this._substituteCache.set(row.primaryKpiAbbr, row.substitutes);
-    }
-    // Ensure abbrs with no DB row also get cached (empty array → no retry)
-    for (const abbr of missing) {
-      if (!this._substituteCache.has(abbr)) this._substituteCache.set(abbr, []);
-    }
-  }
-
-  /** Fetch calls + summaries for a ticker and return both */
-  async _fetchCallsAndSummaries(ticker) {
-    const calls = await this.prisma.earnings_calls.findMany({
-      where:   { company: ticker },
-      select:  { id: true, fiscal_year: true, quarter: true, call_date: true, basic_industry: true, company_name: true },
-      orderBy: [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
-    });
-    const summaries = calls.length
-      ? await this.prisma.summary.findMany({
-          where:  { callId: { in: calls.map(c => c.id) } },
-          select: { callId: true, kpis: true },
-        })
-      : [];
-    const summaryMap = new Map(summaries.map(s => [s.callId, s.kpis]));
-    return { calls, summaryMap };
-  }
-
-  /** Distinct company tickers for an industry */
   async _industryTickers(industry) {
     const rows = await this.prisma.earnings_calls.findMany({
       where:    { basic_industry: industry },
@@ -515,82 +383,18 @@ class FinHelper {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Module-level helpers (pure, no DB)
+// Module-level helpers (pure)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Consistent period string e.g. "FY25-Q1" or "FY25" */
 function _periodLabel(call) {
   return call.quarter ? `${call.fiscal_year}-${call.quarter}` : call.fiscal_year;
 }
 
-/** Period metadata object used in `periods` arrays */
-function _periodMeta(call) {
-  return {
-    callId:      call.id,
-    period:      _periodLabel(call),
-    fiscal_year: call.fiscal_year,
-    quarter:     call.quarter,
-    call_date:   call.call_date,
-  };
+/** "YYYYQN" → decimal year at midpoint of quarter. e.g. "2023Q1" → 2023.125 */
+function _quarterLabelToYear(label) {
+  const match = label && label.match(/^(\d{4})Q(\d)$/);
+  if (!match) return null;
+  return parseInt(match[1]) + (parseInt(match[2]) - 0.5) * 0.25;
 }
 
-/**
- * Build the full kpis block for all 8 indicators given pre-fetched calls + summaryMap.
- * All resolveKpi calls hit the in-memory cache — no further DB queries.
- *
- * @param {Array}   calls
- * @param {Map}     summaryMap   callId → kpisArr
- * @param {FinHelper} helper
- */
-async function _buildKpisBlock(calls, summaryMap, helper) {
-  const kpis = {};
-
-  for (const [indicator, { primary, label, unit }] of Object.entries(INDICATOR_ABBRS)) {
-    const series = [];
-
-    for (const call of calls) {
-      const kpisArr  = summaryMap.get(call.id) ?? [];
-      const resolved = await helper.resolveKpi(kpisArr, primary);
-      series.push({ ...(_periodMeta(call)), ...resolved });
-    }
-
-    const withValues = series.filter(s => s.value != null);
-    const latest     = withValues.at(-1)?.value ?? null;
-    const prev       = withValues.at(-2)?.value ?? null;
-    const first      = withValues.at(0)?.value  ?? null;
-
-    // Estimate span in years from actual call dates (falls back to period count)
-    const spanYears = _spanYears(withValues);
-
-    kpis[indicator] = {
-      label,
-      unit,
-      primaryAbbr:   primary,
-      timeSeries:    series,
-      latestValue:   latest,
-      latestGrowth:  FinHelper.growth(latest, prev),   // % period-over-period
-      cagr:          FinHelper.cagr(first, latest, spanYears),
-      periodsWithData: withValues.length,
-    };
-  }
-
-  return kpis;
-}
-
-/**
- * Compute span in decimal years between first and last call_date.
- * Falls back to period count if dates are unavailable.
- */
-function _spanYears(withValues) {
-  if (withValues.length < 2) return null;
-  const first = withValues.at(0);
-  const last  = withValues.at(-1);
-  if (first.call_date && last.call_date) {
-    const ms = new Date(last.call_date) - new Date(first.call_date);
-    const years = ms / (1000 * 60 * 60 * 24 * 365.25);
-    return years > 0 ? years : withValues.length;
-  }
-  return withValues.length;  // treat each period as ~1 unit
-}
-
-module.exports = { FinHelper, INDICATOR_ABBRS };
+module.exports = { FinHelper };

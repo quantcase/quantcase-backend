@@ -85,6 +85,21 @@ function calcVariance(targeted, actual) {
   return Math.round(((a - t) / Math.abs(t)) * 100);
 }
 
+const CRORE = 1e7; // 1 crore = 10,000,000
+
+/**
+ * If targeted and actual differ by ~10^7 (one in crores, other in absolute rupees),
+ * scale actual to match targeted's unit. Only applied when actual came directly
+ * from the LLM disclosure (not a KPI-table fallback).
+ */
+function normalizeActualUnit(targeted, actual) {
+  if (targeted == null || actual == null || targeted === 0 || actual === 0) return actual;
+  const ratio = Math.abs(actual / targeted);
+  if (ratio >= 1e6 && ratio <= 1e8) return actual / CRORE; // actual in absolute → crore-scale
+  if (ratio <= 1e-6 && ratio >= 1e-9) return actual * CRORE; // actual in crore-scale, targeted in absolute
+  return actual;
+}
+
 // ─── Core guidance builder ────────────────────────────────────────────────────
 
 /**
@@ -96,10 +111,14 @@ const GUIDANCE_TOLERANCE_PCT = 5; // within 5% of target counts as achieved
 
 function buildGuidanceRecords(summaries) {
   const records = [];
-  let recordId    = 0;
-  let hiddenCount  = 0;
+  let recordId      = 0;
+  let hiddenCount   = 0;
   let achievedCount = 0;
-  let missedCount  = 0;
+  let missedCount   = 0;
+  // Weighted scoring: financial targets carry more weight on success
+  let weightedAchieved = 0;
+  let weightedMissed   = 0;
+  let weightedHidden   = 0;
 
   // "Has a quarter passed" = we have a transcript for it or later
   const latestCallId = summaries[summaries.length - 1].callId;
@@ -142,7 +161,13 @@ function buildGuidanceRecords(summaries) {
       // Resolve current_value: try match field first, then fall back to kpis[] in the source summary
       const successValue = resolveKpiValue(successMatch, goal.kpi_abbr);
       const failureValue = resolveKpiValue(failureMatch, goal.kpi_abbr);
-      const currentValue = successValue ?? failureValue;
+      const rawCurrentValue = successValue ?? failureValue;
+      // Only normalize when value came directly from the disclosure (not KPI-table fallback),
+      // to fix crore vs absolute unit mismatches that cause unrealistic variance (e.g. 10,000%)
+      const isDirectValue = successMatch?.current_value != null || failureMatch?.current_value != null;
+      const currentValue = isDirectValue
+        ? normalizeActualUnit(goal.targeted_value, rawCurrentValue)
+        : rawCurrentValue;
 
       // Deadline is "in the future" if we don't yet have a transcript covering that quarter
       const deadlineIsFuture = goal.target_time && new Date(goal.target_time) > latestCoveredDate;
@@ -162,16 +187,17 @@ function buildGuidanceRecords(summaries) {
         status = 'KPI_MATCHING_NOT_FOUND';
       }
 
-      if      (status === 'ACHIEVED') achievedCount++;
-      else if (status === 'MISSED')   missedCount++;
-      else if (status === 'HIDDEN')   hiddenCount++;
+      if      (status === 'ACHIEVED') { achievedCount++; weightedAchieved += 2.0; }
+      else if (status === 'MISSED')   { missedCount++;   weightedMissed   += 1.0; }
+      else if (status === 'HIDDEN')   { hiddenCount++;   weightedHidden   += 0.3; }
 
       records.push({
         id:             `guidance-${recordId++}`,
         source_call:    source.callId,
         source_date:    source.callDate,
         period:         goal.target_time    ?? 'TBD',
-        metric:         goal.kpi_abbr       ?? '',
+        metric:         goal.kpi_abbr       ?? '', // replaced with full_form in controller
+        kpi_abbr:       goal.kpi_abbr       ?? '',
         statement:      goal.statement,
         targeted_value: goal.targeted_value ?? null,
         current_value:  currentValue,
@@ -205,9 +231,9 @@ function buildGuidanceRecords(summaries) {
       else if (deadlineIsFuture || hasFutureCandidate) status = 'PENDING';
       else                                             status = 'HIDDEN';
 
-      if      (status === 'ACHIEVED') achievedCount++;
-      else if (status === 'MISSED')   missedCount++;
-      else if (status === 'HIDDEN')   hiddenCount++;
+      if      (status === 'ACHIEVED') { achievedCount++; weightedAchieved += 1.0; }
+      else if (status === 'MISSED')   { missedCount++;   weightedMissed   += 0.7; }
+      else if (status === 'HIDDEN')   { hiddenCount++;   weightedHidden   += 0.3; }
 
       records.push({
         id:             `guidance-${recordId++}`,
@@ -225,9 +251,10 @@ function buildGuidanceRecords(summaries) {
     }
   }
 
-  const total         = achievedCount + missedCount + hiddenCount;
-  const hitRate       = total > 0 ? Math.round((achievedCount / total) * 100) : 50;
-  const guidanceScore = total > 0 ? Math.round((achievedCount / total) * 100) : 50;
+  const total          = achievedCount + missedCount + hiddenCount;
+  const hitRate        = total > 0 ? Math.round((achievedCount / total) * 100) : 50;
+  const weightedTotal  = weightedAchieved + weightedMissed + weightedHidden;
+  const guidanceScore  = weightedTotal > 0 ? Math.round((weightedAchieved / weightedTotal) * 100) : 50;
 
   return { records, hiddenCount, achievedCount, missedCount, hitRate, guidanceScore };
 }
@@ -248,8 +275,7 @@ const companyPrefix = callId.split('_FY')[0];
 
 const rawSummaries = await prisma.summary.findMany({
   where:   { callId: { startsWith: companyPrefix } },
-  orderBy: { createdAt: 'desc' },
-  take:    3
+  orderBy: { createdAt: 'desc' }
 });
 
 if (rawSummaries.length === 0) {
@@ -274,6 +300,45 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
     // ── Cross-transcript guidance accuracy ───────────────────────────────────
     const { records, hiddenCount, achievedCount, missedCount, hitRate, guidanceScore } =
       buildGuidanceRecords(summaries);
+
+    // Resolve KPI abbreviations → full names from the kpi table
+    const financialAbbrs = [...new Set(
+      records.filter(r => r.target_type === 'financial' && r.kpi_abbr).map(r => r.kpi_abbr)
+    )];
+    const kpiRows = financialAbbrs.length > 0
+      ? await prisma.kpi.findMany({ where: { abbr: { in: financialAbbrs } }, select: { abbr: true, full_form: true } })
+      : [];
+    const kpiNameMap = Object.fromEntries(kpiRows.map(k => [k.abbr.trim().toLowerCase(), k.full_form]));
+
+    // Attach full name, clean up internal field, and filter incomplete rows
+    const STATUS_SORT = { ACHIEVED: 0, MISSED: 0, HIDDEN: 1, PENDING: 2, KPI_MATCHING_NOT_FOUND: 3 };
+    const mapped = records
+      .map(r => {
+        const out = { ...r };
+        if (r.target_type === 'financial') {
+          out.metric = kpiNameMap[r.kpi_abbr?.trim().toLowerCase()] ?? r.kpi_abbr ?? '';
+        }
+        delete out.kpi_abbr;
+        return out;
+      })
+      .filter(r =>
+        r.targeted_value != null &&
+        (r.current_value != null || r.status === 'PENDING')
+      )
+      .sort((a, b) => (STATUS_SORT[a.status] ?? 3) - (STATUS_SORT[b.status] ?? 3));
+
+    // Quota-based selection to ensure diversity: ACHIEVED/MISSED dominate but
+    // hidden and pending always get representation when available.
+    const pick = (arr, n) => arr.slice(0, n);
+    const byStatus = (s) => mapped.filter(r => s.includes(r.status));
+    const primary = [
+      ...pick(byStatus(['ACHIEVED', 'MISSED']), 4),
+      ...pick(byStatus(['HIDDEN']),             2),
+      ...pick(byStatus(['PENDING']),            2),
+    ];
+    const usedIds  = new Set(primary.map(r => r.id));
+    const spillover = mapped.filter(r => !usedIds.has(r.id));
+    const guidanceRecords = [...primary, ...spillover].slice(0, 8);
 
     // ── Scores ───────────────────────────────────────────────────────────────
     const transparencyScore = calculateTransparencyScore(governanceSignals, riskDisclosures);
@@ -356,7 +421,7 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
             ? "Early & Explicit"
             : governanceSignals.transparent ? "Transparent" : "Reactive"
         },
-        guidanceRecords: records,
+        guidanceRecords,
         notablePatterns,
         selectedTimeframe: timeframe
       }

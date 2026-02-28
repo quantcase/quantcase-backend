@@ -35,4 +35,18 @@ async function getOFactorResult(callId, prisma) {
   return db.oFactorResult.findUnique({ where: { callId } });
 }
 
-module.exports = { upsertOFactorResult, getOFactorResult };
+/**
+ * Fetch the most recently updated OFactor result for a given ticker.
+ *
+ * @param {string}  ticker
+ * @param {object}  [prisma]  - Optional shared PrismaClient instance
+ */
+async function getLatestOFactorResultByTicker(ticker, prisma) {
+  const db = prisma ?? getPrisma();
+  return db.oFactorResult.findFirst({
+    where:   { subjectTicker: ticker },
+    orderBy: { updatedAt: 'desc' },
+  });
+}
+
+module.exports = { upsertOFactorResult, getOFactorResult, getLatestOFactorResultByTicker };

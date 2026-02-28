@@ -1,4 +1,4 @@
-const { FINCRUX_METRICS } = require("../constants");
+const { FINCRUX_METRICS } = require("../utils/constants");
 
 /**
  * @param {string} transcriptText

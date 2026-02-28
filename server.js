@@ -5,10 +5,8 @@ const prisma = require('./lib/prisma');
 const jobQueue = require('./lib/jobQueue');
 const { getManagementAnalysis } = require('./controllers/managementController');
 const { createDealAnalysis } = require('./controllers/dealController');
-const { fetchMultipleTickerFinancials, calculateIndustryMetrics } = require('./utils/fincrux_helper');
-const { getHistoricPeForTickers } = require('./db-utils/getHistoricPe');
 const { OFactorResponseSchema } = require('./utils/constants');
-const { getOFactorResult } = require('./db-utils/upsertOFactor');
+const { getOFactorResult, getLatestOFactorResultByTicker } = require('./db-utils/upsertOFactor');
 const { getDealResult, getLatestDealResult } = require('./db-utils/upsertDealResult');
 const { mapToDealResponseSchema } = require('./utils/dealMapper');
 const app = express();
@@ -287,25 +285,44 @@ app.post('/api/calls/:callId/summarize', async (req, res) => {
       });
     }
 
-    // Add job to queue
-    const job = await jobQueue.addJob('summarization', {
-      callId: callId,
+    const summarizationData = {
+      callId,
       type: 'summarization',
       companyName: call.company_name || call.company,
       transcriptText: call.transcript_text,
       pptText: call.ppt_text
-    });
+    };
+
+    const hasQeUrl = !!call.quarterly_result_url?.trim();
+
+    if (hasQeUrl) {
+      // Chain: summarization (child) runs first, qe_extraction (parent) runs after
+      const flow = await jobQueue.addFlow({
+        name: 'qe_extraction',
+        queueName: 'qe_extraction',
+        data: { callId, type: 'qe_extraction' },
+        children: [
+          { name: 'summarization', queueName: 'summarization', data: summarizationData }
+        ]
+      });
+
+      return res.json({
+        success: true,
+        message: 'Summarization + QE extraction pipeline queued',
+        jobs: {
+          summarization: { id: flow.children?.[0]?.job?.id },
+          qe_extraction: { id: flow.job.id }
+        }
+      });
+    }
+
+    // No QE PDF — run summarization alone
+    const job = await jobQueue.addJob('summarization', summarizationData);
 
     res.json({
       success: true,
       message: 'Summarization job created and queued',
-      job: {
-        id: job.id,
-        callId: callId,
-        type: 'summarization',
-        status: 'pending',
-        createdAt: new Date(job.timestamp).toISOString()
-      }
+      job: { id: job.id, callId, type: 'summarization', status: 'pending', createdAt: new Date(job.timestamp).toISOString() }
     });
   } catch (error) {
     console.error('Error creating summarization job:', error);
@@ -318,29 +335,27 @@ app.post('/api/calls/:callId/summarize', async (req, res) => {
 });
 
 // Enqueue an OFactor analysis job for a call
-// Body: { subjectTicker: string, peerTickers: string[] }
+// Body: { peerTickers: string[] } (optional)
 app.post('/api/calls/:callId/opportunity/analysis', async (req, res) => {
   try {
     const { callId } = req.params;
-    const { subjectTicker, peerTickers } = req.body;
-
-    if (!subjectTicker) {
-      return res.status(400).json({ success: false, error: 'subjectTicker is required in request body' });
-    }
-    // peerTickers is optional — defaults to empty array
-    const resolvedPeerTickers = Array.isArray(peerTickers) ? peerTickers : [];
+    const { peerTickers } = req.body ?? {};
 
     const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
     if (!call) {
       return res.status(404).json({ success: false, error: 'Call not found' });
     }
 
+    const subjectTicker = call.company;
+    // peerTickers is optional — defaults to empty array
+    const resolvedPeerTickers = Array.isArray(peerTickers) ? peerTickers : [];
+
     const job = await jobQueue.addJob('ofactor_analysis', {
       callId,
       type:          'ofactor_analysis',
       subjectTicker,
       peerTickers:   resolvedPeerTickers,
-    });
+    }, { jobId: `ofactor_${callId}` });
 
     res.json({
       success: true,
@@ -377,9 +392,33 @@ app.get('/api/calls/:callId/analysis', async (req, res) => {
   }
 });
 
-// Return the OFactor schema as a reference template
-app.get('/api/opportunity/analysis', (req, res) => {
-  res.json({ success: true, data: OFactorResponseSchema });
+// Return stored OFactor result by callId query param
+// Falls back to the latest result for the same company if exact callId is not found
+app.get('/api/opportunity/analysis', async (req, res) => {
+  const { callId } = req.query;
+  if (!callId) {
+    return res.status(400).json({ success: false, error: 'callId query parameter is required' });
+  }
+  try {
+    let record = await getOFactorResult(callId);
+
+    if (!record) {
+      // Resolve the ticker: first try the DB, then fall back to parsing the callId pattern
+      const call = await prisma.earnings_calls.findUnique({ where: { id: callId }, select: { company: true } });
+      const ticker = call?.company ?? callId.replace(/_FY\d+_Q\d+$/i, '');
+
+      record = await getLatestOFactorResultByTicker(ticker);
+    }
+
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'OFactor analysis not yet available — trigger via POST first' });
+    }
+
+    res.json({ success: true, data: record.result });
+  } catch (error) {
+    console.error('Error fetching OFactor analysis:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch OFactor analysis', message: error.message });
+  }
 });
 
 app.get('/api/deal/analysis', async (req, res) => {
@@ -388,7 +427,7 @@ app.get('/api/deal/analysis', async (req, res) => {
     return res.status(400).json({ success: false, error: 'callId query parameter is required' });
   }
   try {
-    const record = (await getDealResult(callId)) ?? (await getLatestDealResult());
+    const record = await getDealResult(callId);
     if (!record) {
       return res.status(404).json({ success: false, error: 'No deal analysis available yet — trigger via POST first' });
     }
