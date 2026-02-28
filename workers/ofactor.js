@@ -9,6 +9,128 @@ const { FinHelper }                                = require('../utils/finHelper
 const TEMP_DIR   = path.join(__dirname, '..', 'tmp');
 const MAX_TOKENS = 16000;
 
+// ─── OFactor Metric Enrichment ────────────────────────────────────────────────
+
+// KPI abbrs whose values are ratios (×) or percentages (%) — used for formatting.
+const RATIO_ABBRS = new Set(['CR','DE','IC','INTCOV','AT','IT','EVEBITDA','FCF_CONV','OCF_EBITDA','NETDEBT_EBITDA']);
+const PCT_ABBRS   = new Set(['OPM','NPM','GPM','NIM','NBM','EBITDA_MARGIN','ROCE','ROIC','ROE','ROA']);
+const DAYS_ABBRS  = new Set(['CCC','DSO','DIO','DPO']);
+const UNIT_ABBRS  = new Set(['CUST','SUBSC','EMP','STORES','UNITS']);
+
+function _fmtKpi(kpiResult) {
+  if (!kpiResult || kpiResult.value == null) return null;
+  const { value, abbrUsed } = kpiResult;
+  if (DAYS_ABBRS.has(abbrUsed))  return `${value} days`;
+  if (UNIT_ABBRS.has(abbrUsed))  return value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value.toLocaleString('en-IN');
+  if (RATIO_ABBRS.has(abbrUsed)) return `${value}x`;
+  if (PCT_ABBRS.has(abbrUsed))   return `${value}%`;
+  return `₹${value.toLocaleString('en-IN')} Cr`; // default: INR in Crore
+}
+
+function _fmtCagr(cagrResult) {
+  if (!cagrResult || cagrResult.value == null) return null;
+  const { value, type, spanYears } = cagrResult;
+  if (type === 'latest_value') return `${value}% (latest)`;
+  return `${value}%${spanYears ? ` (${Math.round(spanYears)}Y CAGR)` : ''}`;
+}
+
+/** Set metric.value only if it is currently null. */
+function _fill(metrics, key, formatted) {
+  if (!metrics || !metrics[key]) return;
+  if (metrics[key].value === null && formatted != null) {
+    metrics[key].value = formatted;
+    console.log(`[OFactor Enrich] filled ${key} = ${formatted}`);
+  }
+}
+
+/**
+ * After LLM parsing, backfill any null metric values using FinHelper.
+ * Only touches fields whose primary KPI abbr is present in substitute_kpis.
+ */
+async function enrichOFactorMetrics(result, ticker, industry, helper) {
+  if (!result) return;
+
+  // Fetch all needed KPI values in parallel
+  const [
+    roceR, revR, opmR, fcfR, cccR, patR, revCagrR,
+    custR, custCagrR,
+    netDebtEbitdaR, deR, icR, crR,
+    indOpmR, indRevCagrR,
+  ] = await Promise.allSettled([
+    helper.stockRoceLatest(ticker),
+    helper.stockKpiLatest(ticker, 'REV'),
+    helper.stockKpiLatest(ticker, 'OPM'),
+    helper.stockFcfLatest(ticker),
+    helper.stockCccLatest(ticker),
+    helper.stockKpiLatest(ticker, 'PAT'),
+    helper.stockRevCagr(ticker),
+    helper.stockKpiLatest(ticker, 'CUST'),
+    helper.stockCustCagr(ticker),
+    // Computed ratios — substitute chains used inside each method
+    helper.computeNetDebtEbitda(ticker),  // NETDEBT_EBITDA or NETDEBT÷EBITDA
+    helper.computeDeRatio(ticker),        // DE or DEBT÷EQ
+    helper.computeIc(ticker),             // IC/INTCOV or EBIT÷INTEXP
+    helper.computeCr(ticker),             // CR or WC÷TL
+    helper.industryKpiAvg(industry, 'OPM'),
+    helper.industryRevCagr(industry),
+  ]);
+
+  const v    = (r) => r.status === 'fulfilled' ? r.value : null;
+  const fmt  = (r) => _fmtKpi(v(r));
+  const fmtC = (r) => _fmtCagr(v(r));
+  const fmtX = (r) => { const res = v(r); return res?.value != null ? `${res.value}x` : null; };
+
+  // ── financial_strength ──────────────────────────────────────────────────────
+  const fs = result.financial_strength;
+  if (fs) {
+    const m = fs.metrics;
+    _fill(m, 'roce',           fmt(roceR));
+    _fill(m, 'revenue',        fmt(revR));
+    _fill(m, 'ebitda_margin',  fmt(opmR));
+    _fill(m, 'free_cash_flow', fmt(fcfR));
+    _fill(m, 'net_debt_ebitda', fmtX(netDebtEbitdaR));
+
+    const cf = fs.text?.cash_flow?.metrics;
+    _fill(cf, 'fcf',             fmt(fcfR));
+    _fill(cf, 'working_capital', fmt(cccR));
+
+    const bs = fs.text?.balance_sheet?.metrics;
+    _fill(bs, 'net_debt_ebitda',  fmtX(netDebtEbitdaR));
+    _fill(bs, 'debt_equity',      fmtX(deR));
+    _fill(bs, 'interest_coverage', fmtX(icR));
+    _fill(bs, 'current_ratio',    fmtX(crR));
+
+    const prof = fs.text?.profitability?.metrics;
+    _fill(prof, 'ebitda_margin', fmt(opmR));
+    // PAT primary → NPM substitute is %; only show as margin if a % abbr landed
+    const patVal = v(patR);
+    if (prof?.pat_margin?.value === null && patVal?.value != null && PCT_ABBRS.has(patVal.abbrUsed)) {
+      prof.pat_margin.value = `${patVal.value}%`;
+      console.log(`[OFactor Enrich] filled pat_margin = ${prof.pat_margin.value}`);
+    }
+
+    const rg = fs.text?.revenue_growth?.metrics;
+    _fill(rg, 'revenue',        fmt(revR));
+    _fill(rg, 'five_year_cagr', fmtC(revCagrR));
+  }
+
+  // ── industry_overview ───────────────────────────────────────────────────────
+  const io = result.industry_overview;
+  if (io) {
+    _fill(io.metrics,                  'current_opm',   fmt(indOpmR));
+    _fill(io.metrics,                  'industry_cagr', fmtC(indRevCagrR));
+    _fill(io.text?.opm_trend?.metrics, 'current_opm',   fmt(indOpmR));
+  }
+
+  // ── customer_traction ───────────────────────────────────────────────────────
+  const ct = result.customer_traction;
+  if (ct) {
+    _fill(ct.metrics,                        'active_customers', fmt(custR));
+    _fill(ct.text?.customer_growth?.metrics, 'current_base',     fmt(custR));
+    _fill(ct.text?.customer_growth?.metrics, 'five_year_growth', fmtC(custCagrR));
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function getSubjectSummaries(companyPrefix) {
@@ -121,6 +243,10 @@ async function processOFactorJob(job) {
 
     console.log('Claude OFactor response received, parsing...');
     const ofactorResult = parseJson(responseText);
+    await job.updateProgress(90);
+
+    console.log('[OFactor] Enriching null metrics from DB...');
+    await enrichOFactorMetrics(ofactorResult, subjectTicker, industry, helper);
     await job.updateProgress(92);
 
     await upsertOFactorResult(callId, subjectTicker, autoDiscoveredTickers, ofactorResult, prisma);

@@ -2,18 +2,16 @@
 
 const { getHistoricPeForTickers } = require('../db-utils/getHistoricPe');
 
-// Ordered fallback list for operating margin — index 0 = highest priority.
-// Falls back further via substitute_kpis table at runtime.
-const OPM_KPI_PRIORITY = ['OPM', 'EBITDA', 'EBITDAM', 'NIM', 'CTI'];
-
 /**
  * FinHelper — financial KPI calculation utility
  *
  * Layers:
  *  1. Math primitives  — pure static functions (growth, CAGR, margin, ratio, average)
- *  2. Time series      — fetch KPI values from DB quarterly summaries
- *  3. Stock-level CAGR — EPS CAGR (DB) and P/E CAGR (pe_data table)
- *  4. Industry-level   — aggregate EPS and PE CAGR across all tickers in an industry
+ *  2. Time series      — fetch KPI values from DB quarterly summaries (with substitute_kpis fallback)
+ *  3. Generic stock    — stockKpiLatest / stockKpiCagr for any primary KPI abbr
+ *  4. Generic industry — industryKpiAvg / industryKpiCagr for any primary KPI abbr
+ *  5. Named wrappers   — stockEpsCagr, industryOpm etc. delegate to the generics above
+ *  6. PE (special)     — reads pe_data table, not summary KPIs
  */
 
 class FinHelper {
@@ -109,7 +107,7 @@ class FinHelper {
     const subRow = await this.prisma.substituteKpi.findUnique({
       where: { primaryKpiAbbr: abbr },
     });
-    const fallbackAbbrs = subRow?.substitutes ?? [];
+    const fallbackAbbrs  = subRow?.substitutes ?? [];
     const abbrCandidates = [abbr, ...fallbackAbbrs];
 
     return calls.map(call => {
@@ -140,19 +138,40 @@ class FinHelper {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 3 — Stock-level CAGR
+  // Layer 3 — Generic stock-level calculations
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * EPS CAGR for a single stock from DB quarterly summaries.
-   * Falls back to latest value when base EPS is non-positive or < 2 periods.
+   * Latest non-null value for any KPI from a ticker's time series.
+   * Substitute fallback is handled by getTimeSeries.
+   *
+   * @param {string} ticker
+   * @param {string} abbr  - primary KPI abbr (e.g. 'ROCE', 'FCF', 'OPM')
+   * @returns {Promise<{ value: number|null, abbrUsed: string|null, period: string|null, type: string }>}
    */
-  async stockEpsCagr(ticker, targetYears = 5) {
-    const series     = await this.getTimeSeries(ticker, 'EPS');
+  async stockKpiLatest(ticker, abbr) {
+    const series     = await this.getTimeSeries(ticker, abbr);
+    const withValues = series.filter(s => s.value != null);
+    if (!withValues.length) return { value: null, abbrUsed: null, period: null, type: 'no_data' };
+    const latest = withValues.at(-1);
+    return { value: latest.value, abbrUsed: latest.abbrUsed, period: latest.period, type: 'latest_value' };
+  }
+
+  /**
+   * CAGR for any KPI from a ticker's time series.
+   * Falls back to latest value when base is non-positive or < 2 periods.
+   * Substitute fallback is handled by getTimeSeries.
+   *
+   * @param {string} ticker
+   * @param {string} abbr        - primary KPI abbr
+   * @param {number} targetYears
+   */
+  async stockKpiCagr(ticker, abbr, targetYears = 5) {
+    const series     = await this.getTimeSeries(ticker, abbr);
     const withValues = series.filter(s => s.value != null);
 
-    console.log(`[EPS] ${ticker} — ${series.length} periods total, ${withValues.length} with values`);
-    withValues.forEach(s => console.log(`  ${s.period}  eps=${s.value}`));
+    console.log(`[${abbr}] ${ticker} — ${series.length} periods total, ${withValues.length} with values`);
+    withValues.forEach(s => console.log(`  ${s.period}  ${abbr}=${s.value}  (abbrUsed=${s.abbrUsed})`));
 
     if (withValues.length === 0) {
       return { value: null, type: 'no_data', periodsUsed: 0 };
@@ -161,7 +180,7 @@ class FinHelper {
     const latest = withValues.at(-1);
     if (withValues.length === 1) {
       return { value: latest.value, type: 'latest_value', periodsUsed: 1,
-               note: 'Only one period available — CAGR not computable' };
+               abbrUsed: latest.abbrUsed, note: 'Only one period available — CAGR not computable' };
     }
 
     const first = withValues.at(0);
@@ -175,13 +194,13 @@ class FinHelper {
 
     if (spanYears <= 0) {
       return { value: latest.value, type: 'latest_value', periodsUsed: withValues.length,
-               note: 'Zero time span' };
+               abbrUsed: latest.abbrUsed, note: 'Zero time span' };
     }
 
     const cagrValue = FinHelper.cagr(first.value, latest.value, spanYears);
     if (cagrValue == null || isNaN(cagrValue)) {
       return { value: latest.value, type: 'latest_value', periodsUsed: withValues.length,
-               note: 'CAGR undefined (negative/zero base EPS) — returning latest value' };
+               abbrUsed: latest.abbrUsed, note: 'CAGR undefined (negative/zero base) — returning latest value' };
     }
 
     return {
@@ -189,10 +208,307 @@ class FinHelper {
       type:        spanYears >= 4 ? '5yr_cagr' : 'partial_cagr',
       spanYears:   parseFloat(spanYears.toFixed(2)),
       periodsUsed: withValues.length,
+      abbrUsed:    latest.abbrUsed,
       firstValue:  first.value,
       latestValue: latest.value,
     };
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Layer 4 — Generic industry-level calculations
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Simple average of the latest value for any KPI across all tickers in an industry.
+   * Substitute fallback is handled per-ticker by getTimeSeries.
+   *
+   * @param {string} industry
+   * @param {string} abbr     - primary KPI abbr (e.g. 'OPM', 'ROCE', 'REV')
+   * @returns {Promise<{ value: number|null, abbrUsed: string|null, sampleSize: number }>}
+   */
+  async industryKpiAvg(industry, abbr) {
+    const tickers = await this._industryTickers(industry);
+    if (!tickers.length) return { value: null, abbrUsed: null, sampleSize: 0 };
+
+    const results = await Promise.allSettled(tickers.map(t => this.stockKpiLatest(t, abbr)));
+    const valid   = results
+      .filter(r => r.status === 'fulfilled' && r.value.value != null)
+      .map(r => r.value);
+
+    if (!valid.length) return { value: null, abbrUsed: null, sampleSize: 0 };
+
+    const avg = FinHelper.average(valid.map(v => v.value));
+    return {
+      value:      avg != null ? parseFloat(avg.toFixed(2)) : null,
+      abbrUsed:   valid[0]?.abbrUsed ?? abbr,
+      sampleSize: valid.length,
+    };
+  }
+
+  /**
+   * Average CAGR for any KPI across all tickers in an industry.
+   * Only tickers with a computable CAGR (not latest_value fallbacks) are included.
+   *
+   * @param {string} industry
+   * @param {string} abbr        - primary KPI abbr (e.g. 'EPS', 'REV', 'ROCE')
+   * @param {number} targetYears
+   */
+  async industryKpiCagr(industry, abbr, targetYears = 5) {
+    const tickers = await this._industryTickers(industry);
+    console.log(`[Industry ${abbr}] "${industry}" — ${tickers.length} tickers:`, tickers);
+    if (!tickers.length) return { value: null, type: 'no_data', tickerCount: 0 };
+
+    const results = await Promise.allSettled(
+      tickers.map(t => this.stockKpiCagr(t, abbr, targetYears))
+    );
+
+    results.forEach((r, i) => {
+      const v = r.status === 'fulfilled'
+        ? `value=${r.value.value}, type=${r.value.type}`
+        : `REJECTED: ${r.reason?.message}`;
+      console.log(`[Industry ${abbr}] ${tickers[i]} → ${v}`);
+    });
+
+    const cagrValues = results
+      .filter(r => r.status === 'fulfilled' && r.value.value != null && !isNaN(r.value.value) && r.value.type.includes('cagr'))
+      .map(r => r.value.value);
+
+    const avg = FinHelper.average(cagrValues);
+    return {
+      value:            avg != null ? parseFloat(avg.toFixed(2)) : null,
+      type:             '5yr_cagr',
+      tickerCount:      tickers.length,
+      validTickerCount: cagrValues.length,
+      tickers,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Layer 5 — Named wrappers for every primary_kpi_abbr in substitute_kpis
+  //           (used by controllers — do not rename existing ones)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── EPS ──────────────────────────────────────────────────────────────────────
+  /** EPS CAGR for a single stock. */
+  async stockEpsCagr(ticker, targetYears = 5) {
+    return this.stockKpiCagr(ticker, 'EPS', targetYears);
+  }
+  /** Average EPS CAGR across all tickers in an industry. */
+  async industryEpsCagr(industry, targetYears = 5) {
+    return this.industryKpiCagr(industry, 'EPS', targetYears);
+  }
+
+  // ── OPM ──────────────────────────────────────────────────────────────────────
+  /** Average OPM across all tickers in an industry (substitute_kpis fallback applied). */
+  async industryOpm(industry) {
+    return this.industryKpiAvg(industry, 'OPM');
+  }
+
+  // ── REV (Revenue) ─────────────────────────────────────────────────────────────
+  /** Revenue CAGR for a single stock. */
+  async stockRevCagr(ticker, targetYears = 5) {
+    return this.stockKpiCagr(ticker, 'REV', targetYears);
+  }
+  /** Average Revenue CAGR across all tickers in an industry. */
+  async industryRevCagr(industry, targetYears = 5) {
+    return this.industryKpiCagr(industry, 'REV', targetYears);
+  }
+
+  // ── PAT (Profit After Tax) ────────────────────────────────────────────────────
+  /** PAT CAGR for a single stock. */
+  async stockPatCagr(ticker, targetYears = 5) {
+    return this.stockKpiCagr(ticker, 'PAT', targetYears);
+  }
+  /** Average PAT CAGR across all tickers in an industry. */
+  async industryPatCagr(industry, targetYears = 5) {
+    return this.industryKpiCagr(industry, 'PAT', targetYears);
+  }
+
+  // ── PBT (Profit Before Tax) ───────────────────────────────────────────────────
+  /** PBT CAGR for a single stock. */
+  async stockPbtCagr(ticker, targetYears = 5) {
+    return this.stockKpiCagr(ticker, 'PBT', targetYears);
+  }
+  /** Average PBT CAGR across all tickers in an industry. */
+  async industryPbtCagr(industry, targetYears = 5) {
+    return this.industryKpiCagr(industry, 'PBT', targetYears);
+  }
+
+  // ── FCF (Free Cash Flow) ──────────────────────────────────────────────────────
+  // Point-in-time preferred — FCF CAGR is unreliable when base year is negative.
+  /** Latest FCF value for a single stock. */
+  async stockFcfLatest(ticker) {
+    return this.stockKpiLatest(ticker, 'FCF');
+  }
+  /** Average FCF across all tickers in an industry. */
+  async industryFcfAvg(industry) {
+    return this.industryKpiAvg(industry, 'FCF');
+  }
+
+  // ── DEBT (Total Debt) ─────────────────────────────────────────────────────────
+  /** Latest Debt value for a single stock. */
+  async stockDebtLatest(ticker) {
+    return this.stockKpiLatest(ticker, 'DEBT');
+  }
+  /** Average Debt across all tickers in an industry. */
+  async industryDebtAvg(industry) {
+    return this.industryKpiAvg(industry, 'DEBT');
+  }
+
+  // ── INTEXP (Interest Expense) ─────────────────────────────────────────────────
+  /** Latest Interest Expense for a single stock. */
+  async stockIntexpLatest(ticker) {
+    return this.stockKpiLatest(ticker, 'INTEXP');
+  }
+  /** Average Interest Expense across all tickers in an industry. */
+  async industryIntexpAvg(industry) {
+    return this.industryKpiAvg(industry, 'INTEXP');
+  }
+
+  // ── ROCE (Return on Capital Employed) ─────────────────────────────────────────
+  // Point-in-time preferred — ROCE is a margin %, CAGR of a % is rarely used.
+  /** Latest ROCE for a single stock. */
+  async stockRoceLatest(ticker) {
+    return this.stockKpiLatest(ticker, 'ROCE');
+  }
+  /** Average ROCE across all tickers in an industry. */
+  async industryRoceAvg(industry) {
+    return this.industryKpiAvg(industry, 'ROCE');
+  }
+
+  // ── CCC (Cash Conversion Cycle) ───────────────────────────────────────────────
+  // Days metric — point-in-time comparison is more meaningful than CAGR.
+  /** Latest CCC (days) for a single stock. */
+  async stockCccLatest(ticker) {
+    return this.stockKpiLatest(ticker, 'CCC');
+  }
+  /** Average CCC across all tickers in an industry. */
+  async industryCccAvg(industry) {
+    return this.industryKpiAvg(industry, 'CCC');
+  }
+
+  // ── CUST (Number of Customers) ────────────────────────────────────────────────
+  // Growth rate is the meaningful signal for customer metrics.
+  /** Customer count CAGR for a single stock. */
+  async stockCustCagr(ticker, targetYears = 5) {
+    return this.stockKpiCagr(ticker, 'CUST', targetYears);
+  }
+  /** Average Customer CAGR across all tickers in an industry. */
+  async industryCustCagr(industry, targetYears = 5) {
+    return this.industryKpiCagr(industry, 'CUST', targetYears);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Layer 5b — Computed ratios
+  //
+  // Each method tries the stored ratio KPI first. If missing, it fetches the
+  // numerator and denominator via stockKpiLatest() — which automatically chains
+  // through substitute_kpis, so component fallbacks are handled for free:
+  //   EBIT    → PBT → PAT → EBITDA          (seeded in substitute_kpis)
+  //   NETDEBT → DEBT                         (seeded in substitute_kpis)
+  //   EBITDA  → EBIT → PAT → PBT            (seeded in substitute_kpis)
+  //   TL      → DEBT                         (seeded in substitute_kpis)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Net Debt / EBITDA.
+   * Tries stored NETDEBT_EBITDA → then computes NETDEBT ÷ EBITDA.
+   * NETDEBT falls back to DEBT; EBITDA falls back to EBIT → PAT → PBT.
+   */
+  async computeNetDebtEbitda(ticker) {
+    const stored = await this.stockKpiLatest(ticker, 'NETDEBT_EBITDA');
+    if (stored.value != null) return { value: stored.value, abbrUsed: 'NETDEBT_EBITDA', computed: false };
+
+    const [netDebtR, ebitdaR] = await Promise.all([
+      this.stockKpiLatest(ticker, 'NETDEBT'), // NETDEBT → DEBT
+      this.stockKpiLatest(ticker, 'EBITDA'),  // EBITDA  → EBIT → PAT → PBT
+    ]);
+
+    const value = FinHelper.ratio(netDebtR.value, ebitdaR.value);
+    return {
+      value:    value != null ? parseFloat(value.toFixed(2)) : null,
+      abbrUsed: 'NETDEBT_EBITDA',
+      computed: true,
+      note:     `${netDebtR.abbrUsed ?? 'NETDEBT'} ÷ ${ebitdaR.abbrUsed ?? 'EBITDA'}`,
+    };
+  }
+
+  /**
+   * Debt / Equity ratio.
+   * Tries stored DE → then computes DEBT ÷ EQ.
+   * DEBT falls back via its own substitute chain (NETDEBT, DE, …).
+   */
+  async computeDeRatio(ticker) {
+    const stored = await this.stockKpiLatest(ticker, 'DE');
+    if (stored.value != null) return { value: stored.value, abbrUsed: 'DE', computed: false };
+
+    const [debtR, eqR] = await Promise.all([
+      this.stockDebtLatest(ticker),          // DEBT → NETDEBT → …
+      this.stockKpiLatest(ticker, 'EQ'),     // EQ (no substitute — standalone)
+    ]);
+
+    const value = FinHelper.ratio(debtR.value, eqR.value);
+    return {
+      value:    value != null ? parseFloat(value.toFixed(2)) : null,
+      abbrUsed: 'DE',
+      computed: true,
+      note:     `${debtR.abbrUsed ?? 'DEBT'} ÷ EQ`,
+    };
+  }
+
+  /**
+   * Interest Coverage ratio (EBIT / Interest Expense).
+   * The INTEXP substitute chain includes IC and INTCOV — if those land first
+   * the stored ratio is returned directly.
+   * Otherwise computes EBIT ÷ INTEXP; EBIT falls back to PBT → PAT → EBITDA.
+   */
+  async computeIc(ticker) {
+    const [ebitR, intexpR] = await Promise.all([
+      this.stockKpiLatest(ticker, 'EBIT'),   // EBIT → PBT → PAT → EBITDA
+      this.stockKpiLatest(ticker, 'INTEXP'), // INTEXP → FINCOS → IC → INTCOV → …
+    ]);
+
+    // Substitute resolution landed on a stored ratio — use it directly
+    const ALREADY_RATIO = new Set(['IC', 'INTCOV']);
+    if (intexpR.value != null && ALREADY_RATIO.has(intexpR.abbrUsed)) {
+      return { value: intexpR.value, abbrUsed: intexpR.abbrUsed, computed: false };
+    }
+
+    const value = FinHelper.ratio(ebitR.value, intexpR.value);
+    return {
+      value:    value != null ? parseFloat(value.toFixed(2)) : null,
+      abbrUsed: 'IC',
+      computed: true,
+      note:     `${ebitR.abbrUsed ?? 'EBIT'} ÷ ${intexpR.abbrUsed ?? 'INTEXP'}`,
+    };
+  }
+
+  /**
+   * Current Ratio.
+   * Tries stored CR → then computes WC ÷ TL (schema definition).
+   * TL falls back to DEBT as a rough proxy for total liabilities.
+   */
+  async computeCr(ticker) {
+    const stored = await this.stockKpiLatest(ticker, 'CR');
+    if (stored.value != null) return { value: stored.value, abbrUsed: 'CR', computed: false };
+
+    const [wcR, tlR] = await Promise.all([
+      this.stockKpiLatest(ticker, 'WC'), // WC (no substitute — standalone)
+      this.stockKpiLatest(ticker, 'TL'), // TL → DEBT
+    ]);
+
+    const value = FinHelper.ratio(wcR.value, tlR.value);
+    return {
+      value:    value != null ? parseFloat(value.toFixed(2)) : null,
+      abbrUsed: 'CR',
+      computed: true,
+      note:     `WC ÷ ${tlR.abbrUsed ?? 'TL'}`,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Layer 6 — PE (reads pe_data table, not summary KPIs)
+  // ─────────────────────────────────────────────────────────────────────────────
 
   /**
    * P/E CAGR for a single stock from quarterly PE history (pe_data table).
@@ -250,44 +566,6 @@ class FinHelper {
     };
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 4 — Industry-level CAGR
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Average EPS CAGR across all tickers in an industry.
-   * Only tickers with computable CAGR (not latest_value fallbacks) are included.
-   */
-  async industryEpsCagr(industry, targetYears = 5) {
-    const tickers = await this._industryTickers(industry);
-    console.log(`[Industry EPS] "${industry}" — ${tickers.length} tickers:`, tickers);
-    if (!tickers.length) return { value: null, type: 'no_data', tickerCount: 0 };
-
-    const results = await Promise.allSettled(
-      tickers.map(t => this.stockEpsCagr(t, targetYears))
-    );
-
-    results.forEach((r, i) => {
-      const v = r.status === 'fulfilled'
-        ? `value=${r.value.value}, type=${r.value.type}`
-        : `REJECTED: ${r.reason?.message}`;
-      console.log(`[Industry EPS] ${tickers[i]} → ${v}`);
-    });
-
-    const cagrValues = results
-      .filter(r => r.status === 'fulfilled' && r.value.value != null && !isNaN(r.value.value) && r.value.type.includes('cagr'))
-      .map(r => r.value.value);
-
-    const avg = FinHelper.average(cagrValues);
-    return {
-      value:            avg != null ? parseFloat(avg.toFixed(2)) : null,
-      type:             '5yr_cagr',
-      tickerCount:      tickers.length,
-      validTickerCount: cagrValues.length,
-      tickers,
-    };
-  }
-
   /**
    * Average P/E CAGR across all tickers in an industry.
    */
@@ -322,50 +600,6 @@ class FinHelper {
       avgLatestPe:      avgLatest != null ? parseFloat(avgLatest.toFixed(2)) : null,
       tickers,
     };
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 5 — Industry OPM
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Average OPM % across all summaries for tickers in an industry.
-   * Tries OPM_KPI_PRIORITY in order, then any additional substitutes from the
-   * substitute_kpis table, using the first abbr that yields numeric values.
-   *
-   * @param {string} industry - earnings_calls.basic_industry value
-   * @returns {Promise<{ value: number|null, abbrUsed: string|null, sampleSize: number }>}
-   */
-  async industryOpm(industry) {
-    const tickers = await this._industryTickers(industry);
-    if (!tickers.length) return { value: null, abbrUsed: null, sampleSize: 0 };
-
-    const calls = await this.prisma.earnings_calls.findMany({
-      where:   { company: { in: tickers } },
-      select:  { id: true },
-    });
-    const summaries = await this.prisma.summary.findMany({
-      where:  { callId: { in: calls.map(c => c.id) } },
-      select: { kpis: true },
-    });
-
-    const allKpis = summaries.flatMap(s => Array.isArray(s.kpis) ? s.kpis : []);
-
-    // Build candidate list: static priority + DB substitutes for 'OPM'
-    const subRow = await this.prisma.substituteKpi.findUnique({ where: { primaryKpiAbbr: 'OPM' } });
-    const candidates = [...new Set([...OPM_KPI_PRIORITY, ...(subRow?.substitutes ?? [])])];
-
-    for (const abbr of candidates) {
-      const vals = allKpis
-        .filter(k => k.kpi_abbr === abbr && k.value != null)
-        .map(k => parseFloat(k.value))
-        .filter(v => !isNaN(v));
-      if (vals.length > 0) {
-        const avg = parseFloat((vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(2));
-        return { value: avg, abbrUsed: abbr, sampleSize: vals.length };
-      }
-    }
-    return { value: null, abbrUsed: null, sampleSize: 0 };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

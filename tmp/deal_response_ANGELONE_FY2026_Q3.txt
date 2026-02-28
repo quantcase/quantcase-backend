@@ -1,0 +1,87 @@
+```json
+{
+  "scenario_framework": {
+    "meta": {
+      "ticker": "ANGELONE",
+      "company_name": "Angel One Ltd",
+      "cmp": 233,
+      "forecast_horizon_years": 3,
+      "base_annualized_eps": 59.24,
+      "stock_current_pe": 29.47,
+      "industry_avg_pe": 20.75
+    },
+    "bear": {
+      "eps_cagr_pct": -15,
+      "fy_eps": 36.34,
+      "exit_pe_low": 12,
+      "exit_pe_high": 16,
+      "exit_pe_rationale": "Severe multiple compression toward or below historical avg P/E of 20.75x, reflecting regulatory headwinds, market volume decline, and loss of retail participation. Discount to history warranted given earnings deterioration.",
+      "target_price_low": 436,
+      "target_price_high": 581,
+      "upside_downside_pct": 106,
+      "cagr_pa_pct": 27.1,
+      "probability_pct": 25,
+      "key_drivers": [
+        "SEBI regulatory tightening on F&O segment — new lot size and margin rules structurally reduce retail F&O volumes and brokerage revenue, the core earnings driver for Angel One",
+        "Intensifying price competition from discount brokers (Zerodha, Groww) and new entrants compresses ARPU and client monetization rates further",
+        "Sustained equity market correction or prolonged low-volatility regime suppresses trading activity and new client additions, reversing the post-COVID demat boom",
+        "EPS run-rate already shows a sharp negative trend (-55% historical CAGR signal); if cost base remains sticky while revenues compress, operating leverage turns adverse"
+      ]
+    },
+    "base": {
+      "eps_cagr_pct": 8,
+      "fy_eps": 74.64,
+      "exit_pe_low": 20,
+      "exit_pe_high": 26,
+      "exit_pe_rationale": "Exit P/E converges toward historical average of 20.75x on the low end and current P/E of ~29x on the high end, reflecting modest re-rating as earnings stabilize. Mid-point near 23x is consistent with a maturing discount brokerage with steady but moderating growth.",
+      "target_price_low": 1493,
+      "target_price_high": 1941,
+      "upside_downside_pct": 644,
+      "cagr_pa_pct": 97.2,
+      "probability_pct": 45,
+      "key_drivers": [
+        "Gradual recovery in retail equity participation as Indian household financialization deepens; new SIP and demat accounts continue to grow at mid-teens pace supporting commission income",
+        "Angel One's diversification into wealth management, AMC partnerships, and credit products (loans against securities, margin funding) provides revenue diversification and earnings resilience",
+        "Regulatory adjustments from SEBI are absorbed over 12-18 months; company adapts pricing and product mix, stabilizing EBITDA margins in the 28-32% range",
+        "Digital-first cost structure limits opex expansion, enabling modest EPS recovery from the depressed base toward ₹70-75 annualized over 3 years"
+      ]
+    },
+    "bull": {
+      "eps_cagr_pct": 22,
+      "fy_eps": 107.83,
+      "exit_pe_low": 28,
+      "exit_pe_high": 35,
+      "exit_pe_rationale": "Premium P/E expansion toward and above current levels of 29.47x, justified by strong earnings recovery, successful platform diversification, and market share gains. A re-rating to 30-35x is plausible if Angel One demonstrates fintech-platform characteristics with high ROE.",
+      "target_price_low": 3019,
+      "target_price_high": 3774,
+      "upside_downside_pct": 1461,
+      "cagr_pa_pct": 148.4,
+      "probability_pct": 30,
+      "key_drivers": [
+        "Structural bull market in Indian equities drives exponential growth in retail F&O and cash market volumes; Angel One's market share in active traders expands driven by superior UX and technology stack",
+        "Successful scale-up of Angel One's AMC and wealth advisory segments creates annuity-like AUM-based fee revenue, commanding a higher earnings multiple from the market",
+        "Rapid client base expansion into Tier 2/3 cities via vernacular app features and partnerships; active client count doubles from current base, materially lifting revenue without proportional cost increase",
+        "Strong operating leverage kicks in — incremental revenue flows at high margins as fixed technology and compliance costs are spread over a larger base, driving EPS to ₹100+ range"
+      ]
+    }
+  },
+  "risk_reward_summary": {
+    "probability_weighted_return_pct": 562,
+    "risk_reward_ratio": 6.8,
+    "downside_protection_pct": 106,
+    "investment_thesis": "Angel One trades at ₹233 against an annualized EPS run-rate of ₹59.24, implying a current P/E of ~29.5x — elevated relative to its own historical average of 20.75x, suggesting the market is pricing in a meaningful recovery from recent earnings compression. The stock offers an asymmetric risk-reward profile: even in the bear case, the stock appears significantly undervalued relative to the EPS base, while the base and bull cases imply substantial multi-bagger potential if Angel One successfully navigates SEBI regulatory changes and executes on its fintech diversification strategy. The primary risk is sustained regulatory pressure on F&O volumes combined with competitive pricing erosion, which could keep earnings suppressed; investors should size positions accounting for the high earnings volatility evident in the limited 3-quarter data history.",
+    "key_risks": [
+      "SEBI regulatory intervention on F&O segment (lot sizes, margin requirements, weekly expiry restrictions) structurally reducing the most profitable revenue segment for discount brokers",
+      "Intensifying price competition in the zero-commission broking space from well-funded competitors (Zerodha, Groww, Upstox) and potential entry of large banks into the discount broking space",
+      "High dependence on retail market sentiment and equity market cycles — a prolonged bear market or sideways consolidation would severely compress trading volumes and new client additions",
+      "Execution risk in diversifying beyond broking into AMC, wealth management, and credit — these are capital-intensive, compliance-heavy businesses where Angel One lacks a proven long-term track record"
+    ],
+    "key_catalysts": [
+      "Regulatory clarity from SEBI on F&O framework providing certainty to revenue outlook and enabling management to provide forward guidance, triggering a valuation re-rating",
+      "Quarterly EPS inflection — any two consecutive quarters of sequential EPS growth would demonstrate earnings recovery and potentially collapse the high P/E multiple into an attractive entry point narrative",
+      "Successful product launches in wealth management or credit (e.g., margin trade funding, loan book growth) with disclosed AUM or loan book metrics demonstrating revenue diversification",
+      "Broader Indian equity market rally driven by FII inflows, rate cuts by RBI, or strong GDP growth data, which historically drives disproportionate volume and client activity surges at discount brokers"
+    ]
+  }
+}
+```

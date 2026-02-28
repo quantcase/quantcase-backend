@@ -273,10 +273,16 @@ const getManagementAnalysis = async (req, res) => {
    // Extract company prefix from callId (e.g. "ADANIENSOL" from "ADANIENSOL_FY2026_Q3")
 const companyPrefix = callId.split('_FY')[0];
 
-const rawSummaries = await prisma.summary.findMany({
-  where:   { callId: { startsWith: companyPrefix } },
-  orderBy: { createdAt: 'desc' }
-});
+const [rawSummaries, callRecord] = await Promise.all([
+  prisma.summary.findMany({
+    where:   { callId: { startsWith: companyPrefix } },
+    orderBy: { createdAt: 'desc' }
+  }),
+  prisma.earnings_calls.findFirst({
+    where:  { company: companyPrefix },
+    select: { basic_industry: true }
+  })
+]);
 
 if (rawSummaries.length === 0) {
   return res.status(404).json({ success: false, error: 'No summaries found for this company' });
@@ -311,7 +317,7 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
     const kpiNameMap = Object.fromEntries(kpiRows.map(k => [k.abbr.trim().toLowerCase(), k.full_form]));
 
     // Attach full name, clean up internal field, and filter incomplete rows
-    const STATUS_SORT = { ACHIEVED: 0, MISSED: 0, HIDDEN: 1, PENDING: 2, KPI_MATCHING_NOT_FOUND: 3 };
+    const STATUS_SORT = { MISSED: 0, ACHIEVED: 1, HIDDEN: 2, PENDING: 3, KPI_MATCHING_NOT_FOUND: 4 };
     const mapped = records
       .map(r => {
         const out = { ...r };
@@ -325,16 +331,24 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
         r.targeted_value != null &&
         (r.current_value != null || r.status === 'PENDING')
       )
-      .sort((a, b) => (STATUS_SORT[a.status] ?? 3) - (STATUS_SORT[b.status] ?? 3));
+      .sort((a, b) => {
+        const statusDiff = (STATUS_SORT[a.status] ?? 4) - (STATUS_SORT[b.status] ?? 4);
+        if (statusDiff !== 0) return statusDiff;
+        // Within same status: financial before conceptual
+        const typeRank = t => t === 'financial' ? 0 : 1;
+        return typeRank(a.target_type) - typeRank(b.target_type);
+      });
 
-    // Quota-based selection to ensure diversity: ACHIEVED/MISSED dominate but
-    // hidden and pending always get representation when available.
+    // Quota-based selection: MISSED always included first (priority), then ACHIEVED,
+    // then hidden and pending for diversity.
     const pick = (arr, n) => arr.slice(0, n);
     const byStatus = (s) => mapped.filter(r => s.includes(r.status));
+    const missedAll = byStatus(['MISSED']);
     const primary = [
-      ...pick(byStatus(['ACHIEVED', 'MISSED']), 4),
-      ...pick(byStatus(['HIDDEN']),             2),
-      ...pick(byStatus(['PENDING']),            2),
+      ...missedAll,                                        // ALL missed — never drop these
+      ...pick(byStatus(['ACHIEVED']), 4),
+      ...pick(byStatus(['HIDDEN']),   2),
+      ...pick(byStatus(['PENDING']),  1),
     ];
     const usedIds  = new Set(primary.map(r => r.id));
     const spillover = mapped.filter(r => !usedIds.has(r.id));
@@ -381,7 +395,7 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
           name:               latest.callId,
          // ticker:             call.company_name ?? call.company ?? null,
           exchange:           "NSE",
-          industry:           latest.entities?.business_segments?.join(', ') ?? null,
+          industry:           callRecord?.basic_industry ?? null,
  //         callDate:           call.call_date ?? null,
           confidenceLevel:    getConfidenceLevel(latest.confidence),
           transcriptsAnalyzed: summaries.length
