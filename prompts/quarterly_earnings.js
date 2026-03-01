@@ -30,11 +30,9 @@ If you encounter a financial metric NOT in the above list, do NOT invent an abbr
 ----------------------
 
 ## EXTRACTION RULES
-1. Extract values ONLY for the CURRENT QUARTER (${quarter} ${fiscal_year}). Do NOT return year-over-year changes, sequential quarter comparisons, or historical period data.
+1. Extract latest values ONLY 
 2. Values must be decimal numbers only — no units, no currency symbols, no commas, no percentage signs. E.g. revenue of ₹1,234.56 Cr → 1234.56.
-3. Use absolute values (positive numbers) unless the metric is inherently negative (e.g. net loss).
-4. If a KPI from the list is not present in the document, set its value to null — do not omit it.
-5. Never hallucinate KPI abbrs. If unsure whether a metric matches an existing abbr, add it to new_kpis.
+3. Never hallucinate KPI abbrs. If unsure whether a metric matches an existing abbr, add it to new_kpis.
 
 ----------------------
 
@@ -70,7 +68,6 @@ Each must be fully classified per schema:
 ## IMPORTANT RULES
 1. kpis include both new and existing KPIs. If existing, match exact abbr from AVAILABLE KPIs. If new, use the abbr you assign and populate same abbr in new_kpis
 2. new_kpis entries can reference each other in numerator_abbr/denominator_abbr as long as the referenced abbr also appears in new_kpis or AVAILABLE KPIs.
-3. If no new KPIs are found, return an empty array for new_kpis — never omit the key.
 4. Return ONLY the JSON. No explanation, no markdown fences.`;
 }
 

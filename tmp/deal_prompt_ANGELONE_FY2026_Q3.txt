@@ -1,35 +1,35 @@
 You are a senior quantitative equity analyst specializing in Indian listed equities. Your task is to produce a rigorous Bear / Base / Bull scenario analysis for the following stock.
 
 ## Company Context
-- Ticker:       360ONE
-- Company:      360 ONE WAM LIMITED
-- Industry:     Stockbroking & Allied
-- CMP:          ₹1132
+- Ticker:       ANGELONE
+- Company:      null
+- Industry:     null
+- CMP:          ₹233
 - Forecast Horizon: 3 years
 
 ---
 
 ## EPS Data (from quarterly earnings summaries)
-- Latest Quarterly EPS:    ₹2.82
-- Annualized EPS Run-Rate: ₹11.28 (quarterly × 4)
-- NOTE: Only 2 quarters of EPS data available (span: 0.25 yrs). Historical CAGR of 506.16% is annualized from a very short window — use as a directional signal, not a hard anchor.
+- Latest Quarterly EPS:    ₹14.81
+- Annualized EPS Run-Rate: ₹59.24 (quarterly × 4)
+- NOTE: Only 3 quarters of EPS data available (span: 1 yrs). Historical CAGR of -55.23% is annualized from a very short window — use as a directional signal, not a hard anchor.
 
 ## P/E Ratio Data (from daily market data)
-- Current P/E (latest):           39.11x
-- Historical P/E CAGR:            21.58% over 2.75 yrs
-- Average P/E over history:       35.2x
+- Current P/E (latest):           29.47x
+- Historical P/E CAGR:            35.23% over 2.75 yrs
+- Average P/E over history:       20.75x
 
 ## Industry Benchmarks
-- Industry Average Latest P/E:    24.15x  (6 peers)
-- Industry P/E CAGR (3yr avg):    19.71%
-- Industry EPS CAGR:              506.16%
-- NOTE: Only 1 of 6 industry peers had sufficient EPS history — treat industry EPS CAGR as low-confidence.
+- Industry Average Latest P/E:    N/Ax  (0 peers)
+- Industry P/E CAGR (3yr avg):    N/A
+- Industry EPS CAGR:              N/A
+- NOTE: Only 0 of 0 industry peers had sufficient EPS history — treat industry EPS CAGR as low-confidence.
 
 ## Management Quality Signals (from recent earnings calls)
   - [object Object]
   - [object Object]
-- Latest Call Tone: confident
-- Management Confidence Level: high
+- Latest Call Tone: N/A
+- Management Confidence Level: N/A
 
 ---
 
@@ -43,10 +43,10 @@ Generate three scenarios — Bear, Base, and Bull — each with a specific EPS C
    - Bull: upside surprises, multiple expansion drivers
 2. **Forward EPS** — compute: annualized_eps_run_rate × (1 + eps_cagr/100)^3
 3. **Exit P/E range** — choose a realistic exit P/E multiple range for each scenario:
-   - Anchor to: current P/E (39.11x), historical avg P/E (35.2x), industry avg P/E (24.15x)
+   - Anchor to: current P/E (29.47x), historical avg P/E (20.75x), industry avg P/E (nullx)
    - Bear: compress toward industry avg or below; Base: near current or slight compression; Bull: premium expansion
 4. **Target Price Range** — forward_eps × exit_pe_low and forward_eps × exit_pe_high
-5. **Upside/Downside %** — relative to CMP ₹1132
+5. **Upside/Downside %** — relative to CMP ₹233
 6. **CAGR p.a.** — annualized return from CMP to midpoint of target range over 3 years
 7. **Probability** — assign probabilities that SUM TO EXACTLY 100%
 8. **Key Drivers** — 3-4 concise bullet points per scenario explaining the thesis
@@ -68,8 +68,8 @@ Return ONLY a valid JSON object with this exact schema. No markdown fences, no e
 {
   "scenario_framework": {
     "meta": {
-      "ticker": "360ONE",
-      "company_name": "360 ONE WAM LIMITED",
+      "ticker": "ANGELONE",
+      "company_name": "null",
       "cmp": <number>,
       "forecast_horizon_years": 3,
       "base_annualized_eps": <number>,

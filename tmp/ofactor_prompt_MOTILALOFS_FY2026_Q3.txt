@@ -1,0 +1,693 @@
+You are a senior equity research analyst producing an Opportunity Factor (OFactor) snapshot for a potential investment.
+Synthesise the pre-computed financial metrics and qualitative signals from earnings call transcript summaries provided below to fill all four sections of the output JSON.
+
+SUBJECT COMPANY : MOTILALOFS | MOTILALOFS
+INDUSTRY        : Stockbroking & Allied
+PEER COMPANIES  : IIFLCAPS, ANGELONE
+
+══════════════════════════════════════════════════════════
+A. PRE-COMPUTED METRICS (use these directly — do not re-derive)
+══════════════════════════════════════════════════════════
+
+PRE-COMPUTED FINANCIAL METRICS
+
+Subject Stock — MOTILALOFS
+  EPS CAGR  : -79.36% (partial_cagr, 1.5)
+    (from 34.72 → 3.24 over 1.5 yrs, 5 quarters)
+  P/E CAGR  : 35.82% (partial_cagr, 2.75)
+    (latest P/E: 23.21, historical avg P/E: 15.95)
+
+Industry
+  EPS CAGR  : -52.86% (5yr_cagr, undefined periods) [4/4 tickers]
+  P/E CAGR  : 32.95% (5yr_cagr, undefined periods) (avg latest P/E: 27.45)
+  Avg OPM   : 38.42% (via "OPM", 4 data points)
+
+══════════════════════════════════════════════════════════
+B. TRANSCRIPT & MANAGEMENT COMMENTARY
+Each block contains: entities · quarterly KPIs · milestones (guidance given / achieved / missed)
+· industry analysis · governance signals — all extracted from earnings call summaries.
+══════════════════════════════════════════════════════════
+
+### SUBJECT TRANSCRIPTS — MOTILALOFS
+
+[Call: MOTILALOFS_FY2026_Q2]
+Segments: Asset Management, Private Wealth Management, Wealth Management, Capital Market (Institutional Equities & Investment Banking), Housing Finance, Treasury Investments, Private Equity, Alternates
+Management Financial Targets (forward guidance):
+  • Housing Finance AUM expected to double in 2-3 years
+  • Lending book in Wealth and Housing Finance segments targeted to grow at 25% CAGR over next few years [target CAGR=25, by 2028-03-31]
+  • Housing Finance H2FY26 profits expected to be substantially higher than H1FY26 given RM additions of 50%
+  • IBEF V Private Equity fund targeting final close at ₹8,350 crores [target PECOMMIT=8350, by 2026-03-31]
+  • MF yield expected to remain stable at current run-rate, subject to consultation paper impact and passive/active mix [target MFDISTYLD=45, by 2026-09-30]
+Management Conceptual Guidance:
+  • Launch a Private Credit fund under Alternates business soon (by 2026-04-30)
+  • Continue to gain market share in AMC business given strong net flow market share (by 2027-03-31)
+  • Increase revenue share of distribution business within Wealth Management segment (by 2027-03-31)
+  • Improve RM productivity in Private Wealth Management as RM vintage increases (by 2027-03-31)
+  • Continue to strengthen Institutional Equities and Investment Banking teams to maintain leadership (by 2027-03-31)
+  • Achieve AA+ positive outlook and eventually AAA credit rating (by 2028-10-31)
+  • Expand Private Credit vertical to tap into large TAM and boost recurring Alternates revenue (by 2027-03-31)
+Achieved / Confirmed Milestones:
+  ✓ AMC AUM stood at ₹1.6 lakh crores as of 30th September 2025, up 46% YoY; further increased to ₹1.7 lakh crores as of October 30, 2025 [actual=170000]
+  ✓ AMC net flows grew 56% YoY to ₹20,011 crores in Q2FY26 [actual=20011]
+  ✓ Private Wealth Management AUM stood at ₹1.87 lakh crores serving 7,000+ relevant families [actual=187000]
+  ✓ PWM Net Sales grew 3x in Q2FY26 to ₹7,358 crores [actual=7358]
+  ✓ Investment Banking fee income delivered 65% revenue growth YoY to ₹120 crores in H1FY26 [actual=120]
+  ✓ Housing Finance disbursements grew 48% YoY to ₹544 crores in Q2FY26 [actual=544]
+  ✓ Total equity investments including alternates grew to ₹8,957 crores as of September 2025, up 14% YoY [actual=8957]
+  ✓ Treasury book has delivered XIRR of 18.7% since inception; grown at 42% CAGR since inception; 55x since inception [actual=18.7]
+  ✓ Net worth grew nearly 10x from March 2015 to September 2025 to ₹12,871 crores [actual=12871]
+  ✓ Operating PAT CAGR of 31% in last decade with average ROE of 22% and average payout of 20% [actual=22]
+  ✓ Distribution book grew at 36% CAGR from ₹11,032 crores in March 2021 to ₹40,544 crores in September 2025 [actual=40544]
+  ✓ SIP flow market share at 4.8% is the highest ever; added ~17 lakh SIPs in Q2FY26; SIP flow ₹4,172 crores [actual=4.8]
+  ✓ MF AUM market share at 2.6%, highest ever; net flow market share at 8.2% [actual=2.6]
+  ✓ Investment Banking completed 39 deals in H1FY26 with cumulative issue size of ~₹49,000 crores; ranked #1 in QIP, IPO and Rights Issues [actual=49000]
+  ✓ ARR now stands at 61% of total net revenues with fee-based revenue alone contributing 45% of total revenues [actual=61]
+  ✓ Group PBT margin is 50%+, described as best in class in the industry [actual=50]
+  ✓ Long-term credit rating upgraded to AA+ with stable outlook by ICRA - highest rating ever granted to any non-bank domestic capital market player in India
+  ✓ Board expanded from 10 to 14 members with addition of 4 directors including 2 independent directors
+  ✓ 91% of AMC AUM outperformed respective benchmarks in past 3 years
+  ✓ Company has not raised any external equity capital since IPO in 2007; conducted 3 buybacks and consistently paid ~20% dividends
+  ✓ Customer count rose to 14.5mn+ comprising 9.4mn+ unique MF folios and 5.1mn+ unique broking accounts; AUA crossed ₹6.7 lakh crore mark
+Missed / Failed Milestones:
+  ✗ Operating profit after tax grew only 2% to ₹554 crores in Q2FY26 due to moderation in broking and distribution transaction revenues
+  ✗ Cash ADTO market share has been declining due to cautious advisory stance in flat/down markets
+  ✗ Distribution revenue in Wealth Management declined sequentially and YoY due to lower transaction-based revenues
+  ✗ Treasury book generated a loss in Q2FY26 contributing to share price decline of 6% on results day due to mark-to-market equity market volatility
+Current Quarter KPIs: TAX=5125, TA=2312882, OPEX=87932, INTEXP=18400, PAT=19430, EQ=807805, DEBT=931975, D&A=2382, FEECOM=25827, OTHERINC=3348, TOTALINC=112487, FINCOS=18400, OTHEREXP=12378, PBT=24555, CURDEFTAX=6239, DEFTAX=-1114, OCITAX=1074, OCI=-6687, TCI=12743, EPSDIL=3.19, AR=114795, EPS=3.24, IMPFIN=1033, REV=109139, EMPBEN=27912, OCIREM=329, PAIDUP=6005, OTHEREQ=801800, CASH=286645, EPSBAS=3.24, DIVINC=10647, RENTINC=625, BROKFEEINC=53568, OTHERCOMMISSINC=9690, NETFVCHANGE=-3958, OTHEROPREV=80, FVOCICHANGE=-8090, FEECOMINC=63258
+Industry Analysis (from transcript):
+  KPIs: MFAUM_PCT_GDP=20, WEALTHSECTOR=18
+  Growth Drivers: India expected to accumulate USD 126 trillion in savings over 25 years ending 2047, compared to USD 14 trillion in preceding 25 years - representing massive tailwind for financial services; Financialization and equitization of savings is a mega-trend providing tailwinds to all capital market businesses; Demat revolution since 2020 adding 30-40 million customers annually representing vertical expansion of market; India MF AUM as percentage of GDP at only 20% versus 80% in USA - indicating large structural headroom; India Private Equity at only 1% of GDP versus 11% in USA - significant room for alternates growth; Private Wealth Management industry expected to grow at 18% CAGR over next decade in India; New competition in alternates increases category awareness and expands total addressable market for all participants; Rising per-capita income and growing HNI/UHNI population driving demand for wealth management services; India's strong equity market long-term performance supporting wealth creation and asset management growth
+  Headwinds: SEBI regulatory consultation paper proposing changes to fee structures in asset management and capital markets could reduce industry revenues; F&O regulatory changes reducing derivatives trading volumes impacting brokerage revenues industry-wide; Rising competition from discount brokers putting pressure on full-service broker market share in retail segment; Flat to declining equity markets reduce retail investor activity and broking volumes; Potential moderation of MF yields if passive AUM grows faster than active AUM as seen globally; Large incumbents in AMC and wealth management are 5-10x larger creating competitive intensity for smaller players gaining market share
+Tone: confident
+Confidence: high
+
+---
+
+[Call: MOTILALOFS_FY2026_Q1]
+Segments: Wealth Management, Asset Management, Private Wealth Management, Capital Markets, Investment Banking, Institutional Equities, Housing Finance, Treasury Investments, Private Equity, Real Estate Funds, Private Credit
+Management Financial Targets (forward guidance):
+  • Housing Finance AUM expected to double in the next 2 to 3 years from current ₹5,000 crores [target HFAUM=10000, by 2028-03-31]
+  • Private Equity AUM expected to nearly double in current financial year with addition of IBEF V fund of ₹8,000 crores and Series VI real estate fund [target PEFEEARNAUM=20000, by 2026-03-31]
+  • Tech spend budget of approximately ₹250 crores for the current financial year [target CAPEX=250, by 2026-03-31]
+  • MOFSL net worth expected to grow nearly 10x over the next decade from current ₹12,537 crores based on twin business model [target NWCONSOLIDATED=125370, by 2035-03-31]
+Management Conceptual Guidance:
+  • Plan to launch first closing of Private Credit fund in H2FY26 (by 2026-03-31)
+  • Focus on increasing share of fee-based and trail-based revenues driven by asset management, private wealth, distribution and lending book growth
+  • Voice and tech combination tools for clients to be launched in next couple of quarters (by 2025-12-31)
+  • Dedicated third-party distribution team of 600-700 members to increase cross-sell ratios meaningfully with advent of account aggregator
+  • Private Wealth Management aims to emerge as leading player in the space over next 2 to 3 years (by 2028-03-31)
+  • Continue to increase research coverage and IB deal pipeline as fulcrum for the group
+  • GIFT City to be used for global fund deployment as route for private wealth international investments
+Achieved / Confirmed Milestones:
+  ✓ Reported highest ever quarterly PAT at ₹1,430 crores, up 40% YoY [actual=1430]
+  ✓ Operating profit after tax grew 21% YoY to ₹522 crores [actual=522]
+  ✓ AMC reached milestone of ₹1.5 lakh crores equity AUM [actual=151000]
+  ✓ Housing Finance business crossed ₹5,000 crores AUM milestone, up 22% YoY [actual=5000]
+  ✓ Total group Assets Under Advice crossed ₹6.5 lakh crores, growing 28% YoY [actual=650000]
+  ✓ Net worth increased 28% YoY to ₹12,537 crores with ROE of 48% annualised [actual=12537]
+  ✓ ROE stands at 48% annualised for Q1FY26 [actual=48]
+  ✓ AMC gross flows grew 59% YoY to ₹14,568 crores in Q1FY26 [actual=14568]
+  ✓ AMC net flows grew from ₹5,317 crores in Q1FY25 to ₹8,469 crores in Q1FY26 [actual=8469]
+  ✓ Private Equity IBEF V fund first close at over 80% of ₹8,000 crores target in less than 2 months [actual=6400]
+  ✓ Private Wealth Management top line growth of 53% and bottom line growth of 49% in Q1FY26 [actual=53]
+  ✓ Investment Banking fee income delivered 89% growth YoY in Q1FY26
+  ✓ Total treasury investments grew to ₹8,853 crores, up 26% YoY, with XIRR of over 20% since inception [actual=8853]
+  ✓ Distribution AUM grew at 34% CAGR from ₹11,032 crores in March 2021 to ₹38,129 crores in June 2025 [actual=38129]
+  ✓ Monthly SIP run rate crossed ₹1,200 crores in June 2025 [actual=1200]
+  ✓ SIP AUM book stands at ₹26,051 crores as of June 2025 [actual=26051]
+  ✓ Alternate AUM registered strong growth of 29% to ₹33,810 crores [actual=33810]
+  ✓ Housing Finance disbursements grew 57% to nearly ₹400 crores during Q1FY26 [actual=400]
+  ✓ IB business ranked number 3 in number of IPOs executed and number 5 in value of IPOs, a sharp improvement from rank 12 and rank 21 respectively last year [actual=16]
+  ✓ 92% of AMC AUM outperformed respective benchmarks in past 12 months [actual=92]
+  ✓ Decadal net worth compounded at 24% after paying dividends consistently and doing 3 buybacks [actual=24]
+  ✓ 10-year compounded profit growth of 30% reported [actual=30]
+  ✓ Treasury investment book has grown by 43% compounded over last decade, more than 50x over the course of the last decade [actual=43]
+  ✓ ARR as percentage of net revenue now stands at 52% in Q1FY26 [actual=52]
+  ✓ Fee-based revenue contribution to total revenues increased to 44% [actual=44]
+  ✓ Total customers served crossed 13.6 million comprising 8.6 million unique mutual fund portfolios and 5 million unique broking accounts [actual=13600000]
+  ✓ Private Wealth Management families grew from 13,400 to 16,600 year over year [actual=16600]
+  ✓ IB business completed 16 deals in Q1FY26 with cumulative issue size of over ₹29,500 crores
+  ✓ MOFSL topped QIP league tables for Q1FY26 in terms of number of issues, continuing leadership from FY25
+  ✓ MOFSL is the only player in real estate fund segment at Series VI
+  ✓ Added 14 lakh SIPs in Q1FY26
+Missed / Failed Milestones:
+  ✗ International funds capacity exhausted; product stopped seeing fresh inflows approximately 2.5 years ago due to regulatory limits being capped out
+Current Quarter KPIs: TAX=10195, OPEX=90134, INTEXP=17712, PAT=53214, D&A=2326, OPM=42.13, NPM=35.35, TOTALINC=153543, FINCOS=17712, OTHEREXP=10389, PBT=63409, CURDEFTAX=6378, DEFTAX=3817, OCI=23925, TCI=77139, EPSDIL=8.75, IMPFIN=2211, DSCOV=0.05, INTCOV=2.54, BADDEBTAR=0.33, DEBTTA=0.38, DEBTTURN=0.39, EQ=753983, FEECOM=26383, OTHERINC=3023, EMPBEN=31113, PAIDUP=5995, OTHEREQ=705694, EPS=8.88, EPSBAS=8.88, DIVINC=84, RENTINC=643, BROKFEEINC=58585, OTHERCOMMISSINC=8855, NETFVCHANGE=48391, OTHEROPREV=125, REV=150520, FEECOMINC=67440, OCIREM=10, FVOCICHANGE=27908, OCITAX=3993, LTDWC=0.95, CURLIABR=0.9
+Industry Analysis (from transcript):
+  Growth Drivers: Financialization of savings in India is a mega trend serving as tailwind for all financial services businesses; Potential of another ₹150 trillion market cap creation if large unlisted companies go public, benefiting all capital market related businesses; Retail participation in equity markets can grow 3-4 times from current levels over the next couple of decades; Strong IPO pipeline with more companies getting listed creating virtuous cycle benefiting all businesses; Account aggregator enabling better cross-sell of financial products to existing clients; India savings pool projected to grow significantly creating demand for wealth and asset management services; Increasing monetization events through IPOs and private equity transactions driving incremental wealth for UHNI segment; India PE AUM as percentage of GDP significantly below USA levels indicating large growth headroom; Growing interest in alternate investment products including unlisted equities, real estate funds and private credit among HNI and UHNI segments
+  Headwinds: Regulatory limits on international fund products creating capacity constraints for India-based managers offering global exposure; Reduction in F&O expiry counts by regulators reducing overall F&O market volumes; Talent war for senior relationship managers and capital markets professionals with well-capitalized new entrants driving up compensation costs across the industry; Market volatility directly impacts transactional revenue streams including broking, investment banking and wealth management distribution income
+Tone: confident
+Confidence: high
+
+### PEER TRANSCRIPTS
+
+[Call: IIFLCAPS_FY2026_Q1]
+Segments: Institutional Equities, Investment Banking, Retail Broking, Wealth Management, Financial Product Distribution, Insurance
+Management Financial Targets (forward guidance):
+  • Management expects the non-institutional (retail/wealth) cost-to-income ratio to remain elevated at around 75% for FY26, with scale benefits expected to trickle in from next year.
+  • Distribution AUM of Rs. 357 billion is a key focus area for growth going forward.
+Management Conceptual Guidance:
+  • Management plans to increase the number of wealth RMs from approximately 50 to 75-100 during FY26. (by 2026-03-31)
+  • IIFL Capital is transforming its legacy retail broking segment into a full wealth management and financial planning practice targeting HNI and UHNI clients with AUM of Rs. 5 crores and above.
+  • Company plans to build its own manufacturing practice in AIF and PMS while maintaining an open architecture model.
+  • Management plans to improve segmented disclosure once the wealth management business reaches a critical mass.
+  • Investment banking pipeline is described as strong and management is optimistic about deal closure for full year FY26. (by 2026-03-31)
+Achieved / Confirmed Milestones:
+  ✓ Consolidated revenue increased 19% quarter-on-quarter and 6% year-on-year to Rs. 680 crores in Q1 FY26. [actual=6804000000]
+  ✓ PAT increased 37% quarter-on-quarter from Rs. 128 crores in Q4 FY25 to Rs. 176 crores in Q1 FY26. [actual=1755000000]
+  ✓ Institutional and Investment Banking revenue virtually doubled quarter-on-quarter from Q4 FY25 to Q1 FY26, with approximately Rs. 150 crores from brokerage and Rs. 50 crores from banking. [actual=500000000]
+  ✓ Financial Product Distribution income increased 37% year-on-year to Rs. 145 crores in Q1 FY26 due to increased focus on asset gathering. [actual=1451000000]
+  ✓ Distribution AUM reached Rs. 357 billion as of June 30, 2025, growing 14% year-on-year. [actual=357000000000]
+  ✓ Other income increased 1524% year-on-year and 73% quarter-on-quarter to Rs. 63 crores in Q1 FY26, primarily due to mark-to-market gains on BSE share investments. [actual=630000000]
+  ✓ Net worth increased to Rs. 27 billion in Q1 FY26 from Rs. 25.1 billion at end of FY25. [actual=27000000000]
+  ✓ Mutual Fund AUM grew to Rs. 165.3 billion in Q1 FY26 from Rs. 143 billion in FY25. [actual=165300000000]
+  ✓ IIFL Capital completed 13 investment banking transactions in Q1 FY26 including 6 IPOs, 1 rights issue, 1 OFS and 5 private equity/placement transactions, and filed 13 DRHPs.
+  ✓ Cash market share improved to 2.57% in Q1 FY26 from 2.51% in Q4 FY25.
+  ✓ About 50 HNI and UHNI wealth RMs have been hired as part of the wealth management build-out.
+Missed / Failed Milestones:
+  ✗ Retail brokerage revenue declined 28% year-on-year due to regulatory changes effective December 2024 reducing the number of F&O expiry days.
+  ✗ PAT declined 4% year-on-year from Rs. 1,823 million in Q1 FY25 to Rs. 1,755 million in Q1 FY26.
+  ✗ Wealth management revenues in FY25 were approximately Rs. 40 crores against costs of approximately Rs. 70 crores, resulting in a loss of approximately Rs. 30 crores.
+  ✗ Average daily turnover declined approximately 31% year-on-year from Rs. 3,22,782 crores in Q1 FY25 to Rs. 2,23,232 crores in Q1 FY26.
+  ✗ Life insurance first year premium collected in Q1 FY26 was Rs. 10 crores, down from Rs. 23 crores in Q4 FY25 and Rs. 14 crores in Q1 FY25, indicating a decline in insurance distribution momentum.
+Current Quarter KPIs: FEECOMINC=42302.65, INTEXP=3771.71, FINCOS=3771.71, REV=52293.64, TOTALINC=58539.5, OTHERINC=6245.86, EMPBEN=15960.84, D&A=1291.88, FEECOM=10836.1, OTHEREXP=6133.9, OPEX=37994.43, PBT=20545.07, CURDEFTAX=3914.35, DEFTAX=773.3, TAX=4687.65, PAT=15857.42, OCIREM=-138, OCITAX=34.73, OCI=-103.27, TCI=15754.15, PAIDUP=6199.62, OTHEREQ=215754.73, EPSBAS=5.12, EPSDIL=4.85, EPS=5.12, TAX=4687.65
+Industry Analysis (from transcript):
+  KPIs: MKTSHR=0.62, MKTSHR=2.57, AVGTURNOVER=22323200000000
+  Growth Drivers: India's macroeconomic outlook remains strong supported by easing inflation and lower interest rate scenario.; Healthy monsoon and benign oil prices supporting macroeconomic stability.; Economy is showing signs of improving consumption as interest rate benefits start trickling down.; Strong demand for wealth management services from HNI and UHNI clients driving asset gathering.; Mutual Fund AUM and Distribution AUM are growing strongly driven by increased financial product adoption.; Revival in primary capital markets with strong IPO pipeline and investment banking deal activity.; Growing live SIP transactions indicating sustained retail investor participation in equity markets.
+  Headwinds: Regulatory changes reducing the number of F&O expiry days have significantly reduced industry-wide F&O volumes and brokerage revenues.; Market volatility may slow investment banking deal execution and pipeline conversion.; Average daily F&O turnover declined approximately 31% year-on-year due to regulatory impact on the broader industry.
+High-Severity Risks:
+  ⚠ Regulatory changes effective December 2024 reducing the number of F&O expiry days caused a ~30% decline in average daily F&O turnover year-on-year and a 28% decline in retail brokerage revenue.
+Tone: confident
+Confidence: high
+
+---
+
+[Call: ANGELONE_FY2026_Q1]
+Segments: Broking (Direct), Broking (Assisted), Mutual Fund Distribution, Credit Distribution, Insurance Distribution, Wealth Management (Ionic Wealth), Asset Management (Angel One AMC), Margin Trading Funding, Depository Operations
+Management Financial Targets (forward guidance):
+  • Management expects to exit Q4 FY26 with a decent visibility on OPM returning to normal levels (implied 40-45% OPM target). [target OPM=40, by 2026-03-31]
+  • Normalized operating margin expected to absorb approximately 2-2.5% impact from new business incubation (AMC and Wealth Management) in the short term.
+  • Estimated full year ESOP cost for FY2026 grants and carry-over grants is ₹2.1 billion. [target ESOPEXP=2100000000, by 2026-03-31]
+  • ESOP cost expected to be approximately ₹55 crores per quarter for next 3 quarters of FY26. [target ESOPEXP=550000000, by 2026-03-31]
+Management Conceptual Guidance:
+  • Angel One aims to become India's most trusted fintech brand empowering a billion lives by leveraging data and technology.
+  • Angel One plans to scale credit business beyond its core broking customer base and begin offering secured credit products. (by 2026-12-31)
+  • AMC plans to launch commodity-based passive products and continue expanding equity product suite. (by 2026-12-31)
+  • Angel One aims to become a category leader in passive investing in India.
+  • Ionic Wealth aims to deepen its UHNI and HNI client base and expand its digital-first wealth platform.
+  • Angel One plans to continue leveraging Agentic AI to automate workflows improving speed, accuracy and cost efficiency. (by 2026-12-31)
+  • Management will disclose more detailed financial information about wealth and AMC businesses as they scale up.
+Achieved / Confirmed Milestones:
+  ✓ Gross revenues increased by 8.1% quarter-on-quarter to ₹11.4 billion in Q1 FY26. [actual=11400000000]
+  ✓ Net revenues grew by 7.3% quarter-on-quarter to ₹8.9 billion in Q1 FY26. [actual=8900000000]
+  ✓ Total gross broking income increased by 9.1% sequentially to ₹6.9 billion. [actual=6900000000]
+  ✓ Total interest income rose by 5.5% quarter-on-quarter to ₹3.6 billion driven by higher client funding book and deposits. [actual=3600000000]
+  ✓ Period ending client funding book reached an all-time high of ₹48 billion in Q1 FY26. [actual=48000000000]
+  ✓ Average client funding book (MTF book) reached ₹42 billion, up 4.3% quarter-on-quarter. [actual=42000000000]
+  ✓ Normalized PAT after adjusting for IPL and variable pay effects grew by 26% quarter-on-quarter to approximately ₹1.9 billion. [actual=1900000000]
+  ✓ Normalized operating margin increased to 34.3% quarter-on-quarter excluding IPL costs and variable pay reversal. [actual=34.3]
+  ✓ Consolidated net worth stood at ₹55.7 billion as of June 30, 2025. [actual=55700000000]
+  ✓ Cumulative credit disbursals reached ₹9.3 billion within a year of launching the credit distribution offering. [actual=9300000000]
+  ✓ Distribution business income grew by 11% to ₹349 million supported by credit, insurance and IPO distribution. [actual=349000000]
+  ✓ AMC AUM stood at over ₹3.4 billion as of June 30, 2025. [actual=3400000000]
+  ✓ Ionic Wealth crossed ₹5,000 crores AUM with over 1,000 clients across 9 cities. [actual=50000000000]
+  ✓ Underlying operating expenses excluding IPL costs declined by 9.9% quarter-on-quarter to ₹3.1 billion. [actual=3100000000]
+  ✓ Total demat account market share stands at 16.3% with incremental acquisition market share of 21.7%.
+  ✓ Angel One is second largest contributor in new SIP registrations in India with 1.9 million new SIPs added in Q1 FY26.
+  ✓ AMC achieved AUM traction with zero marketing expenditure through organic and education-led distribution.
+  ✓ 88% of newly onboarded clients in Q1 FY26 came from Tier 2, 3 and beyond, demonstrating digital reach into India's interior markets.
+  ✓ Over 3 million customers engaged with Angel One's mutual fund offering as of June 2025, up from 1.2 million a year ago.
+Missed / Failed Milestones:
+  ✗ Reported PAT for Q1 FY26 was ₹1.1 billion, lower by 34% quarter-on-quarter, impacted by IPL spend and variable pay reversal effects.
+  ✗ Reported operating margin was 21.8%, lower sequentially due to IPL costs and prior quarter variable pay reversal.
+  ✗ LTV to CAC ratio not refreshed due to F&O regulatory impact; previously disclosed as approximately 6x, down from 8x earlier.
+  ✗ F&O market share gains have not materialized consistently post-regulatory changes; June showed subdued activity after gains in May.
+  ✗ New business incubation margin impact has increased slightly compared to prior quarter, now at 2.6% vs guided 2-2.5%.
+Current Quarter KPIs: TAX=486.79, OPEX=9376.89, INTEXP=828.51, PAT=1339.13, D&A=283.96, FEECOM=1688.98, OTHERINC=32.67, TOTALINC=11202.81, FINCOS=828.51, OTHEREXP=4138.06, PBT=1825.92, CURDEFTAX=487.83, DEFTAX=-1.04, OCITAX=2.49, OCI=-7.41, TCI=1331.72, EPSDIL=14.38, EPS=14.81, IMPFIN=-4.96, REV=11170.14, EMPBEN=2442.34, OCIREM=-9.9, PAIDUP=905.46, EPSBAS=14.81, GROSSINTINC=3532.82, IPLSPEND=1117.01
+Industry Analysis (from transcript):
+  KPIs: CUST=115000000, MFAUM_PCT_GDP=20, MFSIPFLOW=270000000000, GDPG=6, INFL=2.7, REPORATEKPI=5.5, GDPG=2.6
+  Growth Drivers: India's young and growing population with increasing wealth and digital openness driving financial services adoption.; Low penetration of demat accounts (only 115 million unique PAN holders with demat accounts vs large population), indicating vast untapped market.; Mutual fund AUM below 20% of GDP with SIP inflows at all-time high of ₹270 billion/month, indicating structural growth in mutual fund adoption.; Insurance penetration lagging global norms, creating large addressable market for insurance distribution.; Fixed income, credit and protection products concentrated in top cities, leaving most of India underserved.; Household credit to GDP ratio less than half of global average, representing massive structural underpenetration in credit.; India's GDP growth tracking above 6% providing strong macroeconomic tailwind for financial services.; Inflation moderation to 2.7% and stable repo rate at 5.5% creating supportive monetary environment.; Rising investor participation from Tier 2 and Tier 3 cities expanding addressable market.; IPO monetization and integration of technology/AI accelerating wealth creation opportunities.; Digital adoption and regulatory support for fintech innovation creating enabling environment.; India moving from product to portfolio solution approach in wealth management, mirroring US shift that drove 3-4x profit multiples.; Regulatory recalibration making ecosystem more robust for sustainable long-term growth.
+  Headwinds: Global trade tensions, especially US-China tariffs, raising sector input costs by 15-20% and causing market volatility.; Global GDP growth slowing to 2.6% in 2025 with persistent inflation keeping central banks cautious.; Regulatory recalibration in index derivatives creating near-term reduction in F&O volumes and retail activity.; FII outflows in recent quarters dampening retail sentiment and market momentum.; Tepid retail participation in F&O segment post index derivative regulation changes.
+High-Severity Risks:
+  ⚠ Regulatory recalibration in index derivatives segment (2024 regulations) has reduced F&O volumes and impacted retail participation, creating near-term revenue headwinds.
+  ⚠ Market-dependent revenue model: retail activity in F&O and equity segments is correlated with FII inflows and market momentum, creating earnings volatility.
+Tone: confident
+Confidence: high
+
+══════════════════════════════════════════════════════════
+C. ANALYSIS INSTRUCTIONS
+Use the pre-computed metrics in section A and quarterly KPIs in section B as your primary quantitative reference.
+Populate each of the four JSON sections below.
+══════════════════════════════════════════════════════════
+
+### 4.1 — INDUSTRY OVERVIEW & MARKET
+From ALL transcripts (subject + peer), identify:
+  • Are the majority of managements talking about volume growth?
+  • Are order books or pipelines expanding?
+  • Is management guidance on volumes and capex positive or cautious?
+Use the quarterly KPIs from subject and peer summaries for any numeric references.
+Then populate the section with short and crisp explanations (maximum 10 words each)
+
+### 4.2 — COMPETITION
+From ALL transcripts identify:
+  • Are companies able to pass through cost increases, or is pricing under pressure?
+  • Is competitive intensity rising or consolidating?
+  • Is the subject company winning or losing share?
+Then populate the section with short and crisp explanations (maximum 10 words each)
+
+### 4.3 — FINANCIAL STRENGTH
+Use the pre-computed metrics in section A (stock EPS CAGR, P/E CAGR) and quarterly KPIs from
+section B to assess: revenue growth trajectory · margin expansion · FCF conversion · balance sheet.
+From the SUBJECT company's transcripts identify:
+  • Is growth volume/mix driven or purely price-led?
+  • Is management confident about sustaining margins?
+  • Is capital being deployed with discipline (debt targets, capex ROI, shareholder returns)?
+Then populate the section with short and crisp explanations (maximum 10 words each)
+
+### 4.4 — CLIENT / CUSTOMER TRACTION
+From the SUBJECT company's transcripts identify:
+  • Is new customer acquisition accelerating or slowing?
+  • Are existing customers expanding spend (upsells, larger project scopes)?
+  • Are customers deeply embedded via long contracts or multi-product use?
+  • Has management referenced any alt data signals (web traffic, app engagement, customer hiring)?
+Then populate the section with short and crisp explanations (maximum 10 words each)
+══════════════════════════════════════════════════════════
+E. OUTPUT FORMAT
+══════════════════════════════════════════════════════════
+Return ONLY a valid JSON object in EXACTLY the structure below. For metrics, don't change any key name in json object. For example don't do opm --> opm_fy2025
+Only return 3-4 short and crisp points in your analysis for text part of each section
+Replace ALL placeholder / example values with your actual analysis derived from the data above.
+Where a metric cannot be determined from available data, use null for numeric/value fields or "N/A" for strings.
+Do NOT include any text, explanation, or markdown fences outside the JSON object.
+
+{
+  "competition": {
+    "meta": {
+      "title": "Competition",
+      "subtitle": "Competitive dynamics & positioning analysis",
+      "section_id": "4.2"
+    },
+    "text": {
+      "takeaway": "<string: 1-sentence competitive summary>",
+      "pricing_power_dynamics": {
+        "current_state": "<string: 10 words max>",
+        "watch_outs": "<string: 10 words max>",
+        "future_trajectory": "<string: 10 words max>",
+        "shifting_dynamics": "<string: 10 words max>"
+      },
+      "competitive_positioning": {
+        "strengths": [
+          "<string: 10 words max>"
+        ],
+        "opportunities": [
+          "<string: 10 words max>"
+        ],
+        "areas_to_monitor": [
+          "<string: 10 words max>"
+        ]
+      }
+    },
+    "metrics": {
+      "porters_score": {
+        "label": "Porter's Score",
+        "value": "<X/10>",
+        "sublabel": "<string>"
+      },
+      "pricing_power": {
+        "label": "Pricing Power",
+        "value": "<Low|Moderate|High>",
+        "sublabel": "<string>"
+      },
+      "entry_barriers": {
+        "label": "Entry Barriers",
+        "value": "<Low|Moderate|High>",
+        "sublabel": "<string>"
+      },
+      "market_position": {
+        "label": "Market Position",
+        "value": "<string>",
+        "sublabel": "<string>"
+      },
+      "competitive_intensity": {
+        "label": "Competitive Intensity",
+        "value": "<Low|Moderate|High>",
+        "sublabel": "<string>"
+      }
+    }
+  },
+  "customer_traction": {
+    "meta": {
+      "title": "Client/Customer Traction",
+      "subtitle": "Customer growth, retention & revenue trajectory with signals from management commentary",
+      "section_id": "4.4"
+    },
+    "text": {
+      "takeaway": "<string: 1-sentence customer traction summary>",
+      "retention": {
+        "metrics": {
+          "net_revenue_retention": {
+            "label": "Net Revenue Retention",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "gross_revenue_retention": {
+            "label": "Gross Revenue Retention",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "expansion_revenue": {
+            "label": "Expansion Revenue",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "annual_churn": {
+            "label": "Annual Churn",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          }
+        },
+        "expansion_drivers": [
+          "<string: 10 words max>"
+        ],
+        "product_stickiness": [
+          "<string: 10 words max>"
+        ]
+      },
+      "key_takeaway": "<string: 10 words max>",
+      "segmentation": {
+        "tiers": [
+          {
+            "tier": "<string>",
+            "customer_count": "<string>",
+            "avg_acv": "<string>",
+            "nrr": "<string>",
+            "nrr_label": "<string>",
+            "churn": "<string>",
+            "churn_label": "<string>",
+            "revenue_share": "<string>",
+            "contract_terms": "<string>"
+          }
+        ],
+        "growth_strategy": [
+          "<string: 10 words max>"
+        ],
+        "revenue_quality": [
+          "<string: 10 words max>"
+        ]
+      },
+      "customer_growth": {
+        "metrics": {
+          "current_base": {
+            "label": "Current Customer Base",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "five_year_growth": {
+            "label": "5Y Customer Growth",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "new_adds": {
+            "label": "New Adds",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "churned": {
+            "label": "Churned",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          }
+        },
+        "acquisition_dynamics": [
+          "<string: 10 words max>"
+        ]
+      },
+      "alt_data_signals": [
+        {
+          "source": "<string>",
+          "insight": "<string: 10 words max>"
+        }
+      ]
+    },
+    "metrics": {
+      "churn_rate": {
+        "label": "Churn Rate / AUM Attrition",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      },
+      "net_retention": {
+        "label": "Net Revenue Retention / ARR Retention",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      },
+      "active_customers": {
+        "label": "Active Customers",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      },
+      "avg_contract_value": {
+        "label": "Avg Contract / AUM Value",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      },
+      "top_10_concentration": {
+        "label": "Top-10 Concentration",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      }
+    }
+  },
+  "industry_overview": {
+    "meta": {
+      "title": "Industry Overview & Market",
+      "subtitle": "Synthesized from public company transcripts & filings",
+      "section_id": "4.1"
+    },
+    "text": {
+      "takeaway": "<string: 1-sentence industry summary>",
+      "opm_trend": {
+        "metrics": {
+          "current_opm": {
+            "label": "Current OPM",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "five_year_change": {
+            "label": "5Y OPM Change",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "ten_year_change": {
+            "label": "10Y OPM Change",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "trend_direction": {
+            "label": "Trend Direction",
+            "value": "<Improving|Stable|Declining>",
+            "sublabel": "<string>"
+          }
+        },
+        "margin_drivers": [
+          "<string: 10 words max>"
+        ],
+        "forward_outlook": "<string: 10 words max>",
+        "key_observations": [
+          "<string: 10 words max>"
+        ]
+      },
+      "industry_transcripts": [
+        {
+          "company": "<string>",
+          "sector": "<string>",
+          "context": "<string>",
+          "quote": "<verbatim quote from transcript>"
+        }
+      ],
+      "demand_supply_dynamics": {
+        "demand": "<string: 10 words max>",
+        "supply": "<string: 10 words max>",
+        "net_impact": "<string: 10 words max>"
+      }
+    },
+    "metrics": {
+      "current_opm": {
+        "label": "Current OPM",
+        "value": "<string>",
+        "sublabel": "<string>"
+      },
+      "market_size": {
+        "label": "Market Size / AUM",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      },
+      "demand_signal": {
+        "label": "Demand Signal",
+        "value": "<Weak|Moderate|Strong>",
+        "sublabel": "<string>"
+      },
+      "industry_cagr": {
+        "label": "Industry Revenue CAGR",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      },
+      "supply_constraint": {
+        "label": "Supply Constraint",
+        "value": "<Low|Moderate|High>",
+        "sublabel": "<string>"
+      }
+    }
+  },
+  "financial_strength": {
+    "meta": {
+      "title": "Financial Strength",
+      "subtitle": "Snapshot from financial statements, investor decks & management commentary",
+      "section_id": "4.3"
+    },
+    "text": {
+      "takeaway": "<string: 1-sentence financial strength summary>",
+      "cash_flow": {
+        "metrics": {
+          "fcf": {
+            "label": "Free Cash Flow",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "fcf_conversion": {
+            "label": "FCF Conversion",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "ocf_ebitda": {
+            "label": "OCF / EBITDA",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "working_capital": {
+            "label": "Working Capital Days",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          }
+        },
+        "quality_analysis": [
+          "<string: 10 words max>"
+        ]
+      },
+      "key_takeaway": "<string: 10 words max>",
+      "balance_sheet": {
+        "metrics": {
+          "net_debt_ebitda": {
+            "label": "Net Debt / EBITDA",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "debt_equity": {
+            "label": "Debt / Equity",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "interest_coverage": {
+            "label": "Interest Coverage",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "current_ratio": {
+            "label": "Current Ratio",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "credit_rating": {
+            "label": "Credit Rating",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          }
+        },
+        "strengths": [
+          "<string: 10 words max>"
+        ],
+        "considerations": [
+          "<string: 10 words max>"
+        ]
+      },
+      "profitability": {
+        "metrics": {
+          "ebitda_margin": {
+            "label": "EBITDA / OPM Margin",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "pat_margin": {
+            "label": "PAT Margin",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "five_year_improvement": {
+            "label": "5Y Margin Improvement",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          }
+        },
+        "operating_leverage_drivers": [
+          "<string: 10 words max>"
+        ],
+        "strategic_initiative_drivers": [
+          "<string: 10 words max>"
+        ]
+      },
+      "revenue_growth": {
+        "drivers": [
+          "<string: 10 words max>"
+        ],
+        "metrics": {
+          "revenue": {
+            "label": "Revenue (Sales)",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "five_year_cagr": {
+            "label": "5Y Revenue CAGR",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "peak_growth": {
+            "label": "Peak YoY Growth",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          },
+          "growth_quality": {
+            "label": "Growth Quality",
+            "value": "<string|null>",
+            "sublabel": "<string>"
+          }
+        }
+      }
+    },
+    "metrics": {
+      "roce": {
+        "label": "ROCE",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      },
+      "revenue": {
+        "label": "Revenue (latest FY)",
+        "value": "<string>",
+        "sublabel": "<string>"
+      },
+      "ebitda_margin": {
+        "label": "OPM (EBITDA Margin)",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      },
+      "free_cash_flow": {
+        "label": "Operating / Free Cash Flow",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      },
+      "net_debt_ebitda": {
+        "label": "Net Debt / Op. Profit",
+        "value": "<string|null>",
+        "sublabel": "<string>"
+      }
+    }
+  }
+}

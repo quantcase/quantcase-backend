@@ -1,0 +1,120 @@
+const { Worker } = require('bullmq');
+const fs   = require('fs');
+const path = require('path');
+const { connection, prisma, llmStream, parseJson } = require('../lib/workerSetup');
+const { dealAnalysisPrompt }    = require('../prompts/deal_analysis');
+const { fetchTickerFinancials } = require('../utils/fincruxHelper');
+const { upsertDealResult }      = require('../db-utils/upsertDealResult');
+
+const TEMP_DIR   = path.join(__dirname, '..', 'tmp');
+const MAX_TOKENS = 8000;
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+async function getRecentSummaries(ticker) {
+  const rows = await prisma.summary.findMany({
+    where:   { callId: { startsWith: ticker + '_' } },
+    orderBy: { createdAt: 'desc' },
+    take:    3,
+    select:  { callId: true, governanceSignals: true, tone: true, confidence: true }
+  });
+  return rows.reverse();
+}
+
+function extractCmp(fincruxData) {
+  const price = fincruxData?.data?.top_ratios?.['Current Price'];
+  if (!price) return null;
+  const num = parseFloat(String(price).replace(/[₹,\s]/g, ''));
+  return isNaN(num) ? null : num;
+}
+
+// ─── Processor ───────────────────────────────────────────────────────────────
+
+async function processDealJob(job) {
+  const { callId, ticker, industry, companyName, stockEps, stockPe, industryEps, industryPe } = job.data;
+  console.log(`Processing Deal job ${job.id} (callId: ${callId}, ticker: ${ticker})`);
+
+  try {
+    await prisma.job.upsert({
+      where:  { bullmqId: job.id },
+      update: { status: 'processing' },
+      create: { callId, type: 'deal_analysis', status: 'processing', bullmqId: job.id }
+    });
+    await job.updateProgress(5);
+
+    let cmp = null;
+    try {
+      const fincruxResult = await fetchTickerFinancials(ticker);
+      cmp = extractCmp(fincruxResult);
+      console.log(`[Deal] CMP for ${ticker}: ₹${cmp}`);
+    } catch (err) {
+      console.warn(`[Deal] Could not fetch CMP from Fincrux for ${ticker}: ${err.message}`);
+    }
+    await job.updateProgress(20);
+
+    const recentSummaries = await getRecentSummaries(ticker);
+    console.log(`[Deal] Recent summaries for ${ticker}: ${recentSummaries.length}`);
+    await job.updateProgress(35);
+
+    const prompt = dealAnalysisPrompt(ticker, companyName, industry, cmp, stockEps, stockPe, industryEps, industryPe, recentSummaries);
+    console.log(`[Deal] Prompt length: ${prompt.length} chars`);
+
+    if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
+    const safeId     = callId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const promptFile = path.join(TEMP_DIR, `deal_prompt_${safeId}.txt`);
+    fs.writeFileSync(promptFile, prompt, 'utf8');
+    await job.updateProgress(45);
+
+    console.log('[Deal] Calling LLM API...');
+    const responseText = await llmStream({ model: 'anthropic/claude-sonnet-4-6', max_tokens: MAX_TOKENS, messages: [{ role: 'user', content: prompt }] });
+    await job.updateProgress(80);
+
+    if (!responseText) throw new Error('Empty response from LLM');
+
+    fs.writeFileSync(path.join(TEMP_DIR, `deal_response_${safeId}.txt`), responseText, 'utf8');
+
+    const dealResult = parseJson(responseText);
+    await job.updateProgress(90);
+
+    await upsertDealResult(callId, ticker, dealResult, { cmp, stockEps, stockPe, industryEps, industryPe }, prisma);
+    console.log(`[Deal] Result saved for callId: ${callId}`);
+
+    await prisma.job.update({
+      where: { bullmqId: job.id },
+      data:  { status: 'completed', result: { callId, scenariosGenerated: Object.keys(dealResult) } }
+    });
+
+    await job.updateProgress(100);
+    console.log(`[Deal] Job ${job.id} completed`);
+    return dealResult;
+
+  } catch (error) {
+    console.error(`[Deal] Job ${job.id} failed:`, error);
+    try {
+      await prisma.job.upsert({
+        where:  { bullmqId: job.id },
+        update: { status: 'failed', error: error.message },
+        create: { callId, type: 'deal_analysis', status: 'failed', bullmqId: job.id, error: error.message }
+      });
+    } catch (dbErr) {
+      console.error(`[Deal] Failed to update job ${job.id} in DB:`, dbErr);
+    }
+    throw error;
+  }
+}
+
+// ─── Worker ──────────────────────────────────────────────────────────────────
+
+const worker = new Worker('deal_analysis', processDealJob, {
+  connection,
+  concurrency: 2,
+  limiter: { max: 5, duration: 1000 }
+});
+
+worker.on('completed', job      => console.log(`[deal] Job ${job.id} completed`));
+worker.on('failed',    (job, err) => console.error(`[deal] Job ${job.id} failed:`, err.message));
+worker.on('error',     err      => console.error('[deal] Worker error:', err));
+
+console.log('Deal analysis worker ready');
+
+module.exports = worker;
