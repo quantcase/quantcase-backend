@@ -352,7 +352,7 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
     ];
     const usedIds  = new Set(primary.map(r => r.id));
     const spillover = mapped.filter(r => !usedIds.has(r.id));
-    const guidanceRecords = [...primary, ...spillover].slice(0, 8);
+    const guidanceRecords = [...primary, ...spillover].slice(0, 14);
 
     // ── Scores ───────────────────────────────────────────────────────────────
     const transparencyScore = calculateTransparencyScore(governanceSignals, riskDisclosures);
@@ -404,7 +404,7 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
           {
             factor:     "Guidance Accuracy",
             rating:     getRating(guidanceScore),
-            descriptor: hitRate >= 75 ? "Consistent Delivery" : hitRate >= 50 ? "Mixed Track Record" : "Inconsistent"
+            descriptor: hitRate >= 60 ? "Consistent Delivery" : hitRate >= 30 ? "Mixed Track Record" : "Inconsistent"
           },
           {
             factor:     "Disclosure Honesty",
