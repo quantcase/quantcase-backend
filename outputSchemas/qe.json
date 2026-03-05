@@ -1,0 +1,179 @@
+{
+    "non_bfsi": {
+      "meta": {
+        "company_name": "",
+        "company_type": "non_bfsi",
+        "report_period": "",
+        "report_type": "",
+        "currency": "INR",
+        "unit": "",
+        "multiplier": ""
+      },
+      "balance_sheet": {
+        "assets": {
+          "total": { "abbr": "TOTAL_ASSETS", "value": "" },
+          "non_current": {
+            "total":         { "abbr": "NONCURR_ASSETS", "value": "" },
+            "ASSET_PPE":     { "abbr": "ASSET_PPE",      "value": "" },
+            "ASSET_CWIP":    { "abbr": "ASSET_CWIP",     "value": "" },
+            "INV_NONCURR":   { "abbr": "INV_NONCURR",    "value": "" },
+            "LOANS_NONCURR": { "abbr": "LOANS_NONCURR",  "value": "" },
+            "OTH_ASSET_NC":  { "abbr": "OTH_ASSET_NC",   "value": "" }
+          },
+          "current": {
+            "total":          { "abbr": "CURR_ASSETS",    "value": "" },
+            "INVENTORY":      { "abbr": "INVENTORY",      "value": "" },
+            "INV_CURR":       { "abbr": "INV_CURR",       "value": "" },
+            "TRADE_RECV":     { "abbr": "TRADE_RECV",     "value": "" },
+            "CASH_EQUIV":     { "abbr": "CASH_EQUIV",     "value": "" },
+            "BANK_BAL_OTHER": { "abbr": "BANK_BAL_OTHER", "value": "" },
+            "LOANS_CURR":     { "abbr": "LOANS_CURR",     "value": "" }
+          }
+        },
+        "liabilities": {
+          "total": { "abbr": "TOTAL_LIAB", "value": "" },
+          "non_current": {
+            "total":   { "abbr": "NONCURR_LIAB", "value": "" },
+            "DEBT_LT": { "abbr": "DEBT_LT",      "value": "" },
+            "DTL":     { "abbr": "DTL",           "value": "" },
+            "PROV_LT": { "abbr": "PROV_LT",       "value": "" }
+          },
+          "current": {
+            "total":         { "abbr": "CURR_LIAB",      "value": "" },
+            "DEBT_ST":       { "abbr": "DEBT_ST",        "value": "" },
+            "TRADE_PAY":     { "abbr": "TRADE_PAY",      "value": "" },
+            "OTH_LIAB_CURR": { "abbr": "OTH_LIAB_CURR",  "value": "" },
+            "PROV_ST":       { "abbr": "PROV_ST",        "value": "" }
+          }
+        },
+        "equity": {
+          "total":          { "abbr": "NET_WORTH",      "value": "" },
+          "EQ_SHARE_CAP":   { "abbr": "EQ_SHARE_CAP",  "value": "" },
+          "RES_SURPLUS":    { "abbr": "RES_SURPLUS",    "value": "" },
+          "SHARE_WARRANTS": { "abbr": "SHARE_WARRANTS", "value": "" },
+          "MINORITY_INT":   { "abbr": "MINORITY_INT",   "value": "" }
+        }
+      },
+      "pnl": {
+        "revenue": {
+          "total":   { "abbr": "TOTAL_INCOME", "value": "" },
+          "REV_OP":  { "abbr": "REV_OP",       "value": "" },
+          "OTH_INC": { "abbr": "OTH_INC",      "value": "" }
+        },
+        "cogs": {
+          "total":       { "abbr": "TOTAL_COGS",  "value": "" },
+          "COST_MAT":    { "abbr": "COST_MAT",    "value": "" },
+          "PURCH_STOCK": { "abbr": "PURCH_STOCK", "value": "" },
+          "INV_CHG":     { "abbr": "INV_CHG",     "value": "" }
+        },
+        "operating_expenses": {
+          "total":     { "abbr": "TOTAL_OPEX", "value": "" },
+          "EMP_EXP":   { "abbr": "EMP_EXP",   "value": "" },
+          "FIN_COST":  { "abbr": "FIN_COST",  "value": "" },
+          "DEP_AMORT": { "abbr": "DEP_AMORT", "value": "" },
+          "OTH_EXP":   { "abbr": "OTH_EXP",  "value": "" }
+        },
+        "profit_lines": {
+          "total":       { "abbr": "TOTAL_TAX_EXP", "value": "" },
+          "PBT_PRE_EXC": { "abbr": "PBT_PRE_EXC",  "value": "" },
+          "EXC_ITEMS":   { "abbr": "EXC_ITEMS",     "value": "" },
+          "PBT":         { "abbr": "PBT",           "value": "" },
+          "TAX_EXP":     { "abbr": "TAX_EXP",       "value": "" },
+          "PAT":         { "abbr": "PAT",           "value": "" }
+        }
+      },
+      "cashflow": {
+        "total": { "abbr": "NET_CASH_CHANGE", "value": "" },
+        "CFO":   { "abbr": "CFO",            "value": "" },
+        "CFI":   { "abbr": "CFI",            "value": "" },
+        "CFF":   { "abbr": "CFF",            "value": "" }
+      }
+    },
+  
+    "bfsi": {
+      "meta": {
+        "company_name": "",
+        "company_type": "bfsi",
+        "report_period": "",
+        "report_type": "",
+        "currency": "INR",
+        "unit": "",
+        "multiplier": ""
+      },
+      "balance_sheet": {
+        "assets": {
+          "total": { "abbr": "TOTAL_ASSETS", "value": "" },
+          "financial": {
+            "total":       { "abbr": "TOTAL_FIN_ASSETS",   "value": "" },
+            "CASH_EQUIV":  { "abbr": "CASH_EQUIV",         "value": "" },
+            "BANK_BAL":    { "abbr": "BANK_BAL",           "value": "" },
+            "TRADE_RECV":  { "abbr": "TRADE_RECV",         "value": "" },
+            "LOANS_ADV":   { "abbr": "LOANS_ADV",          "value": "" },
+            "INV_NONCURR": { "abbr": "INV_NONCURR",        "value": "" }
+          },
+          "non_financial": {
+            "total":        { "abbr": "TOTAL_NONFIN_ASSETS", "value": "" },
+            "ASSET_PPE":    { "abbr": "ASSET_PPE",           "value": "" },
+            "ASSET_CWIP":   { "abbr": "ASSET_CWIP",          "value": "" },
+            "ASSET_GW":     { "abbr": "ASSET_GW",            "value": "" },
+            "ASSET_INTANG": { "abbr": "ASSET_INTANG",        "value": "" },
+            "INVENTORY":    { "abbr": "INVENTORY",           "value": "" }
+          }
+        },
+        "liabilities": {
+          "total": { "abbr": "TOTAL_LIAB", "value": "" },
+          "financial": {
+            "total":          { "abbr": "TOTAL_FIN_LIAB",  "value": "" },
+            "DEBT_NONCURR":   { "abbr": "DEBT_NONCURR",   "value": "" },
+            "TRADE_PAY":      { "abbr": "TRADE_PAY",      "value": "" },
+            "OTHER_FIN_LIAB": { "abbr": "OTHER_FIN_LIAB", "value": "" }
+          },
+          "non_financial": {
+            "total":             { "abbr": "TOTAL_NONFIN_LIAB", "value": "" },
+            "PROVISIONS":        { "abbr": "PROVISIONS",        "value": "" },
+            "DTL":               { "abbr": "DTL",               "value": "" },
+            "OTHER_NONFIN_LIAB": { "abbr": "OTHER_NONFIN_LIAB", "value": "" }
+          }
+        },
+        "equity": {
+          "total":        { "abbr": "NET_WORTH",    "value": "" },
+          "EQ_SHARE_CAP": { "abbr": "EQ_SHARE_CAP", "value": "" },
+          "RES_SURPLUS":  { "abbr": "RES_SURPLUS",  "value": "" },
+          "MINORITY_INT": { "abbr": "MINORITY_INT", "value": "" }
+        }
+      },
+      "pnl": {
+        "revenue": {
+          "total":   { "abbr": "TOTAL_INCOME", "value": "" },
+          "REV_OP":  { "abbr": "REV_OP",       "value": "" },
+          "OTH_INC": { "abbr": "OTH_INC",      "value": "" }
+        },
+        "cogs": {
+          "total":    { "abbr": "TOTAL_COGS", "value": "" },
+          "FIN_COST": { "abbr": "FIN_COST",   "value": "" }
+        },
+        "operating_expenses": {
+          "total":     { "abbr": "TOTAL_OPEX", "value": "" },
+          "EMP_EXP":   { "abbr": "EMP_EXP",   "value": "" },
+          "DEP_AMORT": { "abbr": "DEP_AMORT", "value": "" },
+          "OTH_EXP":   { "abbr": "OTH_EXP",  "value": "" },
+          "PROV_CONT": { "abbr": "PROV_CONT", "value": "" }
+        },
+        "profit_lines": {
+          "total":       { "abbr": "TOTAL_TAX_EXP", "value": "" },
+          "PBT_PRE_EXC": { "abbr": "PBT_PRE_EXC",  "value": "" },
+          "EXC_ITEMS":   { "abbr": "EXC_ITEMS",     "value": "" },
+          "PBT":         { "abbr": "PBT",           "value": "" },
+          "TAX_EXP":     { "abbr": "TAX_EXP",       "value": "" },
+          "PAT":         { "abbr": "PAT",           "value": "" }
+        }
+      },
+      "cashflow": {
+        "total": { "abbr": "NET_CASH_CHANGE", "value": "" },
+        "CFO":   { "abbr": "CFO",            "value": "" },
+        "CFI":   { "abbr": "CFI",            "value": "" },
+        "CFF":   { "abbr": "CFF",            "value": "" }
+      }
+    }
+  }
+  

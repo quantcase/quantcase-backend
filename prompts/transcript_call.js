@@ -1,17 +1,16 @@
-const { FINCRUX_METRICS } = require("../utils/constants");
-
 /**
  * @param {string} transcriptText
- * @param {Array<{id: string, abbr: string, full_form: string, type: 'standalone'|'ratio', denomination?: string, numerator_abbr?: string, denominator_abbr?: string}>} existingKpis
+ * @param {Array<{id: string, abbr: string, full_form: string, kpi_type?: string, denomination?: string, source: 'QE'|'transcript'}>} existingKpis
  * @param {string} callDate - ISO date string of the earnings call e.g. "2024-11-14"
  * @param {string} [fiscalYearEnd="03-31"] - MM-DD, e.g. "03-31" for Indian FY
  */
 function transcriptExtractorPrompt(transcriptText, existingKpis, callDate, fiscalYearEnd = "03-31") {
   const kpiReference = existingKpis.map(k => {
-    const base = `${k.abbr} (${k.full_form}, type: ${k.type}`;
-    if (k.type === 'standalone') return `${base}, denomination: ${k.denomination})`;
-    if (k.type === 'ratio') return `${base}, numerator: ${k.numerator_abbr}, denominator: ${k.denominator_abbr})`;
-    return `${base})`;
+    const parts = [k.full_form];
+    if (k.kpi_type)    parts.push(`kpi_type: ${k.kpi_type}`);
+    if (k.denomination) parts.push(`denomination: ${k.denomination}`);
+    parts.push(`source: ${k.source}`);
+    return `${k.abbr} (${parts.join(', ')})`;
   }).join('\n  ');
 
   return `You are an expert financial analyst extracting structured intelligence from an earnings call transcript to assess management integrity, disclosure quality, and industry positioning.
@@ -99,44 +98,72 @@ Each has financial_targets and conceptual_targets arrays.
 "confident" | "neutral" | "defensive" | "promotional"
 
 ### 6. industry_analysis
+Each sub-section has a "kpis" array (industry-level metrics only) and a "factors_affecting" array (qualitative drivers/headwinds for that dimension).
+
 {
-  "kpis": [{
-    "kpi_abbr": string,             // abbr from AVAILABLE KPIs or new_kpis
-    "value": number | null,
-    "statement": string             // original statement from transcript
-  }],
-  "growth_drivers": [string],       // Array of statements describing tailwinds
-  "headwinds": [string]             // Array of statements describing risks/challenges at industry level
+  "demand": {
+    "kpis": [{
+      "kpi_abbr": string,           // abbr from AVAILABLE KPIs or new_kpis
+      "value": number | null,
+      "statement": string           // original statement from transcript
+    }],
+    "factors_affecting": [string]   // e.g. macro tailwinds, regulatory push, consumer trends
+  },
+  "supply": {
+    "kpis": [{ "kpi_abbr": string, "value": number | null, "statement": string }],
+    "factors_affecting": [string]   // e.g. capacity additions, raw-material availability, imports
+  },
+  "operating_margins": {
+    "kpis": [{ "kpi_abbr": string, "value": number | null, "statement": string }],
+    "factors_affecting": [string]   // e.g. input cost pressure, pricing power, efficiency levers
+  }
 }
 
-### 7. new_kpis
+### 7. financial_strength
+Company-level financial health. Each sub-section has only a "factors_affecting" array (qualitative drivers — no KPI values here, those come from the QE worker).
+
+{
+  "revenue_growth":                      { "factors_affecting": [string] },
+  "profitability_and_margin_expansion":  { "factors_affecting": [string] },
+  "cash_flow_generation_and_quality":    { "factors_affecting": [string] },
+  "balance_sheet_strength_and_leverage": { "factors_affecting": [string] }
+}
+
+### 8. client_traction
+{
+  "customer_growth": {
+    "kpis": [{ "kpi_abbr": string, "value": number | null, "statement": string }],
+    "factors_affecting": [string]
+  },
+  "revenue_streams": {
+    "kpis": [{ "kpi_abbr": string, "value": number | null, "statement": string }],
+    "factors_affecting": [string]
+  }
+}
+
+### 9. new_kpis
 KPIs encountered in the transcript that were NOT in the AVAILABLE KPIs list.
 Each must be fully classified per schema:
 
 [{
-  "abbr": string,                   // Short uppercase abbreviation you're assigning, e.g. "ARPU"
-  "full_form": string,              // Full name, e.g. "Average Revenue Per User"
-  "type": "standalone" | "ratio",
-
-  // Include only if type = "standalone":
-  "denomination": "INR" | "USD" | "percentage" | "days" | "times" | "units",
-
-  // Include only if type = "ratio":
-  "numerator_abbr": string,         // abbr of numerator KPI (from AVAILABLE KPIs or other new_kpis)
-  "denominator_abbr": string        // abbr of denominator KPI (from AVAILABLE KPIs or other new_kpis)
+  "abbr": string,                              // Short uppercase abbreviation you're assigning, e.g. "ARPU"
+  "full_form": string,                         // Full name, e.g. "Average Revenue Per User"
+  "kpi_type": "customer_kpis" | "industry_specific",  // customer_kpis for customer/user metrics; industry_specific for everything else
+  "denomination": "rupee" | "percentage" | "ratio" | "other"
 }]
 
-### 8. confidence
+### 10. confidence
 "high" | "medium" | "low"
 
 ----------------------
 
 ## IMPORTANT RULES
 1. Never hallucinate KPI abbrs. If unsure, add to new_kpis.
-2. For industry metrics, metrics should only be related to industry like CAGR,market size, etc. Stock specific metrics should not be included.
-3. new_kpis entries can reference each other in numerator_abbr/denominator_abbr as long as the referenced abbr also appears in new_kpis or AVAILABLE KPIs.
-4. If a section has no data, return an empty array or null as appropriate — never omit the key.
-4. Return ONLY the JSON. No explanation, no markdown fences.`;
+2. For industry_analysis KPIs, use only industry-level metrics (CAGR, market size, capacity utilisation, etc.). Company-specific client metrics belong in client_traction.
+3. financial_strength has NO kpis arrays — only factors_affecting. Financial KPI values are handled by the QE worker separately.
+4. new_kpis kpi_type must be "customer_kpis" (for user/customer metrics like ARPU, DAU) or "industry_specific" (for everything else).
+5. If a section has no data, return an empty array or null as appropriate — never omit the key.
+6. Return ONLY the JSON. No explanation, no markdown fences.`;
 }
 
 module.exports = { transcriptExtractorPrompt };

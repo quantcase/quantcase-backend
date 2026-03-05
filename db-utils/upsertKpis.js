@@ -3,43 +3,62 @@
 const prisma = require('../lib/prisma');
 
 /**
+ * Collects all KPI abbrs that were referenced in the LLM output
+ * (excluding new_kpis — those are handled separately).
+ */
+function extractUsedAbbrs(result, newAbbrSet) {
+  const abbrs = new Set();
+
+  const addFromList = (list) => {
+    for (const item of list ?? []) {
+      if (item?.kpi_abbr && !newAbbrSet.has(item.kpi_abbr)) abbrs.add(item.kpi_abbr);
+    }
+  };
+
+  // industry_analysis
+  const ia = result.industry_analysis ?? {};
+  addFromList(ia.demand?.kpis);
+  addFromList(ia.supply?.kpis);
+  addFromList(ia.operating_margins?.kpis);
+
+  // client_traction
+  const ct = result.client_traction ?? {};
+  addFromList(ct.customer_growth?.kpis);
+  addFromList(ct.revenue_streams?.kpis);
+
+  // milestones
+  const ms = result.milestones ?? {};
+  for (const category of ['future_goals', 'failure_disclosures', 'success_disclosures']) {
+    addFromList(ms[category]?.financial_targets);
+  }
+
+  return abbrs;
+}
+
+/**
  * Processes KPIs from LLM extraction output:
- *   - Old KPIs  (in result.kpis but NOT in result.new_kpis): update industry only
- *   - New KPIs  (in result.new_kpis): insert with source + industry
+ *   - Existing KPIs referenced in the output: update industry array
+ *   - new_kpis: insert with kpi_type, denomination, source, industry
  *
- * "Old" KPIs are derived efficiently as the set difference:
- *   result.kpis.kpi_abbr  \  new_kpis.abbr
- *
- * Handles two-pass insertion for new KPIs: standalone first, then ratios.
- *
- * @param {{ kpis: Array<{kpi_abbr: string}>, new_kpis: Array }} result
+ * @param {object} result  - parsed LLM output
  * @param {string|null} industry  - e.g. call.basic_industry
- * @param {'transcript'|'QE'}    source
+ * @param {'transcript'|'QE'} source
  * @returns {Promise<{ industryUpdated: string[], inserted: string[], skipped: string[], failed: Array<{abbr,error}> }>}
  */
 async function upsertNewKpis(result, industry, source = 'transcript') {
-  const kpis    = result?.kpis     ?? [];
   const newKpis = result?.new_kpis ?? [];
-
   const out = { industryUpdated: [], inserted: [], skipped: [], failed: [] };
 
-  // Build set of new abbrs for O(1) lookups
   const newAbbrSet = new Set(newKpis.map(k => k.abbr));
 
-  // ── Step 1: Update industry on existing (old) KPIs ──────────────────────────
+  // ── Step 1: Update industry on existing KPIs referenced in the output ─────
   if (industry) {
-    const oldAbbrs = kpis
-      .map(k => k.kpi_abbr)
-      .filter(abbr => abbr && !newAbbrSet.has(abbr));
-
-    for (const abbr of oldAbbrs) {
+    const usedAbbrs = extractUsedAbbrs(result, newAbbrSet);
+    for (const abbr of usedAbbrs) {
       try {
         const row = await prisma.kpi.findUnique({ where: { abbr } });
         if (row && !row.industry.includes(industry)) {
-          await prisma.kpi.update({
-            where: { abbr },
-            data:  { industry: { push: industry } }
-          });
+          await prisma.kpi.update({ where: { abbr }, data: { industry: { push: industry } } });
           out.industryUpdated.push(abbr);
         }
       } catch (err) {
@@ -50,7 +69,7 @@ async function upsertNewKpis(result, industry, source = 'transcript') {
 
   if (!newKpis.length) return out;
 
-  // ── Step 2: Validate new KPIs ────────────────────────────────────────────────
+  // ── Step 2: Validate new KPIs ─────────────────────────────────────────────
   const validated = [];
   for (const kpi of newKpis) {
     const error = validateKpi(kpi);
@@ -60,53 +79,28 @@ async function upsertNewKpis(result, industry, source = 'transcript') {
 
   const industryArr = industry ? [industry] : [];
 
-  // Helper: if a new KPI row already exists, just patch its industry
-  async function patchExisting(abbr) {
-    if (!industry) return;
-    const row = await prisma.kpi.findUnique({ where: { abbr } });
-    if (row && !row.industry.includes(industry)) {
-      await prisma.kpi.update({ where: { abbr }, data: { industry: { push: industry } } });
-    }
-  }
-
-  // ── Pass 1: Standalone KPIs ──────────────────────────────────────────────────
-  for (const kpi of validated.filter(k => k.type === 'standalone')) {
+  // ── Step 3: Insert new KPIs ───────────────────────────────────────────────
+  for (const kpi of validated) {
     try {
       const exists = await prisma.kpi.findUnique({ where: { abbr: kpi.abbr } });
-      if (exists) { await patchExisting(kpi.abbr); out.skipped.push(kpi.abbr); continue; }
-
-      await prisma.kpi.create({
-        data: { abbr: kpi.abbr, full_form: kpi.full_form, type: 'standalone',
-                denomination: kpi.denomination, source, industry: industryArr }
-      });
-      out.inserted.push(kpi.abbr);
-    } catch (err) {
-      out.failed.push({ abbr: kpi.abbr, error: err.message });
-    }
-  }
-
-  // ── Pass 2: Ratio KPIs (numerator/denominator must exist already) ────────────
-  for (const kpi of validated.filter(k => k.type === 'ratio')) {
-    try {
-      const exists = await prisma.kpi.findUnique({ where: { abbr: kpi.abbr } });
-      if (exists) { await patchExisting(kpi.abbr); out.skipped.push(kpi.abbr); continue; }
-
-      const numerator   = await prisma.kpi.findUnique({ where: { abbr: kpi.numerator_abbr } });
-      const denominator = await prisma.kpi.findUnique({ where: { abbr: kpi.denominator_abbr } });
-
-      if (!numerator) {
-        out.failed.push({ abbr: kpi.abbr, error: `Numerator '${kpi.numerator_abbr}' not found` });
-        continue;
-      }
-      if (!denominator) {
-        out.failed.push({ abbr: kpi.abbr, error: `Denominator '${kpi.denominator_abbr}' not found` });
+      if (exists) {
+        // Already exists — just patch industry if needed
+        if (industry && !exists.industry.includes(industry)) {
+          await prisma.kpi.update({ where: { abbr: kpi.abbr }, data: { industry: { push: industry } } });
+        }
+        out.skipped.push(kpi.abbr);
         continue;
       }
 
       await prisma.kpi.create({
-        data: { abbr: kpi.abbr, full_form: kpi.full_form, type: 'ratio',
-                numerator_id: numerator.id, denominator_id: denominator.id,
-                source, industry: industryArr }
+        data: {
+          abbr:        kpi.abbr,
+          full_form:   kpi.full_form,
+          kpi_type:    kpi.kpi_type,
+          denomination: kpi.denomination,
+          source,
+          industry:    industryArr
+        }
       });
       out.inserted.push(kpi.abbr);
     } catch (err) {
@@ -124,17 +118,10 @@ async function upsertNewKpis(result, industry, source = 'transcript') {
 function validateKpi(kpi) {
   if (!kpi.abbr || typeof kpi.abbr !== 'string') return 'Missing or invalid abbr';
   if (!kpi.full_form || typeof kpi.full_form !== 'string') return 'Missing full_form';
-  if (!['standalone', 'ratio'].includes(kpi.type)) return `Invalid type: ${kpi.type}`;
-
-  const validDenominations = ['INR', 'USD', 'percentage', 'days', 'times', 'units'];
-  if (kpi.type === 'standalone') {
-    if (!kpi.denomination || !validDenominations.includes(kpi.denomination))
-      return `Invalid denomination: ${kpi.denomination}`;
-  }
-  if (kpi.type === 'ratio') {
-    if (!kpi.numerator_abbr)   return 'Ratio KPI missing numerator_abbr';
-    if (!kpi.denominator_abbr) return 'Ratio KPI missing denominator_abbr';
-  }
+  if (!['customer_kpis', 'industry_specific'].includes(kpi.kpi_type))
+    return `Invalid kpi_type: ${kpi.kpi_type}`;
+  if (!['rupee', 'percentage', 'ratio', 'other'].includes(kpi.denomination))
+    return `Invalid denomination: ${kpi.denomination}`;
   return null;
 }
 

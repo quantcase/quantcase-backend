@@ -5,28 +5,52 @@ const { upsertNewKpis } = require('../db-utils/upsertKpis');
 
 const MAX_TOKENS = 16000;
 
+const QE_KPI_CONFIG = require('../lib/qe_kpi_config.json');
+const { isBFSI } = require('../utils/industryClassifier');
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function getQeKpisForPrompt(basicIndustry) {
-  const where = { OR: [{ source: 'QE' }] };
-  if (basicIndustry) where.OR.push({ industry: { has: basicIndustry } });
+function getKpiConfigForPrompt(basicIndustry) {
+  const industryKey = isBFSI(basicIndustry) ? 'bfsi' : 'non_bfsi';
+  const config = QE_KPI_CONFIG[industryKey];
 
-  const kpis = await prisma.kpi.findMany({
-    where,
-    include: {
-      numerator:   { select: { abbr: true } },
-      denominator: { select: { abbr: true } }
+  const kpis = [];
+
+  function extractKpis(obj) {
+    for (const [key, value] of Object.entries(obj)) {
+      if (!value || typeof value !== 'object') continue;
+      if (value.label && Array.isArray(value.aliases)) {
+        kpis.push({ abbr: key, label: value.label, aliases: value.aliases });
+      } else {
+        extractKpis(value);
+      }
     }
+  }
+
+  // Exclude ratios — only traverse balance_sheet, pnl, cashflow
+  [config.balance_sheet, config.pnl, config.cashflow].forEach(section => {
+    if (section) extractKpis(section);
   });
-  return kpis.map(k => ({
-    id:               k.id,
-    abbr:             k.abbr,
-    full_form:        k.full_form,
-    type:             k.type,
-    denomination:     k.denomination    ?? undefined,
-    numerator_abbr:   k.numerator?.abbr ?? undefined,
-    denominator_abbr: k.denominator?.abbr ?? undefined
-  }));
+
+  return kpis;
+}
+
+// Walks the nested QE result (balance_sheet, pnl, cashflow) and collects
+// every leaf { abbr, value } node into a flat array of { kpi_abbr, kpi_value }.
+function flattenQeResult(data) {
+  const out = [];
+  function walk(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    if ('abbr' in obj && 'value' in obj) {
+      out.push({ kpi_abbr: obj.abbr, kpi_value: obj.value });
+      return;
+    }
+    for (const v of Object.values(obj)) walk(v);
+  }
+  walk(data.balance_sheet);
+  walk(data.pnl);
+  walk(data.cashflow);
+  return out;
 }
 
 async function buildPdfBlock(url) {
@@ -58,8 +82,8 @@ async function processQeJob(job) {
     if (!qeUrl) throw new Error(`No quarterly_result_url for call ${callId}`);
     await job.updateProgress(20);
 
-    const kpis = await getQeKpisForPrompt(call.basic_industry);
-    console.log(`Loaded ${kpis.length} KPIs (industry: ${call.basic_industry})`);
+    const kpis = getKpiConfigForPrompt(call.basic_industry);
+    console.log(`Loaded ${kpis.length} KPIs from config (industry: ${call.basic_industry})`);
     await job.updateProgress(35);
 
     const prompt = quarterlyEarningsPrompt(
@@ -75,11 +99,11 @@ async function processQeJob(job) {
     console.log('Calling LLM API with PDF...');
 
     const stream = await openRouter.chat.completions.create({
-      model:    'anthropic/claude-sonnet-4-6',
+      model:      'anthropic/claude-sonnet-4-6',
       max_tokens: MAX_TOKENS,
-      provider: { order: ['Anthropic'], allow_fallbacks: false },
-      messages: [{ role: 'user', content: [pdfBlock, { type: 'text', text: prompt }] }],
-      stream:   true,
+      provider:   { order: ['Anthropic'], allow_fallbacks: false },
+      messages:   [{ role: 'user', content: [pdfBlock, { type: 'text', text: prompt }] }],
+      stream:     true,
     });
     let responseText = '';
     for await (const chunk of stream) responseText += chunk.choices[0]?.delta?.content ?? '';
@@ -89,29 +113,30 @@ async function processQeJob(job) {
 
     console.log('Claude response received, parsing...');
     const extractedData = parseJson(responseText);
+    const flatKpis = flattenQeResult(extractedData);
 
-    console.log(`Processing KPIs — total: ${extractedData.kpis?.length ?? 0}, new: ${extractedData.new_kpis?.length ?? 0}`);
-    const kpiResult = await upsertNewKpis(extractedData, call.basic_industry, 'QE');
+    console.log(`Processing KPIs — total: ${flatKpis.length}`);
+    const kpiResult = await upsertNewKpis({ kpis: flatKpis, new_kpis: [] }, call.basic_industry, 'QE');
     console.log('KPI upsert results:', kpiResult);
     if (kpiResult.failed.length > 0) console.warn('KPI upsert failures:', kpiResult.failed);
     await job.updateProgress(90);
 
-    await prisma.summary.upsert({
+    await prisma.summaryNew.upsert({
       where:  { callId },
-      update: { kpis: extractedData.kpis || [] },
-      create: { callId, kpis: extractedData.kpis || [] }
+      update: { kpis: flatKpis },
+      create: { callId, kpis: flatKpis }
     });
 
     await prisma.job.update({
       where: { bullmqId: job.id },
       data: {
         status: 'completed',
-        result: { callId, kpisExtracted: extractedData.kpis?.length ?? 0, newKpisFound: extractedData.new_kpis?.length ?? 0 }
+        result: { callId, kpisExtracted: flatKpis.length }
       }
     });
 
     await job.updateProgress(100);
-    console.log(`QE job ${job.id} completed — ${extractedData.kpis?.length ?? 0} KPI values extracted`);
+    console.log(`QE job ${job.id} completed — ${flatKpis.length} KPI values extracted`);
     return extractedData;
 
   } catch (error) {

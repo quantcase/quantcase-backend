@@ -2,132 +2,102 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 
+// ─── QE KPIs ──────────────────────────────────────────────────────────────────
 
-// ─── Standalone KPIs ─────────────────────────────────────────────────────────
-// These have no dependencies, so they're inserted first.
+const QE_KPIS = [
+  // Assets
+  { abbr: 'TOTAL_ASSETS',       full_form: 'Total Assets',                                                                  kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'NONCURR_ASSETS',     full_form: 'Total Non-Current Assets',                                                      kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'ASSET_PPE',          full_form: 'Property, Plant and Equipment',                                                 kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'ASSET_CWIP',         full_form: 'Capital Work-in-Progress',                                                      kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'INV_NONCURR',        full_form: 'Non-Current Investments',                                                       kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'LOANS_NONCURR',      full_form: 'Long-Term Loans and Advances',                                                  kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'OTH_ASSET_NC',       full_form: 'Other Non-Current Assets',                                                     kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'CURR_ASSETS',        full_form: 'Total Current Assets',                                                          kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'INVENTORY',          full_form: 'Inventories',                                                                   kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'INV_CURR',           full_form: 'Current Investments',                                                           kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'TRADE_RECV',         full_form: 'Trade Receivables',                                                             kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'CASH_EQUIV',         full_form: 'Cash and Cash Equivalents',                                                     kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'BANK_BAL_OTHER',     full_form: 'Other Bank Balances',                                                           kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'LOANS_CURR',         full_form: 'Short-Term Loans and Advances',                                                 kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'TOTAL_FIN_ASSETS',   full_form: 'Total Financial Assets',                                                        kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'TOTAL_NONFIN_ASSETS',full_form: 'Total Non-Financial Assets',                                                    kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'BANK_BAL',           full_form: 'Bank Balances Other Than Cash and Cash Equivalents',                            kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'LOANS_ADV',          full_form: 'Financial Assets - Loans',                                                      kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'ASSET_GW',           full_form: 'Goodwill',                                                                      kpi_type: 'assets',              denomination: 'rupee' },
+  { abbr: 'ASSET_INTANG',       full_form: 'Other Intangible Assets',                                                       kpi_type: 'assets',              denomination: 'rupee' },
 
-const STANDALONE_KPIS = [
-  // Income statement
-  { abbr: 'REV',    full_form: 'Revenue',                          denomination: 'INR' },
-  { abbr: 'EBITDA', full_form: 'Earnings Before Interest Tax Depreciation and Amortization', denomination: 'INR' },
-  { abbr: 'EBIT',   full_form: 'Earnings Before Interest and Tax', denomination: 'INR' },
-  { abbr: 'PBT',    full_form: 'Profit Before Tax',                denomination: 'INR' },
-  { abbr: 'PAT',    full_form: 'Profit After Tax',                 denomination: 'INR' },
-  { abbr: 'GP',     full_form: 'Gross Profit',                     denomination: 'INR' },
-  { abbr: 'COGS',   full_form: 'Cost of Goods Sold',               denomination: 'INR' },
-  { abbr: 'OPEX',   full_form: 'Operating Expenditure',            denomination: 'INR' },
-  { abbr: 'CAPEX',  full_form: 'Capital Expenditure',              denomination: 'INR' },
-  { abbr: 'D&A',    full_form: 'Depreciation and Amortization',    denomination: 'INR' },
-  { abbr: 'INTEXP', full_form: 'Interest Expense',                 denomination: 'INR' },
-  { abbr: 'TAX',    full_form: 'Tax Expense',                      denomination: 'INR' },
+  // Liabilities
+  { abbr: 'TOTAL_LIAB',         full_form: 'Total Liabilities',                                                             kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'NONCURR_LIAB',       full_form: 'Total Non-Current Liabilities',                                                 kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'DEBT_LT',            full_form: 'Long-Term Borrowings',                                                          kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'DTL',                full_form: 'Deferred Tax Liabilities (Net)',                                                 kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'PROV_LT',            full_form: 'Long-Term Provisions',                                                          kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'CURR_LIAB',          full_form: 'Total Current Liabilities',                                                     kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'DEBT_ST',            full_form: 'Short-Term Borrowings',                                                         kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'TRADE_PAY',          full_form: 'Trade Payables',                                                                kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'OTH_LIAB_CURR',      full_form: 'Other Current Liabilities',                                                    kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'PROV_ST',            full_form: 'Short-Term Provisions',                                                         kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'TOTAL_FIN_LIAB',     full_form: 'Total Financial Liabilities',                                                   kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'TOTAL_NONFIN_LIAB',  full_form: 'Total Non-Financial Liabilities',                                               kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'DEBT_NONCURR',       full_form: 'Financial Liabilities - Borrowings',                                            kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'OTHER_FIN_LIAB',     full_form: 'Other Financial Liabilities',                                                   kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'PROVISIONS',         full_form: 'Provisions',                                                                    kpi_type: 'liabilities',         denomination: 'rupee' },
+  { abbr: 'OTHER_NONFIN_LIAB',  full_form: 'Other Non-Financial Liabilities',                                               kpi_type: 'liabilities',         denomination: 'rupee' },
 
-  // Balance sheet
-  { abbr: 'TA',     full_form: 'Total Assets',                     denomination: 'INR' },
-  { abbr: 'TL',     full_form: 'Total Liabilities',                denomination: 'INR' },
-  { abbr: 'EQ',     full_form: 'Shareholders Equity',              denomination: 'INR' },
-  { abbr: 'DEBT',   full_form: 'Total Debt',                       denomination: 'INR' },
-  { abbr: 'CASH',   full_form: 'Cash and Cash Equivalents',        denomination: 'INR' },
-  { abbr: 'WC',     full_form: 'Working Capital',                  denomination: 'INR' },
-  { abbr: 'INV',    full_form: 'Inventory',                        denomination: 'INR' },
-  { abbr: 'AR',     full_form: 'Accounts Receivable',              denomination: 'INR' },
-  { abbr: 'AP',     full_form: 'Accounts Payable',                 denomination: 'INR' },
+  // Equity
+  { abbr: 'NET_WORTH',          full_form: 'Total Equity / Net Worth',                                                      kpi_type: 'equity',              denomination: 'rupee' },
+  { abbr: 'EQ_SHARE_CAP',       full_form: 'Equity Share Capital',                                                          kpi_type: 'equity',              denomination: 'rupee' },
+  { abbr: 'RES_SURPLUS',        full_form: 'Other Equity / Reserves and Surplus',                                           kpi_type: 'equity',              denomination: 'rupee' },
+  { abbr: 'SHARE_WARRANTS',     full_form: 'Money Received Against Share Warrants',                                         kpi_type: 'equity',              denomination: 'rupee' },
+  { abbr: 'MINORITY_INT',       full_form: 'Non-Controlling Interests / Minority Interest',                                 kpi_type: 'equity',              denomination: 'rupee' },
 
-  // Cash flow
-  { abbr: 'OCF',    full_form: 'Operating Cash Flow',              denomination: 'INR' },
-  { abbr: 'FCF',    full_form: 'Free Cash Flow',                   denomination: 'INR' },
+  // Revenue
+  { abbr: 'TOTAL_INCOME',       full_form: 'Total Income',                                                                  kpi_type: 'revenue',             denomination: 'rupee' },
+  { abbr: 'REV_OP',             full_form: 'Revenue from Operations',                                                       kpi_type: 'revenue',             denomination: 'rupee' },
+  { abbr: 'OTH_INC',            full_form: 'Other Income',                                                                  kpi_type: 'revenue',             denomination: 'rupee' },
 
-  // Per-share
-  { abbr: 'EPS',    full_form: 'Earnings Per Share',               denomination: 'INR' },
-  { abbr: 'BV',     full_form: 'Book Value Per Share',             denomination: 'INR' },
-  { abbr: 'DPS',    full_form: 'Dividend Per Share',               denomination: 'INR' },
+  // COGS
+  { abbr: 'TOTAL_COGS',         full_form: 'Total Cost of Goods Sold',                                                      kpi_type: 'cogs',                denomination: 'rupee' },
+  { abbr: 'COST_MAT',           full_form: 'Cost of Materials Consumed',                                                    kpi_type: 'cogs',                denomination: 'rupee' },
+  { abbr: 'PURCH_STOCK',        full_form: 'Purchases of Stock-in-Trade',                                                   kpi_type: 'cogs',                denomination: 'rupee' },
+  { abbr: 'INV_CHG',            full_form: 'Changes in Inventories of Finished Goods, WIP and Stock-in-Trade',             kpi_type: 'cogs',                denomination: 'rupee' },
+  { abbr: 'FIN_COST',           full_form: 'Finance Costs / Interest Expense',                                              kpi_type: 'cogs',                denomination: 'rupee' },
 
-  // Percentages (standalone — denomination = percentage)
-  { abbr: 'GPM',    full_form: 'Gross Profit Margin',              denomination: 'percentage' },
-  { abbr: 'OPM',    full_form: 'Operating Profit Margin',          denomination: 'percentage' },
-  { abbr: 'NPM',    full_form: 'Net Profit Margin',                denomination: 'percentage' },
-  { abbr: 'ROE',    full_form: 'Return on Equity',                 denomination: 'percentage' },
-  { abbr: 'ROA',    full_form: 'Return on Assets',                 denomination: 'percentage' },
-  { abbr: 'ROCE',   full_form: 'Return on Capital Employed',       denomination: 'percentage' },
-  { abbr: 'ROIC',   full_form: 'Return on Invested Capital',       denomination: 'percentage' },
+  // Operating expenses
+  { abbr: 'TOTAL_OPEX',         full_form: 'Total Operating Expenses',                                                      kpi_type: 'operating_expenses',  denomination: 'rupee' },
+  { abbr: 'EMP_EXP',            full_form: 'Employee Benefit Expense',                                                      kpi_type: 'operating_expenses',  denomination: 'rupee' },
+  { abbr: 'DEP_AMORT',          full_form: 'Depreciation and Amortisation',                                                 kpi_type: 'operating_expenses',  denomination: 'rupee' },
+  { abbr: 'OTH_EXP',            full_form: 'Other Expenses',                                                                kpi_type: 'operating_expenses',  denomination: 'rupee' },
+  { abbr: 'PROV_CONT',          full_form: 'Provisions and Contingencies',                                                  kpi_type: 'operating_expenses',  denomination: 'rupee' },
 
-  // Operational
-  { abbr: 'UNITS',  full_form: 'Units Sold',                       denomination: 'units' },
-  { abbr: 'EMP',    full_form: 'Number of Employees',              denomination: 'units' },
-  { abbr: 'STORES', full_form: 'Number of Stores or Outlets',      denomination: 'units' },
-  { abbr: 'CUST',   full_form: 'Number of Customers',              denomination: 'units' },
-  { abbr: 'SUBSC',  full_form: 'Number of Subscribers',            denomination: 'units' },
+  // Profit lines
+  { abbr: 'TOTAL_TAX_EXP',      full_form: 'Total Tax Expense',                                                             kpi_type: 'profit_lines',        denomination: 'rupee' },
+  { abbr: 'PBT_PRE_EXC',        full_form: 'Profit Before Exceptional Items and Tax',                                       kpi_type: 'profit_lines',        denomination: 'rupee' },
+  { abbr: 'EXC_ITEMS',          full_form: 'Exceptional Items',                                                             kpi_type: 'profit_lines',        denomination: 'rupee' },
+  { abbr: 'PBT',                full_form: 'Profit Before Tax',                                                             kpi_type: 'profit_lines',        denomination: 'rupee' },
+  { abbr: 'TAX_EXP',            full_form: 'Tax Expense',                                                                   kpi_type: 'profit_lines',        denomination: 'rupee' },
+  { abbr: 'PAT',                full_form: 'Profit After Tax',                                                              kpi_type: 'profit_lines',        denomination: 'rupee' },
 
-  // Days-based
-  { abbr: 'DSO',    full_form: 'Days Sales Outstanding',           denomination: 'days' },
-  { abbr: 'DIO',    full_form: 'Days Inventory Outstanding',       denomination: 'days' },
-  { abbr: 'DPO',    full_form: 'Days Payable Outstanding',         denomination: 'days' },
-  { abbr: 'CCC',    full_form: 'Cash Conversion Cycle',            denomination: 'days' },
-
-  // Industry / macro
-  { abbr: 'TAM',    full_form: 'Total Addressable Market',         denomination: 'INR' },
-  { abbr: 'SAM',    full_form: 'Serviceable Addressable Market',   denomination: 'INR' },
-  { abbr: 'CAGR',   full_form: 'Compound Annual Growth Rate',      denomination: 'percentage' },
-  { abbr: 'MKTSHR', full_form: 'Market Share',                     denomination: 'percentage' },
-  { abbr: 'INFL',   full_form: 'Inflation Rate',                   denomination: 'percentage' },
-  { abbr: 'GDPG',   full_form: 'GDP Growth Rate',                  denomination: 'percentage' },
-];
-
-// ─── Ratio KPIs ──────────────────────────────────────────────────────────────
-// References other abbrs — both numerator and denominator must exist first.
-
-const RATIO_KPIS = [
-  { abbr: 'PE',     full_form: 'Price to Earnings Ratio',          numerator_abbr: 'BV',   denominator_abbr: 'EPS'  },
-  { abbr: 'PB',     full_form: 'Price to Book Ratio',              numerator_abbr: 'BV',   denominator_abbr: 'BV'   },
-  { abbr: 'DE',     full_form: 'Debt to Equity Ratio',             numerator_abbr: 'DEBT', denominator_abbr: 'EQ'   },
-  { abbr: 'CR',     full_form: 'Current Ratio',                    numerator_abbr: 'WC',   denominator_abbr: 'TL'   },
-  { abbr: 'AT',     full_form: 'Asset Turnover Ratio',             numerator_abbr: 'REV',  denominator_abbr: 'TA'   },
-  { abbr: 'IT',     full_form: 'Inventory Turnover Ratio',         numerator_abbr: 'COGS', denominator_abbr: 'INV'  },
-  { abbr: 'IC',     full_form: 'Interest Coverage Ratio',          numerator_abbr: 'EBIT', denominator_abbr: 'INTEXP'},
-  { abbr: 'EVEBITDA',full_form:'EV to EBITDA',                     numerator_abbr: 'TA',   denominator_abbr: 'EBITDA'},
+  // Cashflow
+  { abbr: 'NET_CASH_CHANGE',    full_form: 'Net Change in Cash and Cash Equivalents',                                       kpi_type: 'cashflow',            denomination: 'rupee' },
+  { abbr: 'CFO',                full_form: 'Cash Flow from Operating Activities',                                           kpi_type: 'cashflow',            denomination: 'rupee' },
+  { abbr: 'CFI',                full_form: 'Cash Flow from Investing Activities',                                           kpi_type: 'cashflow',            denomination: 'rupee' },
+  { abbr: 'CFF',                full_form: 'Cash Flow from Financing Activities',                                           kpi_type: 'cashflow',            denomination: 'rupee' },
 ];
 
 // ─── Seed function ────────────────────────────────────────────────────────────
 
 async function seed() {
   console.log('Seeding KPI table...');
-  let inserted = 0, skipped = 0, failed = 0;
+  let inserted = 0, failed = 0;
 
-  // Pass 1 — standalones
-  for (const kpi of STANDALONE_KPIS) {
+  for (const kpi of QE_KPIS) {
     try {
-      await prisma.kpi.upsert({
-        where:  { abbr: kpi.abbr },
-        update: {},                          // don't overwrite if exists
-        create: { ...kpi, type: 'standalone' }
-      });
-      inserted++;
-    } catch (err) {
-      console.error(`Failed to seed ${kpi.abbr}:`, err.message);
-      failed++;
-    }
-  }
-  console.log(`Standalones: ${inserted} upserted, ${failed} failed`);
-
-  // Pass 2 — ratios
-  inserted = 0; failed = 0;
-  for (const kpi of RATIO_KPIS) {
-    try {
-      const numerator   = await prisma.kpi.findUnique({ where: { abbr: kpi.numerator_abbr } });
-      const denominator = await prisma.kpi.findUnique({ where: { abbr: kpi.denominator_abbr } });
-
-      if (!numerator)   { console.warn(`Skipping ${kpi.abbr}: numerator ${kpi.numerator_abbr} not found`);   skipped++; continue; }
-      if (!denominator) { console.warn(`Skipping ${kpi.abbr}: denominator ${kpi.denominator_abbr} not found`); skipped++; continue; }
-
       await prisma.kpi.upsert({
         where:  { abbr: kpi.abbr },
         update: {},
-        create: {
-          abbr:           kpi.abbr,
-          full_form:      kpi.full_form,
-          type:           'ratio',
-          numerator_id:   numerator.id,
-          denominator_id: denominator.id
-        }
+        create: { ...kpi, source: 'QE' },
       });
       inserted++;
     } catch (err) {
@@ -135,7 +105,7 @@ async function seed() {
       failed++;
     }
   }
-  console.log(`Ratios: ${inserted} upserted, ${skipped} skipped (missing ref), ${failed} failed`);
+  console.log(`QE KPIs: ${inserted} upserted, ${failed} failed`);
   console.log('Seeding complete.');
 }
 

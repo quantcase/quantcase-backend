@@ -1,3 +1,25 @@
+const kpiEntry = {
+  type: "object",
+  properties: {
+    kpi_abbr:  { type: "string" },
+    value:     { type: ["number", "null"] },
+    statement: { type: "string" }
+  },
+  required: ["kpi_abbr", "value", "statement"],
+  additionalProperties: false
+};
+
+// Reusable sub-section: kpis array + factors_affecting array
+const analysisSection = {
+  type: "object",
+  properties: {
+    kpis:              { type: "array", items: kpiEntry },
+    factors_affecting: { type: "array", items: { type: "string" } }
+  },
+  required: ["kpis", "factors_affecting"],
+  additionalProperties: false
+};
+
 const summarySchema = {
   type: "json_schema",
   schema: {
@@ -44,7 +66,7 @@ const summarySchema = {
           abbr:             { type: "string" },
           full_form:        { type: "string" },
           type:             { type: "string", enum: ["standalone", "ratio"] },
-          denomination:{ type: ["string", "null"] } ,
+          denomination:     { type: ["string", "null"] },
           numerator_abbr:   { type: ["string", "null"] },
           denominator_abbr: { type: ["string", "null"] }
         },
@@ -92,9 +114,9 @@ const summarySchema = {
         items: {
           type: "object",
           properties: {
-            risk:           { type: "string" },
-            severity:       { type: "string", enum: ["low", "medium", "high"] },
-            disclosed_early:{ type: "boolean" }
+            risk:            { type: "string" },
+            severity:        { type: "string", enum: ["low", "medium", "high"] },
+            disclosed_early: { type: "boolean" }
           },
           required: ["risk", "severity", "disclosed_early"],
           additionalProperties: false
@@ -104,9 +126,9 @@ const summarySchema = {
       governance_signals: {
         type: "object",
         properties: {
-          transparent:               { type: "boolean" },
-          defensive_language:        { type: "boolean" },
-          capital_allocation_clarity:{ type: "boolean" }
+          transparent:                { type: "boolean" },
+          defensive_language:         { type: "boolean" },
+          capital_allocation_clarity: { type: "boolean" }
         },
         required: ["transparent", "defensive_language", "capital_allocation_clarity"],
         additionalProperties: false
@@ -118,23 +140,38 @@ const summarySchema = {
       industry_analysis: {
         type: "object",
         properties: {
-          kpis: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                kpi_abbr:  { type: "string" },
-                value:     { type: ["number", "null"] },
-                statement: { type: "string" }
-              },
-              required: ["kpi_abbr", "value", "statement"],
-              additionalProperties: false
-            }
-          },
-          growth_drivers: { type: "array", items: { type: "string" } },
-          headwinds:       { type: "array", items: { type: "string" } }
+          demand:           analysisSection,
+          supply:           analysisSection,
+          operating_margins: analysisSection
         },
-        required: ["kpis", "growth_drivers", "headwinds"],
+        required: ["demand", "supply", "operating_margins"],
+        additionalProperties: false
+      },
+
+      financial_strength: {
+        type: "object",
+        properties: {
+          revenue_growth:                      analysisSection,
+          profitability_and_margin_expansion:  analysisSection,
+          cash_flow_generation_and_quality:    analysisSection,
+          balance_sheet_strength_and_leverage: analysisSection
+        },
+        required: [
+          "revenue_growth",
+          "profitability_and_margin_expansion",
+          "cash_flow_generation_and_quality",
+          "balance_sheet_strength_and_leverage"
+        ],
+        additionalProperties: false
+      },
+
+      client_traction: {
+        type: "object",
+        properties: {
+          customer_growth: analysisSection,
+          revenue_streams: analysisSection
+        },
+        required: ["customer_growth", "revenue_streams"],
         additionalProperties: false
       },
 
@@ -147,7 +184,8 @@ const summarySchema = {
     required: [
       "entities", "milestones", "risk_disclosures",
       "governance_signals", "tone", "confidence",
-      "industry_analysis", "new_kpis"
+      "industry_analysis", "financial_strength", "client_traction",
+      "new_kpis"
     ],
     additionalProperties: false
   }

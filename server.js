@@ -274,55 +274,25 @@ app.post('/api/calls/:callId/summarize', async (req, res) => {
       });
     }
 
-    // Validate that at least one text source exists
     const hasTranscript = call.transcript_text && call.transcript_text.trim().length > 0;
     const hasPPT = call.ppt_text && call.ppt_text.trim().length > 0;
-
     if (!hasTranscript && !hasPPT) {
-      return res.status(400).json({
-        success: false,
-        error: 'No transcript or PPT text available for this call'
-      });
+      return res.status(400).json({ success: false, error: 'No transcript or PPT text available for this call' });
     }
-
     const summarizationData = {
-      callId,
-      type: 'summarization',
+      callId, type: 'summarization',
       companyName: call.company_name || call.company,
       transcriptText: call.transcript_text,
       pptText: call.ppt_text
     };
+    const summarizationJob = await jobQueue.addJob('summarization', summarizationData);
 
-    const hasQeUrl = !!call.quarterly_result_url?.trim();
-
-    if (hasQeUrl) {
-      // Chain: summarization (child) runs first, qe_extraction (parent) runs after
-      const flow = await jobQueue.addFlow({
-        name: 'qe_extraction',
-        queueName: 'qe_extraction',
-        data: { callId, type: 'qe_extraction' },
-        children: [
-          { name: 'summarization', queueName: 'summarization', data: summarizationData }
-        ]
-      });
-
-      return res.json({
-        success: true,
-        message: 'Summarization + QE extraction pipeline queued',
-        jobs: {
-          summarization: { id: flow.children?.[0]?.job?.id },
-          qe_extraction: { id: flow.job.id }
-        }
-      });
-    }
-
-    // No QE PDF — run summarization alone
-    const job = await jobQueue.addJob('summarization', summarizationData);
+    const qeJob = await jobQueue.addJob('qe_extraction', { callId, type: 'qe_extraction' });
 
     res.json({
       success: true,
-      message: 'Summarization job created and queued',
-      job: { id: job.id, callId, type: 'summarization', status: 'pending', createdAt: new Date(job.timestamp).toISOString() }
+      message: 'Summarization job queued',
+      job: { id: summarizationJob.id, callId, type: 'summarization', status: 'pending', createdAt: summarizationJob.createdAt }
     });
   } catch (error) {
     console.error('Error creating summarization job:', error);
@@ -334,12 +304,24 @@ app.post('/api/calls/:callId/summarize', async (req, res) => {
   }
 });
 
-// Enqueue an OFactor analysis job for a call
-// Body: { peerTickers: string[] } (optional)
+// Enqueue an OFactor analysis job for a specific section
+// Body: { section: "industry" | "competition" | "financial_strength" | "customer_traction" }
+const VALID_OFACTOR_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction']);
+
 app.post('/api/calls/:callId/opportunity/analysis', async (req, res) => {
   try {
     const { callId } = req.params;
-    const { peerTickers } = req.body ?? {};
+    const { section } = req.body ?? {};
+
+    if (!section) {
+      return res.status(400).json({ success: false, error: 'section is required in request body' });
+    }
+    if (!VALID_OFACTOR_SECTIONS.has(section)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid section "${section}". Must be one of: ${[...VALID_OFACTOR_SECTIONS].join(', ')}`
+      });
+    }
 
     const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
     if (!call) {
@@ -347,23 +329,22 @@ app.post('/api/calls/:callId/opportunity/analysis', async (req, res) => {
     }
 
     const subjectTicker = call.company;
-    // peerTickers is optional — defaults to empty array
-    const resolvedPeerTickers = Array.isArray(peerTickers) ? peerTickers : [];
 
     const job = await jobQueue.addJob('ofactor_analysis', {
       callId,
       type:          'ofactor_analysis',
       subjectTicker,
-      peerTickers:   resolvedPeerTickers,
-    }, { jobId: `ofactor_${callId}` });
+      section,
+    }, { jobId: `ofactor_${callId}_${section}` });
 
     res.json({
       success: true,
-      message: 'OFactor analysis job created and queued',
+      message: `OFactor "${section}" analysis job created and queued`,
       job: {
         id:        job.id,
         callId,
         type:      'ofactor_analysis',
+        section,
         status:    'pending',
         createdAt: new Date(job.timestamp).toISOString(),
       },
@@ -457,28 +438,55 @@ app.get('/api/calls/:callId/deal', async (req, res) => {
 });
 
 app.get('/api/jobs/:jobId', async (req, res) => {
+  const STATE_TO_STATUS = {
+    waiting:   'pending',
+    delayed:   'pending',
+    paused:    'pending',
+    active:    'processing',
+    completed: 'completed',
+    failed:    'failed',
+  };
+
   try {
     const { jobId } = req.params;
-    const job = await jobQueue.getJobStatus('summarization', jobId);
+
+    // Try all queues — different analysis types live in different queues
+    const queues = ['summarization', 'ofactor_analysis', 'deal_analysis', 'qe_extraction'];
+    let job = null;
+    for (const q of queues) {
+      job = await jobQueue.getJobStatus(q, jobId);
+      if (job) break;
+    }
 
     if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: 'Job not found'
-      });
+      return res.status(404).json({ success: false, error: 'Job not found' });
     }
 
     res.json({
       success: true,
-      data: job
+      data: {
+        id:          job.id,
+        callId:      job.data?.callId   ?? null,
+        type:        job.data?.type     ?? null,
+        status:      STATE_TO_STATUS[job.state] ?? job.state,
+        bullmqId:    job.id,
+        createdAt:   null,
+        updatedAt:   null,
+        completedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+        error:       job.failedReason ?? null,
+        bullmqObject: {
+          id:           job.id,
+          name:         job.name,
+          state:        job.state,
+          progress:     job.progress,
+          attemptsMade: job.attemptsMade,
+          returnvalue:  job.returnvalue,
+        }
+      }
     });
   } catch (error) {
     console.error('Error fetching job:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch job',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: 'Failed to fetch job', message: error.message });
   }
 });
 
