@@ -123,7 +123,7 @@ app.get('/api/summary/:callId', async (req, res) => {
     const { callId } = req.params;
 
     // Find the most recent summary for this call
-    const summary = await prisma.summary.findFirst({
+    const summary = await prisma.summaryNew.findFirst({
       where: { callId: callId },
       orderBy: { createdAt: 'desc' }
     });

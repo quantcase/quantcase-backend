@@ -1,6 +1,7 @@
 'use strict';
 
 const { getHistoricPeForTickers } = require('../db-utils/getHistoricPe');
+const { isBFSI } = require('./industryClassifier');
 
 /**
  * FinHelper — financial KPI calculation utility
@@ -125,6 +126,66 @@ class FinHelper {
 
       return { callId: call.id, period: _periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
     });
+  }
+
+  /**
+   * Fetch all quarterly values for multiple KPI abbrs in a single DB round-trip.
+   * Returns a map of abbr → time-series array (same shape as getTimeSeries).
+   *
+   * @param {string}   ticker
+   * @param {string[]} abbrs  - e.g. ['REV_OP', 'PAT', 'EBIT', ...]
+   * @returns {Promise<Record<string, Array<{ callId, period, fiscal_year, quarter, call_date, value, abbrUsed }>>>}
+   */
+  async getTimeSeriesBatch(ticker, abbrs) {
+    const calls = await this.prisma.earnings_calls.findMany({
+      where:   { company: ticker },
+      select:  { id: true, fiscal_year: true, quarter: true, call_date: true },
+      orderBy: [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
+    });
+
+    const abbrSet = new Set(abbrs);
+    const result  = Object.fromEntries(abbrs.map(a => [a, []]));
+
+    if (!calls.length) return result;
+
+    const summaries = await this.prisma.summaryNew.findMany({
+      where:  { callId: { in: calls.map(c => c.id) } },
+      select: { callId: true, kpis: true },
+    });
+    const summaryMap = new Map(summaries.map(s => [s.callId, s.kpis]));
+
+    for (const call of calls) {
+      const kpisArr = summaryMap.get(call.id) ?? [];
+      const base    = {
+        callId:      call.id,
+        period:      _periodLabel(call),
+        fiscal_year: call.fiscal_year,
+        quarter:     call.quarter,
+        call_date:   call.call_date,
+      };
+
+      // Build a lookup of abbr → first matching kpi entry for this call
+      const matchByAbbr = {};
+      if (Array.isArray(kpisArr)) {
+        for (const k of kpisArr) {
+          if (abbrSet.has(k.kpi_abbr) && !matchByAbbr[k.kpi_abbr] && (k.kpi_value != null || k.value != null)) {
+            matchByAbbr[k.kpi_abbr] = k;
+          }
+        }
+      }
+
+      for (const abbr of abbrs) {
+        const match = matchByAbbr[abbr];
+        if (match) {
+          const raw = parseFloat(match.kpi_value ?? match.value);
+          result[abbr].push({ ...base, value: !isNaN(raw) ? raw : null, abbrUsed: abbr });
+        } else {
+          result[abbr].push({ ...base, value: null, abbrUsed: null });
+        }
+      }
+    }
+
+    return result;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -386,6 +447,150 @@ class FinHelper {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // Layer 5a — Derived KPI batch (computed from raw stored KPIs)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * For each quarter of a stock, derive financial KPIs.
+   *
+   * Common (all sectors):
+   *   EBIT   = REV_OP - (COST_MAT + PURCH_STOCK + INV_CHG) - EMP_EXP - DEP_AMORT - OTH_EXP
+   *            (BFSI alias: PPOP — Pre-Provisioning Operating Profit)
+   *   EBIT_MARGIN = EBIT / REV_OP × 100
+   *   ROA    = PAT / TOTAL_ASSETS × 100
+   *   ROE    = PAT / (EQ_SHARE_CAP + RES_SURPLUS) × 100
+   *   CAPEX  = ASSET_PPE + ASSET_CWIP
+   *
+   * Non-BFSI only:
+   *   ROCE   = (PBT + FIN_COST) / (TOTAL_ASSETS - CURR_LIAB) × 100
+   *   FCF    = CFO - CAPEX
+   *
+   * BFSI only:
+   *   FCF    = CFO - CAPEX - PROV_CONT   (provisions & contingencies deducted)
+   *
+   * @param {string}  ticker
+   * @param {boolean} [bfsi=false]
+   * @returns {Promise<Record<string, Array<{ callId, period, fiscal_year, quarter, call_date, value: number|null, abbrUsed: string }>>>}
+   */
+  async getDerivedKpiBatch(ticker, bfsi = false) {
+    const SOURCE_ABBRS = [
+      'REV_OP', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
+      'EMP_EXP', 'DEP_AMORT', 'OTH_EXP',
+      'PBT', 'FIN_COST', 'PAT',
+      'TOTAL_ASSETS', 'CURR_LIAB',
+      'EQ_SHARE_CAP', 'RES_SURPLUS',
+      'ASSET_PPE', 'ASSET_CWIP',
+      'CFO', 'PROV_CONT',
+    ];
+
+    const raw = await this.getTimeSeriesBatch(ticker, SOURCE_ABBRS);
+
+    const anchor = raw['REV_OP'];
+    if (!anchor.length) {
+      return { EBIT: [], EBIT_MARGIN: [], ROCE: [], ROA: [], ROE: [], CAPEX: [], FCF: [] };
+    }
+
+    const ebit      = [];
+    const ebitMargin= [];
+    const roce      = [];
+    const roa       = [];
+    const roe       = [];
+    const capex     = [];
+    const fcf       = [];
+
+    for (let i = 0; i < anchor.length; i++) {
+      const base = {
+        callId:      anchor[i].callId,
+        period:      anchor[i].period,
+        fiscal_year: anchor[i].fiscal_year,
+        quarter:     anchor[i].quarter,
+        call_date:   anchor[i].call_date,
+      };
+      const v = abbr => raw[abbr][i].value;
+
+      // EBIT (non-BFSI) / PPOP (BFSI) = REV_OP - COGS - EMP_EXP - DEP_AMORT - OTH_EXP
+      // For BFSI: COST_MAT/PURCH_STOCK/INV_CHG are typically null → the derive returns null if any input is null.
+      // We allow partial calculation: try full formula, fall back to REV_OP - EMP_EXP - DEP_AMORT - OTH_EXP for BFSI.
+      let ebitVal;
+      if (bfsi) {
+        ebitVal = _derive(
+          [v('REV_OP'), v('EMP_EXP'), v('DEP_AMORT'), v('OTH_EXP')],
+          ([rev, emp, dep, oth]) => rev - emp - dep - oth,
+        );
+      } else {
+        ebitVal = _derive(
+          [v('REV_OP'), v('COST_MAT'), v('PURCH_STOCK'), v('INV_CHG'), v('EMP_EXP'), v('DEP_AMORT'), v('OTH_EXP')],
+          ([rev, mat, pur, chg, emp, dep, oth]) => rev - (mat + pur + chg) - emp - dep - oth,
+        );
+      }
+      const ebitAbbrUsed = bfsi ? 'PPOP' : 'EBIT';
+      ebit.push({ ...base, value: ebitVal, abbrUsed: ebitAbbrUsed });
+
+      // EBIT_MARGIN = EBIT / REV_OP × 100
+      const ebitMarginVal = _derive(
+        [ebitVal, v('REV_OP')],
+        ([eb, rev]) => rev === 0 ? null : (eb / rev) * 100,
+      );
+      ebitMargin.push({ ...base, value: ebitMarginVal, abbrUsed: 'EBIT_MARGIN' });
+
+      // ROCE — non-BFSI only
+      if (!bfsi) {
+        const roceVal = _derive(
+          [v('PBT'), v('FIN_COST'), v('TOTAL_ASSETS'), v('CURR_LIAB')],
+          ([pbt, fin, ta, cl]) => {
+            const ce = ta - cl;
+            return ce === 0 ? null : ((pbt + fin) / ce) * 100;
+          },
+        );
+        roce.push({ ...base, value: roceVal, abbrUsed: 'ROCE' });
+      } else {
+        roce.push({ ...base, value: null, abbrUsed: 'ROCE' });
+      }
+
+      // ROA = PAT / TOTAL_ASSETS × 100
+      const roaVal = _derive(
+        [v('PAT'), v('TOTAL_ASSETS')],
+        ([pat, ta]) => ta === 0 ? null : (pat / ta) * 100,
+      );
+      roa.push({ ...base, value: roaVal, abbrUsed: 'ROA' });
+
+      // ROE = PAT / (EQ_SHARE_CAP + RES_SURPLUS) × 100
+      const roeVal = _derive(
+        [v('PAT'), v('EQ_SHARE_CAP'), v('RES_SURPLUS')],
+        ([pat, eq, res]) => {
+          const equity = eq + res;
+          return equity === 0 ? null : (pat / equity) * 100;
+        },
+      );
+      roe.push({ ...base, value: roeVal, abbrUsed: 'ROE' });
+
+      // CAPEX = ASSET_PPE + ASSET_CWIP (CWIP may be null for BFSI — treat as 0)
+      const capexVal = _derive(
+        [v('ASSET_PPE')],
+        ([ppe]) => ppe + (v('ASSET_CWIP') ?? 0),
+      );
+      capex.push({ ...base, value: capexVal, abbrUsed: 'CAPEX' });
+
+      // FCF: non-BFSI = CFO - CAPEX; BFSI = CFO - CAPEX - PROV_CONT
+      let fcfVal;
+      if (bfsi) {
+        fcfVal = _derive(
+          [v('CFO'), capexVal],
+          ([cfo, cap]) => cfo - cap - (v('PROV_CONT') ?? 0),
+        );
+      } else {
+        fcfVal = _derive(
+          [v('CFO'), capexVal],
+          ([cfo, cap]) => cfo - cap,
+        );
+      }
+      fcf.push({ ...base, value: fcfVal, abbrUsed: 'FCF' });
+    }
+
+    return { EBIT: ebit, EBIT_MARGIN: ebitMargin, ROCE: roce, ROA: roa, ROE: roe, CAPEX: capex, FCF: fcf };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Layer 5b — Computed ratios (stored KPI only — returns null if not found)
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -522,6 +727,20 @@ class FinHelper {
 // ─────────────────────────────────────────────────────────────────────────────
 // Module-level helpers (pure)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns fn(inputs) rounded to 2 dp, or null if any input is null/NaN,
+ * or if fn itself returns null/NaN.
+ * @param {(number|null)[]} inputs
+ * @param {(values: number[]) => number|null} fn
+ * @returns {number|null}
+ */
+function _derive(inputs, fn) {
+  if (inputs.some(v => v == null || isNaN(v))) return null;
+  const result = fn(inputs);
+  if (result == null || isNaN(result)) return null;
+  return parseFloat(result.toFixed(2));
+}
 
 function _periodLabel(call) {
   return call.quarter ? `${call.fiscal_year}-${call.quarter}` : call.fiscal_year;

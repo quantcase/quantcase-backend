@@ -2,12 +2,21 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
-function fmtCagr(obj) {
-  if (!obj || obj.value == null) return 'N/A';
-  const note = obj.type === 'latest_value'
-    ? ' (latest value)'
-    : ` (${obj.type}${obj.spanYears ? ', ' + obj.spanYears + 'Y' : ''})`;
-  return `${obj.value}%` + note;
+/** Latest non-null value from a time-series array, or null. */
+function _latest(series) {
+  if (!Array.isArray(series)) return null;
+  return series.filter(s => s.value != null).at(-1)?.value ?? null;
+}
+
+/**
+ * Render a KPI time-series as "period: value" pairs for the last N quarters.
+ * Returns 'N/A' when no data is available.
+ */
+function _sparkline(series, n = 4) {
+  if (!Array.isArray(series)) return 'N/A';
+  const rows = series.filter(s => s.value != null).slice(-n);
+  if (!rows.length) return 'N/A';
+  return rows.map(r => `${r.period}: ${r.value}`).join('  |  ');
 }
 
 function serializeSection(label, section) {
@@ -27,9 +36,9 @@ function serializeIndustryAnalysis(row) {
   const parts = [`[Call: ${callId}]`];
   if (!ia) { parts.push('(No industry analysis)'); return parts.join('\n'); }
 
-  const demandBlock  = serializeSection('Demand',            ia.demand);
-  const supplyBlock  = serializeSection('Supply',            ia.supply);
-  const marginBlock  = serializeSection('Operating Margins', ia.operating_margins);
+  const demandBlock = serializeSection('Demand',            ia.demand);
+  const supplyBlock = serializeSection('Supply',            ia.supply);
+  const marginBlock = serializeSection('Operating Margins', ia.operating_margins);
 
   if (demandBlock) parts.push(demandBlock);
   if (supplyBlock) parts.push(supplyBlock);
@@ -41,12 +50,12 @@ function serializeIndustryAnalysis(row) {
 /**
  * @param {string} subjectTicker
  * @param {string} industry
- * @param {{ callId: string, industryAnalysis: object }[]} subjectData  - up to 2
- * @param {{ callId: string, industryAnalysis: object }[]} peerData     - up to 2 peers
- * @param {{ industryOpm, industryRevCagr, industryEps, industryPe }}  computedMetrics
+ * @param {{ callId: string, industryAnalysis: object }[]} subjectData
+ * @param {{ callId: string, industryAnalysis: object }[]} peerData
+ * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array> }} computedMetrics
  */
 function industryPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics) {
-  const { industryOpm, industryRevCagr, industryEps, industryPe } = computedMetrics;
+  const { rawBatch, derivedBatch } = computedMetrics;
 
   const subjectText = subjectData.length > 0
     ? subjectData.map(r => serializeIndustryAnalysis(r)).join('\n\n---\n\n')
@@ -58,11 +67,23 @@ function industryPrompt(subjectTicker, industry, subjectData, peerData, computed
 
   const schemaString = JSON.stringify({ industry_overview: OFactorResponseSchema.industry_overview }, null, 2);
 
-  const opmLine     = industryOpm?.value != null
-    ? `${industryOpm.value}% (${industryOpm.sampleSize} companies, via "${industryOpm.abbrUsed}")`
-    : 'N/A';
-  const indEpsLine  = `${fmtCagr(industryEps)}${industryEps?.validTickerCount != null ? ` [${industryEps.validTickerCount}/${industryEps.tickerCount} tickers]` : ''}`;
-  const indPeLine   = `${fmtCagr(industryPe)}${industryPe?.avgLatestPe != null ? ` (avg latest P/E: ${industryPe.avgLatestPe})` : ''}`;
+  // Latest point-in-time values
+  const fmt = v => v != null ? v : 'N/A';
+
+  const revOp      = _latest(rawBatch?.REV_OP);
+  const totalInc   = _latest(rawBatch?.TOTAL_INCOME);
+  const pat        = _latest(rawBatch?.PAT);
+  const pbt        = _latest(rawBatch?.PBT);
+  const finCost    = _latest(rawBatch?.FIN_COST);
+  const totalAssets= _latest(rawBatch?.TOTAL_ASSETS);
+  const currLiab   = _latest(rawBatch?.CURR_LIAB);
+
+  const ebit       = _latest(derivedBatch?.EBIT);
+  const roce       = _latest(derivedBatch?.ROCE);
+  const roa        = _latest(derivedBatch?.ROA);
+  const roe        = _latest(derivedBatch?.ROE);
+  const capex      = _latest(derivedBatch?.CAPEX);
+  const fcf        = _latest(derivedBatch?.FCF);
 
   return `You are a senior equity research analyst. Produce an industry overview for the ${industry} sector.
 
@@ -70,13 +91,34 @@ SUBJECT COMPANY : ${subjectTicker}
 INDUSTRY        : ${industry}
 
 ══════════════════════════════════════════════════════════
-A. PRE-COMPUTED INDUSTRY METRICS (use these directly)
+A. SUBJECT COMPANY FINANCIAL SNAPSHOT (latest quarter)
 ══════════════════════════════════════════════════════════
 
-  Industry Avg OPM  : ${opmLine}
-  Industry Rev CAGR : ${fmtCagr(industryRevCagr)}
-  Industry EPS CAGR : ${indEpsLine}
-  Industry P/E CAGR : ${indPeLine}
+  Revenue from Operations : ${fmt(revOp)}
+  Total Income            : ${fmt(totalInc)}
+  EBIT                    : ${fmt(ebit)}
+  PBT                     : ${fmt(pbt)}
+  PAT                     : ${fmt(pat)}
+  Finance Costs           : ${fmt(finCost)}
+  Total Assets            : ${fmt(totalAssets)}
+  Current Liabilities     : ${fmt(currLiab)}
+  ROCE                    : ${roce != null ? roce + '%' : 'N/A'}
+  ROA                     : ${roa  != null ? roa  + '%' : 'N/A'}
+  ROE                     : ${roe  != null ? roe  + '%' : 'N/A'}
+  CAPEX                   : ${fmt(capex)}
+  FCF                     : ${fmt(fcf)}
+
+── Revenue trend (last 4 quarters) ──
+  ${_sparkline(rawBatch?.REV_OP)}
+
+── PAT trend (last 4 quarters) ──
+  ${_sparkline(rawBatch?.PAT)}
+
+── EBIT trend (last 4 quarters) ──
+  ${_sparkline(derivedBatch?.EBIT)}
+
+── ROCE trend (last 4 quarters) ──
+  ${_sparkline(derivedBatch?.ROCE)}
 
 ══════════════════════════════════════════════════════════
 B. INDUSTRY ANALYSIS FROM TRANSCRIPTS

@@ -274,7 +274,7 @@ const getManagementAnalysis = async (req, res) => {
 const companyPrefix = callId.split('_FY')[0];
 
 const [rawSummaries, callRecord] = await Promise.all([
-  prisma.summary.findMany({
+  prisma.summaryNew.findMany({
     where:   { callId: { startsWith: companyPrefix } },
     orderBy: { createdAt: 'desc' }
   }),

@@ -4,6 +4,7 @@ const { Worker } = require('bullmq');
 const { connection, prisma, llmStream, parseJson } = require('../lib/workerSetup');
 const { upsertOFactorSection }      = require('../db-utils/upsertOFactor');
 const { FinHelper }                 = require('../utils/finHelper');
+const { isBFSI }                    = require('../utils/industryClassifier');
 const { industryPrompt }            = require('../prompts/of-prompts/industry-prompt');
 const { competitionPrompt }         = require('../prompts/of-prompts/competition-prompt');
 const { financialStrengthPrompt }   = require('../prompts/of-prompts/financial-strength-prompt');
@@ -56,16 +57,25 @@ async function getAutoPeerSummaries(subjectTicker, industry) {
 // ─── Section-Specific Prompt Builders ────────────────────────────────────────
 
 async function buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper) {
-  const [industryOpm, industryRevCagr, industryEps, industryPe] = await Promise.all([
-    industry !== 'Unknown Industry' ? helper.industryOpm(industry)      : Promise.resolve(null),
-    industry !== 'Unknown Industry' ? helper.industryRevCagr(industry)  : Promise.resolve(null),
-    industry !== 'Unknown Industry' ? helper.industryEpsCagr(industry)  : Promise.resolve(null),
-    industry !== 'Unknown Industry' ? helper.industryPeCagr(industry)   : Promise.resolve(null),
+  const RAW_ABBRS = [
+    'REV_OP', 'TOTAL_INCOME', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
+    'EMP_EXP', 'OTH_EXP', 'FIN_COST', 'DEP_AMORT',
+    'PBT', 'PAT', 'TOTAL_ASSETS', 'CURR_LIAB',
+  ];
+
+  const bfsi = isBFSI(industry);
+  const [rawBatch, derivedBatch] = await Promise.all([
+    helper.getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
+    helper.getDerivedKpiBatch(subjectTicker, bfsi),
   ]);
+
+  const q4Only = batch => Object.fromEntries(
+    Object.entries(batch).map(([k, v]) => [k, v.filter(s => s.quarter === 'Q4')])
+  );
 
   const subjectData = subjectSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
   const peerData    = peerSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
-  const metrics     = { industryOpm, industryRevCagr, industryEps, industryPe };
+  const metrics     = { rawBatch: q4Only(rawBatch), derivedBatch: q4Only(derivedBatch) };
 
   return { prompt: industryPrompt(subjectTicker, industry, subjectData, peerData, metrics), sectionKey: 'industry_overview' };
 }
@@ -90,22 +100,32 @@ async function buildCompetitionSection(subjectTicker, industry, subjectSummaries
   return { prompt: competitionPrompt(subjectTicker, industry, subjectData, peerData, metrics), sectionKey: 'competition' };
 }
 
-async function buildFinancialStrengthSection(subjectTicker, subjectSummaries, helper) {
-  const [stockEps, stockPe, stockRevCagr, roce, fcf, deRatio, netDebtEbitda, ic, cr, opm] = await Promise.all([
-    helper.stockEpsCagr(subjectTicker),
-    helper.stockPeCagr(subjectTicker),
-    helper.stockRevCagr(subjectTicker),
-    helper.stockRoceLatest(subjectTicker),
-    helper.stockFcfLatest(subjectTicker),
-    helper.computeDeRatio(subjectTicker),
-    helper.computeNetDebtEbitda(subjectTicker),
-    helper.computeIc(subjectTicker),
-    helper.computeCr(subjectTicker),
-    helper.stockKpiLatest(subjectTicker, 'OPM'),
+async function buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper) {
+  const RAW_ABBRS = [
+    'REV_OP', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
+    'EMP_EXP', 'OTH_EXP', 'DEP_AMORT', 'FIN_COST',
+    'PAT', 'PBT', 'CFO',
+    'TRADE_RECV', 'TRADE_PAY', 'INVENTORY',
+    'DEBT_LT', 'DEBT_ST', 'CASH_EQUIV',
+    'EQ_SHARE_CAP', 'RES_SURPLUS',
+    'ASSET_PPE', 'ASSET_CWIP',
+    'TOTAL_ASSETS', 'CURR_LIAB', 'PROV_CONT',
+  ];
+
+  const bfsi = isBFSI(industry);
+  console.log(`[OFactor] financial_strength — industry="${industry}", bfsi=${bfsi}`);
+
+  const [rawBatch, derivedBatch] = await Promise.all([
+    helper.getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
+    helper.getDerivedKpiBatch(subjectTicker, bfsi),
   ]);
 
+  const q4Only = batch => Object.fromEntries(
+    Object.entries(batch).map(([k, v]) => [k, v.filter(s => s.quarter === 'Q4')])
+  );
+
   const subjectData = subjectSummaries.map(s => ({ callId: s.callId, financialStrength: s.financialStrength }));
-  const metrics     = { stockEps, stockPe, stockRevCagr, roce, fcf, deRatio, netDebtEbitda, ic, cr, opm };
+  const metrics     = { rawBatch: q4Only(rawBatch), derivedBatch: q4Only(derivedBatch), bfsi };
 
   return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics), sectionKey: 'financial_strength' };
 }
@@ -168,7 +188,7 @@ async function processOFactorJob(job) {
     } else if (section === 'competition') {
       ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper));
     } else if (section === 'financial_strength') {
-      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, subjectSummaries, helper));
+      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper));
     } else {
       ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper));
     }

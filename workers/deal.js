@@ -12,7 +12,7 @@ const MAX_TOKENS = 8000;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function getRecentSummaries(ticker) {
-  const rows = await prisma.summary.findMany({
+  const rows = await prisma.summaryNew.findMany({
     where:   { callId: { startsWith: ticker + '_' } },
     orderBy: { createdAt: 'desc' },
     take:    3,
