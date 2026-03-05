@@ -7,7 +7,7 @@ const { getHistoricPeForTickers } = require('../db-utils/getHistoricPe');
  *
  * Layers:
  *  1. Math primitives  — pure static functions (growth, CAGR, margin, ratio, average)
- *  2. Time series      — fetch KPI values from DB quarterly summaries (with substitute_kpis fallback)
+ *  2. Time series      — fetch KPI values from DB quarterly summaries
  *  3. Generic stock    — stockKpiLatest / stockKpiCagr for any primary KPI abbr
  *  4. Generic industry — industryKpiAvg / industryKpiCagr for any primary KPI abbr
  *  5. Named wrappers   — stockEpsCagr, industryOpm etc. delegate to the generics above
@@ -82,8 +82,7 @@ class FinHelper {
 
   /**
    * Fetch all quarterly values for a KPI abbr across all periods of a ticker.
-   * If the primary abbr yields no data for a period, falls back to substitutes
-   * from the substitute_kpis table (ordered by priority, index 0 = highest).
+   * Returns null value for any period where the abbr is not found.
    *
    * @param {string} ticker    - earnings_calls.company
    * @param {string} abbr      - KPI abbreviation e.g. 'EPS'
@@ -97,18 +96,11 @@ class FinHelper {
     });
     if (!calls.length) return [];
 
-    const summaries = await this.prisma.summary.findMany({
+    const summaries = await this.prisma.summaryNew.findMany({
       where:  { callId: { in: calls.map(c => c.id) } },
       select: { callId: true, kpis: true },
     });
     const summaryMap = new Map(summaries.map(s => [s.callId, s.kpis]));
-
-    // Load substitutes for this abbr once (ordered priority list)
-    const subRow = await this.prisma.substituteKpi.findUnique({
-      where: { primaryKpiAbbr: abbr },
-    });
-    const fallbackAbbrs  = subRow?.substitutes ?? [];
-    const abbrCandidates = [abbr, ...fallbackAbbrs];
 
     return calls.map(call => {
       const kpisArr = summaryMap.get(call.id) ?? [];
@@ -116,21 +108,19 @@ class FinHelper {
         return { callId: call.id, period: _periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
       }
 
-      // Try primary then substitutes in priority order
-      for (const candidate of abbrCandidates) {
-        const match = kpisArr.find(k => k.kpi_abbr === candidate && k.value != null);
-        if (match) {
-          const raw = parseFloat(match.value);
-          return {
-            callId:      call.id,
-            period:      _periodLabel(call),
-            fiscal_year: call.fiscal_year,
-            quarter:     call.quarter,
-            call_date:   call.call_date,
-            value:       !isNaN(raw) ? raw : null,
-            abbrUsed:    candidate,
-          };
-        }
+      // Support both { value } (transcript kpis) and { kpi_value } (QE kpis)
+      const match = kpisArr.find(k => k.kpi_abbr === abbr && (k.kpi_value != null || k.value != null));
+      if (match) {
+        const raw = parseFloat(match.kpi_value ?? match.value);
+        return {
+          callId:      call.id,
+          period:      _periodLabel(call),
+          fiscal_year: call.fiscal_year,
+          quarter:     call.quarter,
+          call_date:   call.call_date,
+          value:       !isNaN(raw) ? raw : null,
+          abbrUsed:    abbr,
+        };
       }
 
       return { callId: call.id, period: _periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
@@ -143,10 +133,9 @@ class FinHelper {
 
   /**
    * Latest non-null value for any KPI from a ticker's time series.
-   * Substitute fallback is handled by getTimeSeries.
    *
    * @param {string} ticker
-   * @param {string} abbr  - primary KPI abbr (e.g. 'ROCE', 'FCF', 'OPM')
+   * @param {string} abbr  - KPI abbr (e.g. 'ROCE', 'FCF', 'OPM')
    * @returns {Promise<{ value: number|null, abbrUsed: string|null, period: string|null, type: string }>}
    */
   async stockKpiLatest(ticker, abbr) {
@@ -160,10 +149,9 @@ class FinHelper {
   /**
    * CAGR for any KPI from a ticker's time series.
    * Falls back to latest value when base is non-positive or < 2 periods.
-   * Substitute fallback is handled by getTimeSeries.
    *
    * @param {string} ticker
-   * @param {string} abbr        - primary KPI abbr
+   * @param {string} abbr        - KPI abbr
    * @param {number} targetYears
    */
   async stockKpiCagr(ticker, abbr, targetYears = 5) {
@@ -220,10 +208,9 @@ class FinHelper {
 
   /**
    * Simple average of the latest value for any KPI across all tickers in an industry.
-   * Substitute fallback is handled per-ticker by getTimeSeries.
    *
    * @param {string} industry
-   * @param {string} abbr     - primary KPI abbr (e.g. 'OPM', 'ROCE', 'REV')
+   * @param {string} abbr     - KPI abbr (e.g. 'OPM', 'ROCE', 'REV')
    * @returns {Promise<{ value: number|null, abbrUsed: string|null, sampleSize: number }>}
    */
   async industryKpiAvg(industry, abbr) {
@@ -288,30 +275,30 @@ class FinHelper {
   //           (used by controllers — do not rename existing ones)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  // ── EPS ──────────────────────────────────────────────────────────────────────
+  // ── EPS_BASIC ─────────────────────────────────────────────────────────────────
   /** EPS CAGR for a single stock. */
   async stockEpsCagr(ticker, targetYears = 5) {
-    return this.stockKpiCagr(ticker, 'EPS', targetYears);
+    return this.stockKpiCagr(ticker, 'EPS_BASIC', targetYears);
   }
   /** Average EPS CAGR across all tickers in an industry. */
   async industryEpsCagr(industry, targetYears = 5) {
-    return this.industryKpiCagr(industry, 'EPS', targetYears);
+    return this.industryKpiCagr(industry, 'EPS_BASIC', targetYears);
   }
 
   // ── OPM ──────────────────────────────────────────────────────────────────────
-  /** Average OPM across all tickers in an industry (substitute_kpis fallback applied). */
+  /** Average EBITDA margin across all tickers in an industry. */
   async industryOpm(industry) {
-    return this.industryKpiAvg(industry, 'OPM');
+    return this.industryKpiAvg(industry, 'EBITDA_MARGIN');
   }
 
-  // ── REV (Revenue) ─────────────────────────────────────────────────────────────
+  // ── REV_OP (Revenue from Operations) ──────────────────────────────────────────
   /** Revenue CAGR for a single stock. */
   async stockRevCagr(ticker, targetYears = 5) {
-    return this.stockKpiCagr(ticker, 'REV', targetYears);
+    return this.stockKpiCagr(ticker, 'REV_OP', targetYears);
   }
   /** Average Revenue CAGR across all tickers in an industry. */
   async industryRevCagr(industry, targetYears = 5) {
-    return this.industryKpiCagr(industry, 'REV', targetYears);
+    return this.industryKpiCagr(industry, 'REV_OP', targetYears);
   }
 
   // ── PAT (Profit After Tax) ────────────────────────────────────────────────────
@@ -399,111 +386,27 @@ class FinHelper {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 5b — Computed ratios
-  //
-  // Each method tries the stored ratio KPI first. If missing, it fetches the
-  // numerator and denominator via stockKpiLatest() — which automatically chains
-  // through substitute_kpis, so component fallbacks are handled for free:
-  //   EBIT    → PBT → PAT → EBITDA          (seeded in substitute_kpis)
-  //   NETDEBT → DEBT                         (seeded in substitute_kpis)
-  //   EBITDA  → EBIT → PAT → PBT            (seeded in substitute_kpis)
-  //   TL      → DEBT                         (seeded in substitute_kpis)
+  // Layer 5b — Computed ratios (stored KPI only — returns null if not found)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  /**
-   * Net Debt / EBITDA.
-   * Tries stored NETDEBT_EBITDA → then computes NETDEBT ÷ EBITDA.
-   * NETDEBT falls back to DEBT; EBITDA falls back to EBIT → PAT → PBT.
-   */
+  /** Net Debt / EBITDA — returns stored NETDEBT_EBITDA or null. */
   async computeNetDebtEbitda(ticker) {
-    const stored = await this.stockKpiLatest(ticker, 'NETDEBT_EBITDA');
-    if (stored.value != null) return { value: stored.value, abbrUsed: 'NETDEBT_EBITDA', computed: false };
-
-    const [netDebtR, ebitdaR] = await Promise.all([
-      this.stockKpiLatest(ticker, 'NETDEBT'), // NETDEBT → DEBT
-      this.stockKpiLatest(ticker, 'EBITDA'),  // EBITDA  → EBIT → PAT → PBT
-    ]);
-
-    const value = FinHelper.ratio(netDebtR.value, ebitdaR.value);
-    return {
-      value:    value != null ? parseFloat(value.toFixed(2)) : null,
-      abbrUsed: 'NETDEBT_EBITDA',
-      computed: true,
-      note:     `${netDebtR.abbrUsed ?? 'NETDEBT'} ÷ ${ebitdaR.abbrUsed ?? 'EBITDA'}`,
-    };
+    return this.stockKpiLatest(ticker, 'NETDEBT_EBITDA');
   }
 
-  /**
-   * Debt / Equity ratio.
-   * Tries stored DE → then computes DEBT ÷ EQ.
-   * DEBT falls back via its own substitute chain (NETDEBT, DE, …).
-   */
+  /** Debt / Equity ratio — returns stored DE or null. */
   async computeDeRatio(ticker) {
-    const stored = await this.stockKpiLatest(ticker, 'DE');
-    if (stored.value != null) return { value: stored.value, abbrUsed: 'DE', computed: false };
-
-    const [debtR, eqR] = await Promise.all([
-      this.stockDebtLatest(ticker),          // DEBT → NETDEBT → …
-      this.stockKpiLatest(ticker, 'EQ'),     // EQ (no substitute — standalone)
-    ]);
-
-    const value = FinHelper.ratio(debtR.value, eqR.value);
-    return {
-      value:    value != null ? parseFloat(value.toFixed(2)) : null,
-      abbrUsed: 'DE',
-      computed: true,
-      note:     `${debtR.abbrUsed ?? 'DEBT'} ÷ EQ`,
-    };
+    return this.stockKpiLatest(ticker, 'DE');
   }
 
-  /**
-   * Interest Coverage ratio (EBIT / Interest Expense).
-   * The INTEXP substitute chain includes IC and INTCOV — if those land first
-   * the stored ratio is returned directly.
-   * Otherwise computes EBIT ÷ INTEXP; EBIT falls back to PBT → PAT → EBITDA.
-   */
+  /** Interest Coverage ratio — returns stored IC or null. */
   async computeIc(ticker) {
-    const [ebitR, intexpR] = await Promise.all([
-      this.stockKpiLatest(ticker, 'EBIT'),   // EBIT → PBT → PAT → EBITDA
-      this.stockKpiLatest(ticker, 'INTEXP'), // INTEXP → FINCOS → IC → INTCOV → …
-    ]);
-
-    // Substitute resolution landed on a stored ratio — use it directly
-    const ALREADY_RATIO = new Set(['IC', 'INTCOV']);
-    if (intexpR.value != null && ALREADY_RATIO.has(intexpR.abbrUsed)) {
-      return { value: intexpR.value, abbrUsed: intexpR.abbrUsed, computed: false };
-    }
-
-    const value = FinHelper.ratio(ebitR.value, intexpR.value);
-    return {
-      value:    value != null ? parseFloat(value.toFixed(2)) : null,
-      abbrUsed: 'IC',
-      computed: true,
-      note:     `${ebitR.abbrUsed ?? 'EBIT'} ÷ ${intexpR.abbrUsed ?? 'INTEXP'}`,
-    };
+    return this.stockKpiLatest(ticker, 'IC');
   }
 
-  /**
-   * Current Ratio.
-   * Tries stored CR → then computes WC ÷ TL (schema definition).
-   * TL falls back to DEBT as a rough proxy for total liabilities.
-   */
+  /** Current Ratio — returns stored CR or null. */
   async computeCr(ticker) {
-    const stored = await this.stockKpiLatest(ticker, 'CR');
-    if (stored.value != null) return { value: stored.value, abbrUsed: 'CR', computed: false };
-
-    const [wcR, tlR] = await Promise.all([
-      this.stockKpiLatest(ticker, 'WC'), // WC (no substitute — standalone)
-      this.stockKpiLatest(ticker, 'TL'), // TL → DEBT
-    ]);
-
-    const value = FinHelper.ratio(wcR.value, tlR.value);
-    return {
-      value:    value != null ? parseFloat(value.toFixed(2)) : null,
-      abbrUsed: 'CR',
-      computed: true,
-      note:     `WC ÷ ${tlR.abbrUsed ?? 'TL'}`,
-    };
+    return this.stockKpiLatest(ticker, 'CR');
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -607,7 +510,7 @@ class FinHelper {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async _industryTickers(industry) {
-    const rows = await this.prisma.summary.findMany({
+    const rows = await this.prisma.summaryNew.findMany({
       where:  { industryAnalysis: { path: ['industry'], equals: industry } },
       select: { callId: true },
     });

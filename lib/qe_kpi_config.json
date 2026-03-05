@@ -1,0 +1,556 @@
+{
+    "non_bfsi": {
+      "balance_sheet": {
+        "assets": {
+          "TOTAL_ASSETS": {
+            "label": "Total Assets",
+            "aliases": ["Balance sheet total", "Total assets"]
+          },
+          "non_current": {
+            "NONCURR_ASSETS": {
+              "label": "Total Non-Current Assets",
+              "aliases": ["Long-term assets", "Fixed assets", "Non-current block"]
+            },
+            "ASSET_PPE": {
+              "label": "Property, Plant and Equipment",
+              "aliases": ["PP&E", "Tangible fixed assets", "Net block", "Fixed assets"]
+            },
+            "ASSET_CWIP": {
+              "label": "Capital Work-in-Progress",
+              "aliases": ["CWIP", "Projects under execution", "Capital advances"]
+            },
+            "INV_NONCURR": {
+              "label": "Non-Current Investments",
+              "aliases": ["Long-term investments", "Strategic investments"]
+            },
+            "LOANS_NONCURR": {
+              "label": "Long-Term Loans and Advances",
+              "aliases": ["Long-term advances", "Security deposits (Long-term)"]
+            },
+            "OTH_ASSET_NC": {
+              "label": "Other Non-Current Assets",
+              "aliases": ["Deferred charges", "Long-term receivables"]
+            }
+          },
+          "current": {
+            "CURR_ASSETS": {
+              "label": "Total Current Assets",
+              "aliases": ["Short-term assets", "Liquid assets"]
+            },
+            "INVENTORY": {
+              "label": "Inventories",
+              "aliases": ["Stock", "Raw materials", "WIP", "Finished goods"]
+            },
+            "INV_CURR": {
+              "label": "Current Investments",
+              "aliases": ["Short-term investments", "Liquid mutual funds", "Marketable securities"]
+            },
+            "TRADE_RECV": {
+              "label": "Trade Receivables",
+              "aliases": ["Sundry debtors", "Accounts receivable", "Bills receivable"]
+            },
+            "CASH_EQUIV": {
+              "label": "Cash and Cash Equivalents",
+              "aliases": ["Cash at bank", "Bank balances", "Cheques in hand"]
+            },
+            "BANK_BAL_OTHER": {
+              "label": "Other Bank Balances",
+              "aliases": ["Term deposits (3-12 months)", "Earmarked balances"]
+            },
+            "LOANS_CURR": {
+              "label": "Short-Term Loans and Advances",
+              "aliases": ["Advances to suppliers", "Short-term deposits"]
+            }
+          }
+        },
+        "liabilities": {
+          "TOTAL_LIAB": {
+            "label": "Total Liabilities",
+            "aliases": ["Total liabilities", "Sum of all liabilities"]
+          },
+          "non_current": {
+            "NONCURR_LIAB": {
+              "label": "Total Non-Current Liabilities",
+              "aliases": ["Long-term liabilities", "Non-current obligations"]
+            },
+            "DEBT_LT": {
+              "label": "Long-Term Borrowings",
+              "aliases": ["Non-current borrowings", "Term loans", "Bonds", "NCDs"]
+            },
+            "DTL": {
+              "label": "Deferred Tax Liabilities (Net)",
+              "aliases": ["DTL", "Net tax liability", "Deferred tax"]
+            },
+            "PROV_LT": {
+              "label": "Long-Term Provisions",
+              "aliases": ["Provision for gratuity", "Non-current employee benefits"]
+            }
+          },
+          "current": {
+            "CURR_LIAB": {
+              "label": "Total Current Liabilities",
+              "aliases": ["Short-term liabilities", "Working capital liabilities"]
+            },
+            "DEBT_ST": {
+              "label": "Short-Term Borrowings",
+              "aliases": ["Current borrowings", "Bank OD", "Cash credit", "Commercial papers"]
+            },
+            "TRADE_PAY": {
+              "label": "Trade Payables",
+              "aliases": ["Sundry creditors", "Accounts payable", "MSME dues"]
+            },
+            "OTH_LIAB_CURR": {
+              "label": "Other Current Liabilities",
+              "aliases": ["Statutory dues (GST/TDS)", "Advance from customers", "Unclaimed dividend"]
+            },
+            "PROV_ST": {
+              "label": "Short-Term Provisions",
+              "aliases": ["Provision for leave encashment", "Current provisions"]
+            }
+          }
+        },
+        "equity": {
+          "EQ_SHARE_CAP": {
+            "label": "Equity Share Capital",
+            "aliases": ["Share Capital", "Issued Capital", "Subscribed & Paid-up Capital", "Face Value of Shares"]
+          },
+          "RES_SURPLUS": {
+            "label": "Other Equity",
+            "aliases": ["Reserves and Surplus", "Retained Earnings", "General Reserve", "Securities Premium", "Capital Reserve"]
+          },
+          "SHARE_WARRANTS": {
+            "label": "Money Received Against Share Warrants",
+            "aliases": ["Warrants", "Share warrants", "Equity warrants"]
+          },
+          "MINORITY_INT": {
+            "label": "Non-Controlling Interests",
+            "aliases": ["Minority Interest", "Share of minority partners"],
+            "notes": "Only in Consolidated Balance Sheet"
+          },
+          "NET_WORTH": {
+            "label": "Total Equity",
+            "aliases": ["Shareholders' Funds", "Equity attributable to owners", "Net Worth", "Total Equity"]
+          }
+        }
+      },
+      "pnl": {
+        "revenue": {
+          "TOTAL_INCOME": {
+            "label": "Total Income",
+            "aliases": ["Total revenue", "Total income from operations", "Revenue from operations and other income"]
+          },
+          "REV_OP": {
+            "label": "Revenue from Operations",
+            "aliases": ["Net Sales", "Income from operations", "Operating Income", "Sales of Products", "Revenue from Services", "Net Turnover"]
+          },
+          "OTH_INC": {
+            "label": "Other Income",
+            "aliases": ["Non-operating income", "Interest income (non-core)", "Dividend income", "Profit on sale of investments", "Miscellaneous income"]
+          }
+        },
+        "cogs": {
+          "TOTAL_COGS": {
+            "label": "Total Cost of Goods Sold",
+            "aliases": ["Total material costs", "Total cost of materials and purchases"]
+          },
+          "COST_MAT": {
+            "label": "Cost of Materials Consumed",
+            "aliases": ["Raw materials consumed", "Consumption of raw materials and components", "Cost of materials"]
+          },
+          "PURCH_STOCK": {
+            "label": "Purchases of Stock-in-Trade",
+            "aliases": ["Purchase of finished goods", "Traded goods purchased", "Purchases for resale"]
+          },
+          "INV_CHG": {
+            "label": "Changes in Inventories",
+            "aliases": ["Changes in inventories of finished goods work-in-progress and stock-in-trade", "(Increase)/Decrease in stocks", "Stock Adjustment"]
+          }
+        },
+        "operating_expenses": {
+          "TOTAL_OPEX": {
+            "label": "Total Operating Expenses",
+            "aliases": ["Total expenses", "Total operating costs", "Total expenditure"]
+          },
+          "EMP_EXP": {
+            "label": "Employee Benefit Expense",
+            "aliases": ["Staff costs", "Personnel expenses", "Salaries wages and bonus", "Contribution to PF and other funds", "Staff welfare expenses", "Employee remuneration"]
+          },
+          "FIN_COST": {
+            "label": "Finance Costs",
+            "aliases": ["Interest expense", "Borrowing costs", "Finance charges", "Interest and bank charges", "Interest Cost"]
+          },
+          "DEP_AMORT": {
+            "label": "Depreciation and Amortisation",
+            "aliases": ["D&A", "Depreciation", "Depletion and Amortization", "Depreciation and amortisation expense"]
+          },
+          "OTH_EXP": {
+            "label": "Other Expenses",
+            "aliases": ["Other operating expenses", "Administrative and other expenses", "Selling and distribution expenses", "General and administrative expenses"]
+          }
+        },
+        "profit_lines": {
+          "TOTAL_TAX_EXP": {
+            "label": "Total Tax Expense",
+            "aliases": ["Total provision for tax", "Total tax charge"]
+          },
+          "PBT_PRE_EXC": {
+            "label": "Profit Before Exceptional Items and Tax",
+            "aliases": ["Profit before tax (if no exceptional items)", "Operating Profit before tax", "PBT before extraordinary items"]
+          },
+          "EXC_ITEMS": {
+            "label": "Exceptional Items",
+            "aliases": ["Extraordinary items", "Prior period adjustments", "One-time gains/losses", "Non-recurring items"]
+          },
+          "PBT": {
+            "label": "Profit Before Tax",
+            "aliases": ["PBT", "EBT", "Profit before taxation", "Earnings before tax"]
+          },
+          "TAX_EXP": {
+            "label": "Tax Expense",
+            "aliases": ["Total Tax", "Provision for Taxation", "Provision for Tax (Current + Deferred)"]
+          },
+          "PAT": {
+            "label": "Profit for the Period",
+            "aliases": ["Net Profit", "Profit after tax", "Profit for the year", "Total Comprehensive Income"]
+          }
+        }
+      },
+      "cashflow": {
+        "NET_CASH_CHANGE": {
+          "label": "Net Change in Cash and Cash Equivalents",
+          "aliases": ["Net increase/decrease in cash", "Net cash change", "Net increase in cash and cash equivalents"]
+        },
+        "CFO": {
+          "label": "Cash Flow from Operating Activities",
+          "aliases": ["Net cash from operations", "Operating cash flow", "Cash generated from operations"]
+        },
+        "CFI": {
+          "label": "Cash Flow from Investing Activities",
+          "aliases": ["Investing cash flow", "Net cash used in investing", "Cash from investment activities"]
+        },
+        "CFF": {
+          "label": "Cash Flow from Financing Activities",
+          "aliases": ["Financing cash flow", "Net cash from financing", "Cash from financing activities"]
+        }
+      },
+      "ratios": {
+        "COGS": {
+          "label": "Cost of Goods Sold",
+          "formula": "COST_MAT + PURCH_STOCK + INV_CHG"
+        },
+        "GROSS_PROFIT": {
+          "label": "Gross Profit",
+          "formula": "REV_OP - (COST_MAT + PURCH_STOCK + INV_CHG)"
+        },
+        "GROSS_MARGIN": {
+          "label": "Gross Profit Margin",
+          "formula": "(REV_OP - (COST_MAT + PURCH_STOCK + INV_CHG)) / REV_OP",
+          "format": "percentage"
+        },
+        "EBIT": {
+          "label": "EBIT / Operating Profit / PPOP",
+          "formula": "REV_OP - (COST_MAT + PURCH_STOCK + INV_CHG) - EMP_EXP - DEP_AMORT - OTH_EXP",
+          "aliases": ["Operating Profit", "PPOP", "Earnings Before Interest and Tax"]
+        },
+        "EBIT_MARGIN": {
+          "label": "Operating Margin",
+          "formula": "EBIT / REV_OP",
+          "format": "percentage",
+          "aliases": ["EBIT Margin", "Operating Profit Margin"]
+        },
+        "PBT_MARGIN": {
+          "label": "PBT Margin",
+          "formula": "PBT / REV_OP",
+          "format": "percentage",
+          "aliases": ["Profit Before Tax Margin"]
+        },
+        "PAT_MARGIN": {
+          "label": "Net Profit Margin",
+          "formula": "PAT / REV_OP",
+          "format": "percentage",
+          "aliases": ["PAT Margin", "Profit After Tax Margin"]
+        },
+        "ROCE": {
+          "label": "Return on Capital Employed",
+          "formula": "(PBT + FIN_COST) / (TOTAL_ASSETS - CURR_LIAB)",
+          "format": "percentage"
+        },
+        "CAPEX": {
+          "label": "Capital Expenditure",
+          "formula": "ASSET_PPE + ASSET_CWIP"
+        },
+        "FCF": {
+          "label": "Free Cash Flow",
+          "formula": "CFO - ASSET_PPE - ASSET_CWIP",
+          "aliases": ["FFC", "Free Flowing Cashflow"]
+        }
+      }
+    },
+  
+    "bfsi": {
+      "balance_sheet": {
+        "assets": {
+          "TOTAL_ASSETS": {
+            "label": "Total Assets",
+            "aliases": ["Balance sheet total", "Total assets"]
+          },
+          "financial": {
+            "TOTAL_FIN_ASSETS": {
+              "label": "Total Financial Assets",
+              "aliases": ["Total financial assets", "Sum of financial assets"]
+            },
+            "INV_NONCURR": {
+              "label": "Financial Assets - Investments",
+              "aliases": ["Non-current investments", "Long-term investments", "Strategic stakes"]
+            },
+            "LOANS_ADV": {
+              "label": "Financial Assets - Loans",
+              "aliases": ["Loans given", "Inter-corporate deposits", "Security deposits (Long term)"]
+            },
+            "TRADE_RECV": {
+              "label": "Financial Assets - Trade Receivables",
+              "aliases": ["Sundry Debtors", "Account Receivables", "Bills Receivable"]
+            },
+            "CASH_EQUIV": {
+              "label": "Cash and Cash Equivalents",
+              "aliases": ["Cash at bank", "Cash in hand", "Cheques on hand", "Highly liquid funds"]
+            },
+            "BANK_BAL": {
+              "label": "Bank Balances Other Than Above",
+              "aliases": ["Earmarked bank balances", "Fixed Deposits (>3 months but <12 months)"]
+            }
+          },
+          "non_financial": {
+            "TOTAL_NONFIN_ASSETS": {
+              "label": "Total Non-Financial Assets",
+              "aliases": ["Total non-financial assets", "Sum of non-financial assets"]
+            },
+            "ASSET_PPE": {
+              "label": "Property, Plant and Equipment",
+              "aliases": ["PP&E", "Fixed Assets", "Tangible Assets", "Net Block", "Gross Block (less dep)"]
+            },
+            "ASSET_CWIP": {
+              "label": "Capital Work-in-Progress",
+              "aliases": ["CWIP", "Projects under execution", "Unfinished fixed assets"]
+            },
+            "ASSET_GW": {
+              "label": "Goodwill",
+              "aliases": ["Goodwill on consolidation", "Purchased Goodwill"]
+            },
+            "ASSET_INTANG": {
+              "label": "Other Intangible Assets",
+              "aliases": ["Software", "Brand", "Trademarks", "Licenses", "Intellectual Property"]
+            },
+            "INVENTORY": {
+              "label": "Inventories",
+              "aliases": ["Closing Stock", "Finished Goods", "WIP", "Raw Materials", "Stores & Spares"]
+            }
+          }
+        },
+        "liabilities": {
+          "TOTAL_LIAB": {
+            "label": "Total Liabilities",
+            "aliases": ["Total liabilities", "Sum of all liabilities"]
+          },
+          "financial": {
+            "TOTAL_FIN_LIAB": {
+              "label": "Total Financial Liabilities",
+              "aliases": ["Total financial liabilities", "Sum of financial liabilities"]
+            },
+            "DEBT_NONCURR": {
+              "label": "Financial Liabilities - Borrowings",
+              "aliases": ["Long-term borrowings", "Term Loans", "Debentures", "Bonds", "NCDs"]
+            },
+            "TRADE_PAY": {
+              "label": "Financial Liabilities - Trade Payables",
+              "aliases": ["Sundry Creditors", "Trade Creditors", "Accounts Payable"]
+            },
+            "OTHER_FIN_LIAB": {
+              "label": "Other Financial Liabilities",
+              "aliases": ["Current maturities of long-term debt", "Interest accrued but not due"]
+            }
+          },
+          "non_financial": {
+            "TOTAL_NONFIN_LIAB": {
+              "label": "Total Non-Financial Liabilities",
+              "aliases": ["Total non-financial liabilities", "Sum of non-financial liabilities"]
+            },
+            "PROVISIONS": {
+              "label": "Provisions",
+              "aliases": ["Provision for employee benefits", "Gratuity provision", "Warranties"]
+            },
+            "DTL": {
+              "label": "Deferred Tax Liabilities (Net)",
+              "aliases": ["Net Deferred Tax Liability", "Tax timing differences"]
+            },
+            "OTHER_NONFIN_LIAB": {
+              "label": "Other Non-Financial Liabilities",
+              "aliases": ["Statutory dues", "GST payable", "Advances from customers"]
+            }
+          }
+        },
+        "equity": {
+          "EQ_SHARE_CAP": {
+            "label": "Equity Share Capital",
+            "aliases": ["Issued & Subscribed Capital", "Paid-up Capital", "Common Stock"]
+          },
+          "RES_SURPLUS": {
+            "label": "Other Equity",
+            "aliases": ["Reserves and Surplus", "Retained Earnings", "General Reserve", "Securities Premium"]
+          },
+          "MINORITY_INT": {
+            "label": "Non-Controlling Interests",
+            "aliases": ["Minority Interest", "Share of minority partners"],
+            "notes": "Only in Consolidated Balance Sheet"
+          },
+          "NET_WORTH": {
+            "label": "Total Equity",
+            "aliases": ["Shareholders' Funds", "Equity attributable to owners", "Net Worth", "Total Equity"]
+          }
+        }
+      },
+      "pnl": {
+        "revenue": {
+          "TOTAL_INCOME": {
+            "label": "Total Income",
+            "aliases": ["Total revenue", "Total income from operations", "Revenue from operations and other income"]
+          },
+          "REV_OP": {
+            "label": "Revenue from Operations",
+            "aliases": ["Interest earned", "Interest Income", "Fees and Commission Income", "Net Sales", "Income from operations", "Operating Income"]
+          },
+          "OTH_INC": {
+            "label": "Other Income",
+            "aliases": ["Non-operating income", "Net gain on fair value changes", "Profit on sale of investments", "Miscellaneous income"]
+          }
+        },
+        "cogs": {
+          "notes": "For BFSI, COGS is not applicable in the traditional sense. NIM is used instead of Gross Profit.",
+          "TOTAL_COGS": {
+            "label": "Total Finance Costs",
+            "aliases": ["Total interest expended", "Total borrowing costs"]
+          },
+          "FIN_COST": {
+            "label": "Finance Costs (Interest Expended)",
+            "aliases": ["Interest expense", "Borrowing costs", "Finance charges", "Interest and bank charges", "Interest on debt securities", "Interest Cost"]
+          }
+        },
+        "operating_expenses": {
+          "TOTAL_OPEX": {
+            "label": "Total Operating Expenses",
+            "aliases": ["Total expenses", "Total operating costs", "Total expenditure"]
+          },
+          "EMP_EXP": {
+            "label": "Employee Benefit Expense",
+            "aliases": ["Staff costs", "Personnel expenses", "Salaries wages and bonus", "Contribution to PF and other funds", "Employee remuneration"]
+          },
+          "DEP_AMORT": {
+            "label": "Depreciation and Amortisation",
+            "aliases": ["D&A", "Depreciation", "Depletion and Amortization"]
+          },
+          "OTH_EXP": {
+            "label": "Other Expenses",
+            "aliases": ["Other operating expenses", "Administrative and other expenses", "Selling and distribution expenses"]
+          },
+          "PROV_CONT": {
+            "label": "Provisions and Contingencies",
+            "aliases": ["Provisions (other than tax)", "Loan loss provisions", "Provision for NPA", "Contingencies", "Credit loss provisions"],
+            "notes": "Found in P&L of lending companies only. Used in FCF calculation for BFSI."
+          }
+        },
+        "profit_lines": {
+          "TOTAL_TAX_EXP": {
+            "label": "Total Tax Expense",
+            "aliases": ["Total provision for tax", "Total tax charge"]
+          },
+          "PBT_PRE_EXC": {
+            "label": "Profit Before Exceptional Items and Tax",
+            "aliases": ["Profit before tax (if no exceptional items)", "Operating Profit before tax", "PBT before extraordinary items"]
+          },
+          "EXC_ITEMS": {
+            "label": "Exceptional Items",
+            "aliases": ["Extraordinary items", "Prior period adjustments", "One-time gains/losses", "Non-recurring items"]
+          },
+          "PBT": {
+            "label": "Profit Before Tax",
+            "aliases": ["PBT", "EBT", "Profit before taxation", "Earnings before tax"]
+          },
+          "TAX_EXP": {
+            "label": "Tax Expense",
+            "aliases": ["Total Tax", "Provision for Taxation", "Provision for Tax (Current + Deferred)"]
+          },
+          "PAT": {
+            "label": "Profit for the Period",
+            "aliases": ["Net Profit", "Profit after tax", "Profit for the year", "Total Comprehensive Income"]
+          }
+        }
+      },
+      "cashflow": {
+        "NET_CASH_CHANGE": {
+          "label": "Net Change in Cash and Cash Equivalents",
+          "aliases": ["Net increase/decrease in cash", "Net cash change", "Net increase in cash and cash equivalents"]
+        },
+        "CFO": {
+          "label": "Cash Flow from Operating Activities",
+          "aliases": ["Net cash from operations", "Operating cash flow", "Cash generated from operations"]
+        },
+        "CFI": {
+          "label": "Cash Flow from Investing Activities",
+          "aliases": ["Investing cash flow", "Net cash used in investing", "Cash from investment activities"]
+        },
+        "CFF": {
+          "label": "Cash Flow from Financing Activities",
+          "aliases": ["Financing cash flow", "Net cash from financing", "Cash from financing activities"]
+        }
+      },
+      "ratios": {
+        "NIM": {
+          "label": "Net Interest Margin",
+          "formula": "REV_OP - FIN_COST",
+          "notes": "BFSI equivalent of Gross Profit"
+        },
+        "EBIT": {
+          "label": "EBIT / PPOP / Pre-Provisioning Operating Profit",
+          "formula": "REV_OP - (COST_MAT + PURCH_STOCK + INV_CHG) - EMP_EXP - DEP_AMORT - OTH_EXP",
+          "aliases": ["Operating Profit", "PPOP", "Pre-Provisioning Operating Profit"]
+        },
+        "EBIT_MARGIN": {
+          "label": "Operating Margin",
+          "formula": "EBIT / REV_OP",
+          "format": "percentage",
+          "aliases": ["EBIT Margin", "Operating Profit Margin"]
+        },
+        "PBT_MARGIN": {
+          "label": "PBT Margin",
+          "formula": "PBT / REV_OP",
+          "format": "percentage"
+        },
+        "PAT_MARGIN": {
+          "label": "Net Profit Margin",
+          "formula": "PAT / REV_OP",
+          "format": "percentage",
+          "aliases": ["PAT Margin", "Profit After Tax Margin"]
+        },
+        "ROA": {
+          "label": "Return on Assets",
+          "formula": "PAT / TOTAL_ASSETS",
+          "format": "percentage"
+        },
+        "ROE": {
+          "label": "Return on Equity",
+          "formula": "PAT / (EQ_SHARE_CAP + RES_SURPLUS)",
+          "format": "percentage"
+        },
+        "CAPEX": {
+          "label": "Capital Expenditure",
+          "formula": "ASSET_PPE + ASSET_CWIP"
+        },
+        "FCF": {
+          "label": "Free Cash Flow",
+          "formula": "CFO - ASSET_PPE - ASSET_CWIP - PROV_CONT",
+          "aliases": ["FFC", "Free Flowing Cashflow"],
+          "notes": "PROV_CONT subtracted only for lending companies where it appears in P&L"
+        }
+      }
+    }
+  }

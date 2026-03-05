@@ -1,159 +1,36 @@
-const { Worker } = require('bullmq');
-const fs   = require('fs');
-const path = require('path');
-const { connection, prisma, llmStream, parseJson } = require('../lib/workerSetup');
-const { oFactorAnalysisPrompt }                    = require('../prompts/ofactor_analysis');
-const { upsertOFactorResult }                      = require('../db-utils/upsertOFactor');
-const { FinHelper }                                = require('../utils/finHelper');
+'use strict';
 
-const TEMP_DIR   = path.join(__dirname, '..', 'tmp');
+const { Worker } = require('bullmq');
+const { connection, prisma, llmStream, parseJson } = require('../lib/workerSetup');
+const { upsertOFactorSection }      = require('../db-utils/upsertOFactor');
+const { FinHelper }                 = require('../utils/finHelper');
+const { industryPrompt }            = require('../prompts/of-prompts/industry-prompt');
+const { competitionPrompt }         = require('../prompts/of-prompts/competition-prompt');
+const { financialStrengthPrompt }   = require('../prompts/of-prompts/financial-strength-prompt');
+const { customerTractionPrompt }    = require('../prompts/of-prompts/customer-traction-prompt');
+
 const MAX_TOKENS = 16000;
 
-// ─── OFactor Metric Enrichment ────────────────────────────────────────────────
-
-// KPI abbrs whose values are ratios (×) or percentages (%) — used for formatting.
-const RATIO_ABBRS = new Set(['CR','DE','IC','INTCOV','AT','IT','EVEBITDA','FCF_CONV','OCF_EBITDA','NETDEBT_EBITDA']);
-const PCT_ABBRS   = new Set(['OPM','NPM','GPM','NIM','NBM','EBITDA_MARGIN','ROCE','ROIC','ROE','ROA']);
-const DAYS_ABBRS  = new Set(['CCC','DSO','DIO','DPO']);
-const UNIT_ABBRS  = new Set(['CUST','SUBSC','EMP','STORES','UNITS']);
-
-function _fmtKpi(kpiResult) {
-  if (!kpiResult || kpiResult.value == null) return null;
-  const { value, abbrUsed } = kpiResult;
-  if (DAYS_ABBRS.has(abbrUsed))  return `${value} days`;
-  if (UNIT_ABBRS.has(abbrUsed))  return value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value.toLocaleString('en-IN');
-  if (RATIO_ABBRS.has(abbrUsed)) return `${value}x`;
-  if (PCT_ABBRS.has(abbrUsed))   return `${value}%`;
-  return `₹${value.toLocaleString('en-IN')} Cr`; // default: INR in Crore
-}
-
-function _fmtCagr(cagrResult) {
-  if (!cagrResult || cagrResult.value == null) return null;
-  const { value, type, spanYears } = cagrResult;
-  if (type === 'latest_value') return `${value}% (latest)`;
-  return `${value}%${spanYears ? ` (${Math.round(spanYears)}Y CAGR)` : ''}`;
-}
-
-/** Set metric.value only if it is currently null. */
-function _fill(metrics, key, formatted) {
-  if (!metrics || !metrics[key]) return;
-  if (metrics[key].value === null && formatted != null) {
-    metrics[key].value = formatted;
-    console.log(`[OFactor Enrich] filled ${key} = ${formatted}`);
-  }
-}
-
-/**
- * After LLM parsing, backfill any null metric values using FinHelper.
- * Only touches fields whose primary KPI abbr is present in substitute_kpis.
- */
-async function enrichOFactorMetrics(result, ticker, industry, helper) {
-  if (!result) return;
-
-  // Fetch all needed KPI values in parallel
-  const [
-    roceR, revR, opmR, fcfR, cccR, patR, revCagrR,
-    custR, custCagrR,
-    netDebtEbitdaR, deR, icR, crR,
-    indOpmR, indRevCagrR,
-  ] = await Promise.allSettled([
-    helper.stockRoceLatest(ticker),
-    helper.stockKpiLatest(ticker, 'REV'),
-    helper.stockKpiLatest(ticker, 'OPM'),
-    helper.stockFcfLatest(ticker),
-    helper.stockCccLatest(ticker),
-    helper.stockKpiLatest(ticker, 'PAT'),
-    helper.stockRevCagr(ticker),
-    helper.stockKpiLatest(ticker, 'CUST'),
-    helper.stockCustCagr(ticker),
-    // Computed ratios — substitute chains used inside each method
-    helper.computeNetDebtEbitda(ticker),  // NETDEBT_EBITDA or NETDEBT÷EBITDA
-    helper.computeDeRatio(ticker),        // DE or DEBT÷EQ
-    helper.computeIc(ticker),             // IC/INTCOV or EBIT÷INTEXP
-    helper.computeCr(ticker),             // CR or WC÷TL
-    helper.industryKpiAvg(industry, 'OPM'),
-    helper.industryRevCagr(industry),
-  ]);
-
-  const v    = (r) => r.status === 'fulfilled' ? r.value : null;
-  const fmt  = (r) => _fmtKpi(v(r));
-  const fmtC = (r) => _fmtCagr(v(r));
-  const fmtX = (r) => { const res = v(r); return res?.value != null ? `${res.value}x` : null; };
-
-  // ── financial_strength ──────────────────────────────────────────────────────
-  const fs = result.financial_strength;
-  if (fs) {
-    const m = fs.metrics;
-    _fill(m, 'roce',           fmt(roceR));
-    _fill(m, 'revenue',        fmt(revR));
-    _fill(m, 'ebitda_margin',  fmt(opmR));
-    _fill(m, 'free_cash_flow', fmt(fcfR));
-    _fill(m, 'net_debt_ebitda', fmtX(netDebtEbitdaR));
-
-    const cf = fs.text?.cash_flow?.metrics;
-    _fill(cf, 'fcf',             fmt(fcfR));
-    _fill(cf, 'working_capital', fmt(cccR));
-
-    const bs = fs.text?.balance_sheet?.metrics;
-    _fill(bs, 'net_debt_ebitda',  fmtX(netDebtEbitdaR));
-    _fill(bs, 'debt_equity',      fmtX(deR));
-    _fill(bs, 'interest_coverage', fmtX(icR));
-    _fill(bs, 'current_ratio',    fmtX(crR));
-
-    const prof = fs.text?.profitability?.metrics;
-    _fill(prof, 'ebitda_margin', fmt(opmR));
-    // PAT primary → NPM substitute is %; only show as margin if a % abbr landed
-    const patVal = v(patR);
-    if (prof?.pat_margin?.value === null && patVal?.value != null && PCT_ABBRS.has(patVal.abbrUsed)) {
-      prof.pat_margin.value = `${patVal.value}%`;
-      console.log(`[OFactor Enrich] filled pat_margin = ${prof.pat_margin.value}`);
-    }
-
-    const rg = fs.text?.revenue_growth?.metrics;
-    _fill(rg, 'revenue',        fmt(revR));
-    _fill(rg, 'five_year_cagr', fmtC(revCagrR));
-  }
-
-  // ── industry_overview ───────────────────────────────────────────────────────
-  const io = result.industry_overview;
-  if (io) {
-    _fill(io.metrics,                  'current_opm',   fmt(indOpmR));
-    _fill(io.metrics,                  'industry_cagr', fmtC(indRevCagrR));
-    _fill(io.text?.opm_trend?.metrics, 'current_opm',   fmt(indOpmR));
-  }
-
-  // ── customer_traction ───────────────────────────────────────────────────────
-  const ct = result.customer_traction;
-  if (ct) {
-    _fill(ct.metrics,                        'active_customers', fmt(custR));
-    _fill(ct.text?.customer_growth?.metrics, 'current_base',     fmt(custR));
-    _fill(ct.text?.customer_growth?.metrics, 'five_year_growth', fmtC(custCagrR));
-  }
-}
+const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction']);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function getSubjectSummaries(companyPrefix) {
-  const rows = await prisma.summary.findMany({
+  const rows = await prisma.summaryNew.findMany({
     where:   { callId: { startsWith: companyPrefix } },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { callId: 'desc' }, // callId format TICKER_FYYYY_QX sorts correctly by fiscal period
     take:    2
   });
-  return rows.reverse();
+  return rows.reverse(); // oldest → newest
 }
 
 /**
- * Auto-discover up to 2 peer companies in the same industry.
- * Queries Summary.industryAnalysis directly (peers may not have
- * basic_industry set on their earnings_calls row).
- * Ticker is extracted by splitting on '_FY' to handle tickers that
- * contain underscores (e.g. "HDFC_BANK_FY2026_Q3" → "HDFC_BANK").
+ * Auto-discover up to 2 peer companies in the same industry from summaryNew.
  */
 async function getAutoPeerSummaries(subjectTicker, industry) {
   if (!industry || industry === 'Unknown Industry') return [];
 
-  // Find all summaries in the same industry, excluding the subject ticker
-  const allPeerSummaries = await prisma.summary.findMany({
+  const allPeerSummaries = await prisma.summaryNew.findMany({
     where: {
       industryAnalysis: { path: ['industry'], equals: industry },
       NOT: { callId: { startsWith: subjectTicker } }
@@ -161,8 +38,8 @@ async function getAutoPeerSummaries(subjectTicker, industry) {
     orderBy: { createdAt: 'desc' }
   });
 
-  // Keep the latest summary per peer ticker (split on _FY to extract ticker)
-  const seen = new Map(); // ticker → summary
+  // Keep the latest summary per peer ticker
+  const seen = new Map();
   for (const s of allPeerSummaries) {
     const ticker = s.callId.split('_FY')[0];
     if (!seen.has(ticker)) {
@@ -173,15 +50,83 @@ async function getAutoPeerSummaries(subjectTicker, industry) {
 
   const peerTickers = [...seen.keys()];
   console.log(`[OFactor] Auto-discovered peer tickers for "${industry}": ${peerTickers.join(', ') || 'none'}`);
-
   return [...seen.values()];
+}
+
+// ─── Section-Specific Prompt Builders ────────────────────────────────────────
+
+async function buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper) {
+  const [industryOpm, industryRevCagr, industryEps, industryPe] = await Promise.all([
+    industry !== 'Unknown Industry' ? helper.industryOpm(industry)      : Promise.resolve(null),
+    industry !== 'Unknown Industry' ? helper.industryRevCagr(industry)  : Promise.resolve(null),
+    industry !== 'Unknown Industry' ? helper.industryEpsCagr(industry)  : Promise.resolve(null),
+    industry !== 'Unknown Industry' ? helper.industryPeCagr(industry)   : Promise.resolve(null),
+  ]);
+
+  const subjectData = subjectSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
+  const peerData    = peerSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
+  const metrics     = { industryOpm, industryRevCagr, industryEps, industryPe };
+
+  return { prompt: industryPrompt(subjectTicker, industry, subjectData, peerData, metrics), sectionKey: 'industry_overview' };
+}
+
+async function buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper) {
+  const [stockEps, stockPe, industryEps, industryPe] = await Promise.all([
+    helper.stockEpsCagr(subjectTicker),
+    helper.stockPeCagr(subjectTicker),
+    industry !== 'Unknown Industry' ? helper.industryEpsCagr(industry) : Promise.resolve(null),
+    industry !== 'Unknown Industry' ? helper.industryPeCagr(industry)  : Promise.resolve(null),
+  ]);
+
+  const pickFields = s => ({
+    callId: s.callId, entities: s.entities, milestones: s.milestones, kpis: s.kpis,
+    governanceSignals: s.governanceSignals, riskDisclosures: s.riskDisclosures, tone: s.tone
+  });
+
+  const subjectData = subjectSummaries.map(pickFields);
+  const peerData    = peerSummaries.map(pickFields);
+  const metrics     = { stockEps, stockPe, industryEps, industryPe };
+
+  return { prompt: competitionPrompt(subjectTicker, industry, subjectData, peerData, metrics), sectionKey: 'competition' };
+}
+
+async function buildFinancialStrengthSection(subjectTicker, subjectSummaries, helper) {
+  const [stockEps, stockPe, stockRevCagr, roce, fcf, deRatio, netDebtEbitda, ic, cr, opm] = await Promise.all([
+    helper.stockEpsCagr(subjectTicker),
+    helper.stockPeCagr(subjectTicker),
+    helper.stockRevCagr(subjectTicker),
+    helper.stockRoceLatest(subjectTicker),
+    helper.stockFcfLatest(subjectTicker),
+    helper.computeDeRatio(subjectTicker),
+    helper.computeNetDebtEbitda(subjectTicker),
+    helper.computeIc(subjectTicker),
+    helper.computeCr(subjectTicker),
+    helper.stockKpiLatest(subjectTicker, 'OPM'),
+  ]);
+
+  const subjectData = subjectSummaries.map(s => ({ callId: s.callId, financialStrength: s.financialStrength }));
+  const metrics     = { stockEps, stockPe, stockRevCagr, roce, fcf, deRatio, netDebtEbitda, ic, cr, opm };
+
+  return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics), sectionKey: 'financial_strength' };
+}
+
+async function buildCustomerTractionSection(subjectTicker, subjectSummaries, helper) {
+  const [custLatest, custCagr] = await Promise.all([
+    helper.stockKpiLatest(subjectTicker, 'CUST'),
+    helper.stockCustCagr(subjectTicker),
+  ]);
+
+  const subjectData = subjectSummaries.map(s => ({ callId: s.callId, clientTraction: s.clientTraction }));
+  const metrics     = { custLatest, custCagr };
+
+  return { prompt: customerTractionPrompt(subjectTicker, subjectData, metrics), sectionKey: 'customer_traction' };
 }
 
 // ─── Processor ───────────────────────────────────────────────────────────────
 
 async function processOFactorJob(job) {
-  const { callId, subjectTicker, type } = job.data;
-  console.log(`Processing OFactor job ${job.id} (callId: ${callId}, subject: ${subjectTicker})`);
+  const { callId, subjectTicker, section, type } = job.data;
+  console.log(`Processing OFactor job ${job.id} (callId: ${callId}, subject: ${subjectTicker}, section: ${section})`);
 
   try {
     await prisma.job.upsert({
@@ -191,78 +136,77 @@ async function processOFactorJob(job) {
     });
     await job.updateProgress(5);
 
+    if (!VALID_SECTIONS.has(section)) {
+      throw new Error(`Invalid section: "${section}". Must be one of: ${[...VALID_SECTIONS].join(', ')}`);
+    }
+
     const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
     if (!call) throw new Error(`Earnings call ${callId} not found`);
 
-    const subjectCompanyName = call.company_name || call.company || subjectTicker;
-    const fallbackIndustry   = call.basic_industry || 'Unknown Industry';
+    const fallbackIndustry = call.basic_industry || 'Unknown Industry';
     await job.updateProgress(10);
 
-    // ── Get subject summaries first to resolve industry from transcript data ───
+    // Fetch subject summaries → resolve industry
     const subjectSummaries = await getSubjectSummaries(subjectTicker);
     const latestSummary    = subjectSummaries[subjectSummaries.length - 1];
     const industry = latestSummary?.industryAnalysis?.industry || fallbackIndustry;
     console.log(`[OFactor] Resolved industry: "${industry}"`);
     await job.updateProgress(20);
 
-    // ── Auto-discover peer companies from same industry ────────────────────────
-    const peerSummaries         = await getAutoPeerSummaries(subjectTicker, industry);
-    const autoDiscoveredTickers = [...new Set(peerSummaries.map(s => s.callId.split('_FY')[0]))];
-    console.log(`Subject summaries: ${subjectSummaries.length}, Peer summaries: ${peerSummaries.length} (peers: ${autoDiscoveredTickers.join(', ') || 'none'})`);
+    // Peer discovery (needed for industry + competition sections)
+    const needsPeers = section === 'industry' || section === 'competition';
+    const peerSummaries = needsPeers ? await getAutoPeerSummaries(subjectTicker, industry) : [];
+    console.log(`Subject summaries: ${subjectSummaries.length}, Peer summaries: ${peerSummaries.length}`);
     await job.updateProgress(30);
 
-    // ── Pre-compute stock + industry metrics from DB ──────────────────────────
+    // Build section-specific prompt + pre-computed metrics
     const helper = new FinHelper(prisma);
-    const [stockEps, stockPe, industryEps, industryPe, industryOpmResult] = await Promise.all([
-      helper.stockEpsCagr(subjectTicker),
-      helper.stockPeCagr(subjectTicker),
-      industry !== 'Unknown Industry' ? helper.industryEpsCagr(industry) : Promise.resolve(null),
-      industry !== 'Unknown Industry' ? helper.industryPeCagr(industry)  : Promise.resolve(null),
-      industry !== 'Unknown Industry' ? helper.industryOpm(industry)     : Promise.resolve(null),
-    ]);
-    console.log(`[OFactor] stockEps:`, stockEps, '| stockPe:', stockPe);
-    console.log(`[OFactor] industryEps:`, industryEps, '| industryPe:', industryPe, '| industryOpm:', industryOpmResult);
-    await job.updateProgress(45);
+    let promptText, sectionKey;
 
-    const computedMetrics = { stockEps, stockPe, industryEps, industryPe, industryOpm: industryOpmResult };
-    const prompt = oFactorAnalysisPrompt(subjectTicker, subjectCompanyName, industry, subjectSummaries, peerSummaries, computedMetrics);
-    console.log(`OFactor prompt length: ${prompt.length} chars`);
+    if (section === 'industry') {
+      ({ prompt: promptText, sectionKey } = await buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper));
+    } else if (section === 'competition') {
+      ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper));
+    } else if (section === 'financial_strength') {
+      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, subjectSummaries, helper));
+    } else {
+      ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper));
+    }
 
-    if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
-    const safeCallId = callId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    fs.writeFileSync(path.join(TEMP_DIR, `ofactor_prompt_${safeCallId}.txt`), prompt, 'utf8');
-    await job.updateProgress(60);
+    console.log(`[OFactor] Section "${section}" prompt length: ${promptText.length} chars`);
+    await job.updateProgress(55);
 
-    console.log('Calling LLM API for OFactor analysis...');
-    const responseText = await llmStream({ model: 'anthropic/claude-sonnet-4-6', max_tokens: MAX_TOKENS, messages: [{ role: 'user', content: prompt }] });
+    console.log(`[OFactor] Calling LLM for section "${section}"...`);
+    const responseText = await llmStream({
+      model: 'anthropic/claude-sonnet-4-6',
+      max_tokens: MAX_TOKENS,
+      messages: [{ role: 'user', content: promptText }]
+    });
     await job.updateProgress(85);
 
     if (!responseText) throw new Error('Empty response from LLM');
 
-    fs.writeFileSync(path.join(TEMP_DIR, `ofactor_response_${safeCallId}.txt`), responseText, 'utf8');
+    console.log(`[OFactor] Parsing section "${section}" response...`);
+    const parsed = parseJson(responseText);
 
-    console.log('Claude OFactor response received, parsing...');
-    const ofactorResult = parseJson(responseText);
+    // The LLM returns { <sectionKey>: <sectionData> } — extract the section data
+    const sectionResult = parsed[sectionKey] ?? parsed;
     await job.updateProgress(90);
 
-    console.log('[OFactor] Enriching null metrics from DB...');
-    await enrichOFactorMetrics(ofactorResult, subjectTicker, industry, helper);
-    await job.updateProgress(92);
-
-    await upsertOFactorResult(callId, subjectTicker, autoDiscoveredTickers, ofactorResult, prisma);
-    console.log(`OFactor analysis saved for callId: ${callId}`);
+    await upsertOFactorSection(callId, subjectTicker, section, sectionResult, prisma);
+    console.log(`[OFactor] Section "${section}" saved for callId: ${callId}`);
 
     await prisma.job.update({
       where: { bullmqId: job.id },
-      data:  { status: 'completed', result: { callId, sectionsGenerated: Object.keys(ofactorResult) } }
+      data:  { status: 'completed', result: { callId, section, sectionKey } }
     });
 
     await job.updateProgress(100);
-    console.log(`OFactor job ${job.id} completed`);
-    return ofactorResult;
+    console.log(`[OFactor] Job ${job.id} completed (section: ${section})`);
+    return { section, sectionKey };
 
   } catch (error) {
-    console.error(`OFactor job ${job.id} failed:`, error);
+    console.error(`[OFactor] Job ${job.id} failed:`, error);
     try {
       await prisma.job.upsert({
         where:  { bullmqId: job.id },
@@ -270,7 +214,7 @@ async function processOFactorJob(job) {
         create: { callId, type: type || 'ofactor_analysis', status: 'failed', bullmqId: job.id, error: error.message }
       });
     } catch (dbErr) {
-      console.error(`Failed to update OFactor job ${job.id} in DB:`, dbErr);
+      console.error(`[OFactor] Failed to update job ${job.id} in DB:`, dbErr);
     }
     throw error;
   }
@@ -284,9 +228,9 @@ const worker = new Worker('ofactor_analysis', processOFactorJob, {
   limiter: { max: 5, duration: 1000 }
 });
 
-worker.on('completed', job      => console.log(`[ofactor] Job ${job.id} completed`));
+worker.on('completed', job       => console.log(`[ofactor] Job ${job.id} completed`));
 worker.on('failed',    (job, err) => console.error(`[ofactor] Job ${job.id} failed:`, err.message));
-worker.on('error',     err      => console.error('[ofactor] Worker error:', err));
+worker.on('error',     err       => console.error('[ofactor] Worker error:', err));
 
 console.log('OFactor analysis worker ready');
 

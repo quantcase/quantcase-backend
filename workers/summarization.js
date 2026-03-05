@@ -10,25 +10,22 @@ const FISCAL_YEAR_END = process.env.FISCAL_YEAR_END || '03-31';
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function getExistingKpisForPrompt(basicIndustry) {
-  const where = basicIndustry
-    ? { OR: [{ industry: { has: basicIndustry } }, { industry: { isEmpty: true } }] }
-    : {};
+  // QE KPIs: include all regardless of industry
+  const qeKpis = await prisma.kpi.findMany({ where: { source: 'QE' } });
 
-  const kpis = await prisma.kpi.findMany({
-    where,
-    include: {
-      numerator:   { select: { abbr: true } },
-      denominator: { select: { abbr: true } }
-    }
-  });
-  return kpis.map(k => ({
-    id:               k.id,
-    abbr:             k.abbr,
-    full_form:        k.full_form,
-    type:             k.type,
-    denomination:     k.denomination    ?? undefined,
-    numerator_abbr:   k.numerator?.abbr ?? undefined,
-    denominator_abbr: k.denominator?.abbr ?? undefined
+  // Transcript KPIs: only same industry
+  const transcriptWhere = basicIndustry
+    ? { source: 'transcript', industry: { has: basicIndustry } }
+    : { source: 'transcript' };
+  const transcriptKpis = await prisma.kpi.findMany({ where: transcriptWhere });
+
+  return [...qeKpis, ...transcriptKpis].map(k => ({
+    id:          k.id,
+    abbr:        k.abbr,
+    full_form:   k.full_form,
+    kpi_type:    k.kpi_type    ?? undefined,
+    denomination: k.denomination ?? undefined,
+    source:      k.source
   }));
 }
 
@@ -89,18 +86,20 @@ async function processSummarizationJob(job) {
     await job.updateProgress(85);
 
     const summaryPayload = {
-      entities:          extractedData.entities          ?? null,
-      milestones:        extractedData.milestones         ?? null,
-      riskDisclosures:   extractedData.risk_disclosures   ?? null,
-      governanceSignals: extractedData.governance_signals ?? null,
+      entities:          extractedData.entities           ?? null,
+      milestones:        extractedData.milestones          ?? null,
+      riskDisclosures:   extractedData.risk_disclosures    ?? null,
+      governanceSignals: extractedData.governance_signals  ?? null,
       industryAnalysis:  extractedData.industry_analysis
         ? { ...extractedData.industry_analysis, industry: basicIndustry }
         : (basicIndustry ? { industry: basicIndustry } : null),
-      tone:              extractedData.tone               ?? null,
-      confidence:        extractedData.confidence         ?? null
+      financialStrength: extractedData.financial_strength  ?? null,
+      clientTraction:    extractedData.client_traction     ?? null,
+      tone:              extractedData.tone                ?? null,
+      confidence:        extractedData.confidence          ?? null
     };
 
-    const summaryRecord = await prisma.summary.upsert({
+    const summaryRecord = await prisma.summaryNew.upsert({
       where:  { callId },
       update: summaryPayload,
       create: { callId, ...summaryPayload }
