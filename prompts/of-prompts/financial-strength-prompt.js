@@ -77,21 +77,47 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics) {
   const capex     = _latest(derivedBatch?.CAPEX);
   const fcf       = _latest(derivedBatch?.FCF);
 
+  // Gross margin (non-BFSI): (REV_OP - COGS) / REV_OP × 100
+  // COGS = COST_MAT + PURCH_STOCK + INV_CHG
+  const costMat   = _latest(rawBatch?.COST_MAT);
+  const purchStock= _latest(rawBatch?.PURCH_STOCK);
+  const invChg    = _latest(rawBatch?.INV_CHG);
+  let grossMargin = null;
+  if (!bfsi && revOp != null && revOp !== 0 && costMat != null && purchStock != null && invChg != null) {
+    const cogs = costMat + purchStock + invChg;
+    grossMargin = parseFloat(((revOp - cogs) / revOp * 100).toFixed(2));
+  }
+
+  // Interest coverage: EBIT / FIN_COST
+  let interestCoverage = null;
+  if (ebit != null && finCost != null && finCost !== 0) {
+    interestCoverage = parseFloat((ebit / finCost).toFixed(2));
+  }
+
   const ebitLabel = bfsi ? 'PPOP (Pre-Prov. Op. Profit)' : 'EBIT';
   const fcfLabel  = bfsi ? 'Free Cash Flow (CFO-CAPEX-Prov)' : 'Free Cash Flow (CFO-CAPEX)';
+
+  // BFSI interest coverage analog: PPOP / Finance Costs
+  let nimCoverage = null;
+  if (bfsi && ebit != null && finCost != null && finCost !== 0) {
+    nimCoverage = parseFloat((ebit / finCost).toFixed(2));
+  }
 
   const profitabilityBlock = bfsi
     ? `  Profitability
     ROA                     : ${pct(roa)}
     ROE                     : ${pct(roe)}
     ${ebitLabel.padEnd(24)}: ${fmt(ebit)}
-    EBIT / Op Margin        : ${pct(ebitMargin)}`
+    EBIT / Op Margin        : ${pct(ebitMargin)}
+    NIM Coverage (PPOP/FIN_COST): ${nimCoverage != null ? nimCoverage + 'x' : 'N/A'}`
     : `  Profitability
+    Gross Margin            : ${pct(grossMargin)}
     ROCE                    : ${pct(roce)}
     ROA                     : ${pct(roa)}
     ROE                     : ${pct(roe)}
     EBIT                    : ${fmt(ebit)}
-    EBIT Margin             : ${pct(ebitMargin)}`;
+    EBIT Margin             : ${pct(ebitMargin)}
+    Interest Coverage       : ${interestCoverage != null ? interestCoverage + 'x' : 'N/A'}`;
 
   const balanceSheetBlock = bfsi
     ? `  Balance Sheet
@@ -151,7 +177,13 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics) {
   • Margin quality — PPOP trends, provisioning adequacy, credit cost trajectory
   • ${fcfLabel} quality and capital adequacy signals
   • Asset quality signals from management commentary (NPA, PCR, stress book)
-Populate with short and crisp points (maximum 10 words each).`
+Populate with short and crisp points (maximum 10 words each).
+
+BFSI-specific metric instructions:
+  • metrics.interest_coverage: Use the NIM Coverage ratio (PPOP/FIN_COST) provided above. Set value to the ratio formatted as "Xx" (e.g. "2.3x") and sublabel to "PPOP covers X× funding costs; NIM-based proxy".
+  • metrics.gross_margin: Set value to null and sublabel to "Not applicable for banking; NIM is the spread proxy".
+  • metrics.roce: Set value to null and sublabel to "Not applicable for BFSI; use ROA/ROE instead".
+  • text.balance_sheet.metrics.credit_rating: If no credit rating is mentioned in transcripts, set value to null and sublabel to "Not disclosed in available transcripts".`
     : `Using the financial data above and transcript commentary, assess:
   • Revenue growth trajectory — volume/mix driven or purely price-led?
   • Margin expansion — is management confident about sustaining margins?

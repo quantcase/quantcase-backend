@@ -66,6 +66,13 @@ From the subject company's transcripts, identify:
   • Has management referenced any alt data signals (web traffic, app engagement, customer hiring)?
 Populate with short and crisp points (maximum 10 words each).
 
+Metric-specific instructions for when data is unavailable:
+  • metrics.net_retention: If NRR is not formally disclosed (e.g. for banks/MFI), set value to null and sublabel to a contextual proxy note (e.g. "Not formally disclosed; NII YoY as proxy" or "Portfolio AUM growth as retention proxy").
+  • metrics.top_10_concentration: For retail-focused companies with granular books (MFI, consumer banking), set value to null and sublabel to "Retail granular book; not separately disclosed". For B2B companies, infer from transcripts if possible.
+  • metrics.avg_contract_value: If ticket sizes or AUM per customer are not separately disclosed, set value to null and sublabel to "Ticket sizes not separately disclosed in transcripts".
+  • text.retention.metrics.net_revenue_retention: Same guidance as metrics.net_retention above.
+  • text.retention.metrics.gross_revenue_retention: If not explicitly reported, set value to null and sublabel to "Not explicitly reported in transcripts".
+
 ══════════════════════════════════════════════════════════
 D. OUTPUT FORMAT
 ══════════════════════════════════════════════════════════

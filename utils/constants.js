@@ -142,11 +142,12 @@ OFactorResponseSchema = {
       }
     },
     "metrics": {
-      "current_opm":      { "label": "Current OPM",           "value": "<string>",              "sublabel": "<string>" },
-      "market_size":      { "label": "Market Size / AUM",     "value": "<string|null>",         "sublabel": "<string>" },
-      "demand_signal":    { "label": "Demand Signal",         "value": "<Weak|Moderate|Strong>","sublabel": "<string>" },
-      "industry_cagr":    { "label": "Industry Revenue CAGR", "value": "<string|null>",         "sublabel": "<string>" },
-      "supply_constraint":{ "label": "Supply Constraint",     "value": "<Low|Moderate|High>",   "sublabel": "<string>" }
+      "industry_revenue_ttm": { "label": "Industry Revenue TTM",   "value": "<string|null>",         "sublabel": "<string>" },
+      "current_opm":          { "label": "Current OPM",            "value": "<string>",              "sublabel": "<string>" },
+      "market_size":          { "label": "Market Size / AUM",      "value": "<string|null>",         "sublabel": "<string>" },
+      "demand_signal":        { "label": "Demand Signal",          "value": "<Weak|Moderate|Strong>","sublabel": "<string>" },
+      "industry_cagr":        { "label": "Industry Revenue CAGR",  "value": "<string|null>",         "sublabel": "<string>" },
+      "supply_constraint":    { "label": "Supply Constraint",      "value": "<Low|Moderate|High>",   "sublabel": "<string>" }
     }
   },
   "financial_strength": {
@@ -194,11 +195,14 @@ OFactorResponseSchema = {
       }
     },
     "metrics": {
-      "roce":           { "label": "ROCE",                       "value": "<string|null>", "sublabel": "<string>" },
-      "revenue":        { "label": "Revenue (latest FY)",        "value": "<string>",      "sublabel": "<string>" },
-      "ebitda_margin":  { "label": "OPM (EBITDA Margin)",        "value": "<string|null>", "sublabel": "<string>" },
-      "free_cash_flow": { "label": "Operating / Free Cash Flow", "value": "<string|null>", "sublabel": "<string>" },
-      "net_debt_ebitda":{ "label": "Net Debt / Op. Profit",      "value": "<string|null>", "sublabel": "<string>" }
+      "revenue":           { "label": "Revenue",              "value": "<string>",      "sublabel": "<string>" },
+      "gross_margin":      { "label": "Gross Margin %",       "value": "<string|null>", "sublabel": "<string>" },
+      "ebitda_margin":     { "label": "EBIT/OPM Margin",      "value": "<string|null>", "sublabel": "<string>" },
+      "pat":               { "label": "PAT (TTM)",            "value": "<string|null>", "sublabel": "<string>" },
+      "free_cash_flow":    { "label": "FCF (TTM)",            "value": "<string|null>", "sublabel": "<string>" },
+      "interest_coverage": { "label": "Interest Coverage",    "value": "<string|null>", "sublabel": "<string>" },
+      "roce":              { "label": "ROCE",                 "value": "<string|null>", "sublabel": "<string>" },
+      "roe":               { "label": "ROE",                  "value": "<string|null>", "sublabel": "<string>" }
     }
   }
 }

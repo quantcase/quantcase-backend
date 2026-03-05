@@ -136,8 +136,22 @@ async function buildCustomerTractionSection(subjectTicker, subjectSummaries, hel
     helper.stockCustCagr(subjectTicker),
   ]);
 
+  // Fallback: if CUST KPI not found in QE data, scan transcript summary kpis
+  let resolvedCustLatest = custLatest;
+  if (custLatest.value == null) {
+    for (const s of [...subjectSummaries].reverse()) {
+      const kpis = s.clientTraction?.customer_growth?.kpis ?? [];
+      const match = kpis.find(k => k.kpi_abbr === 'CUST' && k.value != null);
+      if (match) {
+        resolvedCustLatest = { value: match.value, abbrUsed: 'CUST', period: s.callId, type: 'transcript' };
+        console.log(`[OFactor] CUST fallback from transcript ${s.callId}: ${match.value}`);
+        break;
+      }
+    }
+  }
+
   const subjectData = subjectSummaries.map(s => ({ callId: s.callId, clientTraction: s.clientTraction }));
-  const metrics     = { custLatest, custCagr };
+  const metrics     = { custLatest: resolvedCustLatest, custCagr };
 
   return { prompt: customerTractionPrompt(subjectTicker, subjectData, metrics), sectionKey: 'customer_traction' };
 }

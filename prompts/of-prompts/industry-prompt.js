@@ -78,6 +78,7 @@ function industryPrompt(subjectTicker, industry, subjectData, peerData, computed
   const totalAssets= _latest(rawBatch?.TOTAL_ASSETS);
   const currLiab   = _latest(rawBatch?.CURR_LIAB);
 
+
   const ebit       = _latest(derivedBatch?.EBIT);
   const roce       = _latest(derivedBatch?.ROCE);
   const roa        = _latest(derivedBatch?.ROA);
@@ -140,6 +141,10 @@ From ALL transcripts (subject + peer), identify:
   • Is management guidance on volumes and capex positive or cautious?
   • What are the key demand/supply dynamics in this industry?
 Populate with short and crisp points (maximum 10 words each).
+
+For metrics.industry_revenue_ttm: estimate the total industry revenue (trailing twelve months) for the ${industry} sector
+using the subject company revenue above, peer data, and your knowledge of the industry. Express in a readable format
+(e.g. "₹4.2L Cr", "$180B"). Use sublabel to clarify the source/period (e.g. "FY24 trailing estimate").
 
 ══════════════════════════════════════════════════════════
 D. OUTPUT FORMAT
