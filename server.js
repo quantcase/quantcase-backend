@@ -4,6 +4,7 @@ const cors = require('cors');
 const prisma = require('./lib/prisma');
 const jobQueue = require('./lib/jobQueue');
 const { getManagementAnalysis } = require('./controllers/managementController');
+const { FinHelper } = require('./utils/finHelper');
 const { createDealAnalysis } = require('./controllers/dealController');
 const { OFactorResponseSchema } = require('./utils/constants');
 const { getOFactorResult, getLatestOFactorResultByTicker } = require('./db-utils/upsertOFactor');
@@ -492,8 +493,188 @@ app.get('/api/jobs/:jobId', async (req, res) => {
 
 
 
-// Industry context: financials + historic PE for a ticker and its peers
-// Optional query param: ?peers=TICKER1,TICKER2  (overrides auto peer selection)
+// ── Helper: fetch Q4-based stats for one ticker ───────────────────────────────
+// Revenue = full-year Q4 REV_OP; Revenue Growth = YoY vs previous Q4.
+// OPM, ROCE, D/E are derived from raw stored KPIs rather than pre-computed abbrs.
+async function getQ4Stats(ticker) {
+  const q4Calls = await prisma.earnings_calls.findMany({
+    where:   { company: ticker, quarter: 'Q4' },
+    select:  { id: true, fiscal_year: true },
+    orderBy: { fiscal_year: 'desc' },
+  });
+  if (!q4Calls.length) return null;
+
+  const latestQ4 = q4Calls[0];
+  const prevQ4   = q4Calls[1] ?? null;
+
+  const summary = await prisma.summaryNew.findUnique({
+    where:  { callId: latestQ4.id },
+    select: { kpis: true },
+  });
+  if (!summary?.kpis || !Array.isArray(summary.kpis)) return null;
+
+  const kpis = summary.kpis;
+  const get = (abbr) => {
+    const match = kpis.find(k => k.kpi_abbr === abbr);
+    if (!match) return null;
+    const val = parseFloat(match.kpi_value ?? match.value);
+    return isNaN(val) ? null : val;
+  };
+
+  const revOp      = get('REV_OP');
+  const pbt        = get('PBT');
+  const finCost    = get('FIN_COST')    ?? 0;
+  const depAmort   = get('DEP_AMORT')   ?? 0;
+  const othInc     = get('OTH_INC')     ?? 0;
+  const totalAssets= get('TOTAL_ASSETS');
+  const currLiab   = get('CURR_LIAB');
+  const eqShareCap = get('EQ_SHARE_CAP');
+  const resSurplus = get('RES_SURPLUS');
+  const debtLt     = get('DEBT_LT')     ?? 0;
+  const debtSt     = get('DEBT_ST')     ?? 0;
+
+  // OPM (EBITDA margin) = (PBT + FIN_COST + DEP_AMORT - OTH_INC) / REV_OP × 100
+  let opm = null;
+  if (pbt != null && revOp) {
+    opm = parseFloat(((pbt + finCost + depAmort - othInc) / revOp * 100).toFixed(2));
+  }
+
+  // ROCE = (PBT + FIN_COST) / (TOTAL_ASSETS - CURR_LIAB) × 100
+  let roce = null;
+  if (pbt != null && totalAssets != null && currLiab != null) {
+    const ce = totalAssets - currLiab;
+    if (ce > 0) roce = parseFloat(((pbt + finCost) / ce * 100).toFixed(2));
+  }
+
+  // D/E = (DEBT_LT + DEBT_ST) / (EQ_SHARE_CAP + RES_SURPLUS)
+  let debtEquity = null;
+  if (eqShareCap != null && resSurplus != null) {
+    const equity = eqShareCap + resSurplus;
+    if (equity > 0) debtEquity = parseFloat(((debtLt + debtSt) / equity).toFixed(2));
+  }
+
+  // Revenue Growth = YoY vs previous Q4
+  let revenueGrowth = null;
+  if (prevQ4 && revOp != null) {
+    const prevSummary = await prisma.summaryNew.findUnique({
+      where:  { callId: prevQ4.id },
+      select: { kpis: true },
+    });
+    if (prevSummary?.kpis && Array.isArray(prevSummary.kpis)) {
+      const prevMatch = prevSummary.kpis.find(k => k.kpi_abbr === 'REV_OP');
+      if (prevMatch) {
+        const prevRev = parseFloat(prevMatch.kpi_value ?? prevMatch.value);
+        if (!isNaN(prevRev) && prevRev > 0) {
+          revenueGrowth = parseFloat(((revOp - prevRev) / prevRev * 100).toFixed(2));
+        }
+      }
+    }
+  }
+
+  return { revenue: revOp, revenueGrowth, opm, roce, debtEquity };
+}
+
+// Peer comparison table: Revenue, Revenue Growth, OPM%, ROCE%, Market Share, Debt/Equity
+// for the subject company (from callId) + top 5 peers from the same industry
+app.get('/api/opportunity/peer-data', async (req, res) => {
+  const { callId } = req.query;
+  if (!callId) {
+    return res.status(400).json({ success: false, error: 'callId query parameter is required' });
+  }
+
+  try {
+    const call = await prisma.earnings_calls.findUnique({
+      where:  { id: callId },
+      select: { company: true, company_name: true, basic_industry: true },
+    });
+    if (!call) {
+      return res.status(404).json({ success: false, error: 'Call not found' });
+    }
+
+    const subjectTicker = call.company;
+    const industry = call.basic_industry;
+
+    // Top 5 peers in same industry ranked by number of Q4 calls (most annual data = best peers)
+    let peerTickers = [];
+    if (industry) {
+      const peerGroups = await prisma.earnings_calls.groupBy({
+        by:      ['company'],
+        where:   { basic_industry: industry, company: { not: subjectTicker }, quarter: 'Q4' },
+        _count:  { id: true },
+        orderBy: { _count: { id: 'desc' } },
+        take:    5,
+      });
+      peerTickers = peerGroups.map(r => r.company);
+    }
+
+    const allTickers = [subjectTicker, ...peerTickers];
+
+    // Fetch company names and stats in parallel
+    const [nameRows, statsResults] = await Promise.all([
+      prisma.earnings_calls.findMany({
+        where:    { company: { in: allTickers } },
+        select:   { company: true, company_name: true },
+        distinct: ['company'],
+      }),
+      Promise.allSettled(allTickers.map(getQ4Stats)),
+    ]);
+
+    const nameMap = Object.fromEntries(nameRows.map(r => [r.company, r.company_name]));
+
+    const rows = statsResults.map((r, i) => ({
+      ticker: allTickers[i],
+      ...(r.status === 'fulfilled' && r.value
+        ? r.value
+        : { revenue: null, revenueGrowth: null, opm: null, roce: null, debtEquity: null }),
+    }));
+
+    // Market share = company Q4 revenue / sum of all Q4 revenues in peer set
+    const totalRevenue = rows.reduce((s, r) => s + (r.revenue ?? 0), 0);
+
+    const peers = rows.map(r => ({
+      company:        nameMap[r.ticker] ?? r.ticker,
+      revenue:        r.revenue,
+      revenue_growth: r.revenueGrowth,
+      opm:            r.opm,
+      roce:           r.roce,
+      market_share:   totalRevenue > 0 && r.revenue != null
+        ? parseFloat(((r.revenue / totalRevenue) * 100).toFixed(2))
+        : null,
+      debt_equity:    r.debtEquity,
+      is_current:     r.ticker === subjectTicker,
+      is_average:     false,
+    }));
+
+    // Industry average row (mean of non-null values across all peers)
+    const avg = (field) => {
+      const vals = peers.map(p => p[field]).filter(v => v != null);
+      if (!vals.length) return null;
+      return parseFloat((vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(2));
+    };
+    peers.push({
+      company:        'Industry Average',
+      revenue:        avg('revenue'),
+      revenue_growth: avg('revenue_growth'),
+      opm:            avg('opm'),
+      roce:           avg('roce'),
+      market_share:   avg('market_share'),
+      debt_equity:    avg('debt_equity'),
+      is_current:     false,
+      is_average:     true,
+    });
+
+    res.json({
+      success: true,
+      competition: {
+        meta: { section_id: 'competition', title: 'Competitive Benchmarking' },
+        peers,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching peer data:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch peer data', message: error.message });
+  }
+});
 
 // 404 handler
 app.use((_, res) => {
