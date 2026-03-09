@@ -31,10 +31,10 @@ function serializeFinancialStrength(row) {
 /**
  * @param {string} subjectTicker
  * @param {{ callId, financialStrength }[]} subjectData  - subject only, no peers
- * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array>, bfsi: boolean }} computedMetrics
+ * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array>, rawBatchAll: Record<string, Array>, derivedBatchAll: Record<string, Array>, bfsi: boolean }} computedMetrics
  */
 function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics) {
-  const { rawBatch, derivedBatch, bfsi = false } = computedMetrics;
+  const { rawBatch, derivedBatch, rawBatchAll = {}, derivedBatchAll = {}, bfsi = false } = computedMetrics;
 
   const subjectText = subjectData.length > 0
     ? subjectData.map(r => serializeFinancialStrength(r)).join('\n\n---\n\n')
@@ -141,6 +141,147 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics) {
     Trade Payables          : ${fmt(tradePay)}
     Inventory               : ${fmt(inventory)}`;
 
+  // ── Quarterly series helpers (for new sub-sections) ──────────────────────
+  /**
+   * Build a quarter-label → value map from a quarterly series array.
+   * Returns array of { quarter, value } for the last N entries.
+   */
+  function _qSeries(series, n = 10) {
+    if (!Array.isArray(series)) return [];
+    return series.filter(s => s.value != null).slice(-n).map(s => ({
+      quarter: `${s.quarter}'${String(s.fiscal_year ?? s.year ?? '').slice(-2)}`,
+      value: s.value
+    }));
+  }
+
+  // Quarterly revenue & EBIT for DOL chart
+  const revOpQ   = _qSeries(rawBatchAll?.REV_OP);
+  const ebitQ    = _qSeries(derivedBatchAll?.EBIT);
+  const empExpQ  = _qSeries(rawBatchAll?.EMP_EXP);
+  const othExpQ  = _qSeries(rawBatchAll?.OTH_EXP);
+  const depAmortQ= _qSeries(rawBatchAll?.DEP_AMORT);
+  const patQ     = _qSeries(rawBatchAll?.PAT);
+  const cfoQ     = _qSeries(rawBatchAll?.CFO);
+  const capexQ   = _qSeries(derivedBatchAll?.CAPEX);
+  const fcfQ     = _qSeries(derivedBatchAll?.FCF);
+
+  // Pre-compute EBIT growth YoY and leverage spread from Q4 annual series
+  function _yoyGrowth(series) {
+    if (series.length < 2) return null;
+    const prev = series[series.length - 2].value;
+    const curr = series[series.length - 1].value;
+    if (!prev || prev === 0) return null;
+    return parseFloat(((curr - prev) / Math.abs(prev) * 100).toFixed(1));
+  }
+
+  const ebitQ4       = _qSeries(derivedBatch?.EBIT);
+  const revOpQ4      = _qSeries(rawBatch?.REV_OP);
+  const ebitGrowthYoy   = _yoyGrowth(ebitQ4);
+  const revGrowthYoy    = _yoyGrowth(revOpQ4);
+  const leverageSpread  = (ebitGrowthYoy != null && revGrowthYoy != null)
+    ? parseFloat((ebitGrowthYoy - revGrowthYoy).toFixed(1))
+    : null;
+
+  // Compute working capital days from raw balance sheet KPIs (not stored as separate abbrs in DB)
+  function _computeWcDays(raw) {
+    const rev    = raw?.REV_OP      ?? [];
+    const recv   = raw?.TRADE_RECV  ?? [];
+    const inv    = raw?.INVENTORY   ?? [];
+    const pay    = raw?.TRADE_PAY   ?? [];
+    const mat    = raw?.COST_MAT    ?? [];
+    const purch  = raw?.PURCH_STOCK ?? [];
+    const invChg = raw?.INV_CHG     ?? [];
+    const n = rev.length;
+    const results = [];
+    for (let i = 0; i < n; i++) {
+      const r = rev[i];
+      if (!r?.value) continue;
+      const annRev  = r.value * 4;
+      const cogs    = ((mat[i]?.value ?? 0) + (purch[i]?.value ?? 0) + (invChg[i]?.value ?? 0)) * 4;
+      const rcv = recv[i]?.value, iiv = inv[i]?.value, tpv = pay[i]?.value;
+      const dso = rcv != null ? parseFloat((rcv / annRev * 365).toFixed(1)) : null;
+      const dio = iiv != null && cogs > 0 ? parseFloat((iiv / cogs * 365).toFixed(1)) : null;
+      const dpo = tpv != null && cogs > 0 ? parseFloat((tpv / cogs * 365).toFixed(1)) : null;
+      const ccc = (dso != null && dio != null && dpo != null) ? parseFloat((dso + dio - dpo).toFixed(1)) : null;
+      const wc  = (rcv ?? 0) + (iiv ?? 0) - (tpv ?? 0);
+      const wc_pct = r.value > 0 ? parseFloat((wc / r.value * 100).toFixed(1)) : null;
+      results.push({
+        quarter: `${r.quarter}'${String(r.fiscal_year ?? '').slice(-2)}`,
+        dso, dio, dpo, ccc, wc_pct
+      });
+    }
+    return results.slice(-10);
+  }
+
+  const wcComputed = bfsi ? [] : _computeWcDays(rawBatchAll);
+
+  // Debt history (Q4 annual for timeline)
+  const debtLtQ4   = _qSeries(rawBatch?.DEBT_LT);
+  const debtStQ4   = _qSeries(rawBatch?.DEBT_ST);
+  const cashQ4     = _qSeries(rawBatch?.CASH_EQUIV);
+  const divPayoutQ4= _qSeries(rawBatch?.DIV_PAYOUT);
+  const patQ4      = _qSeries(rawBatch?.PAT);
+  const eqCapQ4    = _qSeries(rawBatch?.EQ_SHARE_CAP);
+  const reservesQ4 = _qSeries(rawBatch?.RES_SURPLUS);
+
+  function _tableBlock(label, series) {
+    if (!series.length) return `${label}: N/A`;
+    return `${label}: ${series.map(r => `${r.quarter}=${r.value}`).join(' | ')}`;
+  }
+
+  const fixedCostTrendsBlock = `
+── Fixed Cost Trends (% of Revenue, quarterly) ──
+${_tableBlock('EMP_EXP %', empExpQ.map((r, i) => ({ quarter: r.quarter, value: revOpQ[i]?.value ? parseFloat((r.value / revOpQ[i].value * 100).toFixed(1)) : null })))}
+${_tableBlock('OTH_EXP %', othExpQ.map((r, i) => ({ quarter: r.quarter, value: revOpQ[i]?.value ? parseFloat((r.value / revOpQ[i].value * 100).toFixed(1)) : null })))}
+${_tableBlock('DEP_AMORT %', depAmortQ.map((r, i) => ({ quarter: r.quarter, value: revOpQ[i]?.value ? parseFloat((r.value / revOpQ[i].value * 100).toFixed(1)) : null })))}
+${_tableBlock('EBIT %',   ebitQ.map((r, i) => ({ quarter: r.quarter, value: revOpQ[i]?.value ? parseFloat((r.value / revOpQ[i].value * 100).toFixed(1)) : null })))}
+Note: Use these to compute DOL = (EBIT_growth%) / (REV_OP_growth%) per quarter.`;
+
+  const _wcRow = (label, key) => {
+    const vals = wcComputed.map(r => `${r.quarter}=${r[key] ?? 'N/A'}`).join(' | ');
+    return `${label}: ${vals || 'N/A'}`;
+  };
+
+  const wcTrendsBlock = bfsi ? '' : `
+── Working Capital Days (computed quarterly) ──
+${_wcRow('DSO (Debtor Days)',   'dso')}
+${_wcRow('DIO (Inventory Days)','dio')}
+${_wcRow('DPO (Days Payable)',  'dpo')}
+${_wcRow('CCC',                 'ccc')}
+${_wcRow('WC% of Revenue',      'wc_pct')}
+Note: DSO=TRADE_RECV/(REV_OP×4)×365; DIO=INVENTORY/(COGS×4)×365; DPO=TRADE_PAY/(COGS×4)×365; CCC=DSO+DIO-DPO`;
+
+  const opLevMetricsBlock = `
+── Operating Leverage Pre-computed Metrics ──
+Revenue Growth YoY (latest Q4 vs prior Q4): ${revGrowthYoy != null ? revGrowthYoy + '%' : 'N/A'}
+EBIT Growth YoY    (latest Q4 vs prior Q4): ${ebitGrowthYoy != null ? ebitGrowthYoy + '%' : 'N/A'}
+Leverage Spread (EBIT growth − Rev growth): ${leverageSpread != null ? leverageSpread + 'pp' : 'N/A'}
+Note: Use these EXACT values for operating_leverage.metrics.revenue_growth_yoy, ebit_growth_yoy, leverage_spread. Do NOT recompute.`;
+
+  const fcfTrendsBlock = `
+── FCF Conversion Quarterly (FCF/PAT %) ──
+${(() => {
+  const pairs = fcfQ.map((r, i) => {
+    const p = patQ[i];
+    if (!p || !p.value) return null;
+    return { quarter: r.quarter, pct: parseFloat((r.value / p.value * 100).toFixed(1)) };
+  }).filter(Boolean);
+  return _tableBlock('FCF/PAT %', pairs);
+})()}
+${_tableBlock('CFO (quarterly)', cfoQ)}
+${_tableBlock('FCF (quarterly)', fcfQ)}
+${_tableBlock('CAPEX (quarterly)', capexQ)}`;
+
+  const capitalStructureBlock = `
+── Capital Structure History (annual Q4) ──
+${_tableBlock('DEBT_LT', debtLtQ4)}
+${_tableBlock('DEBT_ST', debtStQ4)}
+${_tableBlock('CASH_EQUIV', cashQ4)}
+${_tableBlock('PAT', patQ4)}
+${_tableBlock('DIV_PAYOUT %', divPayoutQ4)}
+${_tableBlock('EQ_SHARE_CAP', eqCapQ4)}
+${_tableBlock('RESERVES', reservesQ4)}`;
+
   const trendsBlock = bfsi
     ? `── Revenue trend (last 5 years) ──
   ${_sparkline(rawBatch?.REV_OP)}
@@ -191,6 +332,62 @@ BFSI-specific metric instructions:
   • Balance sheet strength — debt levels, capex ROI, shareholder returns
 Populate with short and crisp points (maximum 10 words each).`;
 
+  const newSectionsInstructions = `
+── Instructions for NEW sub-sections ──────────────────────────────────────
+
+operating_leverage:
+  • Use the Fixed Cost Trends block to compute each line's current_pct (latest quarter) and prior_pct (earliest quarter in series).
+  • change_bps = (current_pct - prior_pct) * 100 (negative means cost declined as % of revenue = good).
+  • metrics.revenue_growth_yoy, metrics.ebit_growth_yoy, metrics.leverage_spread: Use the EXACT pre-computed values from the "Operating Leverage Pre-computed Metrics" block above. Do NOT recompute. If the block shows N/A, set value to "N/A".
+  • dol_chart_data: For each quarter where both REV_OP and EBIT are available, compute:
+      revenue_growth = (REV_OP[q] - REV_OP[q-1]) / REV_OP[q-1] * 100  (rounded to 2dp)
+      ebit_growth    = (EBIT[q] - EBIT[q-1]) / EBIT[q-1] * 100         (rounded to 2dp)
+      dol            = ebit_growth / revenue_growth                      (rounded to 2dp, null if revenue_growth = 0)
+  • verdict.status rules:
+      "positive" if EBIT margin is expanding (EBIT% rising) and dol > 1 for majority of quarters
+      "neutral"  if margins are flat or dol ~1
+      "negative" if EBIT margin is compressing or dol < 1 consistently
+  • all_verdicts: always return all 3 objects; add "is_current: true" only to the matching one.
+
+free_cash_flow:
+  • conversion_consistency.quarterly_data: Use FCF/PAT % series from the FCF Conversion block. Mark the lowest-pct quarter with "is_floor: true".
+  • growth_trajectory: Compare first vs last FCF and PAT in the available series to compute CAGRs. Set status_color green if FCF CAGR > PAT CAGR, yellow if similar, red if FCF declining.
+  • ocf_to_fcf: Use the latest TTM values. capex_bar_pct = |CAPEX| / OCF * 100; fcf_bar_pct = FCF / OCF * 100.
+  • fcf_yield: If market cap is not available, set all yield_history entries to null and status to "Not Available". Otherwise estimate yield = FCF_TTM / market_cap * 100.
+
+working_capital:
+  • quarters array and row values arrays MUST be the same length and in the same order.
+  • Use the DSO/DIO/DPO/CCC values from the "Working Capital Days (computed quarterly)" block above.
+  • If a metric shows N/A for a quarter, use null for that position in the values array.
+  • trend_chart.data: Use the WC% of Revenue series from the computed block.
+  • signals: Tag DSO, DPO, CCC trends following these rules:
+      DSO falling consistently → { label: "Tight Collections", color: "green" }
+      DSO rising consistently  → { label: "Receivables Piling Up", color: "red" }
+      DSO elevated but stable  → { label: "Slow Collections", color: "yellow" }
+      WC% falling consistently → { label: "Asset Light Scaling", color: "green" }
+      WC% rising consistently  → { label: "Working Capital Hungry", color: "red" }
+      CCC deteriorating 3+ Q   → { label: "Operational Stress", color: "red" }
+
+capital_structure:
+  • balance_sheet.timeline: Use Q4 annual CASH_EQUIV − (DEBT_LT + DEBT_ST) net cash values. Format values as "X.XK" (thousands) or "XX.XK" as appropriate.
+  • balance_sheet.cash_bar_pct = CASH_EQUIV / (CASH_EQUIV + DEBT_LT + DEBT_ST) * 100 (latest).
+  • debt_trajectory.bars: One bar per fiscal year from Q4 annual data. Color: red if debt > 3× current level, amber if 1.5–3×, green if ≤ current.
+  • equity_allocation.rows: One row per fiscal year. kept_pct = 100 - DIV_PAYOUT%. paid_pct = DIV_PAYOUT%.
+  • capex_intensity.metrics[0].bar_pct: Scale CAPEX/Revenue % to 0–100 where 5% revenue = 100 bar (i.e. bar_pct = capex_rev_pct / 5 * 100, capped at 100).
+  • capex_intensity.metrics[1].bar_pct: CAPEX/OCF * 100 directly.
+  • capex_intensity.metrics[2].bar_pct: CAPEX/DEP_AMORT ratio * 100 (1x = 100).
+
+final_scoring (8 checks — award 1 point each):
+  1. OCF/PAT > 0.8x  → check text.cash_flow.metrics.ocf_ebitda or compute CFO/PAT from data
+  2. FCF positive and growing → free_cash_flow.growth_trajectory
+  3. ROCE > 12%  → metrics.roce
+  4. Gross Margin stable or expanding → metrics.gross_margin trend
+  5. Working capital days stable or improving → working_capital CCC trend
+  6. Net Debt declining or net cash → capital_structure.balance_sheet.status
+  7. EBIT Margin expanding → operating_leverage.verdict.status = "positive"
+  8. Capex < OCF → capital_structure.capex_intensity (capex_ocf_pct < 100)
+  status: score >= 6 → "HIGH QUALITY" (green), score 4–5 → "MODERATE QUALITY" (yellow), score < 4 → "LOW QUALITY" (red).`;
+
   return `You are a senior equity research analyst. Assess the financial strength of ${subjectTicker}.
 ${bfsi ? 'Note: This is a BFSI company. Use BFSI-appropriate metrics (ROA, ROE, PPOP, FCF net of provisions). Do NOT reference ROCE.' : ''}
 
@@ -220,6 +417,16 @@ ${workingCapitalBlock}
 
 ${trendsBlock}
 
+${fixedCostTrendsBlock}
+
+${opLevMetricsBlock}
+
+${wcTrendsBlock}
+
+${fcfTrendsBlock}
+
+${capitalStructureBlock}
+
 ══════════════════════════════════════════════════════════
 B. FINANCIAL STRENGTH FROM TRANSCRIPTS (subject only)
 ══════════════════════════════════════════════════════════
@@ -231,6 +438,8 @@ C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
 ${analysisInstructions}
+
+${newSectionsInstructions}
 
 ══════════════════════════════════════════════════════════
 D. OUTPUT FORMAT

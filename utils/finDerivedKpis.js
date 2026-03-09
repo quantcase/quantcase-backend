@@ -71,9 +71,14 @@ function computeDerivedKpis(raw, bfsi = false) {
         ([rev, emp, dep, oth]) => rev - emp - dep - oth,
       );
     } else {
+      // COGS components (COST_MAT, PURCH_STOCK, INV_CHG) are null for service companies
+      // — treat as 0 so EBIT can still be computed from operating expenses
+      const mat = v('COST_MAT') ?? 0;
+      const pur = v('PURCH_STOCK') ?? 0;
+      const chg = v('INV_CHG') ?? 0;
       ebitVal = derive(
-        [v('REV_OP'), v('COST_MAT'), v('PURCH_STOCK'), v('INV_CHG'), v('EMP_EXP'), v('DEP_AMORT'), v('OTH_EXP')],
-        ([rev, mat, pur, chg, emp, dep, oth]) => rev - (mat + pur + chg) - emp - dep - oth,
+        [v('REV_OP'), v('EMP_EXP'), v('DEP_AMORT'), v('OTH_EXP')],
+        ([rev, emp, dep, oth]) => rev - mat - pur - chg - emp - dep - oth,
       );
     }
     ebit.push({ ...base, value: ebitVal, abbrUsed: bfsi ? 'PPOP' : 'EBIT' });
