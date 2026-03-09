@@ -142,9 +142,17 @@ From ALL transcripts (subject + peer), identify:
   • What are the key demand/supply dynamics in this industry?
 Populate with short and crisp points (maximum 10 words each).
 
+For ALL metrics values: always output a SINGLE specific number or label — never a range (e.g. "₹30,000–40,000 Cr" or "12–15%") and never a division (e.g. "Elecon / Triveni"). If you are uncertain, approximate using the midpoint or mean and state your basis in the sublabel.
+
 For metrics.industry_revenue_ttm: estimate the total industry revenue (trailing twelve months) for the ${industry} sector
 using the subject company revenue above, peer data, and your knowledge of the industry. Express in a readable format
-(e.g. "₹4.2L Cr", "$180B"). Use sublabel to clarify the source/period (e.g. "FY24 trailing estimate").
+(e.g. "₹4.2L Cr", "$180B"). Use sublabel to clarify the source/period (e.g. "FY24 trailing estimate"). If unsure of the exact figure, use your best single-point estimate (mean of reasonable range) — do NOT output a range.
+
+For metrics.current_opm: output a single OPM % figure (e.g. "23%"), not a range. If peer OPMs differ, use the weighted average or midpoint and explain in sublabel.
+
+For metrics.industry_cagr: output a single CAGR % estimate (e.g. "13%"), not a range. Use midpoint if uncertain.
+
+For metrics.market_size: output a single figure (e.g. "₹32,000 Cr"), not a range. Use midpoint if uncertain.
 
 ══════════════════════════════════════════════════════════
 D. OUTPUT FORMAT

@@ -68,6 +68,20 @@ function derive(inputs, fn) {
   return parseFloat(result.toFixed(2));
 }
 
+/**
+ * YoY growth from a time-series array (objects with `.value` field).
+ * Uses the last two non-null entries. Returns percentage or null.
+ * @param {Array<{ value: number|null }>} series
+ */
+function yoyGrowth(series) {
+  if (!Array.isArray(series)) return null;
+  const withValues = series.filter(s => s.value != null);
+  if (withValues.length < 2) return null;
+  const prev = withValues[withValues.length - 2].value;
+  const curr = withValues[withValues.length - 1].value;
+  return growth(curr, prev);
+}
+
 function periodLabel(call) {
   return call.quarter ? `${call.fiscal_year}-${call.quarter}` : call.fiscal_year;
 }
@@ -79,4 +93,4 @@ function quarterLabelToYear(label) {
   return parseInt(match[1]) + (parseInt(match[2]) - 0.5) * 0.25;
 }
 
-module.exports = { growth, cagr, margin, ratio, average, weightedAverage, derive, periodLabel, quarterLabelToYear };
+module.exports = { growth, cagr, margin, ratio, average, weightedAverage, derive, yoyGrowth, periodLabel, quarterLabelToYear };

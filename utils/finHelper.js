@@ -2,7 +2,7 @@
 
 const { getHistoricPeForTickers }          = require('../db-utils/getHistoricPe');
 const { isBFSI }                           = require('./industryClassifier');
-const { cagr, average, periodLabel, quarterLabelToYear } = require('./finMath');
+const { cagr, average, yoyGrowth, periodLabel, quarterLabelToYear } = require('./finMath');
 const { SOURCE_ABBRS, computeDerivedKpis } = require('./finDerivedKpis');
 
 /**
@@ -340,6 +340,38 @@ class FinHelper {
   async getDerivedKpiBatch(ticker, bfsi = false) {
     const raw = await this.getTimeSeriesBatch(ticker, SOURCE_ABBRS);
     return computeDerivedKpis(raw, bfsi);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Layer 5c — Operating Leverage Metrics
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Pre-compute YoY growth metrics for operating leverage analysis.
+   * Uses Q4 annual data to compare latest vs prior year.
+   *
+   * @param {string}  ticker
+   * @param {boolean} [bfsi=false]
+   * @returns {Promise<{ revGrowthYoy: number|null, ebitGrowthYoy: number|null, leverageSpread: number|null }>}
+   */
+  async computeOperatingLeverageMetrics(ticker, bfsi = false) {
+    const [rawBatch, derivedBatch] = await Promise.all([
+      this.getTimeSeriesBatch(ticker, ['REV_OP']),
+      this.getDerivedKpiBatch(ticker, bfsi),
+    ]);
+
+    const q4Filter = series => (series ?? []).filter(s => s.quarter === 'Q4');
+
+    const revQ4  = q4Filter(rawBatch['REV_OP']);
+    const ebitQ4 = q4Filter(derivedBatch['EBIT']);
+
+    const revGrowthYoy  = revQ4.length >= 2  ? yoyGrowth(revQ4)  : null;
+    const ebitGrowthYoy = ebitQ4.length >= 2 ? yoyGrowth(ebitQ4) : null;
+    const leverageSpread = (revGrowthYoy != null && ebitGrowthYoy != null)
+      ? parseFloat((ebitGrowthYoy - revGrowthYoy).toFixed(1))
+      : null;
+
+    return { revGrowthYoy, ebitGrowthYoy, leverageSpread };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
