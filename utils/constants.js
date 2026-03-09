@@ -203,6 +203,155 @@ OFactorResponseSchema = {
       "interest_coverage": { "label": "Interest Coverage",    "value": "<string|null>", "sublabel": "<string>" },
       "roce":              { "label": "ROCE",                 "value": "<string|null>", "sublabel": "<string>" },
       "roe":               { "label": "ROE",                  "value": "<string|null>", "sublabel": "<string>" }
+    },
+    "operating_leverage": {
+      "meta": { "section_id": "4.3.1", "title": "Operating Leverage Analysis" },
+      "fixed_cost_equation": "Fixed Costs = Employee Costs + SGA + D&A",
+      "dol_chart_data": [{ "quarter": "<string>", "revenue_growth": "<number>", "ebit_growth": "<number>", "dol": "<number>" }],
+      "fixed_cost_lines": [
+        { "name": "Employee Costs", "key": "employee_costs", "color": "#3b82f6", "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string: 10 words max>" },
+        { "name": "SG&A",          "key": "sga",            "color": "#f59e0b", "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string: 10 words max>" },
+        { "name": "D&A",           "key": "da",             "color": "#6366f1", "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string: 10 words max>" }
+      ],
+      "total_fixed_costs": { "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string: 10 words max>" },
+      "metrics": {
+        "revenue_growth_yoy": { "value": "<string>", "label": "Revenue Growth YoY" },
+        "ebit_growth_yoy":    { "value": "<string>", "label": "EBIT Growth YoY" },
+        "leverage_spread":    { "value": "<string>", "label": "Leverage Spread" }
+      },
+      "verdict": {
+        "status": "<negative|neutral|positive>",
+        "label": "<string>",
+        "tag": "<string>",
+        "description": "<string: 20 words max>"
+      },
+      "all_verdicts": [
+        { "status": "negative", "label": "Negative Operating Leverage" },
+        { "status": "neutral",  "label": "Neutral" },
+        { "status": "positive", "label": "Positive Operating Leverage" }
+      ]
+    },
+    "free_cash_flow": {
+      "meta": { "section_id": "4.3.2", "title": "Free Cash Flow Analysis" },
+      "conversion_consistency": {
+        "status": "<Stable|Volatile|Declining>",
+        "status_color": "<green|yellow|red>",
+        "healthy_threshold_pct": 80,
+        "quarterly_data": [{ "quarter": "<string>", "pct": "<number>", "is_floor": "<boolean — only true for the lowest quarter, omit on others>" }],
+        "range_low": "<number>",
+        "range_high": "<number>",
+        "floor_pct": "<number>",
+        "floor_quarter": "<string>",
+        "all_above_threshold": "<boolean>"
+      },
+      "growth_trajectory": {
+        "status": "<FCF Compounder|FCF Outpacing|FCF Lagging|FCF Declining>",
+        "status_color": "<green|yellow|red>",
+        "fcf_cagr_pct": "<number>",
+        "fcf_start": "<string>",
+        "fcf_end": "<string>",
+        "pat_cagr_pct": "<number>",
+        "pat_start": "<string>",
+        "pat_end": "<string>",
+        "periods": "<string e.g. 8Q>",
+        "insight_headline": "<string: 15 words max>",
+        "insight_body": "<string: supports **bold** markdown, 30 words max>"
+      },
+      "ocf_to_fcf": {
+        "status": "<Minimal Drag|Moderate Drag|Heavy Drag>",
+        "status_color": "<green|yellow|red>",
+        "ocf_ttm": "<string>",
+        "capex": "<string — negative formatted e.g. '-₹3,100 Cr'>",
+        "fcf_ttm": "<string>",
+        "ocf_bar_pct": 100,
+        "capex_bar_pct": "<number — capex as % of OCF>",
+        "fcf_bar_pct": "<number — FCF as % of OCF>",
+        "capex_revenue_pct": "<number>",
+        "capex_ocf_pct": "<number>",
+        "drag_description": "<Very limited|Limited|Moderate|Heavy>"
+      },
+      "fcf_yield": {
+        "status": "<Attractive|Fair|Watch|Expensive|Negative — Not Applicable>",
+        "status_color": "<green|yellow|red>",
+        "yield_history": [{ "label": "<string e.g. FY22 Yield>", "yield_pct": "<number>", "zone": "<string>", "is_current": "<boolean — only on the latest entry>" }],
+        "compression_explanation": "<string: 30 words max>"
+      }
+    },
+    "working_capital": {
+      "meta": { "section_id": "4.3.3", "title": "Working Capital" },
+      "quarters": ["<string — list of quarter labels matching row value arrays>"],
+      "rows": [
+        { "label": "DSO (days)", "key": "dso", "values": ["<number — one per quarter in quarters array>"] },
+        { "label": "DIO (days)", "key": "dio", "values": ["<number — one per quarter in quarters array>"] },
+        { "label": "DPO (days)", "key": "dpo", "values": ["<number — one per quarter in quarters array>"] },
+        { "label": "CCC (days)", "key": "ccc", "values": ["<number — one per quarter in quarters array>"] }
+      ],
+      "trend_chart": {
+        "title": "WC as % of Revenue",
+        "data": [{ "quarter": "<string>", "wc_pct": "<number>" }],
+        "verdict_badge": "<string>",
+        "verdict_color": "<green|yellow|red>"
+      },
+      "signals": [{ "label": "<string>", "color": "<green|yellow|red>" }],
+      "insight": "<string: 25 words max>"
+    },
+    "capital_structure": {
+      "meta": { "section_id": "4.3.4", "title": "Capital Structure & Capex" },
+      "balance_sheet": {
+        "status": "<Net Cash Company|Net Debt Company|Leveraged>",
+        "status_color": "<green|yellow|red>",
+        "cash_investments": "<string>",
+        "cash_bar_pct": "<number — cash as % of (cash+debt)>",
+        "gross_debt": "<string>",
+        "debt_bar_pct": "<number — debt as % of (cash+debt)>",
+        "net_cash": "<string — positive means net cash, negative means net debt>",
+        "timeline": [{ "label": "<string e.g. FY20>", "value": "<string e.g. 33.8K>", "is_current": "<boolean — only on latest>" }],
+        "insight": "<string: supports **bold** markdown, 30 words max>"
+      },
+      "debt_trajectory": {
+        "status": "<Deleveraging|Stable|Increasing>",
+        "status_color": "<green|yellow|red>",
+        "bars": [{ "label": "<string e.g. FY20>", "value": "<number — absolute debt value>", "color": "<red|amber|green>", "is_current": "<boolean — only on latest>" }],
+        "peak_debt": "<string>",
+        "peak_label": "<string>",
+        "current_debt": "<string>",
+        "current_label": "<string>",
+        "reduction_pct": "<string e.g. –57%>",
+        "reduction_label": "<string e.g. over 4 years>",
+        "insight": "<string: supports **bold** markdown, 25 words max>"
+      },
+      "equity_allocation": {
+        "status": "<Compounding|Stable|Diluting>",
+        "status_color": "<green|yellow|red>",
+        "rows": [{ "label": "<string e.g. FY20>", "kept_pct": "<number>", "paid_pct": "<number>", "is_current": "<boolean — only on latest>" }],
+        "total_equity": "<string>",
+        "total_equity_sublabel": "<string>",
+        "roe": "<string>",
+        "roe_sublabel": "<string: 10 words max>",
+        "payout_trend": "<Rising|Stable|Falling>",
+        "payout_trend_direction": "<up|down|flat>",
+        "payout_sublabel": "<string e.g. 62% → 72% over 5Y>",
+        "insight": "<string: 20 words max>"
+      },
+      "capex_intensity": {
+        "status": "<Asset Light|Moderate Capex|Capex Heavy>",
+        "status_color": "<green|yellow|red>",
+        "metrics": [
+          { "label": "Capex as % of Revenue", "value": "<string>", "bar_pct": "<number 0-100>", "max_label": "<string|omitted>", "note": "<string: 10 words max>", "status": "<green|yellow|red>" },
+          { "label": "Capex as % of OCF",     "value": "<string>", "bar_pct": "<number 0-100>", "note": "<string: 10 words max>", "status": "<green|yellow|red>" },
+          { "label": "Capex / Depreciation",  "value": "<string>", "bar_pct": "<number 0-100>", "max_label": "<string|omitted>", "note": "<string: 10 words max>", "status": "<green|yellow|red>" }
+        ],
+        "note": "<string: 20 words max>"
+      }
+    },
+    "final_scoring": {
+      "meta": { "section_id": "4.3.5", "title": "Financial Quality Scorecard" },
+      "score": "<number 0–8>",
+      "max_score": 8,
+      "status": "<HIGH QUALITY|MODERATE QUALITY|LOW QUALITY>",
+      "status_color": "<green|yellow|red>",
+      "title": "<string: 5 words max>",
+      "body": "<string: 3–4 sentence scorecard summary citing specific metrics>"
     }
   }
 }

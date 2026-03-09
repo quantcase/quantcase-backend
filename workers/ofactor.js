@@ -110,6 +110,8 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
     'EQ_SHARE_CAP', 'RES_SURPLUS',
     'ASSET_PPE', 'ASSET_CWIP',
     'TOTAL_ASSETS', 'CURR_LIAB', 'PROV_CONT',
+    // Dividend payout (for equity allocation)
+    'DIV_PAYOUT',
   ];
 
   const bfsi = isBFSI(industry);
@@ -124,8 +126,19 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
     Object.entries(batch).map(([k, v]) => [k, v.filter(s => s.quarter === 'Q4')])
   );
 
+  // Last 10 quarters for chart arrays (DOL chart, WC table, FCF conversion etc.)
+  const lastNQuarters = (batch, n = 10) => Object.fromEntries(
+    Object.entries(batch).map(([k, v]) => [k, v.slice(-n)])
+  );
+
   const subjectData = subjectSummaries.map(s => ({ callId: s.callId, financialStrength: s.financialStrength }));
-  const metrics     = { rawBatch: q4Only(rawBatch), derivedBatch: q4Only(derivedBatch), bfsi };
+  const metrics = {
+    rawBatch:        q4Only(rawBatch),
+    derivedBatch:    q4Only(derivedBatch),
+    rawBatchAll:     lastNQuarters(rawBatch),
+    derivedBatchAll: lastNQuarters(derivedBatch),
+    bfsi,
+  };
 
   return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics), sectionKey: 'financial_strength' };
 }
