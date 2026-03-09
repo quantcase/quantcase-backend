@@ -1,17 +1,21 @@
 'use strict';
 
-const { getHistoricPeForTickers } = require('../db-utils/getHistoricPe');
-const { isBFSI } = require('./industryClassifier');
+const { getHistoricPeForTickers }          = require('../db-utils/getHistoricPe');
+const { isBFSI }                           = require('./industryClassifier');
+const { cagr, average, periodLabel, quarterLabelToYear } = require('./finMath');
+const { SOURCE_ABBRS, computeDerivedKpis } = require('./finDerivedKpis');
 
 /**
  * FinHelper — financial KPI calculation utility
  *
  * Layers:
- *  1. Math primitives  — pure static functions (growth, CAGR, margin, ratio, average)
+ *  1. Math primitives  — see finMath.js
  *  2. Time series      — fetch KPI values from DB quarterly summaries
  *  3. Generic stock    — stockKpiLatest / stockKpiCagr for any primary KPI abbr
  *  4. Generic industry — industryKpiAvg / industryKpiCagr for any primary KPI abbr
  *  5. Named wrappers   — stockEpsCagr, industryOpm etc. delegate to the generics above
+ *  5a. Derived KPIs    — see finDerivedKpis.js
+ *  5b. Computed ratios — stored KPI only (returns null if not found)
  *  6. PE (special)     — reads pe_data table, not summary KPIs
  */
 
@@ -21,60 +25,6 @@ class FinHelper {
    */
   constructor(prisma) {
     this.prisma = prisma;
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 1 — Math primitives (pure, static)
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /** Period-over-period growth rate (%) */
-  static growth(current, prev) {
-    if (prev == null || prev === 0 || current == null) return null;
-    return ((current - prev) / Math.abs(prev)) * 100;
-  }
-
-  /** Compound annual growth rate (%) over `years` */
-  static cagr(initial, final, years) {
-    if (initial == null || final == null || !years || initial <= 0) return null;
-    return (Math.pow(final / initial, 1 / years) - 1) * 100;
-  }
-
-  /** Percentage margin — e.g. margin(EBIT, REV) */
-  static margin(part, whole) {
-    if (whole == null || whole === 0 || part == null) return null;
-    return (part / whole) * 100;
-  }
-
-  /** Generic ratio a / b */
-  static ratio(a, b) {
-    if (b == null || b === 0 || a == null) return null;
-    return a / b;
-  }
-
-  /** Mean of a non-null numeric array */
-  static average(values) {
-    const nums = (values ?? []).filter(v => v != null && !isNaN(v));
-    if (!nums.length) return null;
-    return nums.reduce((s, v) => s + v, 0) / nums.length;
-  }
-
-  /**
-   * Market-cap-weighted average. Falls back to simple average when no valid weights exist.
-   * @param {(number|null)[]} values
-   * @param {(number|null)[]} weights
-   */
-  static weightedAverage(values, weights) {
-    let weightedSum = 0;
-    let totalWeight = 0;
-    for (let i = 0; i < values.length; i++) {
-      const v = values[i];
-      const w = weights[i];
-      if (v == null || isNaN(v) || w == null || isNaN(w) || w <= 0) continue;
-      weightedSum += v * w;
-      totalWeight += w;
-    }
-    if (totalWeight > 0) return weightedSum / totalWeight;
-    return FinHelper.average(values);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +56,7 @@ class FinHelper {
     return calls.map(call => {
       const kpisArr = summaryMap.get(call.id) ?? [];
       if (!Array.isArray(kpisArr)) {
-        return { callId: call.id, period: _periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
+        return { callId: call.id, period: periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
       }
 
       // Support both { value } (transcript kpis) and { kpi_value } (QE kpis)
@@ -115,7 +65,7 @@ class FinHelper {
         const raw = parseFloat(match.kpi_value ?? match.value);
         return {
           callId:      call.id,
-          period:      _periodLabel(call),
+          period:      periodLabel(call),
           fiscal_year: call.fiscal_year,
           quarter:     call.quarter,
           call_date:   call.call_date,
@@ -124,7 +74,7 @@ class FinHelper {
         };
       }
 
-      return { callId: call.id, period: _periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
+      return { callId: call.id, period: periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
     });
   }
 
@@ -158,7 +108,7 @@ class FinHelper {
       const kpisArr = summaryMap.get(call.id) ?? [];
       const base    = {
         callId:      call.id,
-        period:      _periodLabel(call),
+        period:      periodLabel(call),
         fiscal_year: call.fiscal_year,
         quarter:     call.quarter,
         call_date:   call.call_date,
@@ -246,7 +196,7 @@ class FinHelper {
                abbrUsed: latest.abbrUsed, note: 'Zero time span' };
     }
 
-    const cagrValue = FinHelper.cagr(first.value, latest.value, spanYears);
+    const cagrValue = cagr(first.value, latest.value, spanYears);
     if (cagrValue == null || isNaN(cagrValue)) {
       return { value: latest.value, type: 'latest_value', periodsUsed: withValues.length,
                abbrUsed: latest.abbrUsed, note: 'CAGR undefined (negative/zero base) — returning latest value' };
@@ -285,7 +235,7 @@ class FinHelper {
 
     if (!valid.length) return { value: null, abbrUsed: null, sampleSize: 0 };
 
-    const avg = FinHelper.average(valid.map(v => v.value));
+    const avg = average(valid.map(v => v.value));
     return {
       value:      avg != null ? parseFloat(avg.toFixed(2)) : null,
       abbrUsed:   valid[0]?.abbrUsed ?? abbr,
@@ -321,7 +271,7 @@ class FinHelper {
       .filter(r => r.status === 'fulfilled' && r.value.value != null && !isNaN(r.value.value) && r.value.type.includes('cagr'))
       .map(r => r.value.value);
 
-    const avg = FinHelper.average(cagrValues);
+    const avg = average(cagrValues);
     return {
       value:            avg != null ? parseFloat(avg.toFixed(2)) : null,
       type:             '5yr_cagr',
@@ -337,282 +287,69 @@ class FinHelper {
   // ─────────────────────────────────────────────────────────────────────────────
 
   // ── EPS_BASIC ─────────────────────────────────────────────────────────────────
-  /** EPS CAGR for a single stock. */
-  async stockEpsCagr(ticker, targetYears = 5) {
-    return this.stockKpiCagr(ticker, 'EPS_BASIC', targetYears);
-  }
-  /** Average EPS CAGR across all tickers in an industry. */
-  async industryEpsCagr(industry, targetYears = 5) {
-    return this.industryKpiCagr(industry, 'EPS_BASIC', targetYears);
-  }
+  async stockEpsCagr(ticker, targetYears = 5)   { return this.stockKpiCagr(ticker, 'EPS_BASIC', targetYears); }
+  async industryEpsCagr(industry, targetYears = 5) { return this.industryKpiCagr(industry, 'EPS_BASIC', targetYears); }
 
   // ── OPM ──────────────────────────────────────────────────────────────────────
-  /** Average EBITDA margin across all tickers in an industry. */
-  async industryOpm(industry) {
-    return this.industryKpiAvg(industry, 'EBITDA_MARGIN');
-  }
+  async industryOpm(industry)                   { return this.industryKpiAvg(industry, 'EBITDA_MARGIN'); }
 
-  // ── REV_OP (Revenue from Operations) ──────────────────────────────────────────
-  /** Revenue CAGR for a single stock. */
-  async stockRevCagr(ticker, targetYears = 5) {
-    return this.stockKpiCagr(ticker, 'REV_OP', targetYears);
-  }
-  /** Average Revenue CAGR across all tickers in an industry. */
-  async industryRevCagr(industry, targetYears = 5) {
-    return this.industryKpiCagr(industry, 'REV_OP', targetYears);
-  }
+  // ── REV_OP (Revenue from Operations) ─────────────────────────────────────────
+  async stockRevCagr(ticker, targetYears = 5)   { return this.stockKpiCagr(ticker, 'REV_OP', targetYears); }
+  async industryRevCagr(industry, targetYears = 5) { return this.industryKpiCagr(industry, 'REV_OP', targetYears); }
 
   // ── PAT (Profit After Tax) ────────────────────────────────────────────────────
-  /** PAT CAGR for a single stock. */
-  async stockPatCagr(ticker, targetYears = 5) {
-    return this.stockKpiCagr(ticker, 'PAT', targetYears);
-  }
-  /** Average PAT CAGR across all tickers in an industry. */
-  async industryPatCagr(industry, targetYears = 5) {
-    return this.industryKpiCagr(industry, 'PAT', targetYears);
-  }
+  async stockPatCagr(ticker, targetYears = 5)   { return this.stockKpiCagr(ticker, 'PAT', targetYears); }
+  async industryPatCagr(industry, targetYears = 5) { return this.industryKpiCagr(industry, 'PAT', targetYears); }
 
   // ── PBT (Profit Before Tax) ───────────────────────────────────────────────────
-  /** PBT CAGR for a single stock. */
-  async stockPbtCagr(ticker, targetYears = 5) {
-    return this.stockKpiCagr(ticker, 'PBT', targetYears);
-  }
-  /** Average PBT CAGR across all tickers in an industry. */
-  async industryPbtCagr(industry, targetYears = 5) {
-    return this.industryKpiCagr(industry, 'PBT', targetYears);
-  }
+  async stockPbtCagr(ticker, targetYears = 5)   { return this.stockKpiCagr(ticker, 'PBT', targetYears); }
+  async industryPbtCagr(industry, targetYears = 5) { return this.industryKpiCagr(industry, 'PBT', targetYears); }
 
-  // ── FCF (Free Cash Flow) ──────────────────────────────────────────────────────
-  // Point-in-time preferred — FCF CAGR is unreliable when base year is negative.
-  /** Latest FCF value for a single stock. */
-  async stockFcfLatest(ticker) {
-    return this.stockKpiLatest(ticker, 'FCF');
-  }
-  /** Average FCF across all tickers in an industry. */
-  async industryFcfAvg(industry) {
-    return this.industryKpiAvg(industry, 'FCF');
-  }
+  // ── FCF — point-in-time preferred (base-year sign issues make CAGR unreliable)
+  async stockFcfLatest(ticker)                  { return this.stockKpiLatest(ticker, 'FCF'); }
+  async industryFcfAvg(industry)                { return this.industryKpiAvg(industry, 'FCF'); }
 
   // ── DEBT (Total Debt) ─────────────────────────────────────────────────────────
-  /** Latest Debt value for a single stock. */
-  async stockDebtLatest(ticker) {
-    return this.stockKpiLatest(ticker, 'DEBT');
-  }
-  /** Average Debt across all tickers in an industry. */
-  async industryDebtAvg(industry) {
-    return this.industryKpiAvg(industry, 'DEBT');
-  }
+  async stockDebtLatest(ticker)                 { return this.stockKpiLatest(ticker, 'DEBT'); }
+  async industryDebtAvg(industry)               { return this.industryKpiAvg(industry, 'DEBT'); }
 
   // ── INTEXP (Interest Expense) ─────────────────────────────────────────────────
-  /** Latest Interest Expense for a single stock. */
-  async stockIntexpLatest(ticker) {
-    return this.stockKpiLatest(ticker, 'INTEXP');
-  }
-  /** Average Interest Expense across all tickers in an industry. */
-  async industryIntexpAvg(industry) {
-    return this.industryKpiAvg(industry, 'INTEXP');
-  }
+  async stockIntexpLatest(ticker)               { return this.stockKpiLatest(ticker, 'INTEXP'); }
+  async industryIntexpAvg(industry)             { return this.industryKpiAvg(industry, 'INTEXP'); }
 
-  // ── ROCE (Return on Capital Employed) ─────────────────────────────────────────
-  // Point-in-time preferred — ROCE is a margin %, CAGR of a % is rarely used.
-  /** Latest ROCE for a single stock. */
-  async stockRoceLatest(ticker) {
-    return this.stockKpiLatest(ticker, 'ROCE');
-  }
-  /** Average ROCE across all tickers in an industry. */
-  async industryRoceAvg(industry) {
-    return this.industryKpiAvg(industry, 'ROCE');
-  }
+  // ── ROCE — point-in-time preferred (% metric, CAGR rarely used)
+  async stockRoceLatest(ticker)                 { return this.stockKpiLatest(ticker, 'ROCE'); }
+  async industryRoceAvg(industry)               { return this.industryKpiAvg(industry, 'ROCE'); }
 
-  // ── CCC (Cash Conversion Cycle) ───────────────────────────────────────────────
-  // Days metric — point-in-time comparison is more meaningful than CAGR.
-  /** Latest CCC (days) for a single stock. */
-  async stockCccLatest(ticker) {
-    return this.stockKpiLatest(ticker, 'CCC');
-  }
-  /** Average CCC across all tickers in an industry. */
-  async industryCccAvg(industry) {
-    return this.industryKpiAvg(industry, 'CCC');
-  }
+  // ── CCC (Cash Conversion Cycle) — days metric, point-in-time more meaningful
+  async stockCccLatest(ticker)                  { return this.stockKpiLatest(ticker, 'CCC'); }
+  async industryCccAvg(industry)                { return this.industryKpiAvg(industry, 'CCC'); }
 
   // ── CUST (Number of Customers) ────────────────────────────────────────────────
-  // Growth rate is the meaningful signal for customer metrics.
-  /** Customer count CAGR for a single stock. */
-  async stockCustCagr(ticker, targetYears = 5) {
-    return this.stockKpiCagr(ticker, 'CUST', targetYears);
-  }
-  /** Average Customer CAGR across all tickers in an industry. */
-  async industryCustCagr(industry, targetYears = 5) {
-    return this.industryKpiCagr(industry, 'CUST', targetYears);
-  }
+  async stockCustCagr(ticker, targetYears = 5)  { return this.stockKpiCagr(ticker, 'CUST', targetYears); }
+  async industryCustCagr(industry, targetYears = 5) { return this.industryKpiCagr(industry, 'CUST', targetYears); }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Layer 5a — Derived KPI batch (computed from raw stored KPIs)
+  // Layer 5a — Derived KPI batch (see finDerivedKpis.js for formulas)
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * For each quarter of a stock, derive financial KPIs.
-   *
-   * Common (all sectors):
-   *   EBIT   = REV_OP - (COST_MAT + PURCH_STOCK + INV_CHG) - EMP_EXP - DEP_AMORT - OTH_EXP
-   *            (BFSI alias: PPOP — Pre-Provisioning Operating Profit)
-   *   EBIT_MARGIN = EBIT / REV_OP × 100
-   *   ROA    = PAT / TOTAL_ASSETS × 100
-   *   ROE    = PAT / (EQ_SHARE_CAP + RES_SURPLUS) × 100
-   *   CAPEX  = ASSET_PPE + ASSET_CWIP
-   *
-   * Non-BFSI only:
-   *   ROCE   = (PBT + FIN_COST) / (TOTAL_ASSETS - CURR_LIAB) × 100
-   *   FCF    = CFO - CAPEX
-   *
-   * BFSI only:
-   *   FCF    = CFO - CAPEX - PROV_CONT   (provisions & contingencies deducted)
-   *
    * @param {string}  ticker
    * @param {boolean} [bfsi=false]
-   * @returns {Promise<Record<string, Array<{ callId, period, fiscal_year, quarter, call_date, value: number|null, abbrUsed: string }>>>}
    */
   async getDerivedKpiBatch(ticker, bfsi = false) {
-    const SOURCE_ABBRS = [
-      'REV_OP', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
-      'EMP_EXP', 'DEP_AMORT', 'OTH_EXP',
-      'PBT', 'FIN_COST', 'PAT',
-      'TOTAL_ASSETS', 'CURR_LIAB',
-      'EQ_SHARE_CAP', 'RES_SURPLUS',
-      'ASSET_PPE', 'ASSET_CWIP',
-      'CFO', 'PROV_CONT',
-    ];
-
     const raw = await this.getTimeSeriesBatch(ticker, SOURCE_ABBRS);
-
-    const anchor = raw['REV_OP'];
-    if (!anchor.length) {
-      return { EBIT: [], EBIT_MARGIN: [], ROCE: [], ROA: [], ROE: [], CAPEX: [], FCF: [] };
-    }
-
-    const ebit      = [];
-    const ebitMargin= [];
-    const roce      = [];
-    const roa       = [];
-    const roe       = [];
-    const capex     = [];
-    const fcf       = [];
-
-    for (let i = 0; i < anchor.length; i++) {
-      const base = {
-        callId:      anchor[i].callId,
-        period:      anchor[i].period,
-        fiscal_year: anchor[i].fiscal_year,
-        quarter:     anchor[i].quarter,
-        call_date:   anchor[i].call_date,
-      };
-      const v = abbr => raw[abbr][i].value;
-
-      // EBIT (non-BFSI) / PPOP (BFSI) = REV_OP - COGS - EMP_EXP - DEP_AMORT - OTH_EXP
-      // For BFSI: COST_MAT/PURCH_STOCK/INV_CHG are typically null → the derive returns null if any input is null.
-      // We allow partial calculation: try full formula, fall back to REV_OP - EMP_EXP - DEP_AMORT - OTH_EXP for BFSI.
-      let ebitVal;
-      if (bfsi) {
-        ebitVal = _derive(
-          [v('REV_OP'), v('EMP_EXP'), v('DEP_AMORT'), v('OTH_EXP')],
-          ([rev, emp, dep, oth]) => rev - emp - dep - oth,
-        );
-      } else {
-        ebitVal = _derive(
-          [v('REV_OP'), v('COST_MAT'), v('PURCH_STOCK'), v('INV_CHG'), v('EMP_EXP'), v('DEP_AMORT'), v('OTH_EXP')],
-          ([rev, mat, pur, chg, emp, dep, oth]) => rev - (mat + pur + chg) - emp - dep - oth,
-        );
-      }
-      const ebitAbbrUsed = bfsi ? 'PPOP' : 'EBIT';
-      ebit.push({ ...base, value: ebitVal, abbrUsed: ebitAbbrUsed });
-
-      // EBIT_MARGIN = EBIT / REV_OP × 100
-      const ebitMarginVal = _derive(
-        [ebitVal, v('REV_OP')],
-        ([eb, rev]) => rev === 0 ? null : (eb / rev) * 100,
-      );
-      ebitMargin.push({ ...base, value: ebitMarginVal, abbrUsed: 'EBIT_MARGIN' });
-
-      // ROCE — non-BFSI only
-      if (!bfsi) {
-        const roceVal = _derive(
-          [v('PBT'), v('FIN_COST'), v('TOTAL_ASSETS'), v('CURR_LIAB')],
-          ([pbt, fin, ta, cl]) => {
-            const ce = ta - cl;
-            return ce === 0 ? null : ((pbt + fin) / ce) * 100;
-          },
-        );
-        roce.push({ ...base, value: roceVal, abbrUsed: 'ROCE' });
-      } else {
-        roce.push({ ...base, value: null, abbrUsed: 'ROCE' });
-      }
-
-      // ROA = PAT / TOTAL_ASSETS × 100
-      const roaVal = _derive(
-        [v('PAT'), v('TOTAL_ASSETS')],
-        ([pat, ta]) => ta === 0 ? null : (pat / ta) * 100,
-      );
-      roa.push({ ...base, value: roaVal, abbrUsed: 'ROA' });
-
-      // ROE = PAT / (EQ_SHARE_CAP + RES_SURPLUS) × 100
-      const roeVal = _derive(
-        [v('PAT'), v('EQ_SHARE_CAP'), v('RES_SURPLUS')],
-        ([pat, eq, res]) => {
-          const equity = eq + res;
-          return equity === 0 ? null : (pat / equity) * 100;
-        },
-      );
-      roe.push({ ...base, value: roeVal, abbrUsed: 'ROE' });
-
-      // CAPEX = ASSET_PPE + ASSET_CWIP (CWIP may be null for BFSI — treat as 0)
-      const capexVal = _derive(
-        [v('ASSET_PPE')],
-        ([ppe]) => ppe + (v('ASSET_CWIP') ?? 0),
-      );
-      capex.push({ ...base, value: capexVal, abbrUsed: 'CAPEX' });
-
-      // FCF: non-BFSI = CFO - CAPEX; BFSI = CFO - CAPEX - PROV_CONT
-      let fcfVal;
-      if (bfsi) {
-        fcfVal = _derive(
-          [v('CFO'), capexVal],
-          ([cfo, cap]) => cfo - cap - (v('PROV_CONT') ?? 0),
-        );
-      } else {
-        fcfVal = _derive(
-          [v('CFO'), capexVal],
-          ([cfo, cap]) => cfo - cap,
-        );
-      }
-      fcf.push({ ...base, value: fcfVal, abbrUsed: 'FCF' });
-    }
-
-    return { EBIT: ebit, EBIT_MARGIN: ebitMargin, ROCE: roce, ROA: roa, ROE: roe, CAPEX: capex, FCF: fcf };
+    return computeDerivedKpis(raw, bfsi);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Layer 5b — Computed ratios (stored KPI only — returns null if not found)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  /** Net Debt / EBITDA — returns stored NETDEBT_EBITDA or null. */
-  async computeNetDebtEbitda(ticker) {
-    return this.stockKpiLatest(ticker, 'NETDEBT_EBITDA');
-  }
-
-  /** Debt / Equity ratio — returns stored DE or null. */
-  async computeDeRatio(ticker) {
-    return this.stockKpiLatest(ticker, 'DE');
-  }
-
-  /** Interest Coverage ratio — returns stored IC or null. */
-  async computeIc(ticker) {
-    return this.stockKpiLatest(ticker, 'IC');
-  }
-
-  /** Current Ratio — returns stored CR or null. */
-  async computeCr(ticker) {
-    return this.stockKpiLatest(ticker, 'CR');
-  }
+  async computeNetDebtEbitda(ticker) { return this.stockKpiLatest(ticker, 'NETDEBT_EBITDA'); }
+  async computeDeRatio(ticker)       { return this.stockKpiLatest(ticker, 'DE'); }
+  async computeIc(ticker)            { return this.stockKpiLatest(ticker, 'IC'); }
+  async computeCr(ticker)            { return this.stockKpiLatest(ticker, 'CR'); }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Layer 6 — PE (reads pe_data table, not summary KPIs)
@@ -635,15 +372,15 @@ class FinHelper {
     qpe.forEach(q => console.log(`  [PE] ${q.quarter}  avgPe=${q.avgPe}  dataPoints=${q.dataPoints}`));
 
     const latestPe = qpe.at(-1).avgPe;
-    const avgPe    = FinHelper.average(qpe.map(q => q.avgPe));
+    const avgPe    = average(qpe.map(q => q.avgPe));
 
     if (qpe.length === 1) {
       return { value: latestPe, type: 'latest_value', periodsUsed: 1, latestPe,
                avgPe, note: 'Only one quarter available' };
     }
 
-    const firstYear = _quarterLabelToYear(qpe.at(0).quarter);
-    const lastYear  = _quarterLabelToYear(qpe.at(-1).quarter);
+    const firstYear = quarterLabelToYear(qpe.at(0).quarter);
+    const lastYear  = quarterLabelToYear(qpe.at(-1).quarter);
     const spanYears = (firstYear != null && lastYear != null)
       ? (lastYear - firstYear)
       : qpe.length * 0.25;
@@ -656,7 +393,7 @@ class FinHelper {
                note: 'Zero time span' };
     }
 
-    const cagrValue = FinHelper.cagr(firstPe, latestPe, spanYears);
+    const cagrValue = cagr(firstPe, latestPe, spanYears);
     if (cagrValue == null || isNaN(cagrValue)) {
       return { value: latestPe, type: 'latest_value', periodsUsed: qpe.length,
                latestPe, avgPe: avgPe != null ? parseFloat(avgPe.toFixed(2)) : null,
@@ -698,8 +435,8 @@ class FinHelper {
     const cagrValues = settled.filter(r => r.value != null && !isNaN(r.value) && r.type.includes('cagr')).map(r => r.value);
     const latestPes  = settled.filter(r => r.latestPe != null && !isNaN(r.latestPe)).map(r => r.latestPe);
 
-    const avgCagr   = FinHelper.average(cagrValues);
-    const avgLatest = FinHelper.average(latestPes);
+    const avgCagr   = average(cagrValues);
+    const avgLatest = average(latestPes);
     return {
       value:            avgCagr   != null ? parseFloat(avgCagr.toFixed(2))   : null,
       type:             '5yr_cagr',
@@ -722,35 +459,6 @@ class FinHelper {
     // Extract unique tickers from callId (format: TICKER_FYXXXX_QX)
     return [...new Set(rows.map(r => r.callId.split('_FY')[0]))];
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Module-level helpers (pure)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Returns fn(inputs) rounded to 2 dp, or null if any input is null/NaN,
- * or if fn itself returns null/NaN.
- * @param {(number|null)[]} inputs
- * @param {(values: number[]) => number|null} fn
- * @returns {number|null}
- */
-function _derive(inputs, fn) {
-  if (inputs.some(v => v == null || isNaN(v))) return null;
-  const result = fn(inputs);
-  if (result == null || isNaN(result)) return null;
-  return parseFloat(result.toFixed(2));
-}
-
-function _periodLabel(call) {
-  return call.quarter ? `${call.fiscal_year}-${call.quarter}` : call.fiscal_year;
-}
-
-/** "YYYYQN" → decimal year at midpoint of quarter. e.g. "2023Q1" → 2023.125 */
-function _quarterLabelToYear(label) {
-  const match = label && label.match(/^(\d{4})Q(\d)$/);
-  if (!match) return null;
-  return parseInt(match[1]) + (parseInt(match[2]) - 0.5) * 0.25;
 }
 
 module.exports = { FinHelper };

@@ -33,9 +33,4 @@ async function getDealResult(callId, db) {
   return client.dealResult.findUnique({ where: { callId } });
 }
 
-async function getLatestDealResult(db) {
-  const client = db ?? getPrisma();
-  return client.dealResult.findFirst({ orderBy: { updatedAt: 'desc' } });
-}
-
-module.exports = { upsertDealResult, getDealResult, getLatestDealResult };
+module.exports = { upsertDealResult, getDealResult };

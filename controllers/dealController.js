@@ -3,6 +3,8 @@
 const prisma        = require('../lib/prisma');
 const jobQueue      = require('../lib/jobQueue');
 const { FinHelper } = require('../utils/finHelper');
+const { getDealResult }          = require('../db-utils/upsertDealResult');
+const { mapToDealResponseSchema } = require('../utils/dealMapper');
 
 /**
  * POST /api/calls/:callId/deal/analysis
@@ -78,4 +80,35 @@ async function createDealAnalysis(req, res) {
   }
 }
 
-module.exports = { createDealAnalysis };
+async function getDealAnalysis(req, res) {
+  try {
+    const { callId } = req.params;
+    const record = await getDealResult(callId);
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'Deal analysis not yet available — trigger via POST first' });
+    }
+    res.json({ success: true, data: mapToDealResponseSchema(record.result), inputs: record.inputs });
+  } catch (error) {
+    console.error('Error fetching deal result:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch deal result', message: error.message });
+  }
+}
+
+async function getDealAnalysisByQuery(req, res) {
+  const { callId } = req.query;
+  if (!callId) {
+    return res.status(400).json({ success: false, error: 'callId query parameter is required' });
+  }
+  try {
+    const record = await getDealResult(callId);
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'No deal analysis available yet — trigger via POST first' });
+    }
+    res.json({ success: true, data: mapToDealResponseSchema(record.result), inputs: record.inputs });
+  } catch (error) {
+    console.error('Error fetching deal analysis:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch deal analysis', message: error.message });
+  }
+}
+
+module.exports = { createDealAnalysis, getDealAnalysis, getDealAnalysisByQuery };
