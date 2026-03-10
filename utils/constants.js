@@ -358,100 +358,122 @@ OFactorResponseSchema = {
 
 
 
- DealResponseSchema =
-     {
-     "scenario_framework": {
-       "meta": {
-         "section_id": "scenario_framework",
-         "title": "Scenario Framework"
-       },
-       "bear": {
-         "points": [
-           "Macro headwinds delay projects",
-           "Competition intensifies, margin pressure",
-           "Revenue growth slows to 8-10%",
-           "Multiple compresses to peer avg"
-         ]
-       },
-       "base": {
-         "points": [
-           "Steady execution on current pipeline",
-           "Revenue growth sustains at 14-16%",
-           "Margins stable to slightly improving",
-           "Multiple sustains at current levels"
-         ]
-       },
-       "bull": {
-         "points": [
-           "Infrastructure supercycle accelerates",
-           "Market share gains continue (15%+)",
-           "Revenue growth 20%+, margin expansion",
-           "Multiple rerates on quality recognition"
-         ]
-       }
-     },
-     "target_price_matrix": {
-       "meta": {
-         "section_id": "target_price_matrix",
-         "title": "Target Price Matrix (FY26 Exit)"
-       },
-       "holding_period": "3-year holding period",
-       "current_price": "₹168",
-       "bear": {
-         "eps_cagr": "8.2%",
-         "fy_eps": "₹6.3",
-         "exit_pe": "22-25x",
-         "pe_rationale": "Multiple compression to peer avg",
-         "target_range": "₹140-160",
-         "from_cmp": "-17%",
-         "cagr": "CAGR: -6.0% p.a.",
-         "probability": 20
-       },
-       "base": {
-         "eps_cagr": "16.8%",
-         "fy_eps": "₹8.8",
-         "exit_pe": "30-35x",
-         "pe_rationale": "Maintain premium on execution",
-         "target_range": "₹265-310",
-         "from_cmp": "+68%",
-         "cagr": "CAGR: +17.2% p.a.",
-         "probability": 55
-       },
-       "bull": {
-         "eps_cagr": "24.6%",
-         "fy_eps": "₹12.0",
-         "exit_pe": "35-40x",
-         "pe_rationale": "Quality premium expansion",
-         "target_range": "₹420-480",
-         "from_cmp": "+150%",
-         "cagr": "CAGR: +35.4% p.a.",
-         "probability": 25
-       }
-     },
-     "risk_reward_summary": {
-       "meta": {
-         "section_id": "risk_reward_summary"
-       },
-       "probability_weighted_return": {
-         "label": "Probability-Weighted Return",
-         "value": "+58%",
-         "description": "Expected value: ₹265",
-         "subtitle": "16.6% CAGR over 3 years"
-       },
-       "risk_reward_ratio": {
-         "label": "Risk-Reward Ratio",
-         "value": "3.8x",
-         "description": "Upside potential (₹450) vs downside risk (₹150)",
-         "subtitle": "From current price of ₹168"
-       },
-       "downside_protection": {
-         "label": "Downside Protection",
-         "value": "-17%",
-         "description": "Limited downside even in bear case given quality metrics",
-         "subtitle": "Strong execution track record"
-       }
-     }
-   }
+ DealResponseSchema = {
+  "scenario_framework": {
+    "meta": { "section_id": "scenario_framework", "title": "Scenario Framework" },
+    "bear": { "points": ["<string>", "<string>", "<string>"] },
+    "base": { "points": ["<string>", "<string>", "<string>"] },
+    "bull": { "points": ["<string>", "<string>", "<string>"] }
+  },
+  "target_price_matrix": {
+    "meta": { "section_id": "target_price_matrix", "title": "Target Price Matrix" },
+    "holding_period": "<string>",
+    "current_price": "<string>",
+    "bear": {
+      "eps_cagr": "<string>", "fy_eps": "<string>", "exit_pe": "<string>",
+      "pe_rationale": "<string>", "target_range": "<string>",
+      "from_cmp": "<string>", "cagr": "<string>", "probability": "<number>"
+    },
+    "base": {
+      "eps_cagr": "<string>", "fy_eps": "<string>", "exit_pe": "<string>",
+      "pe_rationale": "<string>", "target_range": "<string>",
+      "from_cmp": "<string>", "cagr": "<string>", "probability": "<number>"
+    },
+    "bull": {
+      "eps_cagr": "<string>", "fy_eps": "<string>", "exit_pe": "<string>",
+      "pe_rationale": "<string>", "target_range": "<string>",
+      "from_cmp": "<string>", "cagr": "<string>", "probability": "<number>"
+    }
+  },
+  "risk_reward_summary": {
+    "meta": { "section_id": "risk_reward_summary", "title": "Risk-Reward Summary" },
+    "probability_weighted_return": { "label": "<string>", "value": "<string>", "subtitle": "<string>" },
+    "risk_reward_ratio":           { "label": "<string>", "value": "<string>", "subtitle": "<string>" },
+    "downside_protection":         { "label": "<string>", "value": "<string>", "subtitle": "<string>" }
+  },
+  "detailed_analysis": {
+    "eps_engine": {
+      "meta": { "section_id": "eps_engine", "title": "Earnings Trajectory & Quality", "subtitle": "<string>" },
+      "sub_section_title": "<string>",
+      "sub_section_subtitle": "<string>",
+      "scenarios": {
+        "bear": {
+          "industry_cagr":     { "value": "<string>", "note": "<string>" },
+          "revenue_growth":    { "value": "<string>", "note": "<string>", "mgmt_guidance": "<string>", "mgmt_result": "<string>" },
+          "margin_trajectory": { "value": "<string>", "note": "<string>", "mgmt_guidance": "<string>", "mgmt_result": "<string>" },
+          "execution_alpha":   { "rating": "<string>", "value": "0.5x", "note": "Underperform" },
+          "expected_eps_cagr": { "value": "<string>", "subtitle": "<string>" }
+        },
+        "base": {
+          "industry_cagr":     { "value": "<string>", "note": "<string>" },
+          "revenue_growth":    { "value": "<string>", "note": "<string>", "mgmt_guidance": "<string>", "mgmt_result": "<string>" },
+          "margin_trajectory": { "value": "<string>", "note": "<string>", "mgmt_guidance": "<string>", "mgmt_result": "<string>" },
+          "execution_alpha":   { "rating": "<string>", "value": "1.0x", "note": "Meet guidance" },
+          "expected_eps_cagr": { "value": "<string>", "subtitle": "<string>" }
+        },
+        "bull": {
+          "industry_cagr":     { "value": "<string>", "note": "<string>" },
+          "revenue_growth":    { "value": "<string>", "note": "<string>", "mgmt_guidance": "<string>", "mgmt_result": "<string>" },
+          "margin_trajectory": { "value": "<string>", "note": "<string>", "mgmt_guidance": "<string>", "mgmt_result": "<string>" },
+          "execution_alpha":   { "rating": "<string>", "value": "1.3x", "note": "Exceed guidance" },
+          "expected_eps_cagr": { "value": "<string>", "subtitle": "<string>" }
+        }
+      },
+      "insight": "<string>"
+    },
+    "historical_performance": {
+      "meta": { "section_id": "historical_performance", "title": "Historical Performance", "subtitle": "<string>" },
+      "company_growth":  { "value": "<string>", "label": "5 yr CAGR" },
+      "industry_growth": { "value": "<string>", "label": "5 yr CAGR" },
+      "company_name":  "<string>",
+      "industry_name": "<string>",
+      "chart_data": [
+        { "year": "FY20",  "company": "<number>", "industry": "<number>" },
+        { "year": "FY25E", "company": "<number>", "industry": "<number>" }
+      ],
+      "stats": [
+        { "value": "<string>", "label": "Avg outperformance vs industry", "color": "emerald" },
+        { "value": "<string>", "label": "Beat industry X/6 years",        "color": "blue" },
+        { "value": "<string>", "label": "Latest year growth",             "color": "purple" }
+      ]
+    },
+    "quality_of_earnings": {
+      "meta": { "section_id": "quality_of_earnings", "title": "Quality of Earnings: Atomic Metrics", "subtitle": "<string>" },
+      "metrics": [
+        { "label": "EBITDA MARGIN",    "value": "<string>", "change": "<string>", "change_color": "emerald" },
+        { "label": "RETURN ON EQUITY", "value": "<string>", "change": "<string>", "change_color": "blue" },
+        { "label": "MARKET SHARE",     "value": "<string>", "change": "<string>", "change_color": "purple" },
+        { "label": "CASH CONVERSION",  "value": "<string>", "change": "<string>", "change_color": "amber" }
+      ],
+      "chart_data": [
+        { "year": "FY20",  "roe": "<number>", "roic": "<number>", "market_share": "<number>" },
+        { "year": "FY25E", "roe": "<number>", "roic": "<number>", "market_share": "<number>" }
+      ],
+      "bottom_line": "<string>"
+    },
+    "valuation_vs_peers": {
+      "meta": { "section_id": "valuation_vs_peers", "title": "Valuation vs Peers", "subtitle": "<string>" },
+      "current_position": [
+        { "label": "P/E MULTIPLE", "value": "<string>", "detail": "<string>", "color": "amber" },
+        { "label": "EV/EBITDA",    "value": "<string>", "detail": "<string>", "color": "amber" },
+        { "label": "ROE QUALITY",  "value": "<string>", "detail": "<string>", "color": "emerald" },
+        { "label": "GROWTH RATE",  "value": "<string>", "detail": "<string>", "color": "emerald" }
+      ],
+      "re_rating_view": {
+        "badge": "<EXPAND|SUSTAIN|CONTRACT>",
+        "title": "<string>",
+        "description": [{ "text": "<string>", "bold": "<boolean?>", "color": "<string?>" }]
+      },
+      "expansion_drivers":  [{ "text": "<string>", "detail": "<string>" }],
+      "contraction_risks":  [{ "text": "<string>", "detail": "<string>" }],
+      "scenario_multiples": [
+        { "label": "Bull Case Exit P/E", "value": "<string>", "change": "<string>", "color": "emerald" },
+        { "label": "Base Case Exit P/E", "value": "<string>", "change": "<string>", "color": "blue" },
+        { "label": "Bear Case Exit P/E", "value": "<string>", "change": "<string>", "color": "red" }
+      ]
+    }
+  }
+}
 
 
 module.exports = { FINCRUX_METRICS,OFactorResponseSchema,DealResponseSchema };

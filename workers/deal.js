@@ -7,7 +7,7 @@ const { fetchTickerFinancials } = require('../utils/fincruxHelper');
 const { upsertDealResult }      = require('../db-utils/upsertDealResult');
 
 const TEMP_DIR   = path.join(__dirname, '..', 'tmp');
-const MAX_TOKENS = 8000;
+const MAX_TOKENS = 16000;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ function extractCmp(fincruxData) {
 // ─── Processor ───────────────────────────────────────────────────────────────
 
 async function processDealJob(job) {
-  const { callId, ticker, industry, companyName, stockEps, stockPe, industryEps, industryPe } = job.data;
+  const { callId, ticker, industry, companyName, stockEps, stockPe, industryEps, industryPe, stockRev, stockRoce } = job.data;
   console.log(`Processing Deal job ${job.id} (callId: ${callId}, ticker: ${ticker})`);
 
   try {
@@ -56,7 +56,7 @@ async function processDealJob(job) {
     console.log(`[Deal] Recent summaries for ${ticker}: ${recentSummaries.length}`);
     await job.updateProgress(35);
 
-    const prompt = dealAnalysisPrompt(ticker, companyName, industry, cmp, stockEps, stockPe, industryEps, industryPe, recentSummaries);
+    const prompt = dealAnalysisPrompt(ticker, companyName, industry, cmp, stockEps, stockPe, industryEps, industryPe, recentSummaries, stockRev, stockRoce);
     console.log(`[Deal] Prompt length: ${prompt.length} chars`);
 
     if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
