@@ -51,19 +51,20 @@ function mapToDealResponseSchema(raw) {
     };
   }
 
-  // ── probability-weighted expected price (for description) ────────────────
-  const midPrice = (s) => ((s.target_price_low + s.target_price_high) / 2);
-  const expectedValue = Math.round(
-    midPrice(sf.bear) * sf.bear.probability_pct / 100 +
-    midPrice(sf.base) * sf.base.probability_pct / 100 +
-    midPrice(sf.bull) * sf.bull.probability_pct / 100
-  );
-
-  // 3-year CAGR implied by probability-weighted return
-  const pwr      = rrs.probability_weighted_return_pct;
-  const pwrCagr  = pwr != null
-    ? parseFloat(((Math.pow(1 + pwr / 100, 1 / 3) - 1) * 100).toFixed(1))
+  // ── build probability_weighted_return display value ──────────────────────
+  // Support both stored pct (number) and pre-formatted string (from older records)
+  const pwrRaw = rrs.probability_weighted_return_pct;
+  const pwrNum = typeof pwrRaw === 'number' ? pwrRaw : parseFloat(String(pwrRaw ?? '').replace('%', ''));
+  const pwrDisplay = !isNaN(pwrNum) ? pctStr(pwrNum) : (pwrRaw ?? 'N/A');
+  const pwrCagrNum = !isNaN(pwrNum)
+    ? parseFloat(((Math.pow(1 + pwrNum / 100, 1 / 3) - 1) * 100).toFixed(1))
     : null;
+
+  // ── risk_reward_ratio: handle number or "1:2.8" string ───────────────────
+  const rrRaw = rrs.risk_reward_ratio;
+  const rrDisplay = rrRaw != null
+    ? (typeof rrRaw === 'number' ? `${rrRaw}x` : String(rrRaw))
+    : 'N/A';
 
   return {
     scenario_framework: {
@@ -89,29 +90,31 @@ function mapToDealResponseSchema(raw) {
     },
 
     risk_reward_summary: {
-      meta: { section_id: 'risk_reward_summary' },
+      meta: { section_id: 'risk_reward_summary', title: 'Risk-Reward Summary' },
 
       probability_weighted_return: {
-        label:       'Probability-Weighted Return',
-        value:       pctStr(pwr),
-        description: `Expected value: ₹${expectedValue}`,
-        subtitle:    pwrCagr != null ? `${pwrCagr >= 0 ? '+' : ''}${pwrCagr}% CAGR over 3 years` : 'N/A',
+        label:    'Probability-Weighted Return',
+        value:    pwrDisplay,
+        subtitle: pwrCagrNum != null
+          ? `Blended across bear/base/bull probabilities`
+          : 'N/A',
       },
 
       risk_reward_ratio: {
-        label:       'Risk-Reward Ratio',
-        value:       rrs.risk_reward_ratio != null ? `${rrs.risk_reward_ratio}x` : 'N/A',
-        description: `Upside potential (₹${sf.bull.target_price_high}) vs downside risk (₹${sf.bear.target_price_low})`,
-        subtitle:    cmp != null ? `From current price of ₹${cmp}` : '',
+        label:    'Risk / Reward Ratio',
+        value:    rrDisplay,
+        subtitle: `For every ₹1 of downside, ₹${typeof rrRaw === 'number' ? rrRaw : '?'} of upside`,
       },
 
       downside_protection: {
-        label:       'Downside Protection',
-        value:       pctStr(rrs.downside_protection_pct),
-        description: rrs.investment_thesis ?? 'Bear case downside protection',
-        subtitle:    `Bear case: ${sf.bear.exit_pe_rationale}`,
+        label:    'Max Downside (Bear)',
+        value:    pctStr(rrs.downside_protection_pct),
+        subtitle: `Bear case at ${sf.bear.probability_pct}% probability weighted`,
       },
     },
+
+    // Pass detailed_analysis straight through — LLM generates in final shape
+    detailed_analysis: raw?.detailed_analysis ?? null,
   };
 }
 
