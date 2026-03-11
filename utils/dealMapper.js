@@ -51,20 +51,41 @@ function mapToDealResponseSchema(raw) {
     };
   }
 
-  // ── build probability_weighted_return display value ──────────────────────
-  // Support both stored pct (number) and pre-formatted string (from older records)
-  const pwrRaw = rrs.probability_weighted_return_pct;
-  const pwrNum = typeof pwrRaw === 'number' ? pwrRaw : parseFloat(String(pwrRaw ?? '').replace('%', ''));
-  const pwrDisplay = !isNaN(pwrNum) ? pctStr(pwrNum) : (pwrRaw ?? 'N/A');
-  const pwrCagrNum = !isNaN(pwrNum)
-    ? parseFloat(((Math.pow(1 + pwrNum / 100, 1 / 3) - 1) * 100).toFixed(1))
+  // ── Compute metrics server-side from scenario prices ─────────────────────
+
+  function midPrice(s) { return (s.target_price_low + s.target_price_high) / 2; }
+
+  // Per-scenario return % from CMP (recomputed from prices, not LLM value)
+  function scenarioReturnPct(s) {
+    if (cmp == null || cmp === 0) return s.upside_downside_pct ?? 0;
+    return (midPrice(s) - cmp) / cmp * 100;
+  }
+
+  const bearRet = scenarioReturnPct(sf.bear);
+  const baseRet = scenarioReturnPct(sf.base);
+  const bullRet = scenarioReturnPct(sf.bull);
+
+  // Probability-Weighted Return = Σ (prob × return)
+  const pwr = parseFloat((
+    (sf.bear.probability_pct / 100) * bearRet +
+    (sf.base.probability_pct / 100) * baseRet +
+    (sf.bull.probability_pct / 100) * bullRet
+  ).toFixed(1));
+
+  // Downside Protection = (P0 − P_bear_mid) / P0
+  const downsidePct = cmp != null && cmp !== 0
+    ? parseFloat(((cmp - midPrice(sf.bear)) / cmp * 100).toFixed(1))
     : null;
 
-  // ── risk_reward_ratio: handle number or "1:2.8" string ───────────────────
-  const rrRaw = rrs.risk_reward_ratio;
-  const rrDisplay = rrRaw != null
-    ? (typeof rrRaw === 'number' ? `${rrRaw}x` : String(rrRaw))
-    : 'N/A';
+  // Risk-Reward Ratio = weighted upside / weighted downside
+  const scenarios = [
+    { ret: bearRet, prob: sf.bear.probability_pct },
+    { ret: baseRet, prob: sf.base.probability_pct },
+    { ret: bullRet, prob: sf.bull.probability_pct },
+  ];
+  const wUpside   = scenarios.filter(s => s.ret > 0).reduce((sum, s) => sum + (s.prob / 100) * s.ret, 0);
+  const wDownside = scenarios.filter(s => s.ret < 0).reduce((sum, s) => sum + (s.prob / 100) * Math.abs(s.ret), 0);
+  const rrRatio   = wDownside > 0 ? parseFloat((wUpside / wDownside).toFixed(1)) : null;
 
   return {
     scenario_framework: {
@@ -94,22 +115,20 @@ function mapToDealResponseSchema(raw) {
 
       probability_weighted_return: {
         label:    'Probability-Weighted Return',
-        value:    pwrDisplay,
-        subtitle: pwrCagrNum != null
-          ? `Blended across bear/base/bull probabilities`
-          : 'N/A',
+        value:    pctStr(pwr),
+        subtitle: 'Blended across bear/base/bull probabilities',
       },
 
       risk_reward_ratio: {
         label:    'Risk / Reward Ratio',
-        value:    rrDisplay,
-        subtitle: `For every ₹1 of downside, ₹${typeof rrRaw === 'number' ? rrRaw : '?'} of upside`,
+        value:    rrRatio != null ? `1:${rrRatio}` : 'N/A',
+        subtitle: rrRatio != null ? `For every ₹1 of downside, ₹${rrRatio} of upside` : 'N/A',
       },
 
       downside_protection: {
         label:    'Max Downside (Bear)',
-        value:    pctStr(rrs.downside_protection_pct),
-        subtitle: `Bear case at ${sf.bear.probability_pct}% probability weighted`,
+        value:    downsidePct != null ? pctStr(parseFloat((-downsidePct).toFixed(1))) : 'N/A',
+        subtitle: `Bear case at ${sf.bear.probability_pct}% probability`,
       },
     },
 
