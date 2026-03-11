@@ -2,6 +2,43 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
+const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
+  • Are the majority of managements talking about volume growth?
+  • Are order books or pipelines expanding?
+  • Is management guidance on volumes and capex positive or cautious?
+  • What are the key demand/supply dynamics in this industry?
+Populate with short and crisp points.
+
+Output length guidelines:
+  • text.takeaway — 1 concise sentence
+  • text.opm_trend.margin_drivers, text.opm_trend.key_observations — 10 words max per item
+  • text.opm_trend.forward_outlook — 10 words max
+  • text.demand_supply_dynamics.demand, .supply, .net_impact — 10 words max each`;
+
+const METRICS = [
+  { name: 'Revenue from Operations (REV_OP)', type: 'raw_kpi', trend: 'last 4 Q4s' },
+  { name: 'Total Income (TOTAL_INCOME)', type: 'raw_kpi' },
+  { name: 'Cost of Materials (COST_MAT)', type: 'raw_kpi' },
+  { name: 'Purchases of Stock-in-Trade (PURCH_STOCK)', type: 'raw_kpi' },
+  { name: 'Inventory Change (INV_CHG)', type: 'raw_kpi' },
+  { name: 'Employee Expenses (EMP_EXP)', type: 'raw_kpi' },
+  { name: 'Other Expenses (OTH_EXP)', type: 'raw_kpi' },
+  { name: 'Finance Costs (FIN_COST)', type: 'raw_kpi' },
+  { name: 'Depreciation & Amortisation (DEP_AMORT)', type: 'raw_kpi' },
+  { name: 'PBT', type: 'raw_kpi' },
+  { name: 'PAT', type: 'raw_kpi', trend: 'last 4 Q4s' },
+  { name: 'Total Assets (TOTAL_ASSETS)', type: 'raw_kpi' },
+  { name: 'Current Liabilities (CURR_LIAB)', type: 'raw_kpi' },
+  { name: 'EBIT', type: 'derived_kpi', trend: 'last 4 Q4s' },
+  { name: 'ROCE', type: 'derived_kpi', trend: 'last 4 Q4s' },
+  { name: 'ROA', type: 'derived_kpi' },
+  { name: 'ROE', type: 'derived_kpi' },
+  { name: 'CAPEX', type: 'derived_kpi' },
+  { name: 'FCF', type: 'derived_kpi' },
+  { name: 'Subject industry analysis (demand / supply / margins)', type: 'qualitative' },
+  { name: 'Peer industry analysis (demand / supply / margins)', type: 'qualitative' },
+];
+
 /** Latest non-null value from a time-series array, or null. */
 function _latest(series) {
   if (!Array.isArray(series)) return null;
@@ -54,7 +91,7 @@ function serializeIndustryAnalysis(row) {
  * @param {{ callId: string, industryAnalysis: object }[]} peerData
  * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array> }} computedMetrics
  */
-function industryPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics) {
+function industryPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions) {
   const { rawBatch, derivedBatch } = computedMetrics;
 
   const subjectText = subjectData.length > 0
@@ -135,12 +172,7 @@ ${peerText}
 C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
-From ALL transcripts (subject + peer), identify:
-  • Are the majority of managements talking about volume growth?
-  • Are order books or pipelines expanding?
-  • Is management guidance on volumes and capex positive or cautious?
-  • What are the key demand/supply dynamics in this industry?
-Populate with short and crisp points (maximum 10 words each).
+${customInstructions ?? DEFAULT_INSTRUCTIONS}
 
 For ALL metrics values: always output a SINGLE specific number or label — never a range (e.g. "₹30,000–40,000 Cr" or "12–15%") and never a division (e.g. "Elecon / Triveni"). If you are uncertain, approximate using the midpoint or mean and state your basis in the sublabel.
 
@@ -165,4 +197,4 @@ Do NOT include any text, explanation, or markdown fences outside the JSON object
 ${schemaString}`;
 }
 
-module.exports = { industryPrompt };
+module.exports = { industryPrompt, DEFAULT_INSTRUCTIONS, METRICS };

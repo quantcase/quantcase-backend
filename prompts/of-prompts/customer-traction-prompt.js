@@ -2,6 +2,27 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
+const DEFAULT_INSTRUCTIONS = `From the subject company's transcripts, identify:
+  • Is new customer acquisition accelerating or slowing?
+  • Are existing customers expanding spend (upsells, larger project scopes)?
+  • Are customers deeply embedded via long contracts or multi-product use?
+  • Has management referenced any alt data signals (web traffic, app engagement, customer hiring)?
+Populate with short and crisp points.
+
+Output length guidelines:
+  • text.takeaway — 1 concise sentence
+  • text.key_takeaway — 10 words max
+  • text.retention.expansion_drivers, .product_stickiness — 10 words max per item
+  • text.segmentation.growth_strategy, .revenue_quality — 10 words max per item
+  • text.customer_growth.acquisition_dynamics — 10 words max per item
+  • text.alt_data_signals[].insight — 10 words max each`;
+
+const METRICS = [
+  { name: 'Active Customers — latest value (CUST KPI)', type: 'computed' },
+  { name: 'Customer Count CAGR', type: 'computed' },
+  { name: 'Client traction from transcripts (customer growth, retention, segmentation)', type: 'qualitative' },
+];
+
 function fmtCagr(obj) {
   if (!obj || obj.value == null) return 'N/A';
   const note = obj.type === 'latest_value'
@@ -29,7 +50,7 @@ function serializeClientTraction(row) {
  * @param {{ callId, clientTraction }[]} subjectData  - subject only, no peers
  * @param {{ custLatest, custCagr }} computedMetrics
  */
-function customerTractionPrompt(subjectTicker, subjectData, computedMetrics) {
+function customerTractionPrompt(subjectTicker, subjectData, computedMetrics, customInstructions) {
   const { custLatest, custCagr } = computedMetrics;
 
   const subjectText = subjectData.length > 0
@@ -59,12 +80,7 @@ ${subjectText}
 C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
-From the subject company's transcripts, identify:
-  • Is new customer acquisition accelerating or slowing?
-  • Are existing customers expanding spend (upsells, larger project scopes)?
-  • Are customers deeply embedded via long contracts or multi-product use?
-  • Has management referenced any alt data signals (web traffic, app engagement, customer hiring)?
-Populate with short and crisp points (maximum 10 words each).
+${customInstructions ?? DEFAULT_INSTRUCTIONS}
 
 Metric-specific instructions for when data is unavailable:
   • metrics.net_retention: If NRR is not formally disclosed (e.g. for banks/MFI), set value to null and sublabel to a contextual proxy note (e.g. "Not formally disclosed; NII YoY as proxy" or "Portfolio AUM growth as retention proxy").
@@ -84,4 +100,4 @@ Do NOT include any text, explanation, or markdown fences outside the JSON object
 ${schemaString}`;
 }
 
-module.exports = { customerTractionPrompt };
+module.exports = { customerTractionPrompt, DEFAULT_INSTRUCTIONS, METRICS };

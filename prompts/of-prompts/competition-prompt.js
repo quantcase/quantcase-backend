@@ -2,6 +2,31 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
+const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
+  • Are companies able to pass through cost increases, or is pricing under pressure?
+  • Is competitive intensity rising or consolidating?
+  • Is the subject company winning or losing market share?
+  • What are the key entry barriers and competitive moats?
+Populate with short and crisp points.
+
+Output length guidelines:
+  • text.takeaway — 1 concise sentence
+  • text.pricing_power_dynamics.current_state, .watch_outs, .future_trajectory, .shifting_dynamics — 10 words max each
+  • text.competitive_positioning.strengths, .opportunities, .areas_to_monitor — 10 words max per item`;
+
+const METRICS = [
+  { name: 'Subject EPS CAGR', type: 'computed' },
+  { name: 'Subject P/E CAGR', type: 'computed' },
+  { name: 'Industry EPS CAGR', type: 'computed' },
+  { name: 'Industry P/E CAGR', type: 'computed' },
+  { name: 'Entities (segments, products, geography, customers, suppliers)', type: 'qualitative' },
+  { name: 'Management milestones (financial targets, guidance, achieved/missed)', type: 'qualitative' },
+  { name: 'Current quarter KPIs', type: 'qualitative' },
+  { name: 'Governance signals', type: 'qualitative' },
+  { name: 'High-severity risks', type: 'qualitative' },
+  { name: 'Management tone', type: 'qualitative' },
+];
+
 function fmtCagr(obj) {
   if (!obj || obj.value == null) return 'N/A';
   const note = obj.type === 'latest_value'
@@ -95,7 +120,7 @@ function serializeCompetitionData(row) {
  * @param {{ callId, entities, milestones, kpis, governanceSignals, riskDisclosures, tone }[]} peerData
  * @param {{ stockEps, stockPe, industryEps, industryPe }} computedMetrics
  */
-function competitionPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics) {
+function competitionPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions) {
   const { stockEps, stockPe, industryEps, industryPe } = computedMetrics;
   const peerTickers = [...new Set(peerData.map(r => r.callId.split('_FY')[0]).filter(Boolean))];
 
@@ -144,12 +169,7 @@ ${peerText}
 C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
-From ALL transcripts (subject + peer), identify:
-  • Are companies able to pass through cost increases, or is pricing under pressure?
-  • Is competitive intensity rising or consolidating?
-  • Is the subject company winning or losing market share?
-  • What are the key entry barriers and competitive moats?
-Populate with short and crisp points (maximum 10 words each).
+${customInstructions ?? DEFAULT_INSTRUCTIONS}
 
 ══════════════════════════════════════════════════════════
 D. OUTPUT FORMAT
@@ -162,4 +182,4 @@ Do NOT include any text, explanation, or markdown fences outside the JSON object
 ${schemaString}`;
 }
 
-module.exports = { competitionPrompt };
+module.exports = { competitionPrompt, DEFAULT_INSTRUCTIONS, METRICS };

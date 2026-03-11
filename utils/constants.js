@@ -47,21 +47,21 @@ const FINCRUX_METRICS = [
 
 
 
-OFactorResponseSchema = {
+const OFactorResponseSchema = {
   "competition": {
     "meta": { "title": "Competition", "subtitle": "Competitive dynamics & positioning analysis", "section_id": "4.2" },
     "text": {
-      "takeaway": "<string: 1-sentence competitive summary>",
+      "takeaway": "<string>",
       "pricing_power_dynamics": {
-        "current_state":     "<string: 10 words max>",
-        "watch_outs":        "<string: 10 words max>",
-        "future_trajectory": "<string: 10 words max>",
-        "shifting_dynamics": "<string: 10 words max>"
+        "current_state":     "<string>",
+        "watch_outs":        "<string>",
+        "future_trajectory": "<string>",
+        "shifting_dynamics": "<string>"
       },
       "competitive_positioning": {
-        "strengths":        ["<string: 10 words max>"],
-        "opportunities":    ["<string: 10 words max>"],
-        "areas_to_monitor": ["<string: 10 words max>"]
+        "strengths":        ["<string>"],
+        "opportunities":    ["<string>"],
+        "areas_to_monitor": ["<string>"]
       }
     },
     "metrics": {
@@ -75,7 +75,7 @@ OFactorResponseSchema = {
   "customer_traction": {
     "meta": { "title": "Client/Customer Traction", "subtitle": "Customer growth, retention & revenue trajectory with signals from management commentary", "section_id": "4.4" },
     "text": {
-      "takeaway": "<string: 1-sentence customer traction summary>",
+      "takeaway": "<string>",
       "retention": {
         "metrics": {
           "net_revenue_retention":   { "label": "Net Revenue Retention",   "value": "<string|null>", "sublabel": "<string>" },
@@ -83,10 +83,10 @@ OFactorResponseSchema = {
           "expansion_revenue":       { "label": "Expansion Revenue",       "value": "<string|null>", "sublabel": "<string>" },
           "annual_churn":            { "label": "Annual Churn",            "value": "<string|null>", "sublabel": "<string>" }
         },
-        "expansion_drivers":  ["<string: 10 words max>"],
-        "product_stickiness": ["<string: 10 words max>"]
+        "expansion_drivers":  ["<string>"],
+        "product_stickiness": ["<string>"]
       },
-      "key_takeaway": "<string: 10 words max>",
+      "key_takeaway": "<string>",
       "segmentation": {
         "tiers": [{
           "tier": "<string>", "customer_count": "<string>", "avg_acv": "<string>",
@@ -94,8 +94,8 @@ OFactorResponseSchema = {
           "churn": "<string>", "churn_label": "<string>",
           "revenue_share": "<string>", "contract_terms": "<string>"
         }],
-        "growth_strategy": ["<string: 10 words max>"],
-        "revenue_quality":  ["<string: 10 words max>"]
+        "growth_strategy": ["<string>"],
+        "revenue_quality":  ["<string>"]
       },
       "customer_growth": {
         "metrics": {
@@ -104,9 +104,9 @@ OFactorResponseSchema = {
           "new_adds":        { "label": "New Adds",             "value": "<string|null>", "sublabel": "<string>" },
           "churned":         { "label": "Churned",              "value": "<string|null>", "sublabel": "<string>" }
         },
-        "acquisition_dynamics": ["<string: 10 words max>"]
+        "acquisition_dynamics": ["<string>"]
       },
-      "alt_data_signals": [{ "source": "<string>", "insight": "<string: 10 words max>" }]
+      "alt_data_signals": [{ "source": "<string>", "insight": "<string>" }]
     },
     "metrics": {
       "churn_rate":           { "label": "Churn Rate / AUM Attrition",            "value": "<string|null>", "sublabel": "<string>" },
@@ -119,7 +119,7 @@ OFactorResponseSchema = {
   "industry_overview": {
     "meta": { "title": "Industry Overview & Market", "subtitle": "Synthesized from public company transcripts & filings", "section_id": "4.1" },
     "text": {
-      "takeaway": "<string: 1-sentence industry summary>",
+      "takeaway": "<string>",
       "opm_trend": {
         "metrics": {
           "current_opm":     { "label": "Current OPM",        "value": "<string|null>", "sublabel": "<string>" },
@@ -127,18 +127,18 @@ OFactorResponseSchema = {
           "ten_year_change":  { "label": "10Y OPM Change",    "value": "<string|null>", "sublabel": "<string>" },
           "trend_direction":  { "label": "Trend Direction",   "value": "<Improving|Stable|Declining>", "sublabel": "<string>" }
         },
-        "margin_drivers":   ["<string: 10 words max>"],
-        "forward_outlook":  "<string: 10 words max>",
-        "key_observations": ["<string: 10 words max>"]
+        "margin_drivers":   ["<string>"],
+        "forward_outlook":  "<string>",
+        "key_observations": ["<string>"]
       },
       "industry_transcripts": [{
         "company": "<string>", "sector": "<string>",
         "context": "<string>", "quote": "<verbatim quote from transcript>"
       }],
       "demand_supply_dynamics": {
-        "demand":     "<string: 10 words max>",
-        "supply":     "<string: 10 words max>",
-        "net_impact": "<string: 10 words max>"
+        "demand":     "<string>",
+        "supply":     "<string>",
+        "net_impact": "<string>"
       }
     },
     "metrics": {
@@ -153,7 +153,7 @@ OFactorResponseSchema = {
   "financial_strength": {
     "meta": { "title": "Financial Strength", "subtitle": "Snapshot from financial statements, investor decks & management commentary", "section_id": "4.3" },
     "text": {
-      "takeaway": "<string: 1-sentence financial strength summary>",
+      "takeaway": "<string>",
       "cash_flow": {
         "metrics": {
           "fcf":            { "label": "Free Cash Flow",       "value": "<string|null>", "sublabel": "<string>" },
@@ -161,9 +161,9 @@ OFactorResponseSchema = {
           "ocf_ebitda":     { "label": "OCF / EBITDA",         "value": "<string|null>", "sublabel": "<string>" },
           "working_capital":{ "label": "Working Capital Days", "value": "<string|null>", "sublabel": "<string>" }
         },
-        "quality_analysis": ["<string: 10 words max>"]
+        "quality_analysis": ["<string>"]
       },
-      "key_takeaway": "<string: 10 words max>",
+      "key_takeaway": "<string>",
       "balance_sheet": {
         "metrics": {
           "net_debt_ebitda":  { "label": "Net Debt / EBITDA",   "value": "<string|null>", "sublabel": "<string>" },
@@ -172,8 +172,8 @@ OFactorResponseSchema = {
           "current_ratio":    { "label": "Current Ratio",       "value": "<string|null>", "sublabel": "<string>" },
           "credit_rating":    { "label": "Credit Rating",       "value": "<string|null>", "sublabel": "<string>" }
         },
-        "strengths":      ["<string: 10 words max>"],
-        "considerations": ["<string: 10 words max>"]
+        "strengths":      ["<string>"],
+        "considerations": ["<string>"]
       },
       "profitability": {
         "metrics": {
@@ -181,11 +181,11 @@ OFactorResponseSchema = {
           "pat_margin":         { "label": "PAT Margin",              "value": "<string|null>", "sublabel": "<string>" },
           "five_year_improvement": { "label": "5Y Margin Improvement","value": "<string|null>", "sublabel": "<string>" }
         },
-        "operating_leverage_drivers":   ["<string: 10 words max>"],
-        "strategic_initiative_drivers": ["<string: 10 words max>"]
+        "operating_leverage_drivers":   ["<string>"],
+        "strategic_initiative_drivers": ["<string>"]
       },
       "revenue_growth": {
-        "drivers": ["<string: 10 words max>"],
+        "drivers": ["<string>"],
         "metrics": {
           "revenue":        { "label": "Revenue (Sales)",    "value": "<string|null>", "sublabel": "<string>" },
           "five_year_cagr": { "label": "5Y Revenue CAGR",   "value": "<string|null>", "sublabel": "<string>" },
@@ -209,11 +209,11 @@ OFactorResponseSchema = {
       "fixed_cost_equation": "Fixed Costs = Employee Costs + SGA + D&A",
       "dol_chart_data": [{ "quarter": "<string>", "revenue_growth": "<number>", "ebit_growth": "<number>", "dol": "<number>" }],
       "fixed_cost_lines": [
-        { "name": "Employee Costs", "key": "employee_costs", "color": "#3b82f6", "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string: 10 words max>" },
-        { "name": "SG&A",          "key": "sga",            "color": "#f59e0b", "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string: 10 words max>" },
-        { "name": "D&A",           "key": "da",             "color": "#6366f1", "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string: 10 words max>" }
+        { "name": "Employee Costs", "key": "employee_costs", "color": "#3b82f6", "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string>" },
+        { "name": "SG&A",          "key": "sga",            "color": "#f59e0b", "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string>" },
+        { "name": "D&A",           "key": "da",             "color": "#6366f1", "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string>" }
       ],
-      "total_fixed_costs": { "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string: 10 words max>" },
+      "total_fixed_costs": { "current_pct": "<number>", "prior_pct": "<number>", "change_bps": "<number>", "note": "<string>" },
       "metrics": {
         "revenue_growth_yoy": { "value": "<string>", "label": "Revenue Growth YoY" },
         "ebit_growth_yoy":    { "value": "<string>", "label": "EBIT Growth YoY" },
@@ -223,7 +223,7 @@ OFactorResponseSchema = {
         "status": "<negative|neutral|positive>",
         "label": "<string>",
         "tag": "<string>",
-        "description": "<string: 20 words max>"
+        "description": "<string>"
       },
       "all_verdicts": [
         { "status": "negative", "label": "Negative Operating Leverage" },
@@ -254,8 +254,8 @@ OFactorResponseSchema = {
         "pat_start": "<string>",
         "pat_end": "<string>",
         "periods": "<string e.g. 8Q>",
-        "insight_headline": "<string: 15 words max>",
-        "insight_body": "<string: supports **bold** markdown, 30 words max>"
+        "insight_headline": "<string>",
+        "insight_body": "<string — supports **bold** markdown>"
       },
       "ocf_to_fcf": {
         "status": "<Minimal Drag|Moderate Drag|Heavy Drag>",
@@ -274,7 +274,7 @@ OFactorResponseSchema = {
         "status": "<Attractive|Fair|Watch|Expensive|Negative — Not Applicable>",
         "status_color": "<green|yellow|red>",
         "yield_history": [{ "label": "<string e.g. FY22 Yield>", "yield_pct": "<number>", "zone": "<string>", "is_current": "<boolean — only on the latest entry>" }],
-        "compression_explanation": "<string: 30 words max>"
+        "compression_explanation": "<string>"
       }
     },
     "working_capital": {
@@ -293,7 +293,7 @@ OFactorResponseSchema = {
         "verdict_color": "<green|yellow|red>"
       },
       "signals": [{ "label": "<string>", "color": "<green|yellow|red>" }],
-      "insight": "<string: 25 words max>"
+      "insight": "<string>"
     },
     "capital_structure": {
       "meta": { "section_id": "4.3.4", "title": "Capital Structure & Capex" },
@@ -306,7 +306,7 @@ OFactorResponseSchema = {
         "debt_bar_pct": "<number — debt as % of (cash+debt)>",
         "net_cash": "<string — positive means net cash, negative means net debt>",
         "timeline": [{ "label": "<string e.g. FY20>", "value": "<string e.g. 33.8K>", "is_current": "<boolean — only on latest>" }],
-        "insight": "<string: supports **bold** markdown, 30 words max>"
+        "insight": "<string — supports **bold** markdown>"
       },
       "debt_trajectory": {
         "status": "<Deleveraging|Stable|Increasing>",
@@ -318,7 +318,7 @@ OFactorResponseSchema = {
         "current_label": "<string>",
         "reduction_pct": "<string e.g. –57%>",
         "reduction_label": "<string e.g. over 4 years>",
-        "insight": "<string: supports **bold** markdown, 25 words max>"
+        "insight": "<string — supports **bold** markdown>"
       },
       "equity_allocation": {
         "status": "<Compounding|Stable|Diluting>",
@@ -327,21 +327,21 @@ OFactorResponseSchema = {
         "total_equity": "<string>",
         "total_equity_sublabel": "<string>",
         "roe": "<string>",
-        "roe_sublabel": "<string: 10 words max>",
+        "roe_sublabel": "<string>",
         "payout_trend": "<Rising|Stable|Falling>",
         "payout_trend_direction": "<up|down|flat>",
         "payout_sublabel": "<string e.g. 62% → 72% over 5Y>",
-        "insight": "<string: 20 words max>"
+        "insight": "<string>"
       },
       "capex_intensity": {
         "status": "<Asset Light|Moderate Capex|Capex Heavy>",
         "status_color": "<green|yellow|red>",
         "metrics": [
-          { "label": "Capex as % of Revenue", "value": "<string>", "bar_pct": "<number 0-100>", "max_label": "<string|omitted>", "note": "<string: 10 words max>", "status": "<green|yellow|red>" },
-          { "label": "Capex as % of OCF",     "value": "<string>", "bar_pct": "<number 0-100>", "note": "<string: 10 words max>", "status": "<green|yellow|red>" },
-          { "label": "Capex / Depreciation",  "value": "<string>", "bar_pct": "<number 0-100>", "max_label": "<string|omitted>", "note": "<string: 10 words max>", "status": "<green|yellow|red>" }
+          { "label": "Capex as % of Revenue", "value": "<string>", "bar_pct": "<number 0-100>", "max_label": "<string|omitted>", "note": "<string>", "status": "<green|yellow|red>" },
+          { "label": "Capex as % of OCF",     "value": "<string>", "bar_pct": "<number 0-100>", "note": "<string>", "status": "<green|yellow|red>" },
+          { "label": "Capex / Depreciation",  "value": "<string>", "bar_pct": "<number 0-100>", "max_label": "<string|omitted>", "note": "<string>", "status": "<green|yellow|red>" }
         ],
-        "note": "<string: 20 words max>"
+        "note": "<string>"
       }
     },
     "final_scoring": {
@@ -350,15 +350,15 @@ OFactorResponseSchema = {
       "max_score": 8,
       "status": "<HIGH QUALITY|MODERATE QUALITY|LOW QUALITY>",
       "status_color": "<green|yellow|red>",
-      "title": "<string: 5 words max>",
-      "body": "<string: 3–4 sentence scorecard summary citing specific metrics>"
+      "title": "<string>",
+      "body": "<string>"
     }
   }
 }
 
 
 
- DealResponseSchema = {
+const DealResponseSchema = {
   "scenario_framework": {
     "meta": { "section_id": "scenario_framework", "title": "Scenario Framework" },
     "bear": { "points": ["<string>", "<string>", "<string>"] },
