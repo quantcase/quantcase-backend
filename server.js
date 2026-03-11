@@ -14,6 +14,8 @@ const { enqueueSummarization, enqueueQeExtraction,
         enqueueOFactorAnalysis, getJobStatus }           = require('./controllers/jobsController');
 const { getOFactorAnalysis, getOFactorAnalysisByQuery,
         getPeerData }                                    = require('./controllers/oFactorController');
+const { getOFactorPrompt,
+        enqueueCustomOFactorAnalysis }                   = require('./controllers/oFactorPromptController');
 const { createDealAnalysis, getDealAnalysis,
         getDealAnalysisByQuery }                         = require('./controllers/dealController');
 
@@ -51,6 +53,8 @@ app.get('/api/jobs/:jobId',                        getJobStatus);
 app.get('/api/calls/:callId/analysis',             getOFactorAnalysis);
 app.get('/api/opportunity/analysis',               getOFactorAnalysisByQuery);
 app.get('/api/opportunity/peer-data',              getPeerData);
+app.get('/api/opportunity/prompt',                 getOFactorPrompt);
+app.post('/api/calls/:callId/opportunity/analysis/custom', enqueueCustomOFactorAnalysis);
 
 app.get('/api/calls/:callId/deal',                 getDealAnalysis);
 app.get('/api/deal/analysis',                      getDealAnalysisByQuery);

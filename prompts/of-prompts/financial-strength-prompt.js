@@ -2,6 +2,88 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
+const LENGTH_GUIDELINES = `
+Output length guidelines:
+  • text.takeaway — 1 concise sentence
+  • text.key_takeaway — 10 words max
+  • text.cash_flow.quality_analysis — 10 words max per item
+  • text.balance_sheet.strengths, .considerations — 10 words max per item
+  • text.profitability.operating_leverage_drivers, .strategic_initiative_drivers — 10 words max per item
+  • text.revenue_growth.drivers — 10 words max per item
+  • operating_leverage.fixed_cost_lines[].note, .total_fixed_costs.note — 10 words max each
+  • operating_leverage.verdict.description — 20 words max
+  • free_cash_flow.growth_trajectory.insight_headline — 15 words max
+  • free_cash_flow.growth_trajectory.insight_body — 30 words max (supports **bold** markdown)
+  • free_cash_flow.fcf_yield.compression_explanation — 30 words max
+  • working_capital.insight — 25 words max
+  • capital_structure.balance_sheet.insight — 30 words max (supports **bold** markdown)
+  • capital_structure.debt_trajectory.insight — 25 words max (supports **bold** markdown)
+  • capital_structure.equity_allocation.roe_sublabel — 10 words max
+  • capital_structure.equity_allocation.insight — 20 words max
+  • capital_structure.capex_intensity.metrics[].note — 10 words max each
+  • capital_structure.capex_intensity.note — 20 words max
+  • final_scoring.title — 5 words max
+  • final_scoring.body — 3–4 sentences, cite specific metrics`;
+
+const DEFAULT_INSTRUCTIONS_NONBFSI = `Using the financial data above and transcript commentary, assess:
+  • Revenue growth trajectory — volume/mix driven or purely price-led?
+  • Margin expansion — is management confident about sustaining margins?
+  • FCF conversion quality and capital deployment discipline
+  • Balance sheet strength — debt levels, capex ROI, shareholder returns
+Populate with short and crisp points.
+${LENGTH_GUIDELINES}`;
+
+const DEFAULT_INSTRUCTIONS_BFSI = `Using the financial data above and transcript commentary, assess:
+  • Revenue/income growth trajectory — fee-driven, AUM-driven, or interest income-led?
+  • Margin quality — PPOP trends, provisioning adequacy, credit cost trajectory
+  • Free Cash Flow (CFO-CAPEX-Prov) quality and capital adequacy signals
+  • Asset quality signals from management commentary (NPA, PCR, stress book)
+Populate with short and crisp points.
+${LENGTH_GUIDELINES}`;
+
+const METRICS = [
+  { name: 'Revenue from Operations (REV_OP)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Cost of Materials (COST_MAT)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Purchases of Stock-in-Trade (PURCH_STOCK)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Inventory Change (INV_CHG)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Employee Expenses (EMP_EXP)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Other Expenses (OTH_EXP)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Depreciation & Amortisation (DEP_AMORT)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Finance Costs (FIN_COST)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'PAT', type: 'raw_kpi', trend: 'last 5 annual + 10 quarterly' },
+  { name: 'PBT', type: 'raw_kpi' },
+  { name: 'Cash from Operations (CFO)', type: 'raw_kpi', trend: 'last 5 annual' },
+  { name: 'Trade Receivables (TRADE_RECV)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Trade Payables (TRADE_PAY)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Inventory (INVENTORY)', type: 'raw_kpi', trend: 'last 10 quarters' },
+  { name: 'Long-term Debt (DEBT_LT)', type: 'raw_kpi', trend: 'last 5 annual' },
+  { name: 'Short-term Debt (DEBT_ST)', type: 'raw_kpi', trend: 'last 5 annual' },
+  { name: 'Cash & Equivalents (CASH_EQUIV)', type: 'raw_kpi', trend: 'last 5 annual' },
+  { name: 'Equity Share Capital (EQ_SHARE_CAP)', type: 'raw_kpi' },
+  { name: 'Reserves & Surplus (RES_SURPLUS)', type: 'raw_kpi' },
+  { name: 'PPE — Property Plant Equipment (ASSET_PPE)', type: 'raw_kpi', trend: 'last 5 annual' },
+  { name: 'Capital Work-in-Progress (ASSET_CWIP)', type: 'raw_kpi', trend: 'last 5 annual' },
+  { name: 'Total Assets (TOTAL_ASSETS)', type: 'raw_kpi' },
+  { name: 'Current Liabilities (CURR_LIAB)', type: 'raw_kpi' },
+  { name: 'Provisions & Contingencies (PROV_CONT)', type: 'raw_kpi' },
+  { name: 'Dividend Payout (DIV_PAYOUT)', type: 'raw_kpi', trend: 'last 5 annual' },
+  { name: 'EBIT / PPOP (BFSI)', type: 'derived_kpi', trend: 'last 10 quarters' },
+  { name: 'EBIT Margin', type: 'derived_kpi', trend: 'last 10 quarters' },
+  { name: 'EBITDA', type: 'derived_kpi', trend: 'last 10 quarters' },
+  { name: 'EBITDA Margin', type: 'derived_kpi' },
+  { name: 'PAT Margin', type: 'derived_kpi' },
+  { name: 'ROCE', type: 'derived_kpi', trend: 'last 5 annual' },
+  { name: 'ROA', type: 'derived_kpi' },
+  { name: 'ROE', type: 'derived_kpi' },
+  { name: 'CAPEX', type: 'derived_kpi', trend: 'last 5 annual' },
+  { name: 'FCF', type: 'derived_kpi', trend: 'last 10 quarters' },
+  { name: 'DSO — Days Sales Outstanding', type: 'derived_kpi', trend: 'last 10 quarters' },
+  { name: 'DIO — Days Inventory Outstanding', type: 'derived_kpi', trend: 'last 10 quarters' },
+  { name: 'DPO — Days Payable Outstanding', type: 'derived_kpi', trend: 'last 10 quarters' },
+  { name: 'CCC — Cash Conversion Cycle', type: 'derived_kpi', trend: 'last 10 quarters' },
+  { name: 'Subject financial strength commentary from transcripts', type: 'qualitative' },
+];
+
 /** Latest non-null value from a time-series array, or null. */
 function _latest(series) {
   if (!Array.isArray(series)) return null;
@@ -33,7 +115,7 @@ function serializeFinancialStrength(row) {
  * @param {{ callId, financialStrength }[]} subjectData  - subject only, no peers
  * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array>, rawBatchAll: Record<string, Array>, derivedBatchAll: Record<string, Array>, bfsi: boolean }} computedMetrics
  */
-function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics) {
+function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, customInstructions) {
   const { rawBatch, derivedBatch, rawBatchAll = {}, derivedBatchAll = {}, bfsi = false } = computedMetrics;
 
   const subjectText = subjectData.length > 0
@@ -312,25 +394,13 @@ ${_tableBlock('RESERVES', reservesQ4)}`;
 ── CFO trend (last 5 years) ──
   ${_sparkline(rawBatch?.CFO)}`;
 
-  const analysisInstructions = bfsi
-    ? `Using the financial data above and transcript commentary, assess:
-  • Revenue/income growth trajectory — fee-driven, AUM-driven, or interest income-led?
-  • Margin quality — PPOP trends, provisioning adequacy, credit cost trajectory
-  • ${fcfLabel} quality and capital adequacy signals
-  • Asset quality signals from management commentary (NPA, PCR, stress book)
-Populate with short and crisp points (maximum 10 words each).
-
-BFSI-specific metric instructions:
+  const defaultInstr = bfsi ? DEFAULT_INSTRUCTIONS_BFSI : DEFAULT_INSTRUCTIONS_NONBFSI;
+  const bfsiMetricInstructions = bfsi ? `\n\nBFSI-specific metric instructions:
   • metrics.interest_coverage: Use the NIM Coverage ratio (PPOP/FIN_COST) provided above. Set value to the ratio formatted as "Xx" (e.g. "2.3x") and sublabel to "PPOP covers X× funding costs; NIM-based proxy".
   • metrics.gross_margin: Set value to null and sublabel to "Not applicable for banking; NIM is the spread proxy".
   • metrics.roce: Set value to null and sublabel to "Not applicable for BFSI; use ROA/ROE instead".
-  • text.balance_sheet.metrics.credit_rating: If no credit rating is mentioned in transcripts, set value to null and sublabel to "Not disclosed in available transcripts".`
-    : `Using the financial data above and transcript commentary, assess:
-  • Revenue growth trajectory — volume/mix driven or purely price-led?
-  • Margin expansion — is management confident about sustaining margins?
-  • FCF conversion quality and capital deployment discipline
-  • Balance sheet strength — debt levels, capex ROI, shareholder returns
-Populate with short and crisp points (maximum 10 words each).`;
+  • text.balance_sheet.metrics.credit_rating: If no credit rating is mentioned in transcripts, set value to null and sublabel to "Not disclosed in available transcripts".` : '';
+  const analysisInstructions = (customInstructions ?? defaultInstr) + bfsiMetricInstructions;
 
   const newSectionsInstructions = `
 ── Instructions for NEW sub-sections ──────────────────────────────────────
@@ -452,4 +522,4 @@ Do NOT include any text, explanation, or markdown fences outside the JSON object
 ${schemaString}`;
 }
 
-module.exports = { financialStrengthPrompt };
+module.exports = { financialStrengthPrompt, DEFAULT_INSTRUCTIONS_NONBFSI, DEFAULT_INSTRUCTIONS_BFSI, METRICS };

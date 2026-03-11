@@ -56,7 +56,7 @@ async function getAutoPeerSummaries(subjectTicker, industry) {
 
 // ─── Section-Specific Prompt Builders ────────────────────────────────────────
 
-async function buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper) {
+async function buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions) {
   const RAW_ABBRS = [
     'REV_OP', 'TOTAL_INCOME', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
     'EMP_EXP', 'OTH_EXP', 'FIN_COST', 'DEP_AMORT',
@@ -77,10 +77,10 @@ async function buildIndustrySection(subjectTicker, industry, subjectSummaries, p
   const peerData    = peerSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
   const metrics     = { rawBatch: q4Only(rawBatch), derivedBatch: q4Only(derivedBatch) };
 
-  return { prompt: industryPrompt(subjectTicker, industry, subjectData, peerData, metrics), sectionKey: 'industry_overview' };
+  return { prompt: industryPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions), sectionKey: 'industry_overview' };
 }
 
-async function buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper) {
+async function buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions) {
   const [stockEps, stockPe, industryEps, industryPe] = await Promise.all([
     helper.stockEpsCagr(subjectTicker),
     helper.stockPeCagr(subjectTicker),
@@ -97,10 +97,10 @@ async function buildCompetitionSection(subjectTicker, industry, subjectSummaries
   const peerData    = peerSummaries.map(pickFields);
   const metrics     = { stockEps, stockPe, industryEps, industryPe };
 
-  return { prompt: competitionPrompt(subjectTicker, industry, subjectData, peerData, metrics), sectionKey: 'competition' };
+  return { prompt: competitionPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions), sectionKey: 'competition' };
 }
 
-async function buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper) {
+async function buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions) {
   const RAW_ABBRS = [
     'REV_OP', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
     'EMP_EXP', 'OTH_EXP', 'DEP_AMORT', 'FIN_COST',
@@ -140,10 +140,10 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
     bfsi,
   };
 
-  return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics), sectionKey: 'financial_strength' };
+  return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics, customInstructions), sectionKey: 'financial_strength' };
 }
 
-async function buildCustomerTractionSection(subjectTicker, subjectSummaries, helper) {
+async function buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions) {
   const [custLatest, custCagr] = await Promise.all([
     helper.stockKpiLatest(subjectTicker, 'CUST'),
     helper.stockCustCagr(subjectTicker),
@@ -166,13 +166,13 @@ async function buildCustomerTractionSection(subjectTicker, subjectSummaries, hel
   const subjectData = subjectSummaries.map(s => ({ callId: s.callId, clientTraction: s.clientTraction }));
   const metrics     = { custLatest: resolvedCustLatest, custCagr };
 
-  return { prompt: customerTractionPrompt(subjectTicker, subjectData, metrics), sectionKey: 'customer_traction' };
+  return { prompt: customerTractionPrompt(subjectTicker, subjectData, metrics, customInstructions), sectionKey: 'customer_traction' };
 }
 
 // ─── Processor ───────────────────────────────────────────────────────────────
 
 async function processOFactorJob(job) {
-  const { callId, subjectTicker, section, type } = job.data;
+  const { callId, subjectTicker, section, type, customInstructions, customRun } = job.data;
   console.log(`Processing OFactor job ${job.id} (callId: ${callId}, subject: ${subjectTicker}, section: ${section})`);
 
   try {
@@ -211,13 +211,13 @@ async function processOFactorJob(job) {
     let promptText, sectionKey;
 
     if (section === 'industry') {
-      ({ prompt: promptText, sectionKey } = await buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper));
+      ({ prompt: promptText, sectionKey } = await buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions));
     } else if (section === 'competition') {
-      ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper));
+      ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions));
     } else if (section === 'financial_strength') {
-      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper));
+      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions));
     } else {
-      ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper));
+      ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions));
     }
 
     console.log(`[OFactor] Section "${section}" prompt length: ${promptText.length} chars`);
@@ -231,26 +231,46 @@ async function processOFactorJob(job) {
     });
     await job.updateProgress(85);
 
-    if (!responseText) throw new Error('Empty response from LLM');
+    console.log(`[OFactor] LLM response length: ${responseText?.length ?? 0} chars`);
+    if (!responseText || !responseText.trim()) throw new Error('Empty response from LLM');
 
     console.log(`[OFactor] Parsing section "${section}" response...`);
     const parsed = parseJson(responseText);
 
     // The LLM returns { <sectionKey>: <sectionData> } — extract the section data
+    if (!(sectionKey in parsed)) {
+      const topKeys = Object.keys(parsed);
+      console.warn(`[OFactor] WARNING: expected key "${sectionKey}" not found in LLM response. Top-level keys: [${topKeys.join(', ')}]. Falling back to full parsed object.`);
+    }
     const sectionResult = parsed[sectionKey] ?? parsed;
+
+    if (!sectionResult || (typeof sectionResult === 'object' && Object.keys(sectionResult).length === 0)) {
+      throw new Error(`[OFactor] Section "${section}" result is empty after parsing. Raw response (first 500 chars): ${responseText.slice(0, 500)}`);
+    }
     await job.updateProgress(90);
 
-    await upsertOFactorSection(callId, subjectTicker, section, sectionResult, prisma);
-    console.log(`[OFactor] Section "${section}" saved for callId: ${callId}`);
-
-    await prisma.job.update({
-      where: { bullmqId: job.id },
-      data:  { status: 'completed', result: { callId, section, sectionKey } }
-    });
+    if (customRun) {
+      // Custom runs: do NOT overwrite oFactorResult — result lives in BullMQ returnvalue only
+      console.log(`[OFactor] Custom run — section "${section}" returning in returnvalue (callId: ${callId})`);
+      await prisma.job.update({
+        where: { bullmqId: job.id },
+        data:  { status: 'completed', result: { callId, section, sectionKey } }
+      });
+    } else {
+      await upsertOFactorSection(callId, subjectTicker, section, sectionResult, prisma);
+      console.log(`[OFactor] Section "${section}" saved for callId: ${callId}`);
+      await prisma.job.update({
+        where: { bullmqId: job.id },
+        data:  { status: 'completed', result: { callId, section, sectionKey } }
+      });
+    }
 
     await job.updateProgress(100);
     console.log(`[OFactor] Job ${job.id} completed (section: ${section})`);
-    return { section, sectionKey };
+    // For custom runs sectionResult is in returnvalue so frontend can read it via GET /api/jobs/:jobId
+    return customRun
+      ? { section, sectionKey, sectionResult }
+      : { section, sectionKey };
 
   } catch (error) {
     console.error(`[OFactor] Job ${job.id} failed:`, error);

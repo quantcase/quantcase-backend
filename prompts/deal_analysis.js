@@ -152,7 +152,7 @@ Generate three scenarios — Bear, Base, and Bull — each with a specific EPS C
 7. **Probability** — assign probabilities that SUM TO EXACTLY 100%
 8. **Key Drivers** — 3-4 concise bullet points per scenario
 
-Also generate a **risk_reward_summary** with probability_weighted_return_pct, risk_reward_ratio, downside_protection_pct, investment_thesis, key_risks, and key_catalysts.
+Also generate a **risk_reward_summary** with probability_weighted_return_pct, risk_reward_ratio, downside_protection_pct, investment_thesis, key_risks (3-4 items), and key_catalysts (3-4 items).
 
 ### Part 2: Detailed Analysis
 Generate a **detailed_analysis** object with 4 sub-sections:
