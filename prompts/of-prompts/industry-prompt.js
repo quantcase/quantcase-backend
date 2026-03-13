@@ -92,7 +92,7 @@ function serializeIndustryAnalysis(row) {
  * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array> }} computedMetrics
  */
 function industryPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions) {
-  const { rawBatch, derivedBatch } = computedMetrics;
+  const { rawBatch, derivedBatch, bfsi = false } = computedMetrics;
 
   const subjectText = subjectData.length > 0
     ? subjectData.map(r => serializeIndustryAnalysis(r)).join('\n\n---\n\n')
@@ -176,15 +176,28 @@ ${customInstructions ?? DEFAULT_INSTRUCTIONS}
 
 For ALL metrics values: always output a SINGLE specific number or label — never a range (e.g. "₹30,000–40,000 Cr" or "12–15%") and never a division (e.g. "Elecon / Triveni"). If you are uncertain, approximate using the midpoint or mean and state your basis in the sublabel.
 
-For metrics.industry_revenue_ttm: estimate the total industry revenue (trailing twelve months) for the ${industry} sector
-using the subject company revenue above, peer data, and your knowledge of the industry. Express in a readable format
-(e.g. "₹4.2L Cr", "$180B"). Use sublabel to clarify the source/period (e.g. "FY24 trailing estimate"). If unsure of the exact figure, use your best single-point estimate (mean of reasonable range) — do NOT output a range.
+For metrics.industry_revenue_ttm: estimate total industry revenue (TTM) for the ${industry} sector using subject company revenue, peer data, and your knowledge. Express in a readable format (e.g. "₹4.2L Cr", "$180B"). Add a "change" field with the YoY % change (e.g. "+18.2%"). Use sublabel to clarify source/period.
 
-For metrics.current_opm: output a single OPM % figure (e.g. "23%"), not a range. If peer OPMs differ, use the weighted average or midpoint and explain in sublabel.
+For metrics.industry_cagr (NON-BFSI only): provide three separate CAGR estimates for the industry revenue — "qoq" (quarter-on-quarter annualised), "one_year" (1Y CAGR), "three_year" (3Y CAGR). Each should be a single % string (e.g. "12.3%"). Use the revenue sparkline data and your knowledge of the sector. Set all fields to null for BFSI companies.
 
-For metrics.industry_cagr: output a single CAGR % estimate (e.g. "13%"), not a range. Use midpoint if uncertain.
+For metrics.industry_aum (BFSI only): estimate total industry AUM — calculated as Gross Advances + Deposits for the ${industry} sector. Express in a readable format (e.g. "₹180L Cr"). Add a "change" field with the YoY % change (e.g. "+14%"). Set to null for non-BFSI companies.
 
-For metrics.market_size: output a single figure (e.g. "₹32,000 Cr"), not a range. Use midpoint if uncertain.
+For metrics.current_opm: output a single OPM % value (e.g. "23%") and a "change" field in basis points (e.g. "+120bps" or "-40bps") representing the YoY change. Use the EBIT/revenue sparkline above to derive the change. If peer OPMs differ, use weighted average and explain in sublabel.
+
+For metrics.industry_roce: use the ROCE trend above (last 4 Q4s) to populate "value" (latest, e.g. "24.8%") and "change" (YoY change in bps, e.g. "+180bps"). This represents the subject company ROCE as a proxy for industry ROCE — note in sublabel if peers differ significantly.${bfsi ? '\n\nThis is a BFSI company. Populate industry_aum; set industry_cagr fields (qoq, one_year, three_year) to null.' : '\n\nThis is a non-BFSI company. Populate industry_cagr (qoq, one_year, three_year); set industry_aum to null.'}
+
+Populate the "final_scoring" field INSIDE the industry_overview JSON object (same level as "metrics"). Award 1 point per check, max 10:
+  1. Demand signal is "Strong" → metrics.demand_signal
+  2. Supply constraint is "Low" or "Moderate" (not High) → metrics.supply_constraint
+  3. Industry revenue TTM change is positive → metrics.industry_revenue_ttm.change
+  4. ${bfsi ? 'Industry AUM growth > 12% → metrics.industry_aum.change' : 'Industry CAGR 1Y > 10% → metrics.industry_cagr.one_year'}
+  5. ${bfsi ? 'Industry AUM 3Y growth positive → metrics.industry_aum' : 'Industry CAGR 3Y > 8% → metrics.industry_cagr.three_year'}
+  6. Operating margin ≥ 12% → metrics.current_opm.value
+  7. Operating margin YoY change is positive → metrics.current_opm.change
+  8. Industry ROCE ≥ 12% → metrics.industry_roce.value
+  9. Industry ROCE change is positive → metrics.industry_roce.change
+  10. OPM forward outlook is improving or stable → text.opm_trend.forward_outlook
+  status: score >= 7 → "FAVORABLE" (green), score 5–6 → "NEUTRAL" (yellow), score < 5 → "UNFAVORABLE" (red).
 
 ══════════════════════════════════════════════════════════
 D. OUTPUT FORMAT

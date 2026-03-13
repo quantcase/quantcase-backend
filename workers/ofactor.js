@@ -75,7 +75,7 @@ async function buildIndustrySection(subjectTicker, industry, subjectSummaries, p
 
   const subjectData = subjectSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
   const peerData    = peerSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
-  const metrics     = { rawBatch: q4Only(rawBatch), derivedBatch: q4Only(derivedBatch) };
+  const metrics     = { rawBatch: q4Only(rawBatch), derivedBatch: q4Only(derivedBatch), bfsi };
 
   return { prompt: industryPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions), sectionKey: 'industry_overview' };
 }
@@ -261,16 +261,14 @@ async function processOFactorJob(job) {
       console.log(`[OFactor] Section "${section}" saved for callId: ${callId}`);
       await prisma.job.update({
         where: { bullmqId: job.id },
-        data:  { status: 'completed', result: { callId, section, sectionKey } }
+        data:  { status: 'completed', result: { callId, section, sectionKey, sectionResult } }
       });
     }
 
     await job.updateProgress(100);
     console.log(`[OFactor] Job ${job.id} completed (section: ${section})`);
-    // For custom runs sectionResult is in returnvalue so frontend can read it via GET /api/jobs/:jobId
-    return customRun
-      ? { section, sectionKey, sectionResult }
-      : { section, sectionKey };
+    // sectionResult is in returnvalue so frontend can read it via GET /api/jobs/:jobId
+    return { section, sectionKey, sectionResult };
 
   } catch (error) {
     console.error(`[OFactor] Job ${job.id} failed:`, error);
