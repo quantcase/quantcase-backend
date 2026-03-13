@@ -171,6 +171,19 @@ C. ANALYSIS INSTRUCTIONS
 
 ${customInstructions ?? DEFAULT_INSTRUCTIONS}
 
+Populate the "final_scoring" field INSIDE the competition JSON object (same level as "metrics"). Award 1 point per check, max 10:
+  1. Porter's score ≥ 7/10 → metrics.porters_score
+  2. Pricing power is "High" → metrics.pricing_power
+  3. Entry barriers are "High" → metrics.entry_barriers
+  4. Competitive intensity is "Low" → metrics.competitive_intensity
+  5. Clear moat identified (IP / brand / switching costs / network effects) → text.competitive_positioning.strengths
+  6. No major disruption threat in the near term → text.competitive_positioning.areas_to_monitor
+  7. Subject company gaining or holding market share → based on EPS/PE CAGR vs industry
+  8. Subject EPS CAGR > Industry EPS CAGR → computed metrics above
+  9. Pricing power dynamics are stable or improving → text.pricing_power_dynamics.future_trajectory
+  10. Competitive advantages sustainable 3+ years → text.competitive_positioning.strengths
+  status: score >= 7 → "STRONG POSITION" (green), score 5–6 → "MODERATE POSITION" (yellow), score < 5 → "WEAK POSITION" (red).
+
 ══════════════════════════════════════════════════════════
 D. OUTPUT FORMAT
 ══════════════════════════════════════════════════════════

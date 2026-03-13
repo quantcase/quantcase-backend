@@ -89,6 +89,19 @@ Metric-specific instructions for when data is unavailable:
   • text.retention.metrics.net_revenue_retention: Same guidance as metrics.net_retention above.
   • text.retention.metrics.gross_revenue_retention: If not explicitly reported, set value to null and sublabel to "Not explicitly reported in transcripts".
 
+Populate the "final_scoring" field INSIDE the customer_traction JSON object (same level as "metrics"). Award 1 point per check, max 10:
+  1. Customer count growing YoY → text.customer_growth.metrics.current_base trend
+  2. Churn rate ≤ 5% or declining → metrics.churn_rate
+  3. Net revenue retention ≥ 100% → metrics.net_retention
+  4. New customer additions positive → text.customer_growth.metrics.new_adds
+  5. Pipeline / order book growing → text.customer_growth.acquisition_dynamics
+  6. Long-term contracts or sticky revenue model → text.retention.product_stickiness
+  7. Revenue per customer (avg contract value) increasing → metrics.avg_contract_value
+  8. Customer concentration manageable (top-10 < 30%) → metrics.top_10_concentration
+  9. Cross-sell or upsell happening → text.retention.expansion_drivers
+  10. Management provides specific customer metrics in transcripts → presence of non-null customer_growth metrics
+  status: score >= 7 → "HIGH TRACTION" (green), score 5–6 → "MODERATE TRACTION" (yellow), score < 5 → "LOW TRACTION" (red).
+
 ══════════════════════════════════════════════════════════
 D. OUTPUT FORMAT
 ══════════════════════════════════════════════════════════

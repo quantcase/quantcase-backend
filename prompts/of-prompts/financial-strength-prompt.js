@@ -127,37 +127,43 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, cu
   const fmt  = v => v != null ? v : 'N/A';
   const pct  = v => v != null ? v + '%' : 'N/A';
 
-  // Income statement (latest)
+  // Fallback helper: prefer Q4-annual value, else latest from any quarter.
+  // Balance sheet and cash flow items are only required annually by SEBI LODR,
+  // so they may appear in a quarter other than Q4 (e.g. Dec year-end companies).
+  const _latestAny = (q4Series, allSeries) => _latest(q4Series) ?? _latest(allSeries);
+
+  // Income statement (latest) — P&L is published every quarter, Q4 preferred
   const revOp    = _latest(rawBatch?.REV_OP);
   const pat      = _latest(rawBatch?.PAT);
   const pbt      = _latest(rawBatch?.PBT);
   const finCost  = _latest(rawBatch?.FIN_COST);
   const depAmort = _latest(rawBatch?.DEP_AMORT);
-  const cfo      = _latest(rawBatch?.CFO);
-  const provCont = _latest(rawBatch?.PROV_CONT);
+  // CFO is a cash flow item — annual only, fall back to any quarter
+  const cfo      = _latestAny(rawBatch?.CFO,      rawBatchAll?.CFO);
+  const provCont = _latestAny(rawBatch?.PROV_CONT, rawBatchAll?.PROV_CONT);
 
-  // Balance sheet (latest)
-  const debtLt      = _latest(rawBatch?.DEBT_LT);
-  const debtSt      = _latest(rawBatch?.DEBT_ST);
-  const cashEquiv   = _latest(rawBatch?.CASH_EQUIV);
-  const totalAssets = _latest(rawBatch?.TOTAL_ASSETS);
-  const currLiab    = _latest(rawBatch?.CURR_LIAB);
-  const eqCap       = _latest(rawBatch?.EQ_SHARE_CAP);
-  const reserves    = _latest(rawBatch?.RES_SURPLUS);
+  // Balance sheet (latest) — annual only, fall back to any quarter
+  const debtLt      = _latestAny(rawBatch?.DEBT_LT,      rawBatchAll?.DEBT_LT);
+  const debtSt      = _latestAny(rawBatch?.DEBT_ST,      rawBatchAll?.DEBT_ST);
+  const cashEquiv   = _latestAny(rawBatch?.CASH_EQUIV,   rawBatchAll?.CASH_EQUIV);
+  const totalAssets = _latestAny(rawBatch?.TOTAL_ASSETS, rawBatchAll?.TOTAL_ASSETS);
+  const currLiab    = _latestAny(rawBatch?.CURR_LIAB,    rawBatchAll?.CURR_LIAB);
+  const eqCap       = _latestAny(rawBatch?.EQ_SHARE_CAP, rawBatchAll?.EQ_SHARE_CAP);
+  const reserves    = _latestAny(rawBatch?.RES_SURPLUS,  rawBatchAll?.RES_SURPLUS);
 
-  // Working capital (latest) — non-BFSI meaningful
-  const tradeRecv = _latest(rawBatch?.TRADE_RECV);
-  const tradePay  = _latest(rawBatch?.TRADE_PAY);
-  const inventory = _latest(rawBatch?.INVENTORY);
+  // Working capital (latest) — annual only, fall back to any quarter
+  const tradeRecv = _latestAny(rawBatch?.TRADE_RECV, rawBatchAll?.TRADE_RECV);
+  const tradePay  = _latestAny(rawBatch?.TRADE_PAY,  rawBatchAll?.TRADE_PAY);
+  const inventory = _latestAny(rawBatch?.INVENTORY,  rawBatchAll?.INVENTORY);
 
-  // Derived (latest)
-  const ebit      = _latest(derivedBatch?.EBIT);       // PPOP for BFSI
+  // Derived (latest) — metrics depending on balance sheet/CF fall back to any quarter
+  const ebit      = _latest(derivedBatch?.EBIT);       // PPOP for BFSI — P&L based, Q4 ok
   const ebitMargin= _latest(derivedBatch?.EBIT_MARGIN);
-  const roce      = _latest(derivedBatch?.ROCE);        // null for BFSI
-  const roa       = _latest(derivedBatch?.ROA);
-  const roe       = _latest(derivedBatch?.ROE);
-  const capex     = _latest(derivedBatch?.CAPEX);
-  const fcf       = _latest(derivedBatch?.FCF);
+  const roce      = _latestAny(derivedBatch?.ROCE,   derivedBatchAll?.ROCE);   // null for BFSI
+  const roa       = _latestAny(derivedBatch?.ROA,    derivedBatchAll?.ROA);
+  const roe       = _latestAny(derivedBatch?.ROE,    derivedBatchAll?.ROE);
+  const capex     = _latestAny(derivedBatch?.CAPEX,  derivedBatchAll?.CAPEX);
+  const fcf       = _latestAny(derivedBatch?.FCF,    derivedBatchAll?.FCF);
 
   // Gross margin (non-BFSI): (REV_OP - COGS) / REV_OP × 100
   // COGS = COST_MAT + PURCH_STOCK + INV_CHG
@@ -364,6 +370,14 @@ ${_tableBlock('DIV_PAYOUT %', divPayoutQ4)}
 ${_tableBlock('EQ_SHARE_CAP', eqCapQ4)}
 ${_tableBlock('RESERVES', reservesQ4)}`;
 
+  // For annual-only items (balance sheet / cash flow), merge Q4 series with all-quarter
+  // series so sparklines show the best available data across fiscal year conventions.
+  const _mergeAnnual = (q4Series, allSeries) => {
+    if (!Array.isArray(q4Series) || !Array.isArray(allSeries)) return q4Series ?? allSeries ?? [];
+    if (q4Series.some(s => s.value != null)) return q4Series;
+    return allSeries;
+  };
+
   const trendsBlock = bfsi
     ? `── Revenue trend (last 5 years) ──
   ${_sparkline(rawBatch?.REV_OP)}
@@ -372,13 +386,13 @@ ${_tableBlock('RESERVES', reservesQ4)}`;
   ${_sparkline(rawBatch?.PAT)}
 
 ── ROA trend (last 5 years) ──
-  ${_sparkline(derivedBatch?.ROA)}
+  ${_sparkline(_mergeAnnual(derivedBatch?.ROA, derivedBatchAll?.ROA))}
 
 ── ROE trend (last 5 years) ──
-  ${_sparkline(derivedBatch?.ROE)}
+  ${_sparkline(_mergeAnnual(derivedBatch?.ROE, derivedBatchAll?.ROE))}
 
 ── Free Cash Flow trend (last 5 years) ──
-  ${_sparkline(derivedBatch?.FCF)}`
+  ${_sparkline(_mergeAnnual(derivedBatch?.FCF, derivedBatchAll?.FCF))}`
     : `── Revenue trend (last 5 years) ──
   ${_sparkline(rawBatch?.REV_OP)}
 
@@ -386,13 +400,13 @@ ${_tableBlock('RESERVES', reservesQ4)}`;
   ${_sparkline(rawBatch?.PAT)}
 
 ── FCF trend (last 5 years) ──
-  ${_sparkline(derivedBatch?.FCF)}
+  ${_sparkline(_mergeAnnual(derivedBatch?.FCF, derivedBatchAll?.FCF))}
 
 ── ROCE trend (last 5 years) ──
-  ${_sparkline(derivedBatch?.ROCE)}
+  ${_sparkline(_mergeAnnual(derivedBatch?.ROCE, derivedBatchAll?.ROCE))}
 
 ── CFO trend (last 5 years) ──
-  ${_sparkline(rawBatch?.CFO)}`;
+  ${_sparkline(_mergeAnnual(rawBatch?.CFO, rawBatchAll?.CFO))}`;
 
   const defaultInstr = bfsi ? DEFAULT_INSTRUCTIONS_BFSI : DEFAULT_INSTRUCTIONS_NONBFSI;
   const bfsiMetricInstructions = bfsi ? `\n\nBFSI-specific metric instructions:
@@ -447,7 +461,7 @@ capital_structure:
   • capex_intensity.metrics[1].bar_pct: CAPEX/OCF * 100 directly.
   • capex_intensity.metrics[2].bar_pct: CAPEX/DEP_AMORT ratio * 100 (1x = 100).
 
-final_scoring (8 checks — award 1 point each):
+final_scoring (10 checks — award 1 point each):
   1. OCF/PAT > 0.8x  → check text.cash_flow.metrics.ocf_ebitda or compute CFO/PAT from data
   2. FCF positive and growing → free_cash_flow.growth_trajectory
   3. ROCE > 12%  → metrics.roce
@@ -456,7 +470,9 @@ final_scoring (8 checks — award 1 point each):
   6. Net Debt declining or net cash → capital_structure.balance_sheet.status
   7. EBIT Margin expanding → operating_leverage.verdict.status = "positive"
   8. Capex < OCF → capital_structure.capex_intensity (capex_ocf_pct < 100)
-  status: score >= 6 → "HIGH QUALITY" (green), score 4–5 → "MODERATE QUALITY" (yellow), score < 4 → "LOW QUALITY" (red).`;
+  9. ROE > 12% → metrics.roe
+  10. PAT margin improving or above 8% → metrics.pat (PAT/revenue trend)
+  status: score >= 7 → "HIGH QUALITY" (green), score 5–6 → "MODERATE QUALITY" (yellow), score < 5 → "LOW QUALITY" (red).`;
 
   return `You are a senior equity research analyst. Assess the financial strength of ${subjectTicker}.
 ${bfsi ? 'Note: This is a BFSI company. Use BFSI-appropriate metrics (ROA, ROE, PPOP, FCF net of provisions). Do NOT reference ROCE.' : ''}

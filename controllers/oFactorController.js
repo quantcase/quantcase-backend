@@ -84,6 +84,23 @@ async function getQ4Stats(ticker) {
   return { revenue: revOp, revenueGrowth, opm, roce, debtEquity };
 }
 
+function computeTotalScore(result) {
+  if (!result) return null;
+  const SECTIONS = [
+    { key: 'industry_overview',  path: result.industry_overview?.final_scoring,  max: 10 },
+    { key: 'competition',        path: result.competition?.final_scoring,        max: 10 },
+    { key: 'financial_strength', path: result.financial_strength?.final_scoring, max: 10 },
+    { key: 'customer_traction',  path: result.customer_traction?.final_scoring,  max: 10 },
+  ];
+  const present = SECTIONS.filter(s => s.path?.score != null);
+  if (!present.length) return null;
+  return {
+    total_score: present.reduce((sum, s) => sum + Number(s.path.score), 0),
+    max_score:   present.reduce((sum, s) => sum + s.max, 0),
+    sections:    present.map(s => ({ section: s.key, score: Number(s.path.score), max_score: s.max })),
+  };
+}
+
 async function getOFactorAnalysis(req, res) {
   try {
     const { callId } = req.params;
@@ -94,7 +111,8 @@ async function getOFactorAnalysis(req, res) {
       return res.status(404).json({ success: false, error: 'OFactor analysis not yet available — trigger via POST first' });
     }
 
-    res.json({ success: true, data: record.result });
+    const totalScore = computeTotalScore(record.result);
+    res.json({ success: true, data: record.result, total_score: totalScore });
   } catch (error) {
     console.error('Error fetching OFactor analysis:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch OFactor analysis', message: error.message });
@@ -119,11 +137,93 @@ async function getOFactorAnalysisByQuery(req, res) {
       return res.status(404).json({ success: false, error: 'OFactor analysis not yet available — trigger via POST first' });
     }
 
-    res.json({ success: true, data: record.result });
+    const totalScore = computeTotalScore(record.result);
+    res.json({ success: true, data: record.result, total_score: totalScore });
   } catch (error) {
     console.error('Error fetching OFactor analysis:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch OFactor analysis', message: error.message });
   }
+}
+
+// ── Helper: industry_specific KPI timeseries for multiple tickers (batched) ──
+// Returns [{ ticker, timeseries }] using the same extraction logic as
+// getIndustryKpiTimeseries.  After calling this, intersect with the subject's
+// abbr set so only KPIs present in both subject and peers are included.
+async function getPeerIndustryKpiTimeseries(peerTickers) {
+  if (!peerTickers.length) return [];
+
+  const [allCalls, industryKpis] = await Promise.all([
+    prisma.earnings_calls.findMany({
+      where:   { company: { in: peerTickers }, quarter: 'Q4' },
+      select:  { id: true, company: true, fiscal_year: true, quarter: true },
+      orderBy: [{ fiscal_year: 'desc' }],
+    }),
+    prisma.kpi.findMany({
+      where:  { kpi_type: 'industry_specific' },
+      select: { abbr: true },
+    }),
+  ]);
+
+  if (!industryKpis.length) return peerTickers.map(t => ({ ticker: t, timeseries: [] }));
+  const industrySet = new Set(industryKpis.map(k => k.abbr));
+
+  // Keep only last 5 Q4 calls per ticker (allCalls already ordered desc by fiscal_year)
+  const countPerTicker = {};
+  const filteredCalls = [];
+  for (const c of allCalls) {
+    countPerTicker[c.company] = (countPerTicker[c.company] ?? 0);
+    if (countPerTicker[c.company] < 5) {
+      filteredCalls.push(c);
+      countPerTicker[c.company]++;
+    }
+  }
+
+  const callIds  = filteredCalls.map(c => c.id);
+  const callMeta = Object.fromEntries(filteredCalls.map(c => [c.id, c]));
+
+  const summaries = await prisma.summaryNew.findMany({
+    where:  { callId: { in: callIds } },
+    select: { callId: true, milestones: true },
+  });
+
+  const SECTIONS = ['future_goals', 'success_disclosures', 'failure_disclosures'];
+  const kpiDataByTicker = Object.fromEntries(peerTickers.map(t => [t, {}]));
+
+  for (const summary of summaries) {
+    const ms = summary.milestones;
+    if (!ms || typeof ms !== 'object') continue;
+    const meta = callMeta[summary.callId];
+    if (!meta) continue;
+    const period  = `${meta.fiscal_year}-${meta.quarter}`;
+    const kpiData = kpiDataByTicker[meta.company];
+    if (!kpiData) continue;
+
+    const seen = new Set();
+    for (const section of SECTIONS) {
+      const targets = ms[section]?.financial_targets;
+      if (!Array.isArray(targets)) continue;
+      for (const entry of targets) {
+        const abbr = entry.kpi_abbr;
+        if (!abbr || !industrySet.has(abbr) || seen.has(abbr)) continue;
+        const val = parseFloat(entry.current_value);
+        if (isNaN(val)) continue;
+        seen.add(abbr);
+        if (!kpiData[abbr]) kpiData[abbr] = [];
+        kpiData[abbr].push({ period, value: val });
+      }
+    }
+  }
+
+  return peerTickers.map(ticker => ({
+    ticker,
+    timeseries: Object.entries(kpiDataByTicker[ticker] ?? {})
+      .map(([abbr, data]) => ({
+        kpi_abbr:         abbr,
+        quarters_present: data.length,
+        data:             data.sort((a, b) => (a.period < b.period ? -1 : 1)),
+      }))
+      .sort((a, b) => b.quarters_present - a.quarters_present),
+  }));
 }
 
 // ── Helper: industry_specific KPI timeseries for last 5 calls ─────────────────
@@ -226,7 +326,7 @@ async function getPeerData(req, res) {
 
     const allTickers = [subjectTicker, ...peerTickers];
 
-    const [nameRows, statsResults, industryTimeseries] = await Promise.all([
+    const [nameRows, statsResults, industryTimeseries, rawPeerKpiTimeseries] = await Promise.all([
       prisma.earnings_calls.findMany({
         where:    { company: { in: allTickers } },
         select:   { company: true, company_name: true },
@@ -234,7 +334,16 @@ async function getPeerData(req, res) {
       }),
       Promise.allSettled(allTickers.map(getQ4Stats)),
       getIndustryKpiTimeseries(subjectTicker),
+      getPeerIndustryKpiTimeseries(peerTickers),
     ]);
+
+    // Only keep peer KPIs that also appear in the subject's timeseries
+    const subjectAbbrs = new Set(industryTimeseries.map(k => k.kpi_abbr));
+    const peerKpiTimeseries = rawPeerKpiTimeseries.map(p => ({
+      ticker:       p.ticker,
+      company_name: nameRows.find(r => r.company === p.ticker)?.company_name ?? p.ticker,
+      timeseries:   p.timeseries.filter(k => subjectAbbrs.has(k.kpi_abbr)),
+    }));
 
     const nameMap = Object.fromEntries(nameRows.map(r => [r.company, r.company_name]));
 
@@ -287,6 +396,10 @@ async function getPeerData(req, res) {
       industry_kpis: {
         meta:       { section_id: 'industry_kpis', title: 'Industry KPI Trends' },
         timeseries: industryTimeseries,
+      },
+      peer_kpi_timeseries: {
+        meta:      { section_id: 'peer_kpi_timeseries', title: 'Peer Industry KPI Trends' },
+        companies: peerKpiTimeseries,
       },
     });
   } catch (error) {

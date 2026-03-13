@@ -70,6 +70,15 @@ const OFactorResponseSchema = {
       "entry_barriers":        { "label": "Entry Barriers",        "value": "<Low|Moderate|High>",  "sublabel": "<string>" },
       "market_position":       { "label": "Market Position",       "value": "<string>",             "sublabel": "<string>" },
       "competitive_intensity": { "label": "Competitive Intensity", "value": "<Low|Moderate|High>",  "sublabel": "<string>" }
+    },
+    "final_scoring": {
+      "meta": { "section_id": "4.2.5", "title": "Competitive Position Scorecard" },
+      "score": "<number 0–10>",
+      "max_score": 10,
+      "status": "<STRONG POSITION|MODERATE POSITION|WEAK POSITION>",
+      "status_color": "<green|yellow|red>",
+      "title": "<string>",
+      "body": "<string>"
     }
   },
   "customer_traction": {
@@ -114,6 +123,15 @@ const OFactorResponseSchema = {
       "active_customers":     { "label": "Active Customers",                      "value": "<string|null>", "sublabel": "<string>" },
       "avg_contract_value":   { "label": "Avg Contract / AUM Value",              "value": "<string|null>", "sublabel": "<string>" },
       "top_10_concentration": { "label": "Top-10 Concentration",                  "value": "<string|null>", "sublabel": "<string>" }
+    },
+    "final_scoring": {
+      "meta": { "section_id": "4.4.5", "title": "Customer Traction Scorecard" },
+      "score": "<number 0–10>",
+      "max_score": 10,
+      "status": "<HIGH TRACTION|MODERATE TRACTION|LOW TRACTION>",
+      "status_color": "<green|yellow|red>",
+      "title": "<string>",
+      "body": "<string>"
     }
   },
   "industry_overview": {
@@ -142,12 +160,22 @@ const OFactorResponseSchema = {
       }
     },
     "metrics": {
-      "industry_revenue_ttm": { "label": "Industry Revenue TTM",   "value": "<string|null>",         "sublabel": "<string>" },
-      "current_opm":          { "label": "Current OPM",            "value": "<string>",              "sublabel": "<string>" },
-      "market_size":          { "label": "Market Size / AUM",      "value": "<string|null>",         "sublabel": "<string>" },
-      "demand_signal":        { "label": "Demand Signal",          "value": "<Weak|Moderate|Strong>","sublabel": "<string>" },
-      "industry_cagr":        { "label": "Industry Revenue CAGR",  "value": "<string|null>",         "sublabel": "<string>" },
-      "supply_constraint":    { "label": "Supply Constraint",      "value": "<Low|Moderate|High>",   "sublabel": "<string>" }
+      "industry_revenue_ttm": { "label": "Total Industry Revenue (TTM)", "value": "<string|null>", "change": "<string|null>", "sublabel": "<string>" },
+      "industry_cagr":        { "label": "Industry CAGR",                "qoq": "<string|null>", "one_year": "<string|null>", "three_year": "<string|null>", "sublabel": "<string>" },
+      "industry_aum":         { "label": "Industry AUM",                 "value": "<string|null>", "change": "<string|null>", "sublabel": "<string>" },
+      "current_opm":          { "label": "Industry Operating Margin",    "value": "<string|null>", "change": "<string|null>", "sublabel": "<string>" },
+      "industry_roce":        { "label": "Industry ROCE",                "value": "<string|null>", "change": "<string|null>", "sublabel": "<string>" },
+      "demand_signal":        { "label": "Demand Signal",                "value": "<Weak|Moderate|Strong>", "sublabel": "<string>" },
+      "supply_constraint":    { "label": "Supply Constraint",            "value": "<Low|Moderate|High>",    "sublabel": "<string>" }
+    },
+    "final_scoring": {
+      "meta": { "section_id": "4.1.5", "title": "Industry Attractiveness Scorecard" },
+      "score": "<number 0–10>",
+      "max_score": 10,
+      "status": "<FAVORABLE|NEUTRAL|UNFAVORABLE>",
+      "status_color": "<green|yellow|red>",
+      "title": "<string>",
+      "body": "<string>"
     }
   },
   "financial_strength": {
@@ -346,8 +374,8 @@ const OFactorResponseSchema = {
     },
     "final_scoring": {
       "meta": { "section_id": "4.3.5", "title": "Financial Quality Scorecard" },
-      "score": "<number 0–8>",
-      "max_score": 8,
+      "score": "<number 0–10>",
+      "max_score": 10,
       "status": "<HIGH QUALITY|MODERATE QUALITY|LOW QUALITY>",
       "status_color": "<green|yellow|red>",
       "title": "<string>",
