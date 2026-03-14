@@ -145,27 +145,35 @@ async function getOFactorAnalysisByQuery(req, res) {
   }
 }
 
+const DENOMINATION_UNIT = { percentage: '%', rupee: 'Cr', ratio: 'x', other: '' };
+
+function formatKpiValue(val, denomination, callDate) {
+  const unit = DENOMINATION_UNIT[denomination] ?? '';
+  let str = String(val);
+  if (unit) str += ` ${unit}`;
+  if (callDate) str += ` (${callDate})`;
+  return str;
+}
+
 // ── Helper: industry_specific KPI timeseries for multiple tickers (batched) ──
-// Returns [{ ticker, timeseries }] using the same extraction logic as
-// getIndustryKpiTimeseries.  After calling this, intersect with the subject's
-// abbr set so only KPIs present in both subject and peers are included.
 async function getPeerIndustryKpiTimeseries(peerTickers) {
   if (!peerTickers.length) return [];
 
   const [allCalls, industryKpis] = await Promise.all([
     prisma.earnings_calls.findMany({
       where:   { company: { in: peerTickers }, quarter: 'Q4' },
-      select:  { id: true, company: true, fiscal_year: true, quarter: true },
+      select:  { id: true, company: true, fiscal_year: true, quarter: true, call_date: true },
       orderBy: [{ fiscal_year: 'desc' }],
     }),
     prisma.kpi.findMany({
       where:  { kpi_type: 'industry_specific' },
-      select: { abbr: true },
+      select: { abbr: true, denomination: true },
     }),
   ]);
 
   if (!industryKpis.length) return peerTickers.map(t => ({ ticker: t, timeseries: [] }));
   const industrySet = new Set(industryKpis.map(k => k.abbr));
+  const unitMap = Object.fromEntries(industryKpis.map(k => [k.abbr, k.denomination]));
 
   // Keep only last 5 Q4 calls per ticker (allCalls already ordered desc by fiscal_year)
   const countPerTicker = {};
@@ -209,7 +217,7 @@ async function getPeerIndustryKpiTimeseries(peerTickers) {
         if (isNaN(val)) continue;
         seen.add(abbr);
         if (!kpiData[abbr]) kpiData[abbr] = [];
-        kpiData[abbr].push({ period, value: val });
+        kpiData[abbr].push({ period, value: formatKpiValue(val, unitMap[abbr], meta.call_date) });
       }
     }
   }
@@ -227,14 +235,11 @@ async function getPeerIndustryKpiTimeseries(peerTickers) {
 }
 
 // ── Helper: industry_specific KPI timeseries for last 5 calls ─────────────────
-// Fetches KPIs flagged as industry_specific from the Kpi table, then reads the
-// last 5 SummaryNew entries for the ticker and returns, as a timeseries, only
-// those KPIs that appeared in the most quarters.
 async function getIndustryKpiTimeseries(ticker) {
   // Q4 calls only — each represents a full fiscal year
   const calls = await prisma.earnings_calls.findMany({
     where:   { company: ticker, quarter: 'Q4' },
-    select:  { id: true, fiscal_year: true, quarter: true },
+    select:  { id: true, fiscal_year: true, quarter: true, call_date: true },
     orderBy: [{ fiscal_year: 'desc' }],
     take:    5,
   });
@@ -250,13 +255,14 @@ async function getIndustryKpiTimeseries(ticker) {
     }),
     prisma.kpi.findMany({
       where:  { kpi_type: 'industry_specific' },
-      select: { abbr: true },
+      select: { abbr: true, denomination: true },
     }),
   ]);
 
   if (!industryKpis.length) return [];
 
   const industrySet = new Set(industryKpis.map(k => k.abbr));
+  const unitMap = Object.fromEntries(industryKpis.map(k => [k.abbr, k.denomination]));
   const kpiData = {};   // abbr → [{ period, value }]
   const SECTIONS = ['future_goals', 'success_disclosures', 'failure_disclosures'];
 
@@ -279,7 +285,7 @@ async function getIndustryKpiTimeseries(ticker) {
         if (isNaN(val)) continue;
         seen.add(abbr);
         if (!kpiData[abbr]) kpiData[abbr] = [];
-        kpiData[abbr].push({ period, value: val });
+        kpiData[abbr].push({ period, value: formatKpiValue(val, unitMap[abbr], meta.call_date) });
       }
     }
   }
@@ -337,15 +343,29 @@ async function getPeerData(req, res) {
       getPeerIndustryKpiTimeseries(peerTickers),
     ]);
 
-    // Only keep peer KPIs that also appear in the subject's timeseries
-    const subjectAbbrs = new Set(industryTimeseries.map(k => k.kpi_abbr));
-    const peerKpiTimeseries = rawPeerKpiTimeseries.map(p => ({
-      ticker:       p.ticker,
-      company_name: nameRows.find(r => r.company === p.ticker)?.company_name ?? p.ticker,
-      timeseries:   p.timeseries.filter(k => subjectAbbrs.has(k.kpi_abbr)),
-    }));
-
     const nameMap = Object.fromEntries(nameRows.map(r => [r.company, r.company_name]));
+
+    // Only show KPIs that subject AND at least one peer both have data for
+    const peerKpiAbbrSet = new Set();
+    rawPeerKpiTimeseries.forEach(p => p.timeseries.forEach(k => peerKpiAbbrSet.add(k.kpi_abbr)));
+    const sharedAbbrs = new Set(
+      industryTimeseries.filter(k => peerKpiAbbrSet.has(k.kpi_abbr)).map(k => k.kpi_abbr),
+    );
+
+    const peerKpiTimeseries = [
+      // Subject company first
+      {
+        ticker:       subjectTicker,
+        company_name: nameMap[subjectTicker] ?? subjectTicker,
+        timeseries:   industryTimeseries.filter(k => sharedAbbrs.has(k.kpi_abbr)),
+      },
+      // Peers — filtered to shared KPIs only
+      ...rawPeerKpiTimeseries.map(p => ({
+        ticker:       p.ticker,
+        company_name: nameMap[p.ticker] ?? p.ticker,
+        timeseries:   p.timeseries.filter(k => sharedAbbrs.has(k.kpi_abbr)),
+      })),
+    ];
 
     const rows = statsResults.map((r, i) => ({
       ticker: allTickers[i],
@@ -356,33 +376,52 @@ async function getPeerData(req, res) {
 
     const totalRevenue = rows.reduce((s, r) => s + (r.revenue ?? 0), 0);
 
-    const peers = rows.map(r => ({
+    // Compute raw market shares, then adjust last non-null entry so they sum to exactly 100
+    const rawShares = rows.map(r =>
+      totalRevenue > 0 && r.revenue != null ? (r.revenue / totalRevenue) * 100 : null,
+    );
+    const nonNullIdx = rawShares.reduce((acc, v, i) => (v !== null ? [...acc, i] : acc), []);
+    const marketShares = rawShares.map(() => null);
+    if (nonNullIdx.length > 0) {
+      let sum = 0;
+      for (let i = 0; i < nonNullIdx.length - 1; i++) {
+        const idx = nonNullIdx[i];
+        const rounded = parseFloat(rawShares[idx].toFixed(2));
+        marketShares[idx] = rounded;
+        sum += rounded;
+      }
+      const lastIdx = nonNullIdx[nonNullIdx.length - 1];
+      marketShares[lastIdx] = parseFloat((100 - sum).toFixed(2));
+    }
+
+    const peers = rows.map((r, i) => ({
       company:        nameMap[r.ticker] ?? r.ticker,
       revenue:        r.revenue,
       revenue_growth: r.revenueGrowth,
       opm:            r.opm,
       roce:           r.roce,
-      market_share:   totalRevenue > 0 && r.revenue != null
-        ? parseFloat(((r.revenue / totalRevenue) * 100).toFixed(2))
-        : null,
+      market_share:   marketShares[i],
       debt_equity:    r.debtEquity,
       is_current:     r.ticker === subjectTicker,
       is_average:     false,
     }));
 
-    const avg = (field) => {
-      const vals = peers.map(p => p[field]).filter(v => v != null);
-      if (!vals.length) return null;
-      return parseFloat((vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(2));
+    // Revenue-weighted average (market-share weighted) for all metrics
+    const weightedAvg = (field) => {
+      const valid = peers.filter(p => p[field] != null && p.revenue != null);
+      if (!valid.length) return null;
+      const totalW = valid.reduce((s, p) => s + p.revenue, 0);
+      if (totalW === 0) return null;
+      return parseFloat((valid.reduce((s, p) => s + p[field] * p.revenue, 0) / totalW).toFixed(2));
     };
     peers.push({
       company:        'Industry Average',
-      revenue:        avg('revenue'),
-      revenue_growth: avg('revenue_growth'),
-      opm:            avg('opm'),
-      roce:           avg('roce'),
-      market_share:   avg('market_share'),
-      debt_equity:    avg('debt_equity'),
+      revenue:        weightedAvg('revenue'),
+      revenue_growth: weightedAvg('revenue_growth'),
+      opm:            weightedAvg('opm'),
+      roce:           weightedAvg('roce'),
+      market_share:   null,
+      debt_equity:    weightedAvg('debt_equity'),
       is_current:     false,
       is_average:     true,
     });

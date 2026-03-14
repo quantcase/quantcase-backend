@@ -116,7 +116,7 @@ function serializeFinancialStrength(row) {
  * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array>, rawBatchAll: Record<string, Array>, derivedBatchAll: Record<string, Array>, bfsi: boolean }} computedMetrics
  */
 function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, customInstructions) {
-  const { rawBatch, derivedBatch, rawBatchAll = {}, derivedBatchAll = {}, bfsi = false } = computedMetrics;
+  const { rawBatch, derivedBatch, rawBatchAll = {}, derivedBatchAll = {}, bfsi = false, marketCap = null } = computedMetrics;
 
   const subjectText = subjectData.length > 0
     ? subjectData.map(r => serializeFinancialStrength(r)).join('\n\n---\n\n')
@@ -447,7 +447,7 @@ free_cash_flow:
   • conversion_consistency.quarterly_data: Use FCF/PAT % series from the FCF Conversion block. Mark the lowest-pct quarter with "is_floor: true".
   • growth_trajectory: Compare first vs last FCF and PAT in the available series to compute CAGRs. Set status_color green if FCF CAGR > PAT CAGR, yellow if similar, red if FCF declining.
   • ocf_to_fcf: Use the latest TTM values. capex_bar_pct = |CAPEX| / OCF * 100; fcf_bar_pct = FCF / OCF * 100.
-  • fcf_yield: If market cap is not available, set all yield_history entries to null and status to "Not Available". Otherwise estimate yield = FCF_TTM / market_cap * 100.
+  • fcf_yield: Market Cap = ${marketCap != null ? marketCap + ' Cr' : 'N/A'}. ${marketCap != null ? 'Use this value to compute yield = FCF_TTM / market_cap * 100 for each available period.' : 'Market cap not available — set all yield_history entries to null and status to "Not Available".'}
 
 working_capital:
   • quarters array and row values arrays MUST be the same length and in the same order.
@@ -508,6 +508,7 @@ ${profitabilityBlock}
     Cash from Operations    : ${fmt(cfo)}
     CAPEX                   : ${fmt(capex)}
     ${fcfLabel.padEnd(24)}: ${fmt(fcf)}
+    Market Cap              : ${marketCap != null ? marketCap + ' Cr' : 'N/A'}
 ${balanceSheetBlock}
 ${workingCapitalBlock}
 

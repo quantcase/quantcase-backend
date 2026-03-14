@@ -117,10 +117,14 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
   const bfsi = isBFSI(industry);
   console.log(`[OFactor] financial_strength — industry="${industry}", bfsi=${bfsi}`);
 
-  const [rawBatch, derivedBatch] = await Promise.all([
+  const [rawBatch, derivedBatch, mcRows] = await Promise.all([
     helper.getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
     helper.getDerivedKpiBatch(subjectTicker, bfsi),
+    prisma.$queryRaw`SELECT mc."market_cap(Cr)"::text AS market_cap FROM market_cap mc WHERE mc.symbol = ${subjectTicker} ORDER BY mc.date DESC NULLS LAST LIMIT 1`,
   ]);
+
+  const marketCap = mcRows[0]?.market_cap != null ? parseFloat(mcRows[0].market_cap) : null;
+  console.log(`[OFactor] financial_strength marketCap for ${subjectTicker}: ${marketCap}`);
 
   const q4Only = batch => Object.fromEntries(
     Object.entries(batch).map(([k, v]) => [k, v.filter(s => s.quarter === 'Q4')])
@@ -138,6 +142,7 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
     rawBatchAll:     lastNQuarters(rawBatch),
     derivedBatchAll: lastNQuarters(derivedBatch),
     bfsi,
+    marketCap,
   };
 
   return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics, customInstructions), sectionKey: 'financial_strength' };

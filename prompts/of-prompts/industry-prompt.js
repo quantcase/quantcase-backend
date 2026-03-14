@@ -128,7 +128,7 @@ function industryPrompt(subjectTicker, industry, subjectData, peerData, computed
 
 
   const ebit       = _latest(derivedBatch?.EBIT);
-  const roce       = _latestAny(derivedBatch?.ROCE,  derivedBatchAll?.ROCE);
+  const roce       = _latest(derivedBatchAll?.ROCE);
   const roa        = _latestAny(derivedBatch?.ROA,   derivedBatchAll?.ROA);
   const roe        = _latestAny(derivedBatch?.ROE,   derivedBatchAll?.ROE);
   const capex      = _latestAny(derivedBatch?.CAPEX, derivedBatchAll?.CAPEX);
@@ -167,7 +167,7 @@ A. SUBJECT COMPANY FINANCIAL SNAPSHOT (latest quarter)
   ${_sparkline(derivedBatch?.EBIT)}
 
 ── ROCE trend (last 4 quarters) ──
-  ${_sparkline(derivedBatch?.ROCE)}
+  ${_sparklineWithFallback(derivedBatch?.ROCE, derivedBatchAll?.ROCE)}
 
 ══════════════════════════════════════════════════════════
 B. INDUSTRY ANALYSIS FROM TRANSCRIPTS
