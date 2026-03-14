@@ -75,7 +75,7 @@ async function buildIndustrySection(subjectTicker, industry, subjectSummaries, p
 
   const subjectData = subjectSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
   const peerData    = peerSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
-  const metrics     = { rawBatch: q4Only(rawBatch), derivedBatch: q4Only(derivedBatch), bfsi };
+  const metrics     = { rawBatch: q4Only(rawBatch), derivedBatch: q4Only(derivedBatch), derivedBatchAll: derivedBatch, bfsi };
 
   return { prompt: industryPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions), sectionKey: 'industry_overview' };
 }

@@ -127,49 +127,49 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, cu
   const fmt  = v => v != null ? v : 'N/A';
   const pct  = v => v != null ? v + '%' : 'N/A';
 
-  // Fallback helper: prefer Q4-annual value, else latest from any quarter.
-  // Balance sheet and cash flow items are only required annually by SEBI LODR,
-  // so they may appear in a quarter other than Q4 (e.g. Dec year-end companies).
-  const _latestAny = (q4Series, allSeries) => _latest(q4Series) ?? _latest(allSeries);
+  // All snapshot values use the latest available quarter — no Q4 restriction.
+  // rawBatchAll / derivedBatchAll are the last-10-quarter full series.
+  // Using _latest() on these returns the most recent non-null value regardless
+  // of quarter, so ROCE/ROE/FCF and the raw inputs they depend on (PBT, PAT,
+  // FIN_COST, etc.) always come from the same approximate period.
 
-  // Income statement (latest) — P&L is published every quarter, Q4 preferred
-  const revOp    = _latest(rawBatch?.REV_OP);
-  const pat      = _latest(rawBatch?.PAT);
-  const pbt      = _latest(rawBatch?.PBT);
-  const finCost  = _latest(rawBatch?.FIN_COST);
-  const depAmort = _latest(rawBatch?.DEP_AMORT);
-  // CFO is a cash flow item — annual only, fall back to any quarter
-  const cfo      = _latestAny(rawBatch?.CFO,      rawBatchAll?.CFO);
-  const provCont = _latestAny(rawBatch?.PROV_CONT, rawBatchAll?.PROV_CONT);
+  // Income statement
+  const revOp    = _latest(rawBatchAll?.REV_OP);
+  const pat      = _latest(rawBatchAll?.PAT);
+  const pbt      = _latest(rawBatchAll?.PBT);
+  const finCost  = _latest(rawBatchAll?.FIN_COST);
+  const depAmort = _latest(rawBatchAll?.DEP_AMORT);
+  const cfo      = _latest(rawBatchAll?.CFO);
+  const provCont = _latest(rawBatchAll?.PROV_CONT);
 
-  // Balance sheet (latest) — annual only, fall back to any quarter
-  const debtLt      = _latestAny(rawBatch?.DEBT_LT,      rawBatchAll?.DEBT_LT);
-  const debtSt      = _latestAny(rawBatch?.DEBT_ST,      rawBatchAll?.DEBT_ST);
-  const cashEquiv   = _latestAny(rawBatch?.CASH_EQUIV,   rawBatchAll?.CASH_EQUIV);
-  const totalAssets = _latestAny(rawBatch?.TOTAL_ASSETS, rawBatchAll?.TOTAL_ASSETS);
-  const currLiab    = _latestAny(rawBatch?.CURR_LIAB,    rawBatchAll?.CURR_LIAB);
-  const eqCap       = _latestAny(rawBatch?.EQ_SHARE_CAP, rawBatchAll?.EQ_SHARE_CAP);
-  const reserves    = _latestAny(rawBatch?.RES_SURPLUS,  rawBatchAll?.RES_SURPLUS);
+  // Balance sheet
+  const debtLt      = _latest(rawBatchAll?.DEBT_LT);
+  const debtSt      = _latest(rawBatchAll?.DEBT_ST);
+  const cashEquiv   = _latest(rawBatchAll?.CASH_EQUIV);
+  const totalAssets = _latest(rawBatchAll?.TOTAL_ASSETS);
+  const currLiab    = _latest(rawBatchAll?.CURR_LIAB);
+  const eqCap       = _latest(rawBatchAll?.EQ_SHARE_CAP);
+  const reserves    = _latest(rawBatchAll?.RES_SURPLUS);
 
-  // Working capital (latest) — annual only, fall back to any quarter
-  const tradeRecv = _latestAny(rawBatch?.TRADE_RECV, rawBatchAll?.TRADE_RECV);
-  const tradePay  = _latestAny(rawBatch?.TRADE_PAY,  rawBatchAll?.TRADE_PAY);
-  const inventory = _latestAny(rawBatch?.INVENTORY,  rawBatchAll?.INVENTORY);
+  // Working capital
+  const tradeRecv = _latest(rawBatchAll?.TRADE_RECV);
+  const tradePay  = _latest(rawBatchAll?.TRADE_PAY);
+  const inventory = _latest(rawBatchAll?.INVENTORY);
 
-  // Derived (latest) — metrics depending on balance sheet/CF fall back to any quarter
-  const ebit      = _latest(derivedBatch?.EBIT);       // PPOP for BFSI — P&L based, Q4 ok
-  const ebitMargin= _latest(derivedBatch?.EBIT_MARGIN);
-  const roce      = _latestAny(derivedBatch?.ROCE,   derivedBatchAll?.ROCE);   // null for BFSI
-  const roa       = _latestAny(derivedBatch?.ROA,    derivedBatchAll?.ROA);
-  const roe       = _latestAny(derivedBatch?.ROE,    derivedBatchAll?.ROE);
-  const capex     = _latestAny(derivedBatch?.CAPEX,  derivedBatchAll?.CAPEX);
-  const fcf       = _latestAny(derivedBatch?.FCF,    derivedBatchAll?.FCF);
+  // Derived ratios
+  const ebit       = _latest(derivedBatchAll?.EBIT);
+  const ebitMargin = _latest(derivedBatchAll?.EBIT_MARGIN);
+  const roce       = _latest(derivedBatchAll?.ROCE);   // null for BFSI
+  const roa        = _latest(derivedBatchAll?.ROA);
+  const roe        = _latest(derivedBatchAll?.ROE);
+  const capex      = _latest(derivedBatchAll?.CAPEX);
+  const fcf        = _latest(derivedBatchAll?.FCF);
 
   // Gross margin (non-BFSI): (REV_OP - COGS) / REV_OP × 100
   // COGS = COST_MAT + PURCH_STOCK + INV_CHG
-  const costMat   = _latest(rawBatch?.COST_MAT);
-  const purchStock= _latest(rawBatch?.PURCH_STOCK);
-  const invChg    = _latest(rawBatch?.INV_CHG);
+  const costMat    = _latest(rawBatchAll?.COST_MAT);
+  const purchStock = _latest(rawBatchAll?.PURCH_STOCK);
+  const invChg     = _latest(rawBatchAll?.INV_CHG);
   let grossMargin = null;
   if (!bfsi && revOp != null && revOp !== 0 && costMat != null && purchStock != null && invChg != null) {
     const cogs = costMat + purchStock + invChg;
@@ -253,19 +253,29 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, cu
   const capexQ   = _qSeries(derivedBatchAll?.CAPEX);
   const fcfQ     = _qSeries(derivedBatchAll?.FCF);
 
-  // Pre-compute EBIT growth YoY and leverage spread from Q4 annual series
-  function _yoyGrowth(series) {
+  // Pre-compute EBIT growth YoY and leverage spread using same-quarter YoY
+  // (e.g. Q1 2026 vs Q1 2025) rather than Q4-only annual comparison.
+  function _sameQtrYoy(series) {
     if (series.length < 2) return null;
+    const curr = series[series.length - 1];
+    const qLabel = curr.quarter.split("'")[0]; // e.g. "Q1"
+    // Try same-quarter prior year first (look up to 6 entries back)
+    for (let i = series.length - 2; i >= Math.max(0, series.length - 6); i--) {
+      if (series[i].quarter.split("'")[0] === qLabel) {
+        const prev = series[i].value;
+        if (!prev || prev === 0) return null;
+        return parseFloat(((curr.value - prev) / Math.abs(prev) * 100).toFixed(1));
+      }
+    }
+    // Fallback: compare last 2 available entries when prior-year same quarter absent
     const prev = series[series.length - 2].value;
-    const curr = series[series.length - 1].value;
     if (!prev || prev === 0) return null;
-    return parseFloat(((curr - prev) / Math.abs(prev) * 100).toFixed(1));
+    return parseFloat(((curr.value - prev) / Math.abs(prev) * 100).toFixed(1));
   }
 
-  const ebitQ4       = _qSeries(derivedBatch?.EBIT);
-  const revOpQ4      = _qSeries(rawBatch?.REV_OP);
-  const ebitGrowthYoy   = _yoyGrowth(ebitQ4);
-  const revGrowthYoy    = _yoyGrowth(revOpQ4);
+  // ebitQ and revOpQ are already derived from derivedBatchAll / rawBatchAll above
+  const ebitGrowthYoy   = _sameQtrYoy(ebitQ);
+  const revGrowthYoy    = _sameQtrYoy(revOpQ);
   const leverageSpread  = (ebitGrowthYoy != null && revGrowthYoy != null)
     ? parseFloat((ebitGrowthYoy - revGrowthYoy).toFixed(1))
     : null;
@@ -303,14 +313,14 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, cu
 
   const wcComputed = bfsi ? [] : _computeWcDays(rawBatchAll);
 
-  // Debt history (Q4 annual for timeline)
-  const debtLtQ4   = _qSeries(rawBatch?.DEBT_LT);
-  const debtStQ4   = _qSeries(rawBatch?.DEBT_ST);
-  const cashQ4     = _qSeries(rawBatch?.CASH_EQUIV);
-  const divPayoutQ4= _qSeries(rawBatch?.DIV_PAYOUT);
-  const patQ4      = _qSeries(rawBatch?.PAT);
-  const eqCapQ4    = _qSeries(rawBatch?.EQ_SHARE_CAP);
-  const reservesQ4 = _qSeries(rawBatch?.RES_SURPLUS);
+  // Debt / equity history — latest available quarters (no Q4 restriction)
+  const debtLtQ4   = _qSeries(rawBatchAll?.DEBT_LT);
+  const debtStQ4   = _qSeries(rawBatchAll?.DEBT_ST);
+  const cashQ4     = _qSeries(rawBatchAll?.CASH_EQUIV);
+  const divPayoutQ4= _qSeries(rawBatchAll?.DIV_PAYOUT);
+  const patQ4      = _qSeries(rawBatchAll?.PAT);
+  const eqCapQ4    = _qSeries(rawBatchAll?.EQ_SHARE_CAP);
+  const reservesQ4 = _qSeries(rawBatchAll?.RES_SURPLUS);
 
   function _tableBlock(label, series) {
     if (!series.length) return `${label}: N/A`;
@@ -341,8 +351,8 @@ Note: DSO=TRADE_RECV/(REV_OP×4)×365; DIO=INVENTORY/(COGS×4)×365; DPO=TRADE_P
 
   const opLevMetricsBlock = `
 ── Operating Leverage Pre-computed Metrics ──
-Revenue Growth YoY (latest Q4 vs prior Q4): ${revGrowthYoy != null ? revGrowthYoy + '%' : 'N/A'}
-EBIT Growth YoY    (latest Q4 vs prior Q4): ${ebitGrowthYoy != null ? ebitGrowthYoy + '%' : 'N/A'}
+Revenue Growth YoY (same quarter vs prior year): ${revGrowthYoy != null ? revGrowthYoy + '%' : 'N/A'}
+EBIT Growth YoY    (same quarter vs prior year): ${ebitGrowthYoy != null ? ebitGrowthYoy + '%' : 'N/A'}
 Leverage Spread (EBIT growth − Rev growth): ${leverageSpread != null ? leverageSpread + 'pp' : 'N/A'}
 Note: Use these EXACT values for operating_leverage.metrics.revenue_growth_yoy, ebit_growth_yoy, leverage_spread. Do NOT recompute.`;
 
@@ -361,7 +371,7 @@ ${_tableBlock('FCF (quarterly)', fcfQ)}
 ${_tableBlock('CAPEX (quarterly)', capexQ)}`;
 
   const capitalStructureBlock = `
-── Capital Structure History (annual Q4) ──
+── Capital Structure History (latest available quarters) ──
 ${_tableBlock('DEBT_LT', debtLtQ4)}
 ${_tableBlock('DEBT_ST', debtStQ4)}
 ${_tableBlock('CASH_EQUIV', cashQ4)}
@@ -379,34 +389,34 @@ ${_tableBlock('RESERVES', reservesQ4)}`;
   };
 
   const trendsBlock = bfsi
-    ? `── Revenue trend (last 5 years) ──
-  ${_sparkline(rawBatch?.REV_OP)}
+    ? `── Revenue trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.REV_OP)}
 
-── PAT trend (last 5 years) ──
-  ${_sparkline(rawBatch?.PAT)}
+── PAT trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.PAT)}
 
-── ROA trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.ROA, derivedBatchAll?.ROA))}
+── ROA trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.ROA)}
 
-── ROE trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.ROE, derivedBatchAll?.ROE))}
+── ROE trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.ROE)}
 
-── Free Cash Flow trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.FCF, derivedBatchAll?.FCF))}`
-    : `── Revenue trend (last 5 years) ──
-  ${_sparkline(rawBatch?.REV_OP)}
+── Free Cash Flow trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.FCF)}`
+    : `── Revenue trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.REV_OP)}
 
-── PAT trend (last 5 years) ──
-  ${_sparkline(rawBatch?.PAT)}
+── PAT trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.PAT)}
 
-── FCF trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.FCF, derivedBatchAll?.FCF))}
+── FCF trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.FCF)}
 
-── ROCE trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.ROCE, derivedBatchAll?.ROCE))}
+── ROCE trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.ROCE)}
 
-── CFO trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(rawBatch?.CFO, rawBatchAll?.CFO))}`;
+── CFO trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.CFO)}`;
 
   const defaultInstr = bfsi ? DEFAULT_INSTRUCTIONS_BFSI : DEFAULT_INSTRUCTIONS_NONBFSI;
   const bfsiMetricInstructions = bfsi ? `\n\nBFSI-specific metric instructions:
@@ -481,7 +491,7 @@ SUBJECT COMPANY : ${subjectTicker}
 SECTOR TYPE     : ${bfsi ? 'BFSI (Financial Services)' : 'Non-BFSI (Operating Company)'}
 
 ══════════════════════════════════════════════════════════
-A. SUBJECT COMPANY FINANCIAL SNAPSHOT (latest annual / FY)
+A. SUBJECT COMPANY FINANCIAL SNAPSHOT (latest available quarter)
 ══════════════════════════════════════════════════════════
 
   Income Statement

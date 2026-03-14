@@ -92,7 +92,18 @@ function serializeIndustryAnalysis(row) {
  * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array> }} computedMetrics
  */
 function industryPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions) {
-  const { rawBatch, derivedBatch, bfsi = false } = computedMetrics;
+  const { rawBatch, derivedBatch, derivedBatchAll = {}, bfsi = false } = computedMetrics;
+
+  // Prefer Q4 (annual) value; fall back to latest available quarter.
+  // ROCE/ROE/ROA/CAPEX/FCF depend on balance sheet items which may only be
+  // present in non-Q4 quarters for some companies (e.g. Dec year-end).
+  const _latestAny = (q4Series, allSeries) => _latest(q4Series) ?? _latest(allSeries);
+
+  // For sparklines: use Q4 series if it has any values; otherwise fall back to full series.
+  const _sparklineWithFallback = (q4Series, allSeries, n = 4) => {
+    const hasQ4Data = Array.isArray(q4Series) && q4Series.some(s => s.value != null);
+    return _sparkline(hasQ4Data ? q4Series : allSeries, n);
+  };
 
   const subjectText = subjectData.length > 0
     ? subjectData.map(r => serializeIndustryAnalysis(r)).join('\n\n---\n\n')
@@ -117,11 +128,11 @@ function industryPrompt(subjectTicker, industry, subjectData, peerData, computed
 
 
   const ebit       = _latest(derivedBatch?.EBIT);
-  const roce       = _latest(derivedBatch?.ROCE);
-  const roa        = _latest(derivedBatch?.ROA);
-  const roe        = _latest(derivedBatch?.ROE);
-  const capex      = _latest(derivedBatch?.CAPEX);
-  const fcf        = _latest(derivedBatch?.FCF);
+  const roce       = _latestAny(derivedBatch?.ROCE,  derivedBatchAll?.ROCE);
+  const roa        = _latestAny(derivedBatch?.ROA,   derivedBatchAll?.ROA);
+  const roe        = _latestAny(derivedBatch?.ROE,   derivedBatchAll?.ROE);
+  const capex      = _latestAny(derivedBatch?.CAPEX, derivedBatchAll?.CAPEX);
+  const fcf        = _latestAny(derivedBatch?.FCF,   derivedBatchAll?.FCF);
 
   return `You are a senior equity research analyst. Produce an industry overview for the ${industry} sector.
 
