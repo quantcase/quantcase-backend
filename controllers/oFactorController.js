@@ -2,6 +2,7 @@
 
 const prisma = require('../lib/prisma');
 const { getOFactorResult, getLatestOFactorResultByTicker } = require('../db-utils/upsertOFactor');
+const { isBFSI } = require('../utils/industryClassifier');
 
 // ── Helper: fetch Q4-based stats for one ticker ───────────────────────────────
 // Revenue = full-year Q4 REV_OP; Revenue Growth = YoY vs previous Q4.
@@ -17,18 +18,17 @@ async function getQ4Stats(ticker) {
   const latestQ4 = q4Calls[0];
   const prevQ4   = q4Calls[1] ?? null;
 
-  const summary = await prisma.summaryNew.findUnique({
+  const kpiRows = await prisma.kpiValue.findMany({
     where:  { callId: latestQ4.id },
-    select: { kpis: true },
+    select: { kpi_abbr: true, value: true, multiplier: true },
   });
-  if (!summary?.kpis || !Array.isArray(summary.kpis)) return null;
+  if (!kpiRows.length) return null;
 
-  const kpis = summary.kpis;
+  // Use LLM-reported units (value / multiplier) to match display expectations
+  const kpiMap = new Map(kpiRows.map(k => [k.kpi_abbr, k.value / (k.multiplier || 1)]));
   const get = (abbr) => {
-    const match = kpis.find(k => k.kpi_abbr === abbr);
-    if (!match) return null;
-    const val = parseFloat(match.kpi_value ?? match.value);
-    return isNaN(val) ? null : val;
+    const val = kpiMap.get(abbr);
+    return val != null && !isNaN(val) ? val : null;
   };
 
   const revOp      = get('REV_OP');
@@ -66,22 +66,60 @@ async function getQ4Stats(ticker) {
   // Revenue Growth = YoY vs previous Q4
   let revenueGrowth = null;
   if (prevQ4 && revOp != null) {
-    const prevSummary = await prisma.summaryNew.findUnique({
-      where:  { callId: prevQ4.id },
-      select: { kpis: true },
+    const prevRow = await prisma.kpiValue.findFirst({
+      where:  { callId: prevQ4.id, kpi_abbr: 'REV_OP' },
+      select: { value: true, multiplier: true },
     });
-    if (prevSummary?.kpis && Array.isArray(prevSummary.kpis)) {
-      const prevMatch = prevSummary.kpis.find(k => k.kpi_abbr === 'REV_OP');
-      if (prevMatch) {
-        const prevRev = parseFloat(prevMatch.kpi_value ?? prevMatch.value);
-        if (!isNaN(prevRev) && prevRev > 0) {
-          revenueGrowth = parseFloat(((revOp - prevRev) / prevRev * 100).toFixed(2));
-        }
+    if (prevRow?.value != null) {
+      const prevRev = prevRow.value / (prevRow.multiplier || 1);
+      if (!isNaN(prevRev) && prevRev > 0) {
+        revenueGrowth = parseFloat(((revOp - prevRev) / prevRev * 100).toFixed(2));
       }
     }
   }
 
   return { revenue: revOp, revenueGrowth, opm, roce, debtEquity };
+}
+
+/**
+ * Remove cards from the OFactor result that don't apply to BFSI or non-BFSI companies.
+ * BFSI: remove working_capital, free_cash_flow, operating_leverage from financial_strength
+ *       and opm_trend from industry_overview.text
+ * Non-BFSI: remove industry_aum from industry_overview.metrics
+ */
+function filterOFactorForIndustry(result, bfsi) {
+  if (!result || typeof result !== 'object') return result;
+  const out = { ...result };
+
+  if (bfsi) {
+    if (out.financial_strength) {
+      const fs = { ...out.financial_strength };
+      delete fs.working_capital;
+      delete fs.free_cash_flow;
+      delete fs.operating_leverage;
+      if (fs.text) {
+        const text = { ...fs.text };
+        delete text.opm_trend;
+        fs.text = text;
+      }
+      out.financial_strength = fs;
+    }
+    if (out.industry_overview?.text) {
+      const io = { ...out.industry_overview };
+      io.text = { ...io.text };
+      delete io.text.opm_trend;
+      out.industry_overview = io;
+    }
+  } else {
+    if (out.industry_overview?.metrics) {
+      const io = { ...out.industry_overview };
+      io.metrics = { ...io.metrics };
+      delete io.metrics.industry_aum;
+      out.industry_overview = io;
+    }
+  }
+
+  return out;
 }
 
 function computeTotalScore(result) {
@@ -105,14 +143,18 @@ async function getOFactorAnalysis(req, res) {
   try {
     const { callId } = req.params;
 
-    const record = await getOFactorResult(callId);
+    const [record, call] = await Promise.all([
+      getOFactorResult(callId),
+      prisma.earnings_calls.findUnique({ where: { id: callId }, select: { basic_industry: true } }),
+    ]);
 
     if (!record) {
       return res.status(404).json({ success: false, error: 'OFactor analysis not yet available — trigger via POST first' });
     }
 
-    const totalScore = computeTotalScore(record.result);
-    res.json({ success: true, data: record.result, total_score: totalScore });
+    const filteredResult = filterOFactorForIndustry(record.result, isBFSI(call?.basic_industry));
+    const totalScore = computeTotalScore(filteredResult);
+    res.json({ success: true, data: filteredResult, total_score: totalScore });
   } catch (error) {
     console.error('Error fetching OFactor analysis:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch OFactor analysis', message: error.message });
@@ -126,19 +168,29 @@ async function getOFactorAnalysisByQuery(req, res) {
   }
   try {
     let record = await getOFactorResult(callId);
+    let industry = null;
 
     if (!record) {
-      const call = await prisma.earnings_calls.findUnique({ where: { id: callId }, select: { company: true } });
+      const call = await prisma.earnings_calls.findUnique({ where: { id: callId }, select: { company: true, basic_industry: true } });
+      industry = call?.basic_industry ?? null;
       const ticker = call?.company ?? callId.replace(/_FY\d+_Q\d+$/i, '');
       record = await getLatestOFactorResultByTicker(ticker);
+    } else {
+      const call = await prisma.earnings_calls.findFirst({
+        where:   { company: record.subjectTicker },
+        select:  { basic_industry: true },
+        orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
+      });
+      industry = call?.basic_industry ?? null;
     }
 
     if (!record) {
       return res.status(404).json({ success: false, error: 'OFactor analysis not yet available — trigger via POST first' });
     }
 
-    const totalScore = computeTotalScore(record.result);
-    res.json({ success: true, data: record.result, total_score: totalScore });
+    const filteredResult = filterOFactorForIndustry(record.result, isBFSI(industry));
+    const totalScore = computeTotalScore(filteredResult);
+    res.json({ success: true, data: filteredResult, total_score: totalScore });
   } catch (error) {
     console.error('Error fetching OFactor analysis:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch OFactor analysis', message: error.message });
@@ -147,9 +199,27 @@ async function getOFactorAnalysisByQuery(req, res) {
 
 const DENOMINATION_UNIT = { percentage: '%', rupee: 'Cr', ratio: 'x', other: '' };
 
+function fmtInrCr(val) {
+  if (val == null || isNaN(val)) return null;
+  const sign = val < 0 ? '-' : '';
+  const abs  = Math.abs(val);
+  // Values may be in absolute rupees (value / multiplier where multiplier=1);
+  // convert to Crores if >= 1 Crore (1e7 rupees)
+  const inCrores = abs >= 1e7 ? abs / 1e7 : abs;
+  return `${sign}${inCrores.toLocaleString('en-IN', { maximumFractionDigits: 2 })} Cr`;
+}
+
 function formatKpiValue(val, denomination, callDate) {
   const unit = DENOMINATION_UNIT[denomination] ?? '';
-  let str = String(val);
+  let display = val;
+  // For rupee KPIs, value may be in absolute rupees; normalize to Crores if >= 1 Crore
+  if (denomination === 'rupee' && typeof val === 'number' && Math.abs(val) >= 1e7) {
+    display = val / 1e7;
+  }
+  const numStr = typeof display === 'number'
+    ? display.toLocaleString('en-IN', { maximumFractionDigits: 2 })
+    : String(display);
+  let str = numStr;
   if (unit) str += ` ${unit}`;
   if (callDate) str += ` (${callDate})`;
   return str;
@@ -161,9 +231,9 @@ async function getPeerIndustryKpiTimeseries(peerTickers) {
 
   const [allCalls, industryKpis] = await Promise.all([
     prisma.earnings_calls.findMany({
-      where:   { company: { in: peerTickers }, quarter: 'Q4' },
+      where:   { company: { in: peerTickers } },
       select:  { id: true, company: true, fiscal_year: true, quarter: true, call_date: true },
-      orderBy: [{ fiscal_year: 'desc' }],
+      orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
     }),
     prisma.kpi.findMany({
       where:  { kpi_type: 'industry_specific' },
@@ -175,12 +245,12 @@ async function getPeerIndustryKpiTimeseries(peerTickers) {
   const industrySet = new Set(industryKpis.map(k => k.abbr));
   const unitMap = Object.fromEntries(industryKpis.map(k => [k.abbr, k.denomination]));
 
-  // Keep only last 5 Q4 calls per ticker (allCalls already ordered desc by fiscal_year)
+  // Keep only last 10 calls per ticker
   const countPerTicker = {};
   const filteredCalls = [];
   for (const c of allCalls) {
     countPerTicker[c.company] = (countPerTicker[c.company] ?? 0);
-    if (countPerTicker[c.company] < 5) {
+    if (countPerTicker[c.company] < 10) {
       filteredCalls.push(c);
       countPerTicker[c.company]++;
     }
@@ -189,37 +259,24 @@ async function getPeerIndustryKpiTimeseries(peerTickers) {
   const callIds  = filteredCalls.map(c => c.id);
   const callMeta = Object.fromEntries(filteredCalls.map(c => [c.id, c]));
 
-  const summaries = await prisma.summaryNew.findMany({
-    where:  { callId: { in: callIds } },
-    select: { callId: true, milestones: true },
+  // Fetch all non-QE kpi_values for industry-specific abbrs
+  const kpiRows = await prisma.kpiValue.findMany({
+    where:  { callId: { in: callIds }, kpi_abbr: { in: [...industrySet] }, source: { not: 'QE' } },
+    select: { callId: true, kpi_abbr: true, value: true, multiplier: true },
   });
 
-  const SECTIONS = ['future_goals', 'success_disclosures', 'failure_disclosures'];
   const kpiDataByTicker = Object.fromEntries(peerTickers.map(t => [t, {}]));
 
-  for (const summary of summaries) {
-    const ms = summary.milestones;
-    if (!ms || typeof ms !== 'object') continue;
-    const meta = callMeta[summary.callId];
+  for (const row of kpiRows) {
+    const meta = callMeta[row.callId];
     if (!meta) continue;
-    const period  = `${meta.fiscal_year}-${meta.quarter}`;
     const kpiData = kpiDataByTicker[meta.company];
     if (!kpiData) continue;
-
-    const seen = new Set();
-    for (const section of SECTIONS) {
-      const targets = ms[section]?.financial_targets;
-      if (!Array.isArray(targets)) continue;
-      for (const entry of targets) {
-        const abbr = entry.kpi_abbr;
-        if (!abbr || !industrySet.has(abbr) || seen.has(abbr)) continue;
-        const val = parseFloat(entry.current_value);
-        if (isNaN(val)) continue;
-        seen.add(abbr);
-        if (!kpiData[abbr]) kpiData[abbr] = [];
-        kpiData[abbr].push({ period, value: formatKpiValue(val, unitMap[abbr], meta.call_date) });
-      }
-    }
+    const val = row.value / (row.multiplier || 1);
+    if (isNaN(val)) continue;
+    const period = `${meta.fiscal_year}-${meta.quarter}`;
+    if (!kpiData[row.kpi_abbr]) kpiData[row.kpi_abbr] = [];
+    kpiData[row.kpi_abbr].push({ period, value: formatKpiValue(val, unitMap[row.kpi_abbr], meta.call_date) });
   }
 
   return peerTickers.map(ticker => ({
@@ -234,24 +291,24 @@ async function getPeerIndustryKpiTimeseries(peerTickers) {
   }));
 }
 
-// ── Helper: industry_specific KPI timeseries for last 5 calls ─────────────────
+// ── Helper: industry_specific KPI timeseries for last 10 calls ────────────────
 async function getIndustryKpiTimeseries(ticker) {
-  // Q4 calls only — each represents a full fiscal year
   const calls = await prisma.earnings_calls.findMany({
-    where:   { company: ticker, quarter: 'Q4' },
+    where:   { company: ticker },
     select:  { id: true, fiscal_year: true, quarter: true, call_date: true },
-    orderBy: [{ fiscal_year: 'desc' }],
-    take:    5,
+    orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
+    take:    10,
   });
   if (!calls.length) return [];
 
   const callIds  = calls.map(c => c.id);
   const callMeta = Object.fromEntries(calls.map(c => [c.id, c]));
 
-  const [summaries, industryKpis] = await Promise.all([
-    prisma.summaryNew.findMany({
-      where:  { callId: { in: callIds } },
-      select: { callId: true, milestones: true },
+  const [kpiRows, industryKpis] = await Promise.all([
+    // All non-QE kpi_values for industry-specific abbrs
+    prisma.kpiValue.findMany({
+      where:  { callId: { in: callIds }, source: { not: 'QE' } },
+      select: { callId: true, kpi_abbr: true, value: true, multiplier: true },
     }),
     prisma.kpi.findMany({
       where:  { kpi_type: 'industry_specific' },
@@ -263,31 +320,17 @@ async function getIndustryKpiTimeseries(ticker) {
 
   const industrySet = new Set(industryKpis.map(k => k.abbr));
   const unitMap = Object.fromEntries(industryKpis.map(k => [k.abbr, k.denomination]));
+
   const kpiData = {};   // abbr → [{ period, value }]
-  const SECTIONS = ['future_goals', 'success_disclosures', 'failure_disclosures'];
-
-  for (const summary of summaries) {
-    const ms = summary.milestones;
-    if (!ms || typeof ms !== 'object') continue;
-    const meta = callMeta[summary.callId];
+  for (const row of kpiRows) {
+    if (!industrySet.has(row.kpi_abbr)) continue;
+    const meta = callMeta[row.callId];
     if (!meta) continue;
+    const val = row.value / (row.multiplier || 1);
+    if (isNaN(val)) continue;
     const period = `${meta.fiscal_year}-${meta.quarter}`;
-
-    // Deduplicate kpi_abbr within the same quarter (first non-null current_value wins)
-    const seen = new Set();
-    for (const section of SECTIONS) {
-      const targets = ms[section]?.financial_targets;
-      if (!Array.isArray(targets)) continue;
-      for (const entry of targets) {
-        const abbr = entry.kpi_abbr;
-        if (!abbr || !industrySet.has(abbr) || seen.has(abbr)) continue;
-        const val = parseFloat(entry.current_value);
-        if (isNaN(val)) continue;
-        seen.add(abbr);
-        if (!kpiData[abbr]) kpiData[abbr] = [];
-        kpiData[abbr].push({ period, value: formatKpiValue(val, unitMap[abbr], meta.call_date) });
-      }
-    }
+    if (!kpiData[row.kpi_abbr]) kpiData[row.kpi_abbr] = [];
+    kpiData[row.kpi_abbr].push({ period, value: formatKpiValue(val, unitMap[row.kpi_abbr], meta.call_date) });
   }
 
   // Sort data chronologically (oldest first), rank KPIs by quarters_present desc
@@ -426,11 +469,16 @@ async function getPeerData(req, res) {
       is_average:     true,
     });
 
+    const formattedPeers = peers.map(p => ({
+      ...p,
+      revenue: fmtInrCr(p.revenue),
+    }));
+
     res.json({
       success: true,
       competition: {
         meta: { section_id: 'competition', title: 'Competitive Benchmarking' },
-        peers,
+        peers: formattedPeers,
       },
       industry_kpis: {
         meta:       { section_id: 'industry_kpis', title: 'Industry KPI Trends' },

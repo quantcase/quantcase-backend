@@ -9,10 +9,12 @@ const { industryPrompt }            = require('../prompts/of-prompts/industry-pr
 const { competitionPrompt }         = require('../prompts/of-prompts/competition-prompt');
 const { financialStrengthPrompt }   = require('../prompts/of-prompts/financial-strength-prompt');
 const { customerTractionPrompt }    = require('../prompts/of-prompts/customer-traction-prompt');
+const { finalTakeawaysPrompt }      = require('../prompts/of-prompts/final-takeaways-prompt');
 
 const MAX_TOKENS = 16000;
 
-const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction']);
+const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction', 'final_takeaways']);
+
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -26,32 +28,45 @@ async function getSubjectSummaries(companyPrefix) {
 }
 
 /**
- * Auto-discover up to 2 peer companies in the same industry from summaryNew.
+ * Auto-discover up to 2 peer companies in the same industry via earnings_calls.basic_industry.
  */
 async function getAutoPeerSummaries(subjectTicker, industry) {
   if (!industry || industry === 'Unknown Industry') return [];
 
-  const allPeerSummaries = await prisma.summaryNew.findMany({
-    where: {
-      industryAnalysis: { path: ['industry'], equals: industry },
-      NOT: { callId: { startsWith: subjectTicker } }
-    },
-    orderBy: { createdAt: 'desc' }
+  // Build latest callId per peer ticker (all peers, no limit yet)
+  const peerCalls = await prisma.earnings_calls.findMany({
+    where:   { basic_industry: industry, NOT: { company: subjectTicker } },
+    select:  { company: true, id: true },
+    orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
   });
 
-  // Keep the latest summary per peer ticker
-  const seen = new Map();
-  for (const s of allPeerSummaries) {
-    const ticker = s.callId.split('_FY')[0];
-    if (!seen.has(ticker)) {
-      seen.set(ticker, s);
-      if (seen.size >= 2) break;
-    }
+  const latestCallByTicker = new Map();
+  for (const c of peerCalls) {
+    if (!latestCallByTicker.has(c.company)) latestCallByTicker.set(c.company, c.id);
   }
 
-  const peerTickers = [...seen.keys()];
-  console.log(`[OFactor] Auto-discovered peer tickers for "${industry}": ${peerTickers.join(', ') || 'none'}`);
-  return [...seen.values()];
+  if (latestCallByTicker.size === 0) return [];
+
+  // Only pick peers whose latest call has a summaryNew record
+  const allLatestCallIds = [...latestCallByTicker.values()];
+  const available = await prisma.summaryNew.findMany({
+    where:  { callId: { in: allLatestCallIds } },
+    select: { callId: true },
+  });
+
+  const availableCallIds = new Set(available.map(s => s.callId));
+  const pickedCallIds = allLatestCallIds.filter(id => availableCallIds.has(id)).slice(0, 2);
+
+  if (pickedCallIds.length === 0) return [];
+
+  const peerTickers = pickedCallIds.map(id => id.split('_FY')[0]);
+  console.log(`[OFactor] Auto-discovered peer tickers for "${industry}": ${peerTickers.join(', ')}`);
+
+  const summaries = await prisma.summaryNew.findMany({
+    where: { callId: { in: pickedCallIds } },
+  });
+
+  return summaries;
 }
 
 // ─── Section-Specific Prompt Builders ────────────────────────────────────────
@@ -81,16 +96,34 @@ async function buildIndustrySection(subjectTicker, industry, subjectSummaries, p
 }
 
 async function buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions) {
-  const [stockEps, stockPe, industryEps, industryPe] = await Promise.all([
+  const allCallIds = [...subjectSummaries, ...peerSummaries].map(s => s.callId);
+
+  const [stockEps, stockPe, industryEps, industryPe, kpiRows] = await Promise.all([
     helper.stockEpsCagr(subjectTicker),
     helper.stockPeCagr(subjectTicker),
     industry !== 'Unknown Industry' ? helper.industryEpsCagr(industry) : Promise.resolve(null),
     industry !== 'Unknown Industry' ? helper.industryPeCagr(industry)  : Promise.resolve(null),
+    prisma.kpiValue.findMany({
+      where:  { callId: { in: allCallIds } },
+      select: { callId: true, kpi_abbr: true, value: true, multiplier: true },
+    }),
   ]);
 
+  // Group kpi_values by callId as { kpi_abbr, value } for the competition prompt
+  const kpiByCall = {};
+  for (const row of kpiRows) {
+    if (!kpiByCall[row.callId]) kpiByCall[row.callId] = [];
+    kpiByCall[row.callId].push({ kpi_abbr: row.kpi_abbr, value: row.value / (row.multiplier || 1) });
+  }
+
   const pickFields = s => ({
-    callId: s.callId, entities: s.entities, milestones: s.milestones, kpis: s.kpis,
-    governanceSignals: s.governanceSignals, riskDisclosures: s.riskDisclosures, tone: s.tone
+    callId:            s.callId,
+    entities:          s.entities,
+    milestones:        s.milestones,
+    kpis:              kpiByCall[s.callId] ?? [],
+    governanceSignals: s.governanceSignals,
+    riskDisclosures:   s.riskDisclosures,
+    tone:              s.tone,
   });
 
   const subjectData = subjectSummaries.map(pickFields);
@@ -149,12 +182,19 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
 }
 
 async function buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions) {
-  const [custLatest, custCagr] = await Promise.all([
+  const subjectCallIds = subjectSummaries.map(s => s.callId);
+
+  const [custLatest, custCagr, relevantKpiRows, kpiRows] = await Promise.all([
     helper.stockKpiLatest(subjectTicker, 'CUST'),
     helper.stockCustCagr(subjectTicker),
+    prisma.kpi.findMany({ where: { kpi_type: { in: ['industry_specific', 'customer_kpis'] } }, select: { abbr: true } }),
+    prisma.kpiValue.findMany({
+      where:  { callId: { in: subjectCallIds } },
+      select: { callId: true, kpi_abbr: true, value: true, multiplier: true },
+    }),
   ]);
 
-  // Fallback: if CUST KPI not found in QE data, scan transcript summary kpis
+  // Fallback: if CUST KPI not found in kpiValue, scan transcript summary kpis
   let resolvedCustLatest = custLatest;
   if (custLatest.value == null) {
     for (const s of [...subjectSummaries].reverse()) {
@@ -168,10 +208,42 @@ async function buildCustomerTractionSection(subjectTicker, subjectSummaries, hel
     }
   }
 
-  const subjectData = subjectSummaries.map(s => ({ callId: s.callId, clientTraction: s.clientTraction }));
-  const metrics     = { custLatest: resolvedCustLatest, custCagr };
+  // Filter: total revenue + all industry_specific + customer_kpis KPIs
+  const relevantSet = new Set(relevantKpiRows.map(k => k.abbr));
+  const kpiByCall   = {};
+  for (const row of kpiRows) {
+    if (row.kpi_abbr === 'REV_OP' || relevantSet.has(row.kpi_abbr)) {
+      if (!kpiByCall[row.callId]) kpiByCall[row.callId] = [];
+      kpiByCall[row.callId].push({ kpi_abbr: row.kpi_abbr, value: row.value / (row.multiplier || 1) });
+    }
+  }
+
+  const subjectData = subjectSummaries.map(s => ({
+    callId:         s.callId,
+    kpis:           kpiByCall[s.callId] ?? [],
+    clientTraction: s.clientTraction,
+  }));
+  const metrics = { custLatest: resolvedCustLatest, custCagr };
 
   return { prompt: customerTractionPrompt(subjectTicker, subjectData, metrics, customInstructions), sectionKey: 'customer_traction' };
+}
+
+async function buildFinalTakeawaysSection(callId) {
+  const record = await prisma.oFactorResult.findUnique({ where: { callId } });
+  if (!record?.result) throw new Error(`No oFactorResult found for callId: ${callId}`);
+
+  const { industry_overview, competition, financial_strength, customer_traction } = record.result;
+  const missing = ['industry_overview', 'competition', 'financial_strength', 'customer_traction']
+    .filter(k => !record.result[k]);
+  if (missing.length) throw new Error(`Cannot build final_takeaways — missing sections: ${missing.join(', ')}`);
+
+  const prompt = finalTakeawaysPrompt(
+    record.subjectTicker,
+    industry_overview?.meta?.subtitle ?? 'Unknown Industry',
+    { industry_overview, competition, financial_strength, customer_traction },
+  );
+
+  return { prompt, sectionKey: 'final_takeaways' };
 }
 
 // ─── Processor ───────────────────────────────────────────────────────────────
@@ -198,6 +270,13 @@ async function processOFactorJob(job) {
     const fallbackIndustry = call.basic_industry || 'Unknown Industry';
     await job.updateProgress(10);
 
+    let promptText, sectionKey;
+
+    if (section === 'final_takeaways') {
+      // Reads directly from saved oFactorResult — no summaries/peers/helper needed
+      ({ prompt: promptText, sectionKey } = await buildFinalTakeawaysSection(callId));
+      await job.updateProgress(55);
+    } else {
     // Fetch subject summaries → resolve industry
     const subjectSummaries = await getSubjectSummaries(subjectTicker);
     const latestSummary    = subjectSummaries[subjectSummaries.length - 1];
@@ -213,7 +292,6 @@ async function processOFactorJob(job) {
 
     // Build section-specific prompt + pre-computed metrics
     const helper = new FinHelper(prisma);
-    let promptText, sectionKey;
 
     if (section === 'industry') {
       ({ prompt: promptText, sectionKey } = await buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions));
@@ -224,6 +302,7 @@ async function processOFactorJob(job) {
     } else {
       ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions));
     }
+    } // end else (non-final_takeaways sections)
 
     console.log(`[OFactor] Section "${section}" prompt length: ${promptText.length} chars`);
     await job.updateProgress(55);
@@ -273,7 +352,7 @@ async function processOFactorJob(job) {
     await job.updateProgress(100);
     console.log(`[OFactor] Job ${job.id} completed (section: ${section})`);
     // sectionResult is in returnvalue so frontend can read it via GET /api/jobs/:jobId
-    return { section, sectionKey, sectionResult };
+    return { section, sectionKey, sectionResult, prompt: promptText };
 
   } catch (error) {
     console.error(`[OFactor] Job ${job.id} failed:`, error);

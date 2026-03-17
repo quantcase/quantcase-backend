@@ -2,28 +2,36 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
+const WRITING_RULES = `
+WRITING RULES — mandatory for ALL text, insight, and takeaway fields:
+1. NO VAGUE TIME REFERENCES: Replace "previous quarter", "last year", "recently", "last period" etc. with the specific quarter label from the data (e.g., "Q3 FY26", "Q2 FY25–Q3 FY26"). Write "latest available quarter" only when the exact quarter is genuinely unknown.
+2. BACK EVERY CLAIM WITH DATA: Follow every qualitative assertion with a supporting metric in parentheses immediately after the claim. E.g., "FCF improving (FCF/PAT conversion rose from 42% in Q1 FY26 to 78% in Q3 FY26)". Remove any claim that cannot be supported by a specific number.
+3. USER-FRIENDLY LANGUAGE: Write for a knowledgeable but non-specialist investor. Avoid standalone jargon. When using a technical abbreviation for the first time in a field, add a brief plain-English note — e.g., "FCF (cash left after paying for growth)" or "CCC (how long cash is tied up in operations)".
+4. METRICS FIELDS — DATA ONLY: metric.value, metric.change, metric.sublabel must contain ONLY hard numbers, labels, or brief factual descriptions (≤8 words). No interpretation or editorializing inside metric fields — save that for text/insight/takeaway fields.
+5. TAKEAWAY FIELD: Write 3–4 sentences — cover what happened (with a specific number), why it matters for investors, any key risk or nuance, and a forward-looking implication. Plain English throughout. 50–80 words total.`;
+
 const LENGTH_GUIDELINES = `
 Output length guidelines:
-  • text.takeaway — 1 concise sentence
-  • text.key_takeaway — 10 words max
-  • text.cash_flow.quality_analysis — 10 words max per item
-  • text.balance_sheet.strengths, .considerations — 10 words max per item
-  • text.profitability.operating_leverage_drivers, .strategic_initiative_drivers — 10 words max per item
-  • text.revenue_growth.drivers — 10 words max per item
-  • operating_leverage.fixed_cost_lines[].note, .total_fixed_costs.note — 10 words max each
-  • operating_leverage.verdict.description — 20 words max
+  • text.takeaway — 3–4 sentences covering the key fact (with a number), investor significance, any nuance, and forward outlook. 50–80 words total.
+  • text.key_takeaway — 15 words max; include a number
+  • text.cash_flow.quality_analysis — 20 words max per item; cite a metric
+  • text.balance_sheet.strengths, .considerations — 20 words max per item; cite a metric
+  • text.profitability.operating_leverage_drivers, .strategic_initiative_drivers — 20 words max per item; cite a metric
+  • text.revenue_growth.drivers — 20 words max per item; cite a metric
+  • operating_leverage.fixed_cost_lines[].note, .total_fixed_costs.note — 15 words max each
+  • operating_leverage.verdict.description — 30 words max; include EBIT margin trend with specific values
   • free_cash_flow.growth_trajectory.insight_headline — 15 words max
-  • free_cash_flow.growth_trajectory.insight_body — 30 words max (supports **bold** markdown)
-  • free_cash_flow.fcf_yield.compression_explanation — 30 words max
-  • working_capital.insight — 25 words max
-  • capital_structure.balance_sheet.insight — 30 words max (supports **bold** markdown)
-  • capital_structure.debt_trajectory.insight — 25 words max (supports **bold** markdown)
+  • free_cash_flow.growth_trajectory.insight_body — 50 words max (supports **bold** markdown); cite FCF CAGR and conversion %
+  • free_cash_flow.fcf_yield.compression_explanation — 40 words max
+  • working_capital.insight — 40 words max; cite DSO/DIO/CCC values with quarter labels
+  • capital_structure.balance_sheet.insight — 50 words max (supports **bold** markdown); cite net debt figure and trend
+  • capital_structure.debt_trajectory.insight — 40 words max (supports **bold** markdown); cite specific debt levels
   • capital_structure.equity_allocation.roe_sublabel — 10 words max
-  • capital_structure.equity_allocation.insight — 20 words max
-  • capital_structure.capex_intensity.metrics[].note — 10 words max each
-  • capital_structure.capex_intensity.note — 20 words max
+  • capital_structure.equity_allocation.insight — 30 words max; cite ROE and dividend payout %
+  • capital_structure.capex_intensity.metrics[].note — 15 words max each
+  • capital_structure.capex_intensity.note — 30 words max; cite CAPEX/Revenue % trend
   • final_scoring.title — 5 words max
-  • final_scoring.body — 3–4 sentences, cite specific metrics`;
+  • final_scoring.body — 3–4 sentences, cite specific metrics with quarter labels`;
 
 const DEFAULT_INSTRUCTIONS_NONBFSI = `Using the financial data above and transcript commentary, assess:
   • Revenue growth trajectory — volume/mix driven or purely price-led?
@@ -424,7 +432,7 @@ ${_tableBlock('RESERVES', reservesQ4)}`;
   • metrics.gross_margin: Set value to null and sublabel to "Not applicable for banking; NIM is the spread proxy".
   • metrics.roce: Set value to null and sublabel to "Not applicable for BFSI; use ROA/ROE instead".
   • text.balance_sheet.metrics.credit_rating: If no credit rating is mentioned in transcripts, set value to null and sublabel to "Not disclosed in available transcripts".` : '';
-  const analysisInstructions = (customInstructions ?? defaultInstr) + bfsiMetricInstructions;
+  const analysisInstructions = (customInstructions ?? defaultInstr) + bfsiMetricInstructions + '\n' + WRITING_RULES;
 
   const newSectionsInstructions = `
 ── Instructions for NEW sub-sections ──────────────────────────────────────

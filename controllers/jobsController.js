@@ -3,7 +3,7 @@
 const prisma    = require('../lib/prisma');
 const jobQueue  = require('../lib/jobQueue');
 
-const VALID_OFACTOR_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction']);
+const VALID_OFACTOR_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction', 'final_takeaways']);
 
 const STATE_TO_STATUS = {
   waiting:   'pending',
@@ -29,49 +29,20 @@ async function enqueueSummarization(req, res) {
       return res.status(400).json({ success: false, error: 'No transcript or PPT text available for this call' });
     }
 
-    // Find all other Q4 calls for this company (across all fiscal years) that have content
-    const otherQ4Calls = call.company ? await prisma.earnings_calls.findMany({
-      where: { company: call.company, quarter: { in: ['Q4', '4'] }, id: { not: callId } }
-    }) : [];
-    const q4Calls = otherQ4Calls.filter(c =>
-      (c.transcript_text?.trim().length > 0) || (c.ppt_text?.trim().length > 0)
-    );
-
-    // Queue all Q4 sibling calls first with highest priority
-    for (const q4 of q4Calls) {
-      console.log(`[Summarize] Prioritizing Q4 call ${q4.id} over ${callId}`);
-      await jobQueue.addJob('summarization', {
-        callId: q4.id,
-        type: 'summarization',
-        companyName: q4.company_name || q4.company,
-        transcriptText: q4.transcript_text,
-        pptText: q4.ppt_text
-      }, { priority: 1, jobId: `summarization_${q4.id}` });
-      await jobQueue.addJob('qe_extraction', { callId: q4.id, type: 'qe_extraction' }, { priority: 1, jobId: `qe_${q4.id}` });
-    }
-
-    // Queue the requested call at priority 2 (always below Q4 siblings)
-    const jobOpts = { priority: 2 };
-
     const summarizationJob = await jobQueue.addJob('summarization', {
       callId,
       type: 'summarization',
       companyName: call.company_name || call.company,
       transcriptText: call.transcript_text,
       pptText: call.ppt_text
-    }, jobOpts);
+    });
 
-    await jobQueue.addJob('qe_extraction', { callId, type: 'qe_extraction' }, jobOpts);
-
-    const message = q4Calls.length
-      ? `Summarization job queued (${q4Calls.length} Q4 call(s) prioritized: ${q4Calls.map(c => c.id).join(', ')})`
-      : 'Summarization job queued';
+    await jobQueue.addJob('qe_extraction', { callId, type: 'qe_extraction' });
 
     res.json({
       success: true,
-      message,
+      message: 'Summarization job queued',
       job: { id: summarizationJob.id, callId, type: 'summarization', status: 'pending', createdAt: summarizationJob.createdAt },
-      ...(q4Calls.length && { prioritizedQ4: q4Calls.map(c => c.id) }),
     });
   } catch (error) {
     console.error('Error creating summarization job:', error);

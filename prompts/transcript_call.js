@@ -66,6 +66,7 @@ Each has financial_targets and conceptual_targets arrays.
   "kpi_abbr": string,               // Must match an abbr from AVAILABLE KPIs or new_kpis
   "current_value": number | null,   // Decimal only, no units/currency text, use absolute values
   "targeted_value": number | null,  // Decimal only, no units/currency text, use absolute values
+  "multiplier": number,             // Scale factor for current_value and targeted_value (e.g. 10000000 for Crores, 100000 for Lakhs, 1 for ratios/%)
   "initial_time": "YYYY-MM-DD",     // When this target was first announced
   "target_time": "YYYY-MM-DD"       // When it is/was expected to be achieved
 }
@@ -100,21 +101,27 @@ Each has financial_targets and conceptual_targets arrays.
 ### 6. industry_analysis
 Each sub-section has a "kpis" array (industry-level metrics only) and a "factors_affecting" array (qualitative drivers/headwinds for that dimension).
 
+KPI object schema (used in all kpis arrays below):
+{
+  "kpi_abbr": string,           // abbr from AVAILABLE KPIs or new_kpis
+  "value": number | null,
+  "statement": string,          // original statement from transcript
+  "start_date": "YYYY-MM-DD" | null,  // period start; null if point-in-time snapshot
+  "end_date": "YYYY-MM-DD" | null,    // period end or snapshot date
+  "multiplier": number          // scale factor (e.g. 10000000 for Crores, 100000 for Lakhs, 1 for ratio/%)
+}
+
 {
   "demand": {
-    "kpis": [{
-      "kpi_abbr": string,           // abbr from AVAILABLE KPIs or new_kpis
-      "value": number | null,
-      "statement": string           // original statement from transcript
-    }],
+    "kpis": [<KPI object>],
     "factors_affecting": [string]   // e.g. macro tailwinds, regulatory push, consumer trends
   },
   "supply": {
-    "kpis": [{ "kpi_abbr": string, "value": number | null, "statement": string }],
+    "kpis": [<KPI object>],
     "factors_affecting": [string]   // e.g. capacity additions, raw-material availability, imports
   },
   "operating_margins": {
-    "kpis": [{ "kpi_abbr": string, "value": number | null, "statement": string }],
+    "kpis": [<KPI object>],
     "factors_affecting": [string]   // e.g. input cost pressure, pricing power, efficiency levers
   }
 }
@@ -130,13 +137,14 @@ Company-level financial health. Each sub-section has only a "factors_affecting" 
 }
 
 ### 8. client_traction
+Same KPI object schema as industry_analysis (includes start_date, end_date, multiplier).
 {
   "customer_growth": {
-    "kpis": [{ "kpi_abbr": string, "value": number | null, "statement": string }],
+    "kpis": [<KPI object>],
     "factors_affecting": [string]
   },
   "revenue_streams": {
-    "kpis": [{ "kpi_abbr": string, "value": number | null, "statement": string }],
+    "kpis": [<KPI object>],
     "factors_affecting": [string]
   }
 }
@@ -163,7 +171,12 @@ Each must be fully classified per schema:
 3. financial_strength has NO kpis arrays — only factors_affecting. Financial KPI values are handled by the QE worker separately.
 4. new_kpis kpi_type must be "customer_kpis" (for user/customer metrics like ARPU, DAU) or "industry_specific" (for everything else).
 5. If a section has no data, return an empty array or null as appropriate — never omit the key.
-6. Return ONLY the JSON. No explanation, no markdown fences.`;
+6. Return ONLY the JSON. No explanation, no markdown fences.
+7. SEGMENT vs TOTAL KPIs — never use the same abbr for a segment metric and the company-wide total:
+   - Use the base abbr (e.g. REV_OP, PAT, EBITDA_MARGIN) ONLY for the company-wide consolidated figure.
+   - For any business-segment or division metric, prefix with SEG_<SEGMENT>_ where SEGMENT is a short uppercase label for that division (e.g. SEG_ELEC_REV_OP for Electrification revenue, SEG_PA_REV_OP for Process Automation revenue, SEG_MOT_PAT for Motion segment profit).
+   - Register new SEG_* abbrs in new_kpis.
+   - This applies to every KPI type — revenue, margin, profit, order book, etc.`;
 }
 
 module.exports = { transcriptExtractorPrompt };

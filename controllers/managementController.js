@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const { getLatestOFactorResultByTicker } = require('../db-utils/upsertOFactor');
 
 // ─── Score helpers ────────────────────────────────────────────────────────────
 function parseCallId(callId) {
@@ -87,6 +88,23 @@ function calcVariance(targeted, actual) {
 
 const CRORE = 1e7; // 1 crore = 10,000,000
 
+function formatGuidanceValue(val, denomination) {
+  if (val == null || typeof val !== 'number') return val;
+  const sign = val < 0 ? '-' : '';
+  let display = Math.abs(val);
+  let suffix = '';
+  switch (denomination) {
+    case 'rupee':
+      // Values may be absolute rupees (value * multiplier); convert to Crores if >= 1 Crore
+      if (display >= 1e7) display = display / 1e7;
+      suffix = ' Cr';
+      break;
+    case 'percentage': suffix = '%';  break;
+    case 'ratio':      suffix = 'x';  break;
+  }
+  return `${sign}${display.toLocaleString('en-IN', { maximumFractionDigits: 2 })}${suffix}`;
+}
+
 /**
  * If targeted and actual differ by ~10^7 (one in crores, other in absolute rupees),
  * scale actual to match targeted's unit. Only applied when actual came directly
@@ -109,7 +127,44 @@ function normalizeActualUnit(targeted, actual) {
  */
 const GUIDANCE_TOLERANCE_PCT = 5; // within 5% of target counts as achieved
 
-function buildGuidanceRecords(summaries) {
+// ─── Helpers for milestone_kpi_targets + kpi_values tables ───────────────────
+
+/** Group MilestoneKpiTarget rows by callId → category */
+function groupMilestonesByCall(rows) {
+  const map = {};
+  for (const row of rows) {
+    if (!map[row.callId]) map[row.callId] = { future_goals: [], success_disclosures: [], failure_disclosures: [] };
+    (map[row.callId][row.category] ??= []).push(row);
+  }
+  return map;
+}
+
+/** Build Map<"callId:::abbr_lower", value> from KpiValue rows */
+function buildKpiValueLookup(rows) {
+  const map = new Map();
+  for (const row of rows) {
+    map.set(`${row.callId}:::${row.kpi_abbr.trim().toLowerCase()}`, row.value);
+  }
+  return map;
+}
+
+/** Build Map<abbr_lower, value> → latest non-null value per KPI across all calls */
+function buildLatestKpiByAbbr(rows) {
+  const map = new Map();
+  const sorted = [...rows].sort((a, b) => {
+    const pa = parseCallId(a.callId), pb = parseCallId(b.callId);
+    if (pa.fiscalYear !== pb.fiscalYear) return pa.fiscalYear - pb.fiscalYear;
+    return pa.quarter - pb.quarter;
+  });
+  for (const row of sorted) {
+    if (row.value != null) map.set(row.kpi_abbr.trim().toLowerCase(), row.value);
+  }
+  return map;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr) {
   const records = [];
   let recordId      = 0;
   let hiddenCount   = 0;
@@ -131,24 +186,21 @@ function buildGuidanceRecords(summaries) {
     const source     = scorableSummaries[i];
     const subsequent = summaries.slice(i + 1);
 
-    // Tag each disclosure with its source summary so we can fall back to kpis[]
-    const allSuccessFinancial  = subsequent.flatMap(s => (s.milestones?.success_disclosures?.financial_targets  ?? []).map(t => ({ ...t, _summary: s })));
-    const allSuccessConceptual = subsequent.flatMap(s => (s.milestones?.success_disclosures?.conceptual_targets ?? []).map(t => ({ ...t, _summary: s })));
-    const allFailureFinancial  = subsequent.flatMap(s => (s.milestones?.failure_disclosures?.financial_targets  ?? []).map(t => ({ ...t, _summary: s })));
-    const allFailureConceptual = subsequent.flatMap(s => (s.milestones?.failure_disclosures?.conceptual_targets ?? []).map(t => ({ ...t, _summary: s })));
+    // Financial targets from milestone_kpi_targets; conceptual still from summary_new
+    const allSuccessFinancial  = subsequent.flatMap(s => milestoneByCall[s.callId]?.success_disclosures ?? []);
+    const allSuccessConceptual = subsequent.flatMap(s => s.milestones?.success_disclosures?.conceptual_targets ?? []);
+    const allFailureFinancial  = subsequent.flatMap(s => milestoneByCall[s.callId]?.failure_disclosures ?? []);
+    const allFailureConceptual = subsequent.flatMap(s => s.milestones?.failure_disclosures?.conceptual_targets ?? []);
 
-    // If match.current_value is null, look up the value in the source summary's kpis[]
+    // If match.current_value is null, fall back to kpi_values table lookup
     const resolveKpiValue = (match, kpiAbbr) => {
       if (!match) return null;
       if (match.current_value != null) return match.current_value;
-      const kpi = (match._summary?.kpis ?? []).find(
-        k => k.kpi_abbr?.trim().toLowerCase() === kpiAbbr?.trim().toLowerCase()
-      );
-      return kpi?.value ?? null;
+      return kpiValueLookup.get(`${match.callId}:::${kpiAbbr?.trim().toLowerCase()}`) ?? null;
     };
 
     // ── Financial ──
-    for (const goal of (source.milestones?.future_goals?.financial_targets ?? [])) {
+    for (const goal of (milestoneByCall[source.callId]?.future_goals ?? [])) {
       const successMatch = matchTarget(goal, allSuccessFinancial, 'financial');
       const failureMatch = matchTarget(goal, allFailureFinancial, 'financial');
 
@@ -158,23 +210,27 @@ function buildGuidanceRecords(summaries) {
         new Date(c.target_time) >= new Date(goal.target_time)
       );
 
-      // Resolve current_value: try match field first, then fall back to kpis[] in the source summary
+      // Resolve current_value: try match field first, then fall back to kpi_values table
       const successValue = resolveKpiValue(successMatch, goal.kpi_abbr);
       const failureValue = resolveKpiValue(failureMatch, goal.kpi_abbr);
       const rawCurrentValue = successValue ?? failureValue;
       // Only normalize when value came directly from the disclosure (not KPI-table fallback),
       // to fix crore vs absolute unit mismatches that cause unrealistic variance (e.g. 10,000%)
       const isDirectValue = successMatch?.current_value != null || failureMatch?.current_value != null;
-      const currentValue = isDirectValue
+      const matchedValue = isDirectValue
         ? normalizeActualUnit(goal.targeted_value, rawCurrentValue)
         : rawCurrentValue;
+      // If no disclosure match found, fall back to latest known KPI value for this metric
+      const currentValue = matchedValue ?? latestKpiByAbbr.get(goal.kpi_abbr?.trim().toLowerCase()) ?? null;
 
       // Deadline is "in the future" if we don't yet have a transcript covering that quarter
       const deadlineIsFuture = goal.target_time && new Date(goal.target_time) > latestCoveredDate;
-      // Only compute variance when we actually have a value (null short-circuit was a bug)
+      // Check achieved: explicit success match OR latest available value meets target
+      const latestVariance    = currentValue != null ? calcVariance(goal.targeted_value, currentValue) : null;
       const successVariance   = successValue != null ? calcVariance(goal.targeted_value, successValue) : null;
-      // Within tolerance band counts as achieved (e.g. -3% on a 296194 target is fine)
-      const targetActuallyMet = successMatch && successVariance !== null && successVariance >= -GUIDANCE_TOLERANCE_PCT;
+      // Within tolerance band counts as achieved
+      const targetActuallyMet = (successMatch && successVariance !== null && successVariance >= -GUIDANCE_TOLERANCE_PCT)
+                              || (currentValue != null && latestVariance !== null && latestVariance >= -GUIDANCE_TOLERANCE_PCT);
 
       let status;
       if      (targetActuallyMet)                                   status = 'ACHIEVED';
@@ -273,15 +329,20 @@ const getManagementAnalysis = async (req, res) => {
    // Extract company prefix from callId (e.g. "ADANIENSOL" from "ADANIENSOL_FY2026_Q3")
 const companyPrefix = callId.split('_FY')[0];
 
-const [rawSummaries, callRecord] = await Promise.all([
+const [rawSummaries, callRecord, rawMilestones, oFactorRecord] = await Promise.all([
   prisma.summaryNew.findMany({
     where:   { callId: { startsWith: companyPrefix } },
     orderBy: { createdAt: 'desc' }
   }),
   prisma.earnings_calls.findFirst({
-    where:  { company: companyPrefix },
-    select: { basic_industry: true }
-  })
+    where:   { company: companyPrefix },
+    select:  { basic_industry: true, company_name: true },
+    orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
+  }),
+  prisma.milestoneKpiTarget.findMany({
+    where: { company: companyPrefix }
+  }),
+  getLatestOFactorResultByTicker(companyPrefix),
 ]);
 
 if (rawSummaries.length === 0) {
@@ -303,18 +364,31 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
     const governanceSignals = latest.governanceSignals ?? {};
     const riskDisclosures  = Array.isArray(latest.riskDisclosures) ? latest.riskDisclosures : [];
 
+    // ── Build lookup maps from new tables ────────────────────────────────────
+    const milestoneAbbrs = [...new Set(rawMilestones.map(m => m.kpi_abbr))];
+    const kpiValueRows   = milestoneAbbrs.length > 0
+      ? await prisma.kpiValue.findMany({
+          where:  { company: companyPrefix, kpi_abbr: { in: milestoneAbbrs } },
+          select: { callId: true, kpi_abbr: true, value: true }
+        })
+      : [];
+    const milestoneByCall  = groupMilestonesByCall(rawMilestones);
+    const kpiValueLookup   = buildKpiValueLookup(kpiValueRows);
+    const latestKpiByAbbr  = buildLatestKpiByAbbr(kpiValueRows);
+
     // ── Cross-transcript guidance accuracy ───────────────────────────────────
     const { records, hiddenCount, achievedCount, missedCount, hitRate, guidanceScore } =
-      buildGuidanceRecords(summaries);
+      buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr);
 
     // Resolve KPI abbreviations → full names from the kpi table
     const financialAbbrs = [...new Set(
       records.filter(r => r.target_type === 'financial' && r.kpi_abbr).map(r => r.kpi_abbr)
     )];
     const kpiRows = financialAbbrs.length > 0
-      ? await prisma.kpi.findMany({ where: { abbr: { in: financialAbbrs } }, select: { abbr: true, full_form: true } })
+      ? await prisma.kpi.findMany({ where: { abbr: { in: financialAbbrs } }, select: { abbr: true, full_form: true, denomination: true } })
       : [];
-    const kpiNameMap = Object.fromEntries(kpiRows.map(k => [k.abbr.trim().toLowerCase(), k.full_form]));
+    const kpiNameMap  = Object.fromEntries(kpiRows.map(k => [k.abbr.trim().toLowerCase(), k.full_form]));
+    const kpiDenomMap = Object.fromEntries(kpiRows.map(k => [k.abbr.trim().toLowerCase(), k.denomination]));
 
     // Attach full name, clean up internal field, and filter incomplete rows
     const STATUS_SORT = { MISSED: 0, ACHIEVED: 1, HIDDEN: 2, PENDING: 3, KPI_MATCHING_NOT_FOUND: 4 };
@@ -323,13 +397,19 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
         const out = { ...r };
         if (r.target_type === 'financial') {
           out.metric = kpiNameMap[r.kpi_abbr?.trim().toLowerCase()] ?? r.kpi_abbr ?? '';
+          const denomination = kpiDenomMap[r.kpi_abbr?.trim().toLowerCase()];
+          out.targeted_value = formatGuidanceValue(r.targeted_value, denomination);
+          out.current_value  = formatGuidanceValue(r.current_value, denomination);
         }
         delete out.kpi_abbr;
         return out;
       })
       .filter(r =>
-        r.targeted_value != null &&
-        (r.current_value != null || r.status === 'PENDING')
+        // Financial: must have a target value + either a known current value or be pending
+        // Conceptual: no targeted_value required, just needs a statement and non-HIDDEN status
+        r.target_type === 'financial'
+          ? (r.targeted_value != null && (r.current_value != null || r.status === 'PENDING'))
+          : (r.statement != null && r.status !== 'HIDDEN')
       )
       .sort((a, b) => {
         const statusDiff = (STATUS_SORT[a.status] ?? 4) - (STATUS_SORT[b.status] ?? 4);
@@ -358,6 +438,17 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
     const transparencyScore = calculateTransparencyScore(governanceSignals, riskDisclosures);
     const capitalScore      = calculateCapitalAllocationScore(governanceSignals);
     const overallScore      = calculateOverallScore(transparencyScore, guidanceScore, capitalScore);
+
+    // OFactor section scores (competition + customer traction)
+    const oResult           = oFactorRecord?.result ?? {};
+    const competitionScore  = oResult.competition?.final_scoring?.score != null
+      ? Math.round((Number(oResult.competition.final_scoring.score) / 10) * 100)
+      : null;
+    const customerScore     = oResult.customer_traction?.final_scoring?.score != null
+      ? Math.round((Number(oResult.customer_traction.final_scoring.score) / 10) * 100)
+      : null;
+    const competitionStatus = oResult.competition?.final_scoring?.status ?? null;
+    const customerStatus    = oResult.customer_traction?.final_scoring?.status ?? null;
 
     // ── Governance signal pills ───────────────────────────────────────────────
     const governanceSignalsArray = [];
@@ -393,7 +484,7 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
       data: {
         company: {
           name:               latest.callId,
-         // ticker:             call.company_name ?? call.company ?? null,
+          company_name:       callRecord?.company_name ?? companyPrefix,
           exchange:           "NSE",
           industry:           callRecord?.basic_industry ?? null,
  //         callDate:           call.call_date ?? null,
@@ -415,14 +506,26 @@ console.log('Sorted summaries:', summaries.map(s => s.callId));
             factor:     "Capital Allocation",
             rating:     getRating(capitalScore),
             descriptor: capitalScore >= 70 ? "Value Accretive" : capitalScore >= 50 ? "Adequate Strategy" : "Unclear Direction"
-          }
+          },
+          ...(competitionScore != null ? [{
+            factor:     "Competitive Position",
+            rating:     getRating(competitionScore),
+            descriptor: competitionStatus ?? (competitionScore >= 70 ? "Strong Position" : competitionScore >= 50 ? "Moderate Position" : "Weak Position")
+          }] : []),
+          ...(customerScore != null ? [{
+            factor:     "Customer Traction",
+            rating:     getRating(customerScore),
+            descriptor: customerStatus ?? (customerScore >= 70 ? "High Traction" : customerScore >= 50 ? "Moderate Traction" : "Low Traction")
+          }] : []),
         ],
         trust: {
           overall: getOverallTrust(overallScore),
           subfactors: {
-            guidanceAccuracy:  guidanceScore,
-            disclosureHonesty: transparencyScore,
-            capitalAllocation: capitalScore
+            guidanceAccuracy:    guidanceScore,
+            disclosureHonesty:   transparencyScore,
+            capitalAllocation:   capitalScore,
+            ...(competitionScore != null ? { competitivePosition: competitionScore } : {}),
+            ...(customerScore    != null ? { customerTraction:    customerScore    } : {}),
           }
         },
         governanceSignals: governanceSignalsArray,

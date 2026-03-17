@@ -1,11 +1,24 @@
 const { Worker } = require('bullmq');
-const { connection, prisma, llmStream, parseJson } = require('../lib/workerSetup');
+const { connection, prisma, llmStream, parseJson, computePeriodType, applyMultiplier } = require('../lib/workerSetup');
 const { transcriptExtractorPrompt } = require('../prompts/transcript_call');
 const { upsertNewKpis } = require('../db-utils/upsertKpis');
 
 const TRANSCRIPT_CHAR_LIMIT = 50000;
 const MAX_TOKENS = 16000;
 const FISCAL_YEAR_END = process.env.FISCAL_YEAR_END || '03-31';
+
+const DENOM_UNIT = { rupee: 'Cr', percentage: '%', ratio: 'x', other: '' };
+
+// Transcript KPI paths in priority order (first match wins per kpi_abbr)
+const TRANSCRIPT_KPI_PATHS = [
+  { path: 'client_traction.customer_growth',     extract: d => d?.client_traction?.customer_growth?.kpis },
+  { path: 'client_traction.revenue_streams',     extract: d => d?.client_traction?.revenue_streams?.kpis },
+  { path: 'industry_analysis.demand',            extract: d => d?.industry_analysis?.demand?.kpis },
+  { path: 'industry_analysis.supply',            extract: d => d?.industry_analysis?.supply?.kpis },
+  { path: 'industry_analysis.operating_margins', extract: d => d?.industry_analysis?.operating_margins?.kpis },
+];
+
+const MILESTONE_CATEGORIES = ['future_goals', 'success_disclosures', 'failure_disclosures'];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -105,10 +118,132 @@ async function processSummarizationJob(job) {
       create: { callId, ...summaryPayload }
     });
     console.log(`Summary updated: ${summaryRecord.id}`);
+
+    // ── Write transcript KPIs to kpi_values ──────────────────────────────────
+    const callMeta = await prisma.earnings_calls.findUnique({
+      where:  { id: callId },
+      select: { company: true, fiscal_year: true, quarter: true, call_date: true }
+    });
+
+    if (callMeta) {
+      const kpiMeta = await prisma.kpi.findMany({ select: { abbr: true, denomination: true } });
+      const denomMap = new Map(kpiMeta.map(k => [k.abbr, k.denomination]));
+
+      const written = new Set();
+      const kpiValueRows = [];
+
+      // Priority-ordered transcript KPI paths (first match per kpi_abbr wins)
+      for (const { path, extract } of TRANSCRIPT_KPI_PATHS) {
+        const kpisArr = extract(extractedData);
+        if (!Array.isArray(kpisArr)) continue;
+        for (const k of kpisArr) {
+          if (!k?.kpi_abbr || written.has(k.kpi_abbr)) continue;
+          const llmVal    = parseFloat(k.value);
+          if (isNaN(llmVal)) continue;
+          const mult      = Math.round(k.multiplier ?? 1);
+          const startDate = k.start_date ?? null;
+          const endDate   = k.end_date   ?? null;
+          written.add(k.kpi_abbr);
+          kpiValueRows.push({
+            callId,
+            company:     callMeta.company,
+            fiscal_year: callMeta.fiscal_year ?? null,
+            quarter:     callMeta.quarter     ?? null,
+            call_date:   callMeta.call_date   ?? null,
+            kpi_abbr:    k.kpi_abbr,
+            value:       applyMultiplier(llmVal, mult),
+            raw_value:   String(llmVal),
+            unit:        DENOM_UNIT[denomMap.get(k.kpi_abbr)] ?? null,
+            multiplier:  mult,
+            start_date:  startDate,
+            end_date:    endDate,
+            period_type: computePeriodType(startDate, endDate),
+            source:      'transcript',
+            source_path: path,
+            statement:   k.statement ?? null,
+          });
+        }
+      }
+
+      // Milestones: current_value only, if not already covered by transcript paths
+      const milestones = extractedData.milestones ?? {};
+      for (const category of MILESTONE_CATEGORIES) {
+        const targets = milestones[category]?.financial_targets;
+        if (!Array.isArray(targets)) continue;
+        for (const t of targets) {
+          if (!t?.kpi_abbr || written.has(t.kpi_abbr)) continue;
+          const llmVal = parseFloat(t.current_value);
+          if (isNaN(llmVal)) continue;
+          const mult = Math.round(t.multiplier ?? 1);
+          written.add(t.kpi_abbr);
+          kpiValueRows.push({
+            callId,
+            company:     callMeta.company,
+            fiscal_year: callMeta.fiscal_year ?? null,
+            quarter:     callMeta.quarter     ?? null,
+            call_date:   callMeta.call_date   ?? null,
+            kpi_abbr:    t.kpi_abbr,
+            value:       applyMultiplier(llmVal, mult),
+            raw_value:   String(llmVal),
+            unit:        DENOM_UNIT[denomMap.get(t.kpi_abbr)] ?? null,
+            multiplier:  mult,
+            start_date:  null,
+            end_date:    null,
+            period_type: 'snapshot',
+            source:      'transcript',
+            source_path: `milestones.${category}`,
+            statement:   t.statement ?? null,
+          });
+        }
+      }
+
+      // Delete existing transcript rows, then write.
+      // skipDuplicates means QE rows (already written by qe worker) take priority.
+      await prisma.kpiValue.deleteMany({ where: { callId, source: 'transcript' } });
+      if (kpiValueRows.length > 0) {
+        await prisma.kpiValue.createMany({ data: kpiValueRows, skipDuplicates: true });
+        console.log(`kpi_values: wrote ${kpiValueRows.length} transcript rows for ${callId}`);
+      }
+
+      // ── Write milestone_kpi_targets (full fidelity, separate table) ──────────
+      const milestoneRows = [];
+      for (const category of MILESTONE_CATEGORIES) {
+        const targets = milestones[category]?.financial_targets;
+        if (!Array.isArray(targets)) continue;
+        for (const t of targets) {
+          if (!t?.kpi_abbr) continue;
+          const mult        = Math.round(t.multiplier ?? 1);
+          const currentVal  = parseFloat(t.current_value);
+          const targetedVal = parseFloat(t.targeted_value);
+          milestoneRows.push({
+            callId,
+            company:        callMeta.company,
+            fiscal_year:    callMeta.fiscal_year ?? null,
+            quarter:        callMeta.quarter     ?? null,
+            call_date:      callMeta.call_date   ?? null,
+            category,
+            kpi_abbr:       t.kpi_abbr,
+            statement:      t.statement    ?? null,
+            current_value:  isNaN(currentVal)  ? null : applyMultiplier(currentVal,  mult),
+            targeted_value: isNaN(targetedVal) ? null : applyMultiplier(targetedVal, mult),
+            multiplier:     mult,
+            initial_time:   t.initial_time ?? null,
+            target_time:    t.target_time  ?? null,
+          });
+        }
+      }
+
+      if (milestoneRows.length > 0) {
+        await prisma.milestoneKpiTarget.deleteMany({ where: { callId } });
+        await prisma.milestoneKpiTarget.createMany({ data: milestoneRows });
+        console.log(`milestone_kpi_targets: wrote ${milestoneRows.length} rows for ${callId}`);
+      }
+    }
+
     await job.updateProgress(100);
 
     console.log(`Summarization job ${job.id} completed`);
-    return { summaryId: summaryRecord.id, extractedData };
+    return { summaryId: summaryRecord.id, extractedData, prompt };
 
   } catch (error) {
     console.error(`Summarization job ${job.id} failed:`, error);

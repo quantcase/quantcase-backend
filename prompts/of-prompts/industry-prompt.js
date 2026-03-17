@@ -2,6 +2,14 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
+const WRITING_RULES = `
+WRITING RULES — mandatory for ALL text, insight, and takeaway fields:
+1. NO VAGUE TIME REFERENCES: Replace "previous quarter", "last year", "recently", "last period" etc. with the specific quarter label from the data (e.g., "Q3 FY26", "Q2 FY25–Q3 FY26"). Write "latest available quarter" only when the exact quarter is genuinely unknown.
+2. BACK EVERY CLAIM WITH DATA: Follow every qualitative assertion with a supporting metric in parentheses immediately after the claim. E.g., "demand recovering (Order inflow +23% YoY: Q3 FY26 ₹4,820 Cr vs Q3 FY25 ₹3,920 Cr)". Remove any claim that cannot be supported by a specific number.
+3. USER-FRIENDLY LANGUAGE: Write for a knowledgeable but non-specialist investor. Avoid standalone jargon. When using a technical abbreviation for the first time in a field, add a brief plain-English note — e.g., "DSO (days to collect payment)" or "ROCE (return on every rupee of capital deployed)".
+4. METRICS FIELDS — DATA ONLY: metric.value, metric.change, metric.sublabel must contain ONLY hard numbers, labels, or brief factual descriptions (≤8 words). No interpretation or editorializing inside metric fields — save that for text/insight/takeaway fields.
+5. TAKEAWAY FIELD: Write 3–4 sentences — cover what happened (with a specific number), why it matters for investors, any key risk or nuance, and a forward-looking implication. Plain English throughout. 50–80 words total.`;
+
 const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
   • Are the majority of managements talking about volume growth?
   • Are order books or pipelines expanding?
@@ -10,10 +18,11 @@ const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
 Populate with short and crisp points.
 
 Output length guidelines:
-  • text.takeaway — 1 concise sentence
-  • text.opm_trend.margin_drivers, text.opm_trend.key_observations — 10 words max per item
-  • text.opm_trend.forward_outlook — 10 words max
-  • text.demand_supply_dynamics.demand, .supply, .net_impact — 10 words max each`;
+  • text.takeaway — 3–4 sentences covering the key fact (with a number), investor significance, any nuance, and forward outlook. 50–80 words total.
+  • text.opm_trend.margin_drivers, text.opm_trend.key_observations — 20 words max per item; include at least one metric or number
+  • text.opm_trend.forward_outlook — 20 words max; cite a specific management guidance quote or data point
+  • text.demand_supply_dynamics.demand, .supply — 4–6 bullet points each, 20 words max per point; include a metric where available
+  • text.demand_supply_dynamics.net_impact — 1–2 sentences with supporting data`;
 
 const METRICS = [
   { name: 'Revenue from Operations (REV_OP)', type: 'raw_kpi', trend: 'last 4 Q4s' },
@@ -184,6 +193,7 @@ C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
 ${customInstructions ?? DEFAULT_INSTRUCTIONS}
+${WRITING_RULES}
 
 For ALL metrics values: always output a SINGLE specific number or label — never a range (e.g. "₹30,000–40,000 Cr" or "12–15%") and never a division (e.g. "Elecon / Triveni"). If you are uncertain, approximate using the midpoint or mean and state your basis in the sublabel.
 
