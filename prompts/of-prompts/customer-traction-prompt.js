@@ -2,14 +2,6 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
-const WRITING_RULES = `
-WRITING RULES — mandatory for ALL text, insight, and takeaway fields:
-1. NO VAGUE TIME REFERENCES: Replace "previous quarter", "last year", "recently", "last period" etc. with the specific quarter label from the data (e.g., "Q3 FY26", "Q2 FY25–Q3 FY26"). Write "latest available quarter" only when the exact quarter is genuinely unknown.
-2. BACK EVERY CLAIM WITH DATA: Follow every qualitative assertion with a supporting metric in parentheses immediately after the claim. E.g., "customer base expanding (Order inflow ₹14,320 Cr in Q3 FY26, +19% YoY, proxy for new demand)". Remove any claim that cannot be supported by a specific number.
-3. USER-FRIENDLY LANGUAGE: Write for a knowledgeable but non-specialist investor. Avoid standalone jargon. When using a technical abbreviation for the first time in a field, add a brief plain-English note — e.g., "NRR (how much existing customers spend vs last year)" or "churn (customers who stopped buying)".
-4. METRICS FIELDS — DATA ONLY: metric.value, metric.change, metric.sublabel must contain ONLY hard numbers, labels, or brief factual descriptions (≤8 words). No interpretation or editorializing inside metric fields — save that for text/insight/takeaway fields.
-5. TAKEAWAY FIELD: Write 3–4 sentences — cover what happened (with a specific number), why it matters for investors, any key risk or nuance, and a forward-looking implication. Plain English throughout. 50–80 words total.`;
-
 const DEFAULT_INSTRUCTIONS = `From the subject company's KPIs and transcripts, identify:
   • Is new customer acquisition accelerating or slowing?
   • Are existing customers expanding spend (upsells, larger project scopes)?
@@ -28,12 +20,12 @@ Set proxy-based metric values as a descriptive string (e.g. "Order Inflow ₹14,
 and explain the proxy in the sublabel field.
 
 Output length guidelines:
-  • text.takeaway — 3–4 sentences covering the key fact (with a number), investor significance, any nuance, and forward outlook. 50–80 words total.
-  • text.key_takeaway — 15 words max; include a number
-  • text.retention.expansion_drivers, .product_stickiness — 20 words max per item; cite evidence (metric or transcript quote)
-  • text.segmentation.growth_strategy, .revenue_quality — 20 words max per item; include a metric
-  • text.customer_growth.acquisition_dynamics — 20 words max per item; include a metric
-  • text.alt_data_signals[].insight — 15 words max each`;
+  • text.takeaway — 1 concise sentence
+  • text.key_takeaway — 10 words max
+  • text.retention.expansion_drivers, .product_stickiness — 10 words max per item
+  • text.segmentation.growth_strategy, .revenue_quality — 10 words max per item
+  • text.customer_growth.acquisition_dynamics — 10 words max per item
+  • text.alt_data_signals[].insight — 10 words max each`;
 
 const METRICS = [
   { name: 'Active Customers — latest value (CUST KPI)', type: 'computed' },
@@ -103,6 +95,13 @@ function serializeSubjectData(row) {
 function customerTractionPrompt(subjectTicker, subjectData, computedMetrics, customInstructions) {
   const { custLatest, custCagr } = computedMetrics;
 
+  // Determine analysis period from the latest subject call
+  const _latestCallId = subjectData.length > 0 ? subjectData[subjectData.length - 1].callId : null;
+  const _pm = _latestCallId && _latestCallId.match(/_FY(\d{4})_(Q\d)$/i);
+  const snapshotPeriod = _pm
+    ? `${_pm[2]} FY${_pm[1].slice(-2)}`
+    : (custLatest?.period ?? 'latest available');
+
   const subjectText = subjectData.length > 0
     ? subjectData.map(r => serializeSubjectData(r)).join('\n\n---\n\n')
     : '(No subject client traction data available)';
@@ -112,6 +111,7 @@ function customerTractionPrompt(subjectTicker, subjectData, computedMetrics, cus
   return `You are a senior equity research analyst. Analyze client/customer traction for ${subjectTicker}.
 
 SUBJECT COMPANY : ${subjectTicker}
+ANALYSIS PERIOD : ${snapshotPeriod}
 
 ══════════════════════════════════════════════════════════
 A. PRE-COMPUTED CUSTOMER METRICS (use these directly)
@@ -130,8 +130,9 @@ ${subjectText}
 C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
+Period context: Data above reflects ${snapshotPeriod}. Do NOT append or repeat the period label inside metric values, sublabels, or any other output fields.
+
 ${customInstructions ?? DEFAULT_INSTRUCTIONS}
-${WRITING_RULES}
 
 Populate the "final_scoring" field INSIDE the customer_traction JSON object (same level as "metrics"). Award 1 point per check, max 10:
   1. Customer count growing YoY → text.customer_growth.metrics.current_base trend

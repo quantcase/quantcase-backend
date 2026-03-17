@@ -2,14 +2,6 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
-const WRITING_RULES = `
-WRITING RULES — mandatory for ALL text, insight, and takeaway fields:
-1. NO VAGUE TIME REFERENCES: Replace "previous quarter", "last year", "recently", "last period" etc. with the specific quarter label from the data (e.g., "Q3 FY26", "Q2 FY25–Q3 FY26"). Write "latest available quarter" only when the exact quarter is genuinely unknown.
-2. BACK EVERY CLAIM WITH DATA: Follow every qualitative assertion with a supporting metric in parentheses immediately after the claim. E.g., "demand recovering (Order inflow +23% YoY: Q3 FY26 ₹4,820 Cr vs Q3 FY25 ₹3,920 Cr)". Remove any claim that cannot be supported by a specific number.
-3. USER-FRIENDLY LANGUAGE: Write for a knowledgeable but non-specialist investor. Avoid standalone jargon. When using a technical abbreviation for the first time in a field, add a brief plain-English note — e.g., "DSO (days to collect payment)" or "ROCE (return on every rupee of capital deployed)".
-4. METRICS FIELDS — DATA ONLY: metric.value, metric.change, metric.sublabel must contain ONLY hard numbers, labels, or brief factual descriptions (≤8 words). No interpretation or editorializing inside metric fields — save that for text/insight/takeaway fields.
-5. TAKEAWAY FIELD: Write 3–4 sentences — cover what happened (with a specific number), why it matters for investors, any key risk or nuance, and a forward-looking implication. Plain English throughout. 50–80 words total.`;
-
 const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
   • Are the majority of managements talking about volume growth?
   • Are order books or pipelines expanding?
@@ -18,11 +10,11 @@ const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
 Populate with short and crisp points.
 
 Output length guidelines:
-  • text.takeaway — 3–4 sentences covering the key fact (with a number), investor significance, any nuance, and forward outlook. 50–80 words total.
-  • text.opm_trend.margin_drivers, text.opm_trend.key_observations — 20 words max per item; include at least one metric or number
-  • text.opm_trend.forward_outlook — 20 words max; cite a specific management guidance quote or data point
-  • text.demand_supply_dynamics.demand, .supply — 4–6 bullet points each, 20 words max per point; include a metric where available
-  • text.demand_supply_dynamics.net_impact — 1–2 sentences with supporting data`;
+  • text.takeaway — 3-4 sentences in user friendly language. You may mention hard metrics in parentheses.
+  • text.opm_trend.margin_drivers, text.opm_trend.key_observations — 30 words max per item
+  • text.opm_trend.forward_outlook — 30 words max
+  • text.demand_supply_dynamics.demand, .supply — 4–6 bullet points each, 20 words max per point
+  • text.demand_supply_dynamics.net_impact — short thesis narrative in 30 words max`;
 
 const METRICS = [
   { name: 'Revenue from Operations (REV_OP)', type: 'raw_kpi', trend: 'last 4 Q4s' },
@@ -127,6 +119,15 @@ function industryPrompt(subjectTicker, industry, subjectData, peerData, computed
   // Latest point-in-time values
   const fmt = v => v != null ? v : 'N/A';
 
+  // Determine snapshot period for the Section A header
+  const _revSeries = rawBatch?.REV_OP;
+  const _snapshotEntry = Array.isArray(_revSeries)
+    ? (_revSeries.filter(s => s.value != null).at(-1) ?? null)
+    : null;
+  const snapshotPeriod = (_snapshotEntry?.quarter && _snapshotEntry?.fiscal_year)
+    ? `${_snapshotEntry.quarter} FY${String(_snapshotEntry.fiscal_year).slice(-2)}`
+    : 'latest available';
+
   const revOp      = _latest(rawBatch?.REV_OP);
   const totalInc   = _latest(rawBatch?.TOTAL_INCOME);
   const pat        = _latest(rawBatch?.PAT);
@@ -149,7 +150,7 @@ SUBJECT COMPANY : ${subjectTicker}
 INDUSTRY        : ${industry}
 
 ══════════════════════════════════════════════════════════
-A. SUBJECT COMPANY FINANCIAL SNAPSHOT (latest quarter)
+A. SUBJECT COMPANY FINANCIAL SNAPSHOT (${snapshotPeriod})
 ══════════════════════════════════════════════════════════
 
   Revenue from Operations : ${fmt(revOp)}
@@ -192,20 +193,21 @@ ${peerText}
 C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
+Period context: All snapshot values above are from ${snapshotPeriod}. Mention the period when you metric value are filled.
+
 ${customInstructions ?? DEFAULT_INSTRUCTIONS}
-${WRITING_RULES}
 
 For ALL metrics values: always output a SINGLE specific number or label — never a range (e.g. "₹30,000–40,000 Cr" or "12–15%") and never a division (e.g. "Elecon / Triveni"). If you are uncertain, approximate using the midpoint or mean and state your basis in the sublabel.
 
-For metrics.industry_revenue_ttm: estimate total industry revenue (TTM) for the ${industry} sector using subject company revenue, peer data, and your knowledge. Express in a readable format (e.g. "₹4.2L Cr", "$180B"). Add a "change" field with the YoY % change (e.g. "+18.2%"). Use sublabel to clarify source/period.
+For metrics.industry_revenue_ttm: estimate total industry revenue (TTM) for the ${industry} sector using subject company revenue, peer data, and your knowledge. Express in a readable format (e.g. "₹4.2L Cr", "$180B"). Add a "change" field with the date % change (e.g. "+18.2% Q3 FY26"). Use sublabel to clarify source/period.
 
 For metrics.industry_cagr (NON-BFSI only): provide three separate CAGR estimates for the industry revenue — "qoq" (quarter-on-quarter annualised), "one_year" (1Y CAGR), "three_year" (3Y CAGR). Each should be a single % string (e.g. "12.3%"). Use the revenue sparkline data and your knowledge of the sector. Set all fields to null for BFSI companies.
 
 For metrics.industry_aum (BFSI only): estimate total industry AUM — calculated as Gross Advances + Deposits for the ${industry} sector. Express in a readable format (e.g. "₹180L Cr"). Add a "change" field with the YoY % change (e.g. "+14%"). Set to null for non-BFSI companies.
 
-For metrics.current_opm: output a single OPM % value (e.g. "23%") and a "change" field in basis points (e.g. "+120bps" or "-40bps") representing the YoY change. Use the EBIT/revenue sparkline above to derive the change. If peer OPMs differ, use weighted average and explain in sublabel.
+For metrics.current_opm: output a single OPM % value (e.g. "23%") and a "change" field in basis points (e.g. "+120bps" or "-40bps") +date range. Use the EBIT/revenue sparkline above to derive the change. If peer OPMs differ, use weighted average and explain in sublabel.
 
-For metrics.industry_roce: use the ROCE trend above (last 4 Q4s) to populate "value" (latest, e.g. "24.8%") and "change" (YoY change in bps, e.g. "+180bps"). This represents the subject company ROCE as a proxy for industry ROCE — note in sublabel if peers differ significantly.${bfsi ? '\n\nThis is a BFSI company. Populate industry_aum; set industry_cagr fields (qoq, one_year, three_year) to null.' : '\n\nThis is a non-BFSI company. Populate industry_cagr (qoq, one_year, three_year); set industry_aum to null.'}
+For metrics.industry_roce: use the ROCE trend above (last 4 Q4s) to populate "value" (latest, e.g. "24.8%") and "change" (YoY change in bps, e.g. "+180bps date range"). This represents the subject company ROCE as a proxy for industry ROCE — note in sublabel if peers differ significantly.${bfsi ? '\n\nThis is a BFSI company. Populate industry_aum; set industry_cagr fields (qoq, one_year, three_year) to null.' : '\n\nThis is a non-BFSI company. Populate industry_cagr (qoq, one_year, three_year); set industry_aum to null.'}
 
 Populate the "final_scoring" field INSIDE the industry_overview JSON object (same level as "metrics"). Award 1 point per check, max 10:
   1. Demand signal is "Strong" → metrics.demand_signal
