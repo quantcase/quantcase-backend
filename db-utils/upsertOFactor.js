@@ -55,6 +55,7 @@ const SECTION_KEY_MAP = {
   competition:        'competition',
   financial_strength: 'financial_strength',
   customer_traction:  'customer_traction',
+  final_takeaways:    'final_takeaways',
 };
 
 /**

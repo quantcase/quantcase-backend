@@ -27,7 +27,11 @@ function dealAnalysisPrompt(
   industryPe,
   recentSummaries = [],
   stockRev = null,
-  stockRoce = null
+  stockRoce = null,
+  ebitMargin = null,         // latest EBIT margin % (derived from kpi_values)
+  roe = null,                // latest ROE % (derived from kpi_values)
+  cashConversionPct = null,  // FCF/PAT % (derived from kpi_values)
+  industryRev = null         // industry Revenue CAGR object { value, type, tickerCount }
 ) {
   // ── Derive key numbers ──────────────────────────────────────────────────────
   const latestQuarterlyEps = stockEps?.latestValue ?? null;
@@ -46,6 +50,10 @@ function dealAnalysisPrompt(
   const companyEpsCagr  = stockEps?.value         ?? null;
   const companyRevCagr  = stockRev?.value          ?? null;
   const companyRoce     = stockRoce?.value         ?? null;
+  const companyEbitMargin      = ebitMargin        ?? null;
+  const companyRoe             = roe               ?? null;
+  const companyCashConversion  = cashConversionPct ?? null;
+  const industryRevCagrVal     = industryRev?.value ?? null;
 
   // Estimated CMP if not provided from API
   const derivedCmp = (cmp == null && currentPe != null && annualizedEpsRunRate != null)
@@ -117,13 +125,16 @@ ${signals || '  - No governance signals available'}
 
 ---
 
-## EPS Data (from quarterly earnings summaries)
-- Latest Quarterly EPS:    ₹${latestQuarterlyEps ?? 'N/A'}
-- Annualized EPS Run-Rate: ₹${annualizedEpsRunRate ?? 'N/A'} (quarterly × 4)
+## EPS & Profitability Data (from kpi_values)
+- Latest Quarterly EPS:      ₹${latestQuarterlyEps ?? 'N/A'}
+- Annualized EPS Run-Rate:   ₹${annualizedEpsRunRate ?? 'N/A'} (quarterly × 4)
 - ${epsHistoricalNote}
-- Company EPS 5yr CAGR:    ${companyEpsCagr != null ? `${companyEpsCagr}%` : 'N/A'}
-- Company Revenue 5yr CAGR: ${companyRevCagr != null ? `${companyRevCagr}%` : 'N/A'}
-- Company ROCE (latest):   ${companyRoce != null ? `${companyRoce}%` : 'N/A'}
+- Company EPS 5yr CAGR:      ${companyEpsCagr != null ? `${companyEpsCagr}%` : 'N/A'}
+- Company Revenue 5yr CAGR:  ${companyRevCagr != null ? `${companyRevCagr}%` : 'N/A'}
+- Company ROCE (latest):     ${companyRoce != null ? `${companyRoce}%` : 'N/A'}
+- Company EBIT Margin (latest): ${companyEbitMargin != null ? `${companyEbitMargin}%` : 'N/A'}
+- Company ROE (latest):      ${companyRoe != null ? `${companyRoe}%` : 'N/A'}
+- Company Cash Conversion:   ${companyCashConversion != null ? `${companyCashConversion}% (FCF/PAT)` : 'N/A'}
 
 ## P/E Ratio Data (from daily market data)
 - Current P/E (latest):           ${currentPe ?? 'N/A'}x
@@ -134,6 +145,7 @@ ${signals || '  - No governance signals available'}
 - Industry Average Latest P/E:    ${industryAvgPe ?? 'N/A'}x  (${industryPe?.tickerCount ?? 0} peers)
 - Industry P/E CAGR (3yr avg):    ${industryPeCagr != null ? `${industryPeCagr}%` : 'N/A'}
 - Industry EPS CAGR:              ${industryEps?.value != null ? `${industryEps.value}%` : 'N/A'}
+- Industry Revenue CAGR:          ${industryRevCagrVal != null ? `${industryRevCagrVal}%` : 'N/A'}
 - ${industryEpsNote}
 - Execution Alpha (historical):   ${execAlphaRatio != null ? `${execAlphaRatio}x (company EPS CAGR / industry EPS CAGR)` : 'N/A'}
 ${managementContext}
@@ -145,7 +157,7 @@ ${managementContext}
 Generate three scenarios — Bear, Base, and Bull — each with a specific EPS CAGR assumption for the next 3 years. For each scenario:
 1. **EPS CAGR** — choose a realistic annualized EPS growth rate
 2. **Forward EPS** — compute: annualized_eps_run_rate × (1 + eps_cagr/100)^3
-3. **Exit P/E range** — anchor to current P/E (${currentPe}x), historical avg P/E (${avgHistoricalPe}x), industry avg P/E (${industryAvgPe}x)
+3. **Exit P/E range** — anchor to current P/E (${currentPe}x), historical avg P/E (${avgHistoricalPe}x), industry avg P/E (${industryAvgPe}x). The spread between exit_pe_low and exit_pe_high must not exceed 15% of exit_pe_low (e.g. if low=35, high must be ≤40.25)
 4. **Target Price Range** — forward_eps × exit_pe_low and forward_eps × exit_pe_high
 5. **Upside/Downside %** — relative to CMP ₹${displayCmp}
 6. **CAGR p.a.** — annualized return from CMP to midpoint of target range over 3 years
@@ -173,12 +185,20 @@ Also write a 2-3 sentence insight explaining the earnings trajectory logic.
 - stats: 3 computed stats — avg outperformance vs industry, consistency (e.g. "6/6 yrs"), latest year growth
 
 #### C. quality_of_earnings — Atomic Metrics
-- metrics: 4 metric cards — EBITDA MARGIN (current value + change), RETURN ON EQUITY (current + change), MARKET SHARE (estimate if not directly available), CASH CONVERSION (FCF/PAT ratio %)
-- chart_data: generate 5-6 years of ROE, ROIC (estimate as ROCE proxy), and market_share trend. Anchor ROE to current ROCE of ${companyRoce != null ? `${companyRoce}%` : 'known value'}.
+- metrics: 4 metric cards using the values provided above:
+  - EBITDA MARGIN: use EBIT Margin of ${companyEbitMargin != null ? `${companyEbitMargin}%` : 'N/A (estimate from industry knowledge)'}; compute change vs historical average
+  - RETURN ON EQUITY: use ROE of ${companyRoe != null ? `${companyRoe}%` : 'N/A (estimate from industry knowledge)'}; compute change vs historical average
+  - MARKET SHARE: estimate from industry knowledge if not directly available
+  - CASH CONVERSION: use ${companyCashConversion != null ? `${companyCashConversion}% (FCF/PAT)` : 'N/A (estimate from industry knowledge)'}
+- chart_data: generate 5-6 years of ROE, ROIC (estimate as ROCE proxy), and market_share trend. Anchor ROE to ${companyRoe != null ? `${companyRoe}%` : 'N/A'}, ROIC to ROCE of ${companyRoce != null ? `${companyRoce}%` : 'N/A'}.
 - bottom_line: 2-3 sentence earnings quality summary citing specific metrics
 
 #### D. valuation_vs_peers — Valuation Context
-- current_position: 4 comparison cards (P/E MULTIPLE vs industry avg, EV/EBITDA vs industry, ROE QUALITY vs industry, GROWTH RATE vs industry). Use current P/E=${currentPe}x vs industry avg P/E=${industryAvgPe}x for P/E card. Estimate EV/EBITDA from industry knowledge. Show pct premium/discount and specific values.
+- current_position: 4 comparison cards using the values provided above:
+  - P/E MULTIPLE: use current P/E=${currentPe ?? 'N/A'}x vs industry avg P/E=${industryAvgPe ?? 'N/A'}x; show pct premium/discount
+  - EV/EBITDA: estimate from industry knowledge anchored to EBIT Margin of ${companyEbitMargin != null ? `${companyEbitMargin}%` : 'N/A'}
+  - ROE QUALITY: use company ROE=${companyRoe != null ? `${companyRoe}%` : 'N/A'} vs industry estimate; show premium/discount
+  - GROWTH RATE: use company Revenue CAGR=${companyRevCagr != null ? `${companyRevCagr}%` : 'N/A'} vs industry Revenue CAGR=${industryRevCagrVal != null ? `${industryRevCagrVal}%` : 'N/A'}; show premium/discount
 - re_rating_view: badge (EXPAND/SUSTAIN/CONTRACT based on base case), title, and description with bear/base/bull P/E multiples embedded as rich text array with {text, bold?, color?} parts
 - expansion_drivers: 4 items with text (bold label) and detail (brief qualifier)
 - contraction_risks: 4 items with text and detail

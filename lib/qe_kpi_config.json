@@ -212,6 +212,14 @@
           "PAT": {
             "label": "Profit for the Period",
             "aliases": ["Net Profit", "Profit after tax", "Profit for the year", "Total Comprehensive Income"]
+          },
+          "EPS_BASIC": {
+            "label": "Basic Earnings Per Share",
+            "aliases": ["Basic EPS", "EPS (Basic)", "Earnings per equity share - Basic", "Earnings per share of face value (basic)", "Basic earnings per share"]
+          },
+          "EPS_DILUTED": {
+            "label": "Diluted Earnings Per Share",
+            "aliases": ["Diluted EPS", "EPS (Diluted)", "Earnings per equity share - Diluted", "Earnings per share of face value (diluted)", "Diluted earnings per share"]
           }
         }
       },
@@ -482,6 +490,14 @@
           "PAT": {
             "label": "Profit for the Period",
             "aliases": ["Net Profit", "Profit after tax", "Profit for the year", "Total Comprehensive Income"]
+          },
+          "EPS_BASIC": {
+            "label": "Basic Earnings Per Share",
+            "aliases": ["Basic EPS", "EPS (Basic)", "Earnings per equity share - Basic", "Earnings per share of face value (basic)", "Basic earnings per share"]
+          },
+          "EPS_DILUTED": {
+            "label": "Diluted Earnings Per Share",
+            "aliases": ["Diluted EPS", "EPS (Diluted)", "Earnings per equity share - Diluted", "Earnings per share of face value (diluted)", "Diluted earnings per share"]
           }
         }
       },

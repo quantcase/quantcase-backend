@@ -5,6 +5,12 @@ const { connection, prisma, llmStream, parseJson } = require('../lib/workerSetup
 const { dealAnalysisPrompt }    = require('../prompts/deal_analysis');
 const { fetchTickerFinancials } = require('../utils/fincruxHelper');
 const { upsertDealResult }      = require('../db-utils/upsertDealResult');
+const { FinHelper }             = require('../utils/finHelper');
+const { isBFSI }                = require('../utils/industryClassifier');
+
+/** Latest non-null value from a time-series array, or null. */
+const _latest = (series) =>
+  Array.isArray(series) ? series.filter(s => s.value != null).at(-1)?.value ?? null : null;
 
 const TEMP_DIR   = path.join(__dirname, '..', 'tmp');
 const MAX_TOKENS = 16000;
@@ -31,7 +37,7 @@ function extractCmp(fincruxData) {
 // ─── Processor ───────────────────────────────────────────────────────────────
 
 async function processDealJob(job) {
-  const { callId, ticker, industry, companyName, stockEps, stockPe, industryEps, industryPe, stockRev, stockRoce } = job.data;
+  const { callId, ticker, industry, companyName, stockEps, stockPe, industryEps, industryPe, stockRev, stockRoce, industryRev } = job.data;
   console.log(`Processing Deal job ${job.id} (callId: ${callId}, ticker: ${ticker})`);
 
   try {
@@ -56,7 +62,28 @@ async function processDealJob(job) {
     console.log(`[Deal] Recent summaries for ${ticker}: ${recentSummaries.length}`);
     await job.updateProgress(35);
 
-    const prompt = dealAnalysisPrompt(ticker, companyName, industry, cmp, stockEps, stockPe, industryEps, industryPe, recentSummaries, stockRev, stockRoce);
+    // ── Derived KPI metrics (computed from kpi_values source KPIs) ─────────────
+    let ebitMargin = null, roe = null, cashConversionPct = null;
+    try {
+      const helper = new FinHelper(prisma);
+      const bfsi   = isBFSI(industry);
+      const [derivedBatch, patSeries] = await Promise.all([
+        helper.getDerivedKpiBatch(ticker, bfsi),
+        helper.getTimeSeries(ticker, 'PAT'),
+      ]);
+      ebitMargin = _latest(derivedBatch.EBIT_MARGIN);
+      roe        = _latest(derivedBatch.ROE);
+      const fcf  = _latest(derivedBatch.FCF);
+      const pat  = _latest(patSeries);
+      if (fcf != null && pat != null && pat !== 0) {
+        cashConversionPct = parseFloat((fcf / pat * 100).toFixed(1));
+      }
+      console.log(`[Deal] Derived — ebitMargin=${ebitMargin}, roe=${roe}, fcf=${fcf}, pat=${pat}, cashConv=${cashConversionPct}`);
+    } catch (err) {
+      console.warn(`[Deal] Could not compute derived KPIs for ${ticker}: ${err.message}`);
+    }
+
+    const prompt = dealAnalysisPrompt(ticker, companyName, industry, cmp, stockEps, stockPe, industryEps, industryPe, recentSummaries, stockRev, stockRoce, ebitMargin, roe, cashConversionPct, industryRev);
     console.log(`[Deal] Prompt length: ${prompt.length} chars`);
 
     if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -86,7 +113,7 @@ async function processDealJob(job) {
 
     await job.updateProgress(100);
     console.log(`[Deal] Job ${job.id} completed`);
-    return dealResult;
+    return { result: dealResult, prompt };
 
   } catch (error) {
     console.error(`[Deal] Job ${job.id} failed:`, error);

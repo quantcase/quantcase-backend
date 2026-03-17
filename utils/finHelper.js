@@ -47,34 +47,24 @@ class FinHelper {
     });
     if (!calls.length) return [];
 
-    const summaries = await this.prisma.summaryNew.findMany({
-      where:  { callId: { in: calls.map(c => c.id) } },
-      select: { callId: true, kpis: true },
+    const kpiRows = await this.prisma.kpiValue.findMany({
+      where:  { callId: { in: calls.map(c => c.id) }, kpi_abbr: abbr },
+      select: { callId: true, value: true, multiplier: true },
     });
-    const summaryMap = new Map(summaries.map(s => [s.callId, s.kpis]));
+    const kpiMap = new Map(kpiRows.map(r => [r.callId, r.value / (r.multiplier || 1)]));
 
     return calls.map(call => {
-      const kpisArr = summaryMap.get(call.id) ?? [];
-      if (!Array.isArray(kpisArr)) {
-        return { callId: call.id, period: periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
-      }
-
-      // Support both { value } (transcript kpis) and { kpi_value } (QE kpis)
-      const match = kpisArr.find(k => k.kpi_abbr === abbr && (k.kpi_value != null || k.value != null));
-      if (match) {
-        const raw = parseFloat(match.kpi_value ?? match.value);
-        return {
-          callId:      call.id,
-          period:      periodLabel(call),
-          fiscal_year: call.fiscal_year,
-          quarter:     call.quarter,
-          call_date:   call.call_date,
-          value:       !isNaN(raw) ? raw : null,
-          abbrUsed:    abbr,
-        };
-      }
-
-      return { callId: call.id, period: periodLabel(call), fiscal_year: call.fiscal_year, quarter: call.quarter, call_date: call.call_date, value: null, abbrUsed: null };
+      const raw   = kpiMap.get(call.id);
+      const value = raw != null && !isNaN(raw) ? raw : null;
+      return {
+        callId:      call.id,
+        period:      periodLabel(call),
+        fiscal_year: call.fiscal_year,
+        quarter:     call.quarter,
+        call_date:   call.call_date,
+        value,
+        abbrUsed:    value != null ? abbr : null,
+      };
     });
   }
 
@@ -93,45 +83,36 @@ class FinHelper {
       orderBy: [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
     });
 
-    const abbrSet = new Set(abbrs);
-    const result  = Object.fromEntries(abbrs.map(a => [a, []]));
-
+    const result = Object.fromEntries(abbrs.map(a => [a, []]));
     if (!calls.length) return result;
 
-    const summaries = await this.prisma.summaryNew.findMany({
-      where:  { callId: { in: calls.map(c => c.id) } },
-      select: { callId: true, kpis: true },
+    const callIds = calls.map(c => c.id);
+    const kpiRows = await this.prisma.kpiValue.findMany({
+      where:  { callId: { in: callIds }, kpi_abbr: { in: abbrs } },
+      select: { callId: true, kpi_abbr: true, value: true, multiplier: true },
     });
-    const summaryMap = new Map(summaries.map(s => [s.callId, s.kpis]));
+
+    // Build nested map: callId → abbr → display value (value / multiplier)
+    const kpiMap = {};
+    for (const row of kpiRows) {
+      if (!kpiMap[row.callId]) kpiMap[row.callId] = {};
+      if (kpiMap[row.callId][row.kpi_abbr] === undefined) {
+        kpiMap[row.callId][row.kpi_abbr] = row.value / (row.multiplier || 1);
+      }
+    }
 
     for (const call of calls) {
-      const kpisArr = summaryMap.get(call.id) ?? [];
-      const base    = {
+      const base = {
         callId:      call.id,
         period:      periodLabel(call),
         fiscal_year: call.fiscal_year,
         quarter:     call.quarter,
         call_date:   call.call_date,
       };
-
-      // Build a lookup of abbr → first matching kpi entry for this call
-      const matchByAbbr = {};
-      if (Array.isArray(kpisArr)) {
-        for (const k of kpisArr) {
-          if (abbrSet.has(k.kpi_abbr) && !matchByAbbr[k.kpi_abbr] && (k.kpi_value != null || k.value != null)) {
-            matchByAbbr[k.kpi_abbr] = k;
-          }
-        }
-      }
-
       for (const abbr of abbrs) {
-        const match = matchByAbbr[abbr];
-        if (match) {
-          const raw = parseFloat(match.kpi_value ?? match.value);
-          result[abbr].push({ ...base, value: !isNaN(raw) ? raw : null, abbrUsed: abbr });
-        } else {
-          result[abbr].push({ ...base, value: null, abbrUsed: null });
-        }
+        const raw   = kpiMap[call.id]?.[abbr];
+        const value = raw != null && !isNaN(raw) ? raw : null;
+        result[abbr].push({ ...base, value, abbrUsed: value != null ? abbr : null });
       }
     }
 
@@ -484,12 +465,12 @@ class FinHelper {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async _industryTickers(industry) {
-    const rows = await this.prisma.summaryNew.findMany({
-      where:  { industryAnalysis: { path: ['industry'], equals: industry } },
-      select: { callId: true },
+    const rows = await this.prisma.earnings_calls.findMany({
+      where:    { basic_industry: industry },
+      select:   { company: true },
+      distinct: ['company'],
     });
-    // Extract unique tickers from callId (format: TICKER_FYXXXX_QX)
-    return [...new Set(rows.map(r => r.callId.split('_FY')[0]))];
+    return rows.map(r => r.company);
   }
 }
 

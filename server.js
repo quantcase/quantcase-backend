@@ -18,6 +18,7 @@ const { getOFactorPrompt,
         enqueueCustomOFactorAnalysis }                   = require('./controllers/oFactorPromptController');
 const { createDealAnalysis, getDealAnalysis,
         getDealAnalysisByQuery }                         = require('./controllers/dealController');
+const { getOpportunityStats }                            = require('./controllers/adminController');
 
 const app  = express();
 const port = process.env.PORT || 8000;
@@ -58,6 +59,8 @@ app.post('/api/calls/:callId/opportunity/analysis/custom', enqueueCustomOFactorA
 
 app.get('/api/calls/:callId/deal',                 getDealAnalysis);
 app.get('/api/deal/analysis',                      getDealAnalysisByQuery);
+
+app.get('/admin/opportunity/stats',                getOpportunityStats);
 
 // ── Fallback handlers ─────────────────────────────────────────────────────────
 app.use((_, res) => {

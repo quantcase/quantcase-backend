@@ -154,8 +154,8 @@ const OFactorResponseSchema = {
         "context": "<string>", "quote": "<verbatim quote from transcript>"
       }],
       "demand_supply_dynamics": {
-        "demand":     "<string>",
-        "supply":     "<string>",
+        "demand":     ["<string>"],
+        "supply":     ["<string>"],
         "net_impact": "<string>"
       }
     },
@@ -380,6 +380,21 @@ const OFactorResponseSchema = {
       "status_color": "<green|yellow|red>",
       "title": "<string>",
       "body": "<string>"
+    }
+  },
+  "final_takeaways": {
+    "overall_score": "<number 0–40>",
+    "max_score": 40,
+    "overall_status": "<STRONG|MODERATE|WEAK>",
+    "status_color": "<green|yellow|red>",
+    "investment_thesis": "<string — 1–2 sentence overall investment thesis>",
+    "key_highlights": ["<string>"],
+    "key_risks": ["<string>"],
+    "section_scores": {
+      "industry":           { "score": "<number 0–10>", "status": "<string>", "takeaway": "<string>" },
+      "competition":        { "score": "<number 0–10>", "status": "<string>", "takeaway": "<string>" },
+      "financial_strength": { "score": "<number 0–10>", "status": "<string>", "takeaway": "<string>" },
+      "customer_traction":  { "score": "<number 0–10>", "status": "<string>", "takeaway": "<string>" }
     }
   }
 }

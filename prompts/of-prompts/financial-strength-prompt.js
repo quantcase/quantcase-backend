@@ -2,28 +2,36 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
+const WRITING_RULES = `
+WRITING RULES — mandatory for ALL text, insight, and takeaway fields:
+1. NO VAGUE TIME REFERENCES: Replace "previous quarter", "last year", "recently", "last period" etc. with the specific quarter label from the data (e.g., "Q3 FY26", "Q2 FY25–Q3 FY26"). Write "latest available quarter" only when the exact quarter is genuinely unknown.
+2. BACK EVERY CLAIM WITH DATA: Follow every qualitative assertion with a supporting metric in parentheses immediately after the claim. E.g., "FCF improving (FCF/PAT conversion rose from 42% in Q1 FY26 to 78% in Q3 FY26)". Remove any claim that cannot be supported by a specific number.
+3. USER-FRIENDLY LANGUAGE: Write for a knowledgeable but non-specialist investor. Avoid standalone jargon. When using a technical abbreviation for the first time in a field, add a brief plain-English note — e.g., "FCF (cash left after paying for growth)" or "CCC (how long cash is tied up in operations)".
+4. METRICS FIELDS — DATA ONLY: metric.value, metric.change, metric.sublabel must contain ONLY hard numbers, labels, or brief factual descriptions (≤8 words). No interpretation or editorializing inside metric fields — save that for text/insight/takeaway fields.
+5. TAKEAWAY FIELD: Write 3–4 sentences — cover what happened (with a specific number), why it matters for investors, any key risk or nuance, and a forward-looking implication. Plain English throughout. 50–80 words total.`;
+
 const LENGTH_GUIDELINES = `
 Output length guidelines:
-  • text.takeaway — 1 concise sentence
-  • text.key_takeaway — 10 words max
-  • text.cash_flow.quality_analysis — 10 words max per item
-  • text.balance_sheet.strengths, .considerations — 10 words max per item
-  • text.profitability.operating_leverage_drivers, .strategic_initiative_drivers — 10 words max per item
-  • text.revenue_growth.drivers — 10 words max per item
-  • operating_leverage.fixed_cost_lines[].note, .total_fixed_costs.note — 10 words max each
-  • operating_leverage.verdict.description — 20 words max
+  • text.takeaway — 3–4 sentences covering the key fact (with a number), investor significance, any nuance, and forward outlook. 50–80 words total.
+  • text.key_takeaway — 15 words max; include a number
+  • text.cash_flow.quality_analysis — 20 words max per item; cite a metric
+  • text.balance_sheet.strengths, .considerations — 20 words max per item; cite a metric
+  • text.profitability.operating_leverage_drivers, .strategic_initiative_drivers — 20 words max per item; cite a metric
+  • text.revenue_growth.drivers — 20 words max per item; cite a metric
+  • operating_leverage.fixed_cost_lines[].note, .total_fixed_costs.note — 15 words max each
+  • operating_leverage.verdict.description — 30 words max; include EBIT margin trend with specific values
   • free_cash_flow.growth_trajectory.insight_headline — 15 words max
-  • free_cash_flow.growth_trajectory.insight_body — 30 words max (supports **bold** markdown)
-  • free_cash_flow.fcf_yield.compression_explanation — 30 words max
-  • working_capital.insight — 25 words max
-  • capital_structure.balance_sheet.insight — 30 words max (supports **bold** markdown)
-  • capital_structure.debt_trajectory.insight — 25 words max (supports **bold** markdown)
+  • free_cash_flow.growth_trajectory.insight_body — 50 words max (supports **bold** markdown); cite FCF CAGR and conversion %
+  • free_cash_flow.fcf_yield.compression_explanation — 40 words max
+  • working_capital.insight — 40 words max; cite DSO/DIO/CCC values with quarter labels
+  • capital_structure.balance_sheet.insight — 50 words max (supports **bold** markdown); cite net debt figure and trend
+  • capital_structure.debt_trajectory.insight — 40 words max (supports **bold** markdown); cite specific debt levels
   • capital_structure.equity_allocation.roe_sublabel — 10 words max
-  • capital_structure.equity_allocation.insight — 20 words max
-  • capital_structure.capex_intensity.metrics[].note — 10 words max each
-  • capital_structure.capex_intensity.note — 20 words max
+  • capital_structure.equity_allocation.insight — 30 words max; cite ROE and dividend payout %
+  • capital_structure.capex_intensity.metrics[].note — 15 words max each
+  • capital_structure.capex_intensity.note — 30 words max; cite CAPEX/Revenue % trend
   • final_scoring.title — 5 words max
-  • final_scoring.body — 3–4 sentences, cite specific metrics`;
+  • final_scoring.body — 3–4 sentences, cite specific metrics with quarter labels`;
 
 const DEFAULT_INSTRUCTIONS_NONBFSI = `Using the financial data above and transcript commentary, assess:
   • Revenue growth trajectory — volume/mix driven or purely price-led?
@@ -116,7 +124,7 @@ function serializeFinancialStrength(row) {
  * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array>, rawBatchAll: Record<string, Array>, derivedBatchAll: Record<string, Array>, bfsi: boolean }} computedMetrics
  */
 function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, customInstructions) {
-  const { rawBatch, derivedBatch, rawBatchAll = {}, derivedBatchAll = {}, bfsi = false } = computedMetrics;
+  const { rawBatch, derivedBatch, rawBatchAll = {}, derivedBatchAll = {}, bfsi = false, marketCap = null } = computedMetrics;
 
   const subjectText = subjectData.length > 0
     ? subjectData.map(r => serializeFinancialStrength(r)).join('\n\n---\n\n')
@@ -127,49 +135,49 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, cu
   const fmt  = v => v != null ? v : 'N/A';
   const pct  = v => v != null ? v + '%' : 'N/A';
 
-  // Fallback helper: prefer Q4-annual value, else latest from any quarter.
-  // Balance sheet and cash flow items are only required annually by SEBI LODR,
-  // so they may appear in a quarter other than Q4 (e.g. Dec year-end companies).
-  const _latestAny = (q4Series, allSeries) => _latest(q4Series) ?? _latest(allSeries);
+  // All snapshot values use the latest available quarter — no Q4 restriction.
+  // rawBatchAll / derivedBatchAll are the last-10-quarter full series.
+  // Using _latest() on these returns the most recent non-null value regardless
+  // of quarter, so ROCE/ROE/FCF and the raw inputs they depend on (PBT, PAT,
+  // FIN_COST, etc.) always come from the same approximate period.
 
-  // Income statement (latest) — P&L is published every quarter, Q4 preferred
-  const revOp    = _latest(rawBatch?.REV_OP);
-  const pat      = _latest(rawBatch?.PAT);
-  const pbt      = _latest(rawBatch?.PBT);
-  const finCost  = _latest(rawBatch?.FIN_COST);
-  const depAmort = _latest(rawBatch?.DEP_AMORT);
-  // CFO is a cash flow item — annual only, fall back to any quarter
-  const cfo      = _latestAny(rawBatch?.CFO,      rawBatchAll?.CFO);
-  const provCont = _latestAny(rawBatch?.PROV_CONT, rawBatchAll?.PROV_CONT);
+  // Income statement
+  const revOp    = _latest(rawBatchAll?.REV_OP);
+  const pat      = _latest(rawBatchAll?.PAT);
+  const pbt      = _latest(rawBatchAll?.PBT);
+  const finCost  = _latest(rawBatchAll?.FIN_COST);
+  const depAmort = _latest(rawBatchAll?.DEP_AMORT);
+  const cfo      = _latest(rawBatchAll?.CFO);
+  const provCont = _latest(rawBatchAll?.PROV_CONT);
 
-  // Balance sheet (latest) — annual only, fall back to any quarter
-  const debtLt      = _latestAny(rawBatch?.DEBT_LT,      rawBatchAll?.DEBT_LT);
-  const debtSt      = _latestAny(rawBatch?.DEBT_ST,      rawBatchAll?.DEBT_ST);
-  const cashEquiv   = _latestAny(rawBatch?.CASH_EQUIV,   rawBatchAll?.CASH_EQUIV);
-  const totalAssets = _latestAny(rawBatch?.TOTAL_ASSETS, rawBatchAll?.TOTAL_ASSETS);
-  const currLiab    = _latestAny(rawBatch?.CURR_LIAB,    rawBatchAll?.CURR_LIAB);
-  const eqCap       = _latestAny(rawBatch?.EQ_SHARE_CAP, rawBatchAll?.EQ_SHARE_CAP);
-  const reserves    = _latestAny(rawBatch?.RES_SURPLUS,  rawBatchAll?.RES_SURPLUS);
+  // Balance sheet
+  const debtLt      = _latest(rawBatchAll?.DEBT_LT);
+  const debtSt      = _latest(rawBatchAll?.DEBT_ST);
+  const cashEquiv   = _latest(rawBatchAll?.CASH_EQUIV);
+  const totalAssets = _latest(rawBatchAll?.TOTAL_ASSETS);
+  const currLiab    = _latest(rawBatchAll?.CURR_LIAB);
+  const eqCap       = _latest(rawBatchAll?.EQ_SHARE_CAP);
+  const reserves    = _latest(rawBatchAll?.RES_SURPLUS);
 
-  // Working capital (latest) — annual only, fall back to any quarter
-  const tradeRecv = _latestAny(rawBatch?.TRADE_RECV, rawBatchAll?.TRADE_RECV);
-  const tradePay  = _latestAny(rawBatch?.TRADE_PAY,  rawBatchAll?.TRADE_PAY);
-  const inventory = _latestAny(rawBatch?.INVENTORY,  rawBatchAll?.INVENTORY);
+  // Working capital
+  const tradeRecv = _latest(rawBatchAll?.TRADE_RECV);
+  const tradePay  = _latest(rawBatchAll?.TRADE_PAY);
+  const inventory = _latest(rawBatchAll?.INVENTORY);
 
-  // Derived (latest) — metrics depending on balance sheet/CF fall back to any quarter
-  const ebit      = _latest(derivedBatch?.EBIT);       // PPOP for BFSI — P&L based, Q4 ok
-  const ebitMargin= _latest(derivedBatch?.EBIT_MARGIN);
-  const roce      = _latestAny(derivedBatch?.ROCE,   derivedBatchAll?.ROCE);   // null for BFSI
-  const roa       = _latestAny(derivedBatch?.ROA,    derivedBatchAll?.ROA);
-  const roe       = _latestAny(derivedBatch?.ROE,    derivedBatchAll?.ROE);
-  const capex     = _latestAny(derivedBatch?.CAPEX,  derivedBatchAll?.CAPEX);
-  const fcf       = _latestAny(derivedBatch?.FCF,    derivedBatchAll?.FCF);
+  // Derived ratios
+  const ebit       = _latest(derivedBatchAll?.EBIT);
+  const ebitMargin = _latest(derivedBatchAll?.EBIT_MARGIN);
+  const roce       = _latest(derivedBatchAll?.ROCE);   // null for BFSI
+  const roa        = _latest(derivedBatchAll?.ROA);
+  const roe        = _latest(derivedBatchAll?.ROE);
+  const capex      = _latest(derivedBatchAll?.CAPEX);
+  const fcf        = _latest(derivedBatchAll?.FCF);
 
   // Gross margin (non-BFSI): (REV_OP - COGS) / REV_OP × 100
   // COGS = COST_MAT + PURCH_STOCK + INV_CHG
-  const costMat   = _latest(rawBatch?.COST_MAT);
-  const purchStock= _latest(rawBatch?.PURCH_STOCK);
-  const invChg    = _latest(rawBatch?.INV_CHG);
+  const costMat    = _latest(rawBatchAll?.COST_MAT);
+  const purchStock = _latest(rawBatchAll?.PURCH_STOCK);
+  const invChg     = _latest(rawBatchAll?.INV_CHG);
   let grossMargin = null;
   if (!bfsi && revOp != null && revOp !== 0 && costMat != null && purchStock != null && invChg != null) {
     const cogs = costMat + purchStock + invChg;
@@ -253,19 +261,29 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, cu
   const capexQ   = _qSeries(derivedBatchAll?.CAPEX);
   const fcfQ     = _qSeries(derivedBatchAll?.FCF);
 
-  // Pre-compute EBIT growth YoY and leverage spread from Q4 annual series
-  function _yoyGrowth(series) {
+  // Pre-compute EBIT growth YoY and leverage spread using same-quarter YoY
+  // (e.g. Q1 2026 vs Q1 2025) rather than Q4-only annual comparison.
+  function _sameQtrYoy(series) {
     if (series.length < 2) return null;
+    const curr = series[series.length - 1];
+    const qLabel = curr.quarter.split("'")[0]; // e.g. "Q1"
+    // Try same-quarter prior year first (look up to 6 entries back)
+    for (let i = series.length - 2; i >= Math.max(0, series.length - 6); i--) {
+      if (series[i].quarter.split("'")[0] === qLabel) {
+        const prev = series[i].value;
+        if (!prev || prev === 0) return null;
+        return parseFloat(((curr.value - prev) / Math.abs(prev) * 100).toFixed(1));
+      }
+    }
+    // Fallback: compare last 2 available entries when prior-year same quarter absent
     const prev = series[series.length - 2].value;
-    const curr = series[series.length - 1].value;
     if (!prev || prev === 0) return null;
-    return parseFloat(((curr - prev) / Math.abs(prev) * 100).toFixed(1));
+    return parseFloat(((curr.value - prev) / Math.abs(prev) * 100).toFixed(1));
   }
 
-  const ebitQ4       = _qSeries(derivedBatch?.EBIT);
-  const revOpQ4      = _qSeries(rawBatch?.REV_OP);
-  const ebitGrowthYoy   = _yoyGrowth(ebitQ4);
-  const revGrowthYoy    = _yoyGrowth(revOpQ4);
+  // ebitQ and revOpQ are already derived from derivedBatchAll / rawBatchAll above
+  const ebitGrowthYoy   = _sameQtrYoy(ebitQ);
+  const revGrowthYoy    = _sameQtrYoy(revOpQ);
   const leverageSpread  = (ebitGrowthYoy != null && revGrowthYoy != null)
     ? parseFloat((ebitGrowthYoy - revGrowthYoy).toFixed(1))
     : null;
@@ -303,14 +321,14 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, cu
 
   const wcComputed = bfsi ? [] : _computeWcDays(rawBatchAll);
 
-  // Debt history (Q4 annual for timeline)
-  const debtLtQ4   = _qSeries(rawBatch?.DEBT_LT);
-  const debtStQ4   = _qSeries(rawBatch?.DEBT_ST);
-  const cashQ4     = _qSeries(rawBatch?.CASH_EQUIV);
-  const divPayoutQ4= _qSeries(rawBatch?.DIV_PAYOUT);
-  const patQ4      = _qSeries(rawBatch?.PAT);
-  const eqCapQ4    = _qSeries(rawBatch?.EQ_SHARE_CAP);
-  const reservesQ4 = _qSeries(rawBatch?.RES_SURPLUS);
+  // Debt / equity history — latest available quarters (no Q4 restriction)
+  const debtLtQ4   = _qSeries(rawBatchAll?.DEBT_LT);
+  const debtStQ4   = _qSeries(rawBatchAll?.DEBT_ST);
+  const cashQ4     = _qSeries(rawBatchAll?.CASH_EQUIV);
+  const divPayoutQ4= _qSeries(rawBatchAll?.DIV_PAYOUT);
+  const patQ4      = _qSeries(rawBatchAll?.PAT);
+  const eqCapQ4    = _qSeries(rawBatchAll?.EQ_SHARE_CAP);
+  const reservesQ4 = _qSeries(rawBatchAll?.RES_SURPLUS);
 
   function _tableBlock(label, series) {
     if (!series.length) return `${label}: N/A`;
@@ -341,8 +359,8 @@ Note: DSO=TRADE_RECV/(REV_OP×4)×365; DIO=INVENTORY/(COGS×4)×365; DPO=TRADE_P
 
   const opLevMetricsBlock = `
 ── Operating Leverage Pre-computed Metrics ──
-Revenue Growth YoY (latest Q4 vs prior Q4): ${revGrowthYoy != null ? revGrowthYoy + '%' : 'N/A'}
-EBIT Growth YoY    (latest Q4 vs prior Q4): ${ebitGrowthYoy != null ? ebitGrowthYoy + '%' : 'N/A'}
+Revenue Growth YoY (same quarter vs prior year): ${revGrowthYoy != null ? revGrowthYoy + '%' : 'N/A'}
+EBIT Growth YoY    (same quarter vs prior year): ${ebitGrowthYoy != null ? ebitGrowthYoy + '%' : 'N/A'}
 Leverage Spread (EBIT growth − Rev growth): ${leverageSpread != null ? leverageSpread + 'pp' : 'N/A'}
 Note: Use these EXACT values for operating_leverage.metrics.revenue_growth_yoy, ebit_growth_yoy, leverage_spread. Do NOT recompute.`;
 
@@ -361,7 +379,7 @@ ${_tableBlock('FCF (quarterly)', fcfQ)}
 ${_tableBlock('CAPEX (quarterly)', capexQ)}`;
 
   const capitalStructureBlock = `
-── Capital Structure History (annual Q4) ──
+── Capital Structure History (latest available quarters) ──
 ${_tableBlock('DEBT_LT', debtLtQ4)}
 ${_tableBlock('DEBT_ST', debtStQ4)}
 ${_tableBlock('CASH_EQUIV', cashQ4)}
@@ -379,34 +397,34 @@ ${_tableBlock('RESERVES', reservesQ4)}`;
   };
 
   const trendsBlock = bfsi
-    ? `── Revenue trend (last 5 years) ──
-  ${_sparkline(rawBatch?.REV_OP)}
+    ? `── Revenue trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.REV_OP)}
 
-── PAT trend (last 5 years) ──
-  ${_sparkline(rawBatch?.PAT)}
+── PAT trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.PAT)}
 
-── ROA trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.ROA, derivedBatchAll?.ROA))}
+── ROA trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.ROA)}
 
-── ROE trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.ROE, derivedBatchAll?.ROE))}
+── ROE trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.ROE)}
 
-── Free Cash Flow trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.FCF, derivedBatchAll?.FCF))}`
-    : `── Revenue trend (last 5 years) ──
-  ${_sparkline(rawBatch?.REV_OP)}
+── Free Cash Flow trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.FCF)}`
+    : `── Revenue trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.REV_OP)}
 
-── PAT trend (last 5 years) ──
-  ${_sparkline(rawBatch?.PAT)}
+── PAT trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.PAT)}
 
-── FCF trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.FCF, derivedBatchAll?.FCF))}
+── FCF trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.FCF)}
 
-── ROCE trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(derivedBatch?.ROCE, derivedBatchAll?.ROCE))}
+── ROCE trend (last 10 quarters) ──
+  ${_sparkline(derivedBatchAll?.ROCE)}
 
-── CFO trend (last 5 years) ──
-  ${_sparkline(_mergeAnnual(rawBatch?.CFO, rawBatchAll?.CFO))}`;
+── CFO trend (last 10 quarters) ──
+  ${_sparkline(rawBatchAll?.CFO)}`;
 
   const defaultInstr = bfsi ? DEFAULT_INSTRUCTIONS_BFSI : DEFAULT_INSTRUCTIONS_NONBFSI;
   const bfsiMetricInstructions = bfsi ? `\n\nBFSI-specific metric instructions:
@@ -414,7 +432,7 @@ ${_tableBlock('RESERVES', reservesQ4)}`;
   • metrics.gross_margin: Set value to null and sublabel to "Not applicable for banking; NIM is the spread proxy".
   • metrics.roce: Set value to null and sublabel to "Not applicable for BFSI; use ROA/ROE instead".
   • text.balance_sheet.metrics.credit_rating: If no credit rating is mentioned in transcripts, set value to null and sublabel to "Not disclosed in available transcripts".` : '';
-  const analysisInstructions = (customInstructions ?? defaultInstr) + bfsiMetricInstructions;
+  const analysisInstructions = (customInstructions ?? defaultInstr) + bfsiMetricInstructions + '\n' + WRITING_RULES;
 
   const newSectionsInstructions = `
 ── Instructions for NEW sub-sections ──────────────────────────────────────
@@ -437,7 +455,7 @@ free_cash_flow:
   • conversion_consistency.quarterly_data: Use FCF/PAT % series from the FCF Conversion block. Mark the lowest-pct quarter with "is_floor: true".
   • growth_trajectory: Compare first vs last FCF and PAT in the available series to compute CAGRs. Set status_color green if FCF CAGR > PAT CAGR, yellow if similar, red if FCF declining.
   • ocf_to_fcf: Use the latest TTM values. capex_bar_pct = |CAPEX| / OCF * 100; fcf_bar_pct = FCF / OCF * 100.
-  • fcf_yield: If market cap is not available, set all yield_history entries to null and status to "Not Available". Otherwise estimate yield = FCF_TTM / market_cap * 100.
+  • fcf_yield: Market Cap = ${marketCap != null ? marketCap + ' Cr' : 'N/A'}. ${marketCap != null ? 'Use this value to compute yield = FCF_TTM / market_cap * 100 for each available period.' : 'Market cap not available — set all yield_history entries to null and status to "Not Available".'}
 
 working_capital:
   • quarters array and row values arrays MUST be the same length and in the same order.
@@ -481,7 +499,7 @@ SUBJECT COMPANY : ${subjectTicker}
 SECTOR TYPE     : ${bfsi ? 'BFSI (Financial Services)' : 'Non-BFSI (Operating Company)'}
 
 ══════════════════════════════════════════════════════════
-A. SUBJECT COMPANY FINANCIAL SNAPSHOT (latest annual / FY)
+A. SUBJECT COMPANY FINANCIAL SNAPSHOT (latest available quarter)
 ══════════════════════════════════════════════════════════
 
   Income Statement
@@ -498,6 +516,7 @@ ${profitabilityBlock}
     Cash from Operations    : ${fmt(cfo)}
     CAPEX                   : ${fmt(capex)}
     ${fcfLabel.padEnd(24)}: ${fmt(fcf)}
+    Market Cap              : ${marketCap != null ? marketCap + ' Cr' : 'N/A'}
 ${balanceSheetBlock}
 ${workingCapitalBlock}
 

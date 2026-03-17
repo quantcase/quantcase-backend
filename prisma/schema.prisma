@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")        // pooler — used at runtime
+  directUrl = env("DIRECT_DATABASE_URL") // direct — used for db:push / migrations
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -136,15 +137,17 @@ model users {
 
 // Jobs table for API
 model Job {
-  id        String   @id @default(uuid())
-  callId    String   @map("call_id")
-  type      String
-  status    String   @default("pending")
-  bullmqId  String?  @unique @map("bullmq_id")
-  result    Json?
-  error     String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(uuid())
+  callId       String   @map("call_id")
+  type         String
+  status       String   @default("pending")
+  bullmqId     String?  @unique @map("bullmq_id")
+  result       Json?
+  error        String?
+  prompt       String?                       // full prompt sent to LLM
+  llm_response String?  @map("llm_response") // raw text response from LLM before parsing
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("jobs")
   @@index([callId])
@@ -234,10 +237,12 @@ enum KpiTypeCategory {
 }
 
 model market_cap {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  created_at DateTime  @default(now()) @db.Timestamptz(6)
-  market_cap BigInt?
-  date       DateTime? @db.Date
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  created_at                DateTime  @default(now()) @db.Timestamptz(6)
+  market_cap                BigInt?
+  date                      DateTime? @db.Date
+  market_cap_cr             Float?    @map("market_cap(Cr)")
+  symbol                    String?
 }
 
 model pe_data {
@@ -287,4 +292,73 @@ model DealResult {
   @@map("deal_results")
   @@index([callId])
   @@index([ticker])
+}
+
+// Flattened KPI values for fast time-series DB lookups — sourced from summary_new.
+//
+// source_path values:
+//   QE KPIs         : ""
+//   Transcript KPIs : "industry_analysis.demand" | "industry_analysis.supply"
+//                     "industry_analysis.operating_margins"
+//                     "client_traction.customer_growth" | "client_traction.revenue_streams"
+//   Milestone KPIs  : "milestones.future_goals" | "milestones.success_disclosures"
+//                     "milestones.failure_disclosures"
+//                     (only added when kpi_abbr is absent from QE + transcript rows for that call)
+//
+// statement is populated for transcript/milestone KPIs for auditing.
+model KpiValue {
+  id          String    @id @default(uuid())
+  callId      String    @map("call_id")       // → earnings_calls.id / summary_new.call_id
+  company     String                          // denormalized from earnings_calls.company
+  fiscal_year String?
+  quarter     String?
+  call_date   String?
+  kpi_abbr    String                          // → kpis.abbr
+  value       Float?                          // normalized: llm_value * multiplier (absolute units)
+  raw_value   String?   @map("raw_value")     // llm-reported value before normalization (audit)
+  unit        String?                         // from kpis.denomination: "Cr" | "%" | "x" | ""
+  multiplier  Int       @default(1)           // LLM scale factor (1 | 100000 | 10000000); applied to value at ingestion
+  start_date  String?   @map("start_date")    // period start; null for snapshots (balance sheet)
+  end_date    String?   @map("end_date")      // period end or snapshot date
+  period_type String?   @map("period_type")   // derived at ingestion: snapshot|quarterly|half_yearly|annual|multi_year
+  source      KpiSource                       // "QE" | "transcript"
+  source_path String    @default("")          // which column/path in summary_new
+  statement   String?                         // supporting quote for transcript/milestone KPIs (audit)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt      @map("updated_at")
+
+  @@map("kpi_values")
+  @@unique([callId, kpi_abbr], map: "kpi_values_call_kpi_unique")
+  @@index([callId])
+  @@index([company, fiscal_year, quarter])
+  @@index([company, kpi_abbr])
+  @@index([kpi_abbr])
+  @@index([kpi_abbr, period_type])
+}
+
+// Full milestone financial targets — separate from kpi_values.
+// Stores all three categories with both current and targeted values.
+// No deduplication logic applied here — source of truth for promise tracking.
+model MilestoneKpiTarget {
+  id              String   @id @default(uuid())
+  callId          String   @map("call_id")
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  category        String                      // "future_goals" | "success_disclosures" | "failure_disclosures"
+  kpi_abbr        String
+  statement       String?                     // natural language description from transcript
+  current_value   Float?   @map("current_value")
+  targeted_value  Float?   @map("targeted_value")
+  multiplier      Int      @default(1)        // scale factor (1 | 100000 | 10000000); applied to values at ingestion
+  initial_time    String?  @map("initial_time")   // YYYY-MM-DD when target was announced
+  target_time     String?  @map("target_time")    // YYYY-MM-DD when target is due
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt      @map("updated_at")
+
+  @@map("milestone_kpi_targets")
+  @@index([callId])
+  @@index([company, kpi_abbr])
+  @@index([kpi_abbr])
 }

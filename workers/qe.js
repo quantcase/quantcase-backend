@@ -1,5 +1,5 @@
 const { Worker } = require('bullmq');
-const { connection, prisma, openRouter, parseJson } = require('../lib/workerSetup');
+const { connection, prisma, openRouter, parseJson, computePeriodType, applyMultiplier } = require('../lib/workerSetup');
 const { quarterlyEarningsPrompt } = require('../prompts/quarterly_earnings');
 const { upsertNewKpis } = require('../db-utils/upsertKpis');
 
@@ -36,13 +36,20 @@ function getKpiConfigForPrompt(basicIndustry) {
 }
 
 // Walks the nested QE result (balance_sheet, pnl, cashflow) and collects
-// every leaf { abbr, value } node into a flat array of { kpi_abbr, kpi_value }.
+// every leaf KPI node into a flat array.
+// Each entry: { kpi_abbr, kpi_value, start_date, end_date, multiplier }
 function flattenQeResult(data) {
   const out = [];
   function walk(obj) {
     if (!obj || typeof obj !== 'object') return;
     if ('abbr' in obj && 'value' in obj) {
-      out.push({ kpi_abbr: obj.abbr, kpi_value: obj.value });
+      out.push({
+        kpi_abbr:   obj.abbr,
+        kpi_value:  obj.value,
+        start_date: obj.start_date  ?? null,
+        end_date:   obj.end_date    ?? null,
+        multiplier: obj.multiplier  ?? 1,
+      });
       return;
     }
     for (const v of Object.values(obj)) walk(v);
@@ -127,6 +134,45 @@ async function processQeJob(job) {
       create: { callId, kpis: flatKpis }
     });
 
+    // ── Write flattened KPIs to kpi_values ────────────────────────────────────
+    // Load denomination map for unit lookup
+    const kpiMeta = await prisma.kpi.findMany({ select: { abbr: true, denomination: true } });
+    const denomMap = new Map(kpiMeta.map(k => [k.abbr, k.denomination]));
+    const DENOM_UNIT = { rupee: 'Cr', percentage: '%', ratio: 'x', other: '' };
+
+    const kpiValueRows = flatKpis
+      .filter(k => k.kpi_value != null && !isNaN(parseFloat(k.kpi_value)))
+      .map(k => {
+        const llmVal    = parseFloat(k.kpi_value);
+        const mult      = Math.round(k.multiplier ?? 1);
+        const startDate = k.start_date ?? null;
+        const endDate   = k.end_date   ?? null;
+        return {
+          callId,
+          company:     call.company,
+          fiscal_year: call.fiscal_year ?? null,
+          quarter:     call.quarter     ?? null,
+          call_date:   call.call_date   ?? null,
+          kpi_abbr:    k.kpi_abbr,
+          value:       applyMultiplier(llmVal, mult),
+          raw_value:   String(llmVal),
+          unit:        DENOM_UNIT[denomMap.get(k.kpi_abbr)] ?? null,
+          multiplier:  mult,
+          start_date:  startDate,
+          end_date:    endDate,
+          period_type: computePeriodType(startDate, endDate),
+          source:      'QE',
+          source_path: '',
+          statement:   null,
+        };
+      });
+
+    if (kpiValueRows.length > 0) {
+      await prisma.kpiValue.deleteMany({ where: { callId, source: 'QE' } });
+      await prisma.kpiValue.createMany({ data: kpiValueRows, skipDuplicates: true });
+      console.log(`kpi_values: wrote ${kpiValueRows.length} rows for ${callId}`);
+    }
+
     await prisma.job.update({
       where: { bullmqId: job.id },
       data: {
@@ -137,7 +183,7 @@ async function processQeJob(job) {
 
     await job.updateProgress(100);
     console.log(`QE job ${job.id} completed — ${flatKpis.length} KPI values extracted`);
-    return extractedData;
+    return { result: extractedData, prompt };
 
   } catch (error) {
     console.error(`QE job ${job.id} failed:`, error);

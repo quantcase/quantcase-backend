@@ -34,13 +34,14 @@ async function createDealAnalysis(req, res) {
     const helper   = new FinHelper(prisma);
 
     console.log(`\n--- Computing inputs for ${ticker} ---`);
-    const [stockEps, stockPe, industryEps, industryPe, stockRev, stockRoce] = await Promise.all([
+    const [stockEps, stockPe, industryEps, industryPe, stockRev, stockRoce, industryRev] = await Promise.all([
       helper.stockEpsCagr(ticker),
       helper.stockPeCagr(ticker),
-      industry ? helper.industryEpsCagr(industry) : Promise.resolve({ value: null, type: 'no_industry' }),
-      industry ? helper.industryPeCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
+      industry ? helper.industryEpsCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
+      industry ? helper.industryPeCagr(industry)   : Promise.resolve({ value: null, type: 'no_industry' }),
       helper.stockRevCagr(ticker),
       helper.stockRoceLatest(ticker),
+      industry ? helper.industryRevCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
     ]);
 
     console.log('\n--- Computed inputs ---');
@@ -50,6 +51,7 @@ async function createDealAnalysis(req, res) {
     console.log('industryPe:',  industryPe);
     console.log('stockRev:',    stockRev);
     console.log('stockRoce:',   stockRoce);
+    console.log('industryRev:', industryRev);
 
     const bullmqJob = await jobQueue.addJob('deal_analysis', {
       callId,
@@ -63,6 +65,7 @@ async function createDealAnalysis(req, res) {
       industryPe,
       stockRev,
       stockRoce,
+      industryRev,
     }, { jobId: `deal_${callId}` });
 
     return res.json({

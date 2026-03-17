@@ -2,6 +2,14 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
+const WRITING_RULES = `
+WRITING RULES — mandatory for ALL text, insight, and takeaway fields:
+1. NO VAGUE TIME REFERENCES: Replace "previous quarter", "last year", "recently", "last period" etc. with the specific quarter label from the data (e.g., "Q3 FY26", "Q2 FY25–Q3 FY26"). Write "latest available quarter" only when the exact quarter is genuinely unknown.
+2. BACK EVERY CLAIM WITH DATA: Follow every qualitative assertion with a supporting metric in parentheses immediately after the claim. E.g., "pricing power intact (realisation per unit up 8% YoY in Q3 FY26 despite flat volumes)". Remove any claim that cannot be supported by a specific number.
+3. USER-FRIENDLY LANGUAGE: Write for a knowledgeable but non-specialist investor. Avoid standalone jargon. When using a technical abbreviation for the first time in a field, add a brief plain-English note — e.g., "EPS CAGR (earnings growth per share, annualised)" or "Porter's score (competitive strength out of 10)".
+4. METRICS FIELDS — DATA ONLY: metric.value, metric.change, metric.sublabel must contain ONLY hard numbers, labels, or brief factual descriptions (≤8 words). No interpretation or editorializing inside metric fields — save that for text/insight/takeaway fields.
+5. TAKEAWAY FIELD: Write 3–4 sentences — cover what happened (with a specific number), why it matters for investors, any key risk or nuance, and a forward-looking implication. Plain English throughout. 50–80 words total.`;
+
 const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
   • Are companies able to pass through cost increases, or is pricing under pressure?
   • Is competitive intensity rising or consolidating?
@@ -10,9 +18,9 @@ const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
 Populate with short and crisp points.
 
 Output length guidelines:
-  • text.takeaway — 1 concise sentence
-  • text.pricing_power_dynamics.current_state, .watch_outs, .future_trajectory, .shifting_dynamics — 10 words max each
-  • text.competitive_positioning.strengths, .opportunities, .areas_to_monitor — 10 words max per item`;
+  • text.takeaway — 3–4 sentences covering the key fact (with a number), investor significance, any nuance, and forward outlook. 50–80 words total.
+  • text.pricing_power_dynamics.current_state, .watch_outs, .future_trajectory, .shifting_dynamics — 20 words max each; include a metric or example
+  • text.competitive_positioning.strengths, .opportunities, .areas_to_monitor — 20 words max per item; cite evidence from transcript or data`;
 
 const METRICS = [
   { name: 'Subject EPS CAGR', type: 'computed' },
@@ -170,6 +178,7 @@ C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
 ${customInstructions ?? DEFAULT_INSTRUCTIONS}
+${WRITING_RULES}
 
 Populate the "final_scoring" field INSIDE the competition JSON object (same level as "metrics"). Award 1 point per check, max 10:
   1. Porter's score ≥ 7/10 → metrics.porters_score

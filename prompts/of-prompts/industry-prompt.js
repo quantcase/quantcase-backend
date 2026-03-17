@@ -2,6 +2,14 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
+const WRITING_RULES = `
+WRITING RULES — mandatory for ALL text, insight, and takeaway fields:
+1. NO VAGUE TIME REFERENCES: Replace "previous quarter", "last year", "recently", "last period" etc. with the specific quarter label from the data (e.g., "Q3 FY26", "Q2 FY25–Q3 FY26"). Write "latest available quarter" only when the exact quarter is genuinely unknown.
+2. BACK EVERY CLAIM WITH DATA: Follow every qualitative assertion with a supporting metric in parentheses immediately after the claim. E.g., "demand recovering (Order inflow +23% YoY: Q3 FY26 ₹4,820 Cr vs Q3 FY25 ₹3,920 Cr)". Remove any claim that cannot be supported by a specific number.
+3. USER-FRIENDLY LANGUAGE: Write for a knowledgeable but non-specialist investor. Avoid standalone jargon. When using a technical abbreviation for the first time in a field, add a brief plain-English note — e.g., "DSO (days to collect payment)" or "ROCE (return on every rupee of capital deployed)".
+4. METRICS FIELDS — DATA ONLY: metric.value, metric.change, metric.sublabel must contain ONLY hard numbers, labels, or brief factual descriptions (≤8 words). No interpretation or editorializing inside metric fields — save that for text/insight/takeaway fields.
+5. TAKEAWAY FIELD: Write 3–4 sentences — cover what happened (with a specific number), why it matters for investors, any key risk or nuance, and a forward-looking implication. Plain English throughout. 50–80 words total.`;
+
 const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
   • Are the majority of managements talking about volume growth?
   • Are order books or pipelines expanding?
@@ -10,10 +18,11 @@ const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
 Populate with short and crisp points.
 
 Output length guidelines:
-  • text.takeaway — 1 concise sentence
-  • text.opm_trend.margin_drivers, text.opm_trend.key_observations — 10 words max per item
-  • text.opm_trend.forward_outlook — 10 words max
-  • text.demand_supply_dynamics.demand, .supply, .net_impact — 10 words max each`;
+  • text.takeaway — 3–4 sentences covering the key fact (with a number), investor significance, any nuance, and forward outlook. 50–80 words total.
+  • text.opm_trend.margin_drivers, text.opm_trend.key_observations — 20 words max per item; include at least one metric or number
+  • text.opm_trend.forward_outlook — 20 words max; cite a specific management guidance quote or data point
+  • text.demand_supply_dynamics.demand, .supply — 4–6 bullet points each, 20 words max per point; include a metric where available
+  • text.demand_supply_dynamics.net_impact — 1–2 sentences with supporting data`;
 
 const METRICS = [
   { name: 'Revenue from Operations (REV_OP)', type: 'raw_kpi', trend: 'last 4 Q4s' },
@@ -92,7 +101,18 @@ function serializeIndustryAnalysis(row) {
  * @param {{ rawBatch: Record<string, Array>, derivedBatch: Record<string, Array> }} computedMetrics
  */
 function industryPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions) {
-  const { rawBatch, derivedBatch, bfsi = false } = computedMetrics;
+  const { rawBatch, derivedBatch, derivedBatchAll = {}, bfsi = false } = computedMetrics;
+
+  // Prefer Q4 (annual) value; fall back to latest available quarter.
+  // ROCE/ROE/ROA/CAPEX/FCF depend on balance sheet items which may only be
+  // present in non-Q4 quarters for some companies (e.g. Dec year-end).
+  const _latestAny = (q4Series, allSeries) => _latest(q4Series) ?? _latest(allSeries);
+
+  // For sparklines: use Q4 series if it has any values; otherwise fall back to full series.
+  const _sparklineWithFallback = (q4Series, allSeries, n = 4) => {
+    const hasQ4Data = Array.isArray(q4Series) && q4Series.some(s => s.value != null);
+    return _sparkline(hasQ4Data ? q4Series : allSeries, n);
+  };
 
   const subjectText = subjectData.length > 0
     ? subjectData.map(r => serializeIndustryAnalysis(r)).join('\n\n---\n\n')
@@ -117,11 +137,11 @@ function industryPrompt(subjectTicker, industry, subjectData, peerData, computed
 
 
   const ebit       = _latest(derivedBatch?.EBIT);
-  const roce       = _latest(derivedBatch?.ROCE);
-  const roa        = _latest(derivedBatch?.ROA);
-  const roe        = _latest(derivedBatch?.ROE);
-  const capex      = _latest(derivedBatch?.CAPEX);
-  const fcf        = _latest(derivedBatch?.FCF);
+  const roce       = _latest(derivedBatchAll?.ROCE);
+  const roa        = _latestAny(derivedBatch?.ROA,   derivedBatchAll?.ROA);
+  const roe        = _latestAny(derivedBatch?.ROE,   derivedBatchAll?.ROE);
+  const capex      = _latestAny(derivedBatch?.CAPEX, derivedBatchAll?.CAPEX);
+  const fcf        = _latestAny(derivedBatch?.FCF,   derivedBatchAll?.FCF);
 
   return `You are a senior equity research analyst. Produce an industry overview for the ${industry} sector.
 
@@ -156,7 +176,7 @@ A. SUBJECT COMPANY FINANCIAL SNAPSHOT (latest quarter)
   ${_sparkline(derivedBatch?.EBIT)}
 
 ── ROCE trend (last 4 quarters) ──
-  ${_sparkline(derivedBatch?.ROCE)}
+  ${_sparklineWithFallback(derivedBatch?.ROCE, derivedBatchAll?.ROCE)}
 
 ══════════════════════════════════════════════════════════
 B. INDUSTRY ANALYSIS FROM TRANSCRIPTS
@@ -173,6 +193,7 @@ C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
 ${customInstructions ?? DEFAULT_INSTRUCTIONS}
+${WRITING_RULES}
 
 For ALL metrics values: always output a SINGLE specific number or label — never a range (e.g. "₹30,000–40,000 Cr" or "12–15%") and never a division (e.g. "Elecon / Triveni"). If you are uncertain, approximate using the midpoint or mean and state your basis in the sublabel.
 
