@@ -2,36 +2,28 @@
 
 const { OFactorResponseSchema } = require('../../utils/constants');
 
-const WRITING_RULES = `
-WRITING RULES — mandatory for ALL text, insight, and takeaway fields:
-1. NO VAGUE TIME REFERENCES: Replace "previous quarter", "last year", "recently", "last period" etc. with the specific quarter label from the data (e.g., "Q3 FY26", "Q2 FY25–Q3 FY26"). Write "latest available quarter" only when the exact quarter is genuinely unknown.
-2. BACK EVERY CLAIM WITH DATA: Follow every qualitative assertion with a supporting metric in parentheses immediately after the claim. E.g., "FCF improving (FCF/PAT conversion rose from 42% in Q1 FY26 to 78% in Q3 FY26)". Remove any claim that cannot be supported by a specific number.
-3. USER-FRIENDLY LANGUAGE: Write for a knowledgeable but non-specialist investor. Avoid standalone jargon. When using a technical abbreviation for the first time in a field, add a brief plain-English note — e.g., "FCF (cash left after paying for growth)" or "CCC (how long cash is tied up in operations)".
-4. METRICS FIELDS — DATA ONLY: metric.value, metric.change, metric.sublabel must contain ONLY hard numbers, labels, or brief factual descriptions (≤8 words). No interpretation or editorializing inside metric fields — save that for text/insight/takeaway fields.
-5. TAKEAWAY FIELD: Write 3–4 sentences — cover what happened (with a specific number), why it matters for investors, any key risk or nuance, and a forward-looking implication. Plain English throughout. 50–80 words total.`;
-
 const LENGTH_GUIDELINES = `
 Output length guidelines:
-  • text.takeaway — 3–4 sentences covering the key fact (with a number), investor significance, any nuance, and forward outlook. 50–80 words total.
-  • text.key_takeaway — 15 words max; include a number
-  • text.cash_flow.quality_analysis — 20 words max per item; cite a metric
-  • text.balance_sheet.strengths, .considerations — 20 words max per item; cite a metric
-  • text.profitability.operating_leverage_drivers, .strategic_initiative_drivers — 20 words max per item; cite a metric
-  • text.revenue_growth.drivers — 20 words max per item; cite a metric
-  • operating_leverage.fixed_cost_lines[].note, .total_fixed_costs.note — 15 words max each
-  • operating_leverage.verdict.description — 30 words max; include EBIT margin trend with specific values
-  • free_cash_flow.growth_trajectory.insight_headline — 15 words max
-  • free_cash_flow.growth_trajectory.insight_body — 50 words max (supports **bold** markdown); cite FCF CAGR and conversion %
-  • free_cash_flow.fcf_yield.compression_explanation — 40 words max
-  • working_capital.insight — 40 words max; cite DSO/DIO/CCC values with quarter labels
-  • capital_structure.balance_sheet.insight — 50 words max (supports **bold** markdown); cite net debt figure and trend
-  • capital_structure.debt_trajectory.insight — 40 words max (supports **bold** markdown); cite specific debt levels
+  • text.takeaway — 50 words max user friendly sentence with narrative. You may mention hard metrics in parentheses.
+  • text.key_takeaway — 30 words max
+  • text.cash_flow.quality_analysis — 30 words max per item
+  • text.balance_sheet.strengths, .considerations — 30 words max per item
+  • text.profitability.operating_leverage_drivers, .strategic_initiative_drivers — 10 words max per item
+  • text.revenue_growth.drivers — 10 words max per item
+  • operating_leverage.fixed_cost_lines[].note, .total_fixed_costs.note — 10 words max each
+  • operating_leverage.verdict.description — 30 words max
+  • free_cash_flow.growth_trajectory.insight_headline — 25 words max
+  • free_cash_flow.growth_trajectory.insight_body — 30 words max (supports **bold** markdown)
+  • free_cash_flow.fcf_yield.compression_explanation — 30 words max
+  • working_capital.insight — 25 words max
+  • capital_structure.balance_sheet.insight — 30 words max (supports **bold** markdown)
+  • capital_structure.debt_trajectory.insight — 25 words max (supports **bold** markdown)
   • capital_structure.equity_allocation.roe_sublabel — 10 words max
-  • capital_structure.equity_allocation.insight — 30 words max; cite ROE and dividend payout %
-  • capital_structure.capex_intensity.metrics[].note — 15 words max each
-  • capital_structure.capex_intensity.note — 30 words max; cite CAPEX/Revenue % trend
+  • capital_structure.equity_allocation.insight — 20 words max
+  • capital_structure.capex_intensity.metrics[].note — 10 words max each
+  • capital_structure.capex_intensity.note — 20 words max
   • final_scoring.title — 5 words max
-  • final_scoring.body — 3–4 sentences, cite specific metrics with quarter labels`;
+  • final_scoring.body — 3–4 sentences, cite specific metrics`;
 
 const DEFAULT_INSTRUCTIONS_NONBFSI = `Using the financial data above and transcript commentary, assess:
   • Revenue growth trajectory — volume/mix driven or purely price-led?
@@ -46,7 +38,7 @@ const DEFAULT_INSTRUCTIONS_BFSI = `Using the financial data above and transcript
   • Margin quality — PPOP trends, provisioning adequacy, credit cost trajectory
   • Free Cash Flow (CFO-CAPEX-Prov) quality and capital adequacy signals
   • Asset quality signals from management commentary (NPA, PCR, stress book)
-Populate with short and crisp points.
+  . Keep the language in  simple and easy to understand. You may mention hard metrics in parentheses.
 ${LENGTH_GUIDELINES}`;
 
 const METRICS = [
@@ -98,6 +90,18 @@ function _latest(series) {
   return series.filter(s => s.value != null).at(-1)?.value ?? null;
 }
 
+/** Latest non-null full entry (including period/quarter metadata) from a time-series array. */
+function _latestEntry(series) {
+  if (!Array.isArray(series)) return null;
+  return series.filter(s => s.value != null).at(-1) ?? null;
+}
+
+/** Format a series entry's period as "Q3 FY25". */
+function _entryPeriodStr(entry) {
+  if (!entry || !entry.quarter || !entry.fiscal_year) return null;
+  return `${entry.quarter} FY${String(entry.fiscal_year).slice(-2)}`;
+}
+
 /**
  * Render a KPI time-series as "period: value" pairs for the last N periods.
  * Returns 'N/A' when no data is available.
@@ -134,6 +138,12 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, cu
 
   const fmt  = v => v != null ? v : 'N/A';
   const pct  = v => v != null ? v + '%' : 'N/A';
+
+  // Determine snapshot period for the Section A header
+  const _snapshotEntry = _latestEntry(rawBatchAll?.REV_OP)
+    ?? _latestEntry(rawBatchAll?.PAT)
+    ?? _latestEntry(rawBatchAll?.PBT);
+  const snapshotPeriod = _entryPeriodStr(_snapshotEntry) ?? 'latest available';
 
   // All snapshot values use the latest available quarter — no Q4 restriction.
   // rawBatchAll / derivedBatchAll are the last-10-quarter full series.
@@ -179,8 +189,9 @@ function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, cu
   const purchStock = _latest(rawBatchAll?.PURCH_STOCK);
   const invChg     = _latest(rawBatchAll?.INV_CHG);
   let grossMargin = null;
-  if (!bfsi && revOp != null && revOp !== 0 && costMat != null && purchStock != null && invChg != null) {
-    const cogs = costMat + purchStock + invChg;
+  if (!bfsi && revOp != null && revOp !== 0 && costMat != null) {
+    // PURCH_STOCK and INV_CHG may be absent for manufacturers who don't trade stock — default to 0
+    const cogs = costMat + (purchStock ?? 0) + (invChg ?? 0);
     grossMargin = parseFloat(((revOp - cogs) / revOp * 100).toFixed(2));
   }
 
@@ -432,7 +443,7 @@ ${_tableBlock('RESERVES', reservesQ4)}`;
   • metrics.gross_margin: Set value to null and sublabel to "Not applicable for banking; NIM is the spread proxy".
   • metrics.roce: Set value to null and sublabel to "Not applicable for BFSI; use ROA/ROE instead".
   • text.balance_sheet.metrics.credit_rating: If no credit rating is mentioned in transcripts, set value to null and sublabel to "Not disclosed in available transcripts".` : '';
-  const analysisInstructions = (customInstructions ?? defaultInstr) + bfsiMetricInstructions + '\n' + WRITING_RULES;
+  const analysisInstructions = (customInstructions ?? defaultInstr) + bfsiMetricInstructions;
 
   const newSectionsInstructions = `
 ── Instructions for NEW sub-sections ──────────────────────────────────────
@@ -499,7 +510,7 @@ SUBJECT COMPANY : ${subjectTicker}
 SECTOR TYPE     : ${bfsi ? 'BFSI (Financial Services)' : 'Non-BFSI (Operating Company)'}
 
 ══════════════════════════════════════════════════════════
-A. SUBJECT COMPANY FINANCIAL SNAPSHOT (latest available quarter)
+A. SUBJECT COMPANY FINANCIAL SNAPSHOT (${snapshotPeriod})
 ══════════════════════════════════════════════════════════
 
   Income Statement
@@ -541,6 +552,8 @@ ${subjectText}
 ══════════════════════════════════════════════════════════
 C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
+
+Period context: All snapshot values above are from ${snapshotPeriod}. Do NOT append or repeat the period label inside metric values, sublabels, or any other output fields.
 
 ${analysisInstructions}
 

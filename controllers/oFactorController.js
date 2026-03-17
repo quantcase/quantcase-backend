@@ -363,14 +363,38 @@ async function getPeerData(req, res) {
 
     let peerTickers = [];
     if (industry) {
+      // Get all industry peers (by Q4 call frequency)
       const peerGroups = await prisma.earnings_calls.groupBy({
         by:      ['company'],
         where:   { basic_industry: industry, company: { not: subjectTicker }, quarter: 'Q4' },
         _count:  { id: true },
         orderBy: { _count: { id: 'desc' } },
-        take:    5,
       });
-      peerTickers = peerGroups.map(r => r.company);
+      const candidateTickers = peerGroups.map(r => r.company);
+
+      if (candidateTickers.length > 0) {
+        // Find the latest call ID per candidate ticker
+        const latestCalls = await prisma.earnings_calls.findMany({
+          where:    { company: { in: candidateTickers } },
+          select:   { id: true, company: true },
+          orderBy:  [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
+          distinct: ['company'],
+        });
+        const latestCallIdByTicker = Object.fromEntries(latestCalls.map(c => [c.company, c.id]));
+
+        // Find which latest calls have a summary_new record
+        const latestCallIds = latestCalls.map(c => c.id);
+        const summaryNewRecords = await prisma.summaryNew.findMany({
+          where:  { callId: { in: latestCallIds } },
+          select: { callId: true },
+        });
+        const summaryNewCallIds = new Set(summaryNewRecords.map(s => s.callId));
+
+        // Sort: peers WITH summary_new first, then the rest (preserving Q4-frequency order within each group)
+        const withSummary    = candidateTickers.filter(t => summaryNewCallIds.has(latestCallIdByTicker[t]));
+        const withoutSummary = candidateTickers.filter(t => !summaryNewCallIds.has(latestCallIdByTicker[t]));
+        peerTickers = [...withSummary, ...withoutSummary].slice(0, 5);
+      }
     }
 
     const allTickers = [subjectTicker, ...peerTickers];

@@ -60,20 +60,18 @@ SECTION SCORES & TAKEAWAYS
 INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
-WRITING RULES — mandatory for all fields:
-1. NO VAGUE TIME REFERENCES: Use specific quarter labels (e.g., "Q3 FY26") whenever referencing a period. Never write "previous quarter", "recently", "last year" etc.
-2. BACK EVERY CLAIM WITH DATA: Every assertion in investment_thesis, key_highlights, and key_risks must be followed by a supporting metric in parentheses. E.g., "Revenue growing strongly (26% YoY to ₹1,240 Cr in Q3 FY26)". Remove any claim that cannot be supported by a number from the section data above.
-3. USER-FRIENDLY LANGUAGE: Write for a sophisticated investor who is not a financial analyst. Spell out what metrics mean in plain English where helpful. No standalone acronyms without context on first use.
-
 Using ONLY the information above:
 
 1. overall_score  — sum of the four section scores (max 40).
 2. overall_status — STRONG (≥28), MODERATE (18–27), WEAK (<18).
 3. status_color   — green for STRONG, yellow for MODERATE, red for WEAK.
-4. investment_thesis — 2–3 sentences: (1) the core opportunity with a specific metric, (2) the key competitive or financial strength backing it, (3) the main risk to watch. Plain English. 50–70 words.
-5. key_highlights — 3–5 bullet points (20–25 words each), one per strongest positive; each must cite a specific number from the section data.
-6. key_risks      — 2–3 bullet points (20–25 words each), one per top concern; each must cite a specific number or observation from the section data.
+4. investment_thesis — 1–2 sentences that capture the core opportunity and main risk. 
+5. key_highlights — 3–5 concise bullet points (10–15 words each), one per strongest positive.
+6. key_risks      — 2–3 concise bullet points (10–15 words each), one per top concern.
 7. section_scores — copy score, status, and takeaway from each section above (do NOT paraphrase the takeaway).
+8. Keep the language in thesis, risks and highlights simple and easy to understand. You may mention hard metrics in parentheses.
+9. Whenever you give an insight, try incorporating a short metric in parentheses to back it with hard data.
+Output length: keep investment_thesis under 40 words; each highlight/risk under 15 words.
 
 ══════════════════════════════════════════════════════════
 OUTPUT FORMAT
