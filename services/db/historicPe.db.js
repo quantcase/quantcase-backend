@@ -1,6 +1,7 @@
-// db-utils/getHistoricPe.js
+// services/db/historicPe.db.js
+// Moved from db-utils/getHistoricPe.js
 
-const prisma = require('../lib/prisma');
+const prisma = require('../../config/prisma');
 
 /**
  * Map a Date object to a quarter label ("YYYYQN").
@@ -15,9 +16,6 @@ function dateToQuarterKey(date) {
 /**
  * Fetch weekly PE history for a single ticker from the pe_data table,
  * average it into quarterly buckets, and return the last 12 quarters (3 years).
- *
- * @param {string} ticker
- * @returns {Promise<{ ticker, quarterlyPe: Array<{ quarter, avgPe, dataPoints }> }>}
  */
 async function fetchTickerPeHistory(ticker) {
   const threeYearsAgo = new Date();
@@ -30,7 +28,7 @@ async function fetchTickerPeHistory(ticker) {
       pe: { not: null },
     },
     select: { date: true, pe: true },
-    orderBy: { date: "asc" },
+    orderBy: { date: 'asc' },
   });
 
   // Group weekly rows into quarterly buckets
@@ -60,9 +58,6 @@ async function fetchTickerPeHistory(ticker) {
 /**
  * Fetch quarterly-averaged PE history for multiple tickers in parallel.
  * Failed tickers return { ticker, error } — one failure won't abort the batch.
- *
- * @param {string[]} tickers
- * @returns {Promise<Array<{ ticker, quarterlyPe } | { ticker, error }>>}
  */
 async function getHistoricPeForTickers(tickers) {
   const results = await Promise.allSettled(
@@ -70,10 +65,10 @@ async function getHistoricPeForTickers(tickers) {
   );
 
   return results.map((result, i) => {
-    if (result.status === "fulfilled") return result.value;
+    if (result.status === 'fulfilled') return result.value;
     return {
       ticker: tickers[i],
-      error: result.reason?.message ?? "Unknown error",
+      error: result.reason?.message ?? 'Unknown error',
     };
   });
 }

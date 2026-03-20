@@ -1,7 +1,10 @@
 const { Worker } = require('bullmq');
-const { connection, prisma, openRouter, parseJson, computePeriodType, applyMultiplier } = require('../lib/workerSetup');
+const connection   = require('../config/redis');
+const prisma       = require('../config/prisma');
+const openRouter   = require('../config/llm');
+const { parseJson, computePeriodType, applyMultiplier } = require('../utils/workerUtils');
 const { quarterlyEarningsPrompt } = require('../prompts/quarterly_earnings');
-const { upsertNewKpis } = require('../db-utils/upsertKpis');
+const { upsertNewKpis } = require('../services/db/kpis.db');
 
 const MAX_TOKENS = 16000;
 

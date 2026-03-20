@@ -1,10 +1,12 @@
 const { Worker } = require('bullmq');
 const fs   = require('fs');
 const path = require('path');
-const { connection, prisma, llmStream, parseJson } = require('../lib/workerSetup');
+const connection   = require('../config/redis');
+const prisma       = require('../config/prisma');
+const { llmStream, parseJson } = require('../utils/workerUtils');
 const { dealAnalysisPrompt }    = require('../prompts/deal_analysis');
 const { fetchTickerFinancials } = require('../utils/fincruxHelper');
-const { upsertDealResult }      = require('../db-utils/upsertDealResult');
+const { upsertDealResult }      = require('../services/db/deal.db');
 const { FinHelper }             = require('../utils/finHelper');
 const { isBFSI }                = require('../utils/industryClassifier');
 

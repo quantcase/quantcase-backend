@@ -1,6 +1,7 @@
-// db-utils/upsertKpis.js
+// services/db/kpis.db.js
+// Moved from db-utils/upsertKpis.js
 
-const prisma = require('../lib/prisma');
+const prisma = require('../../config/prisma');
 
 /**
  * Collects all KPI abbrs that were referenced in the LLM output

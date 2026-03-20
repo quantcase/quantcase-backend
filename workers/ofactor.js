@@ -1,8 +1,10 @@
 'use strict';
 
 const { Worker } = require('bullmq');
-const { connection, prisma, llmStream, parseJson } = require('../lib/workerSetup');
-const { upsertOFactorSection }      = require('../db-utils/upsertOFactor');
+const connection   = require('../config/redis');
+const prisma       = require('../config/prisma');
+const { llmStream, parseJson } = require('../utils/workerUtils');
+const { upsertOFactorSection }      = require('../services/db/ofactor.db');
 const { FinHelper }                 = require('../utils/finHelper');
 const { isBFSI }                    = require('../utils/industryClassifier');
 const { industryPrompt }            = require('../prompts/of-prompts/industry-prompt');

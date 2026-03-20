@@ -1,4 +1,7 @@
-const prisma = require('../lib/prisma');
+// services/db/deal.db.js
+// Moved from db-utils/upsertDealResult.js
+
+const prisma = require('../../config/prisma');
 
 function getPrisma() {
   return prisma;
