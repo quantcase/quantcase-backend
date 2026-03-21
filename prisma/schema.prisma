@@ -362,3 +362,235 @@ model MilestoneKpiTarget {
   @@index([company, kpi_abbr])
   @@index([kpi_abbr])
 }
+
+// ─── WealthOS Models ──────────────────────────────────────────────────────────
+
+enum WealthClientSegment {
+  HNI
+  UHNI
+  Retail
+  Institutional
+  Private
+}
+
+enum WealthRiskProfile {
+  conservative
+  moderate
+  aggressive
+}
+
+enum WealthInteractionType {
+  call
+  email
+  whatsapp
+  meeting
+  sms
+}
+
+enum WealthSuggestionPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum WealthSuggestionStatus {
+  pending
+  used
+  ignored
+}
+
+enum WealthModelType {
+  equity
+  debt
+  hybrid
+  structured
+  pms
+  aif
+}
+
+model WealthRmUser {
+  id                String   @id @default(uuid())
+  name              String
+  email             String?  @unique
+  team              String?
+  performance_score Float    @default(0)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  clients      WealthClient[]
+  interactions WealthInteraction[]
+  actions      WealthAction[]
+
+  @@map("wealth_rm_users")
+  @@index([team])
+}
+
+model WealthClient {
+  id                String               @id @default(uuid())
+  name              String
+  email             String?
+  phone             String?
+  rm_id             String?
+  segment           WealthClientSegment
+  risk_profile      WealthRiskProfile
+  engagement_score  Float                @default(0)
+  churn_probability Float                @default(0)
+  last_contact_at   DateTime?
+  metadata          Json?
+  created_at        DateTime             @default(now())
+  updated_at        DateTime             @updatedAt
+
+  rm             WealthRmUser?              @relation(fields: [rm_id], references: [id])
+  portfolio      WealthPortfolio?
+  interactions   WealthInteraction[]
+  suggestions    WealthSuggestion[]
+  actions        WealthAction[]
+  model_mappings WealthClientModelMapping[]
+  feature_store  WealthFeatureStore[]
+
+  @@map("wealth_clients")
+  @@index([rm_id])
+  @@index([segment])
+  @@index([churn_probability])
+  @@index([last_contact_at])
+}
+
+model WealthPortfolio {
+  id                  String    @id @default(uuid())
+  client_id           String    @unique
+  total_value         Float     @default(0)
+  risk_score          Float     @default(0)
+  last_rebalance_date DateTime?
+  holdings            Json?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  client WealthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@map("wealth_portfolios")
+  @@index([client_id])
+}
+
+model WealthInteraction {
+  id         String                @id @default(uuid())
+  client_id  String
+  rm_id      String?
+  type       WealthInteractionType
+  summary    String?
+  sentiment  String?
+  timestamp  DateTime              @default(now())
+  metadata   Json?
+  created_at DateTime              @default(now())
+
+  client WealthClient  @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  rm     WealthRmUser? @relation(fields: [rm_id], references: [id])
+
+  @@map("wealth_interactions")
+  @@index([client_id])
+  @@index([rm_id])
+  @@index([timestamp])
+}
+
+model WealthSuggestion {
+  id               String                   @id @default(uuid())
+  client_id        String
+  priority         WealthSuggestionPriority @default(MEDIUM)
+  reason           String?
+  suggested_action String?
+  message          String?
+  talking_points   Json?
+  status           WealthSuggestionStatus   @default(pending)
+  score            Float                    @default(0)
+  job_id           String?
+  created_at       DateTime                 @default(now())
+  updated_at       DateTime                 @updatedAt
+
+  client  WealthClient   @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  actions WealthAction[]
+
+  @@map("wealth_suggestions")
+  @@index([client_id])
+  @@index([status])
+  @@index([priority])
+  @@index([score])
+}
+
+model WealthAction {
+  id            String   @id @default(uuid())
+  suggestion_id String?
+  client_id     String
+  rm_id         String?
+  action_type   String
+  content       String?
+  outcome       String?
+  created_at    DateTime @default(now())
+
+  client     WealthClient      @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  rm         WealthRmUser?     @relation(fields: [rm_id], references: [id])
+  suggestion WealthSuggestion? @relation(fields: [suggestion_id], references: [id])
+
+  @@map("wealth_actions")
+  @@index([client_id])
+  @@index([rm_id])
+  @@index([suggestion_id])
+}
+
+model WealthApprovedModel {
+  id          String          @id @default(uuid())
+  name        String
+  description String?
+  model_type  WealthModelType
+  data        Json?
+  created_at  DateTime        @default(now())
+  updated_at  DateTime        @updatedAt
+
+  client_mappings WealthClientModelMapping[]
+
+  @@map("wealth_approved_models")
+  @@index([model_type])
+}
+
+model WealthClientModelMapping {
+  id          String   @id @default(uuid())
+  client_id   String
+  model_id    String
+  assigned_at DateTime @default(now())
+
+  client WealthClient        @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  model  WealthApprovedModel @relation(fields: [model_id], references: [id], onDelete: Cascade)
+
+  @@unique([client_id, model_id])
+  @@map("wealth_client_model_mappings")
+  @@index([client_id])
+  @@index([model_id])
+}
+
+model WealthAuditLog {
+  id           String   @id @default(uuid())
+  entity_type  String
+  entity_id    String
+  action       String
+  performed_by String?
+  timestamp    DateTime @default(now())
+  payload      Json?
+
+  @@map("wealth_audit_logs")
+  @@index([entity_type, entity_id])
+  @@index([performed_by])
+  @@index([timestamp])
+}
+
+model WealthFeatureStore {
+  id           String   @id @default(uuid())
+  client_id    String
+  feature_name String
+  value        Float
+  updated_at   DateTime @updatedAt
+
+  client WealthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@unique([client_id, feature_name])
+  @@map("wealth_feature_store")
+  @@index([client_id])
+  @@index([feature_name])
+}
