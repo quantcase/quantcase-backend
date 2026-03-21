@@ -1,6 +1,6 @@
 'use strict';
 
-const { getHistoricPeForTickers }          = require('../db-utils/getHistoricPe');
+const { getHistoricPeForTickers }          = require('../services/db/historicPe.db');
 const { isBFSI }                           = require('./industryClassifier');
 const { cagr, average, yoyGrowth, periodLabel, quarterLabelToYear } = require('./finMath');
 const { SOURCE_ABBRS, computeDerivedKpis } = require('./finDerivedKpis');

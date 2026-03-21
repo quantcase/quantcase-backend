@@ -1,4 +1,7 @@
-const prisma = require('../lib/prisma');
+// services/db/ofactor.db.js
+// Moved from db-utils/upsertOFactor.js
+
+const prisma = require('../../config/prisma');
 
 function getPrisma() {
   return prisma;
@@ -8,15 +11,9 @@ function getPrisma() {
  * Upsert an OFactor analysis result.
  * Accepts an optional external prisma instance (e.g. from the worker) to avoid
  * opening extra connections when called from a long-running process.
- *
- * @param {string}   callId
- * @param {string}   subjectTicker
- * @param {string[]} peerTickers
- * @param {object}   result         - Parsed Claude output (OFactorResponseSchema shape)
- * @param {object}   [prisma]       - Optional shared PrismaClient instance
  */
-async function upsertOFactorResult(callId, subjectTicker, peerTickers, result, prisma) {
-  const db = prisma ?? getPrisma();
+async function upsertOFactorResult(callId, subjectTicker, peerTickers, result, prismaClient) {
+  const db = prismaClient ?? getPrisma();
   return db.oFactorResult.upsert({
     where:  { callId },
     update: { result, peerTickers },
@@ -26,23 +23,17 @@ async function upsertOFactorResult(callId, subjectTicker, peerTickers, result, p
 
 /**
  * Fetch a stored OFactor result by callId.
- *
- * @param {string}  callId
- * @param {object}  [prisma]  - Optional shared PrismaClient instance
  */
-async function getOFactorResult(callId, prisma) {
-  const db = prisma ?? getPrisma();
+async function getOFactorResult(callId, prismaClient) {
+  const db = prismaClient ?? getPrisma();
   return db.oFactorResult.findUnique({ where: { callId } });
 }
 
 /**
  * Fetch the most recently updated OFactor result for a given ticker.
- *
- * @param {string}  ticker
- * @param {object}  [prisma]  - Optional shared PrismaClient instance
  */
-async function getLatestOFactorResultByTicker(ticker, prisma) {
-  const db = prisma ?? getPrisma();
+async function getLatestOFactorResultByTicker(ticker, prismaClient) {
+  const db = prismaClient ?? getPrisma();
   return db.oFactorResult.findFirst({
     where:   { subjectTicker: ticker },
     orderBy: { updatedAt: 'desc' },
@@ -61,12 +52,6 @@ const SECTION_KEY_MAP = {
 /**
  * Merge a single section result into the stored OFactorResult record.
  * Creates the record if it doesn't exist yet.
- *
- * @param {string}  callId
- * @param {string}  subjectTicker
- * @param {string}  section        - one of: industry | competition | financial_strength | customer_traction
- * @param {object}  sectionResult  - the parsed LLM output for this section
- * @param {object}  [prismaClient] - optional shared PrismaClient
  */
 async function upsertOFactorSection(callId, subjectTicker, section, sectionResult, prismaClient) {
   const sectionKey = SECTION_KEY_MAP[section];

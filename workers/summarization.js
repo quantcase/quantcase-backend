@@ -1,7 +1,9 @@
 const { Worker } = require('bullmq');
-const { connection, prisma, llmStream, parseJson, computePeriodType, applyMultiplier } = require('../lib/workerSetup');
+const connection   = require('../config/redis');
+const prisma       = require('../config/prisma');
+const { llmStream, parseJson, computePeriodType, applyMultiplier } = require('../utils/workerUtils');
 const { transcriptExtractorPrompt } = require('../prompts/transcript_call');
-const { upsertNewKpis } = require('../db-utils/upsertKpis');
+const { upsertNewKpis } = require('../services/db/kpis.db');
 
 const TRANSCRIPT_CHAR_LIMIT = 50000;
 const MAX_TOKENS = 16000;

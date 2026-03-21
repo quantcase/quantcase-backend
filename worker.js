@@ -1,5 +1,6 @@
 require('dotenv').config();
-const { connection, prisma } = require('./lib/workerSetup');
+const connection = require('./config/redis');
+const prisma     = require('./config/prisma');
 
 // Start all workers
 require('./workers/summarization');
