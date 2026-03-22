@@ -12,6 +12,7 @@ const opportunityRouter   = require('./opportunity.routes');
 const dealRouter          = require('./deal.routes');
 const adminRouter         = require('./admin.routes');
 const wealthosRouter      = require('./wealthos.routes');
+const screenerRouter      = require('./screener.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -24,6 +25,9 @@ router.use('/api/management',  managementRouter);
 router.use('/api/jobs',        jobsRouter);
 router.use('/api/opportunity', opportunityRouter);
 router.use('/api/deal',        dealRouter);
+
+// Screener routes
+router.use('/api/screener', screenerRouter);
 
 // WealthOS routes
 router.use('/api/wealthos', wealthosRouter);
