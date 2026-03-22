@@ -12,7 +12,7 @@ function buildContext(result) {
   const se = re?.structureEngine;
   const te = re?.trendEngine;
   const ti = re?.timingEngine;
-  const de = re?.dominanceEngine?.relativeStrength;
+  const de = re?.dominanceEngine?.leadership;
 
   return {
     symbol:        result.symbol,
@@ -20,24 +20,24 @@ function buildContext(result) {
     overallSignal: na(result.signals?.overall),
     score:         na(result.signals?.score),
 
-    wyckoffPhase:            na(se?.marketPhase?.wyckoffPhase),
-    marketPhaseGrowthOutput: na(se?.marketPhase?.growthOutput),
-    marketPhaseValueOutput:  na(se?.marketPhase?.valueOutput),
-    capitalParticipation:    na(se?.capitalParticipation?.growthOutput),
-    priceArchitecture:       na(se?.priceArchitecture?.growthOutput),
+    wyckoffPhase:               na(se?.marketStructure?.wyckoffPhase),
+    marketStructureGrowthOutput: na(se?.marketStructure?.growthOutput),
+    marketStructureValueOutput:  na(se?.marketStructure?.valueOutput),
+    participation:               na(se?.participation?.growthOutput),
+    priceStructure:              na(se?.priceStructure?.growthOutput),
 
-    directionalBiasGrowth:  na(te?.directionalBias?.growthOutput),
-    directionalBiasValue:   na(te?.directionalBias?.valueOutput),
-    adxCondition:           na(te?.trendMaturity?.condition),
-    trendMaturityGrowth:    na(te?.trendMaturity?.growthOutput),
-    trendMaturityValue:     na(te?.trendMaturity?.valueOutput),
+    trendDirectionGrowth:  na(te?.trendDirection?.growthOutput),
+    trendDirectionValue:   na(te?.trendDirection?.valueOutput),
+    adxCondition:          na(te?.trendQuality?.condition),
+    trendQualityGrowth:    na(te?.trendQuality?.growthOutput),
+    trendQualityValue:     na(te?.trendQuality?.valueOutput),
 
-    rsiZone:               na(ti?.momentumThrust?.rsiZone),
-    momentumThrustGrowth:  na(ti?.momentumThrust?.growthOutput),
-    momentumThrustValue:   na(ti?.momentumThrust?.valueOutput),
-    bbCondition:           na(ti?.volatilityRegime?.condition),
-    volatilityGrowth:      na(ti?.volatilityRegime?.growthOutput),
-    volatilityValue:       na(ti?.volatilityRegime?.valueOutput),
+    rsiZone:          na(ti?.momentum?.rsiZone),
+    momentumGrowth:   na(ti?.momentum?.growthOutput),
+    momentumValue:    na(ti?.momentum?.valueOutput),
+    bbCondition:      na(ti?.volatility?.condition),
+    volatilityGrowth: na(ti?.volatility?.growthOutput),
+    volatilityValue:  na(ti?.volatility?.valueOutput),
 
     vsNiftySignal:  na(de?.vsNifty?.signal),
     vsNiftyGrowth:  na(de?.vsNifty?.growthOutput),
@@ -59,22 +59,22 @@ OVERALL SIGNAL: ${ctx.overallSignal} (score: ${ctx.score}/100)
 
 === STRUCTURE ENGINE ===
 Wyckoff Phase: ${ctx.wyckoffPhase}
-Market Phase (Growth): ${ctx.marketPhaseGrowthOutput}
-Market Phase (Value): ${ctx.marketPhaseValueOutput}
-Capital Participation: ${ctx.capitalParticipation}
-Price Architecture: ${ctx.priceArchitecture}
+Market Structure (Growth): ${ctx.marketStructureGrowthOutput}
+Market Structure (Value): ${ctx.marketStructureValueOutput}
+Participation: ${ctx.participation}
+Price Structure: ${ctx.priceStructure}
 
 === TREND ENGINE ===
-Directional Bias (Growth): ${ctx.directionalBiasGrowth}
-Directional Bias (Value): ${ctx.directionalBiasValue}
-Trend Maturity (ADX condition: ${ctx.adxCondition}): ${ctx.trendMaturityGrowth}
-Trend Maturity (Value): ${ctx.trendMaturityValue}
+Trend Direction (Growth): ${ctx.trendDirectionGrowth}
+Trend Direction (Value): ${ctx.trendDirectionValue}
+Trend Quality (ADX condition: ${ctx.adxCondition}): ${ctx.trendQualityGrowth}
+Trend Quality (Value): ${ctx.trendQualityValue}
 
 === TIMING ENGINE ===
-Momentum Thrust (RSI zone: ${ctx.rsiZone}): ${ctx.momentumThrustGrowth}
-Momentum Thrust (Value): ${ctx.momentumThrustValue}
-Volatility Regime (BB: ${ctx.bbCondition}): ${ctx.volatilityGrowth}
-Volatility Regime (Value): ${ctx.volatilityValue}
+Momentum (RSI zone: ${ctx.rsiZone}): ${ctx.momentumGrowth}
+Momentum (Value): ${ctx.momentumValue}
+Volatility (BB: ${ctx.bbCondition}): ${ctx.volatilityGrowth}
+Volatility (Value): ${ctx.volatilityValue}
 
 === DOMINANCE ENGINE ===
 vs Nifty (${ctx.vsNiftySignal}): ${ctx.vsNiftyGrowth}

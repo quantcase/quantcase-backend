@@ -1,5 +1,8 @@
 'use strict';
 
+// eslint-disable-next-line no-unused-vars
+const { Buckets, Indicators, IndicatorRules } = require('./taEnums');
+
 // ─── Sector Ticker Map ────────────────────────────────────────────────────────
 // Maps MACRO ECO SECTOR values from the watchlist sheet → Yahoo Finance sector tickers
 
@@ -30,11 +33,12 @@ const SECTOR_TICKER_MAP = {
   'SMALLCAP':               '^CNXSC',
 };
 
-// ─── Rule Lookup Tables ───────────────────────────────────────────────────────
+// ─── Indicator Rule Lookup Tables ────────────────────────────────────────────
 // All text sourced verbatim from "Technicals Framework - Quantcase - Rule Engine.csv"
 // Watchout sentences are split into individual array items.
+// Keys match IndicatorRules enum values from taEnums.js.
 
-const WYCKOFF_RULES = {
+const WYCKOFF_INDICATOR_RULES = {
   'ACCUMULATION': {
     growthOutput: 'Wait / Observe.\nTrack for transition into Mark-Up.',
     growthWatchouts: [
@@ -123,7 +127,7 @@ const WYCKOFF_RULES = {
   },
 };
 
-const RSI_RULES = {
+const RSI_INDICATOR_RULES = {
   '0-30': {
     growthOutput: 'Avoid fresh entries.\nWait for Momentum Thrust recovery.',
     growthWatchouts: [
@@ -191,7 +195,7 @@ const RSI_RULES = {
   },
 };
 
-const ADX_RULES = {
+const ADX_INDICATOR_RULES = {
   '0-15': {
     growthOutput: 'Weak trend environment.\nAvoid aggressive positioning until trend strength improves.',
     growthWatchouts: [
@@ -362,7 +366,7 @@ const ADX_RULES = {
   },
 };
 
-const BB_RULES = {
+const BB_INDICATOR_RULES = {
   'EXPANDING': {
     growthOutput: 'Volatility Regime expansion detected.\nAlign with the direction of the prevailing trend.',
     growthWatchouts: [
@@ -397,7 +401,7 @@ const BB_RULES = {
   },
 };
 
-const VOLUME_RULES = {
+const VOLUME_INDICATOR_RULES = {
   'ABOVE_AVERAGE': {
     growthOutput: 'Capital Participation expansion detected.\nAlign positions with price direction.',
     growthWatchouts: [
@@ -433,7 +437,7 @@ const VOLUME_RULES = {
   },
 };
 
-const CMF_RULES = {
+const CMF_INDICATOR_RULES = {
   'POSITIVE': {
     growthOutput: 'Positive money flow detected.\nAlign positions with price strength.',
     growthWatchouts: [
@@ -470,7 +474,7 @@ const CMF_RULES = {
   },
 };
 
-const PRICE_ARCH_RULES = {
+const PRICE_ARCH_INDICATOR_RULES = {
   'BELOW_SUPPORT': {
     growthOutput: 'Support breakdown confirmed.\nAvoid fresh entries and reduce exposure.',
     growthWatchouts: [
@@ -594,7 +598,7 @@ const PRICE_ARCH_RULES = {
   },
 };
 
-const RS_NIFTY_RULES = {
+const RS_NIFTY_INDICATOR_RULES = {
   'OUTPERFORMING': {
     growthOutput: 'Strong Relative Strength detected.\nInitiate or add positions with trend confirmation.',
     growthWatchouts: [
@@ -627,7 +631,7 @@ const RS_NIFTY_RULES = {
   },
 };
 
-const RS_SECTOR_RULES = {
+const RS_SECTOR_INDICATOR_RULES = {
   'OUTPERFORMING': {
     growthOutput: 'Relative Strength strength detected.\nInitiate or add positions only if supported by other buckets.',
     growthWatchouts: [
@@ -773,15 +777,15 @@ function _buildDirectionalBiasOutput(d, forValue) {
 function _generateDecisionSummary(engines) {
   const { structureEngine, trendEngine, timingEngine, dominanceEngine } = engines;
   const sources = [
-    structureEngine?.marketPhase?.growthOutput,
-    structureEngine?.capitalParticipation?.growthOutput,
-    structureEngine?.priceArchitecture?.growthOutput,
-    trendEngine?.directionalBias?.growthOutput,
-    trendEngine?.trendMaturity?.growthOutput,
-    timingEngine?.momentumThrust?.growthOutput,
-    timingEngine?.volatilityRegime?.growthOutput,
-    dominanceEngine?.relativeStrength?.vsNifty?.growthOutput,
-    dominanceEngine?.relativeStrength?.vsSector?.growthOutput,
+    structureEngine?.marketStructure?.growthOutput,
+    structureEngine?.participation?.growthOutput,
+    structureEngine?.priceStructure?.growthOutput,
+    trendEngine?.trendDirection?.growthOutput,
+    trendEngine?.trendQuality?.growthOutput,
+    timingEngine?.momentum?.growthOutput,
+    timingEngine?.volatility?.growthOutput,
+    dominanceEngine?.leadership?.vsNifty?.growthOutput,
+    dominanceEngine?.leadership?.vsSector?.growthOutput,
   ];
 
   return sources
@@ -797,14 +801,14 @@ function _generateDecisionSummary(engines) {
 function _collectAlerts(engines) {
   const { structureEngine, trendEngine, timingEngine, dominanceEngine } = engines;
   const all = [
-    ...(structureEngine?.marketPhase?.growthWatchouts        || []),
-    ...(structureEngine?.capitalParticipation?.growthWatchouts || []),
-    ...(structureEngine?.priceArchitecture?.growthWatchouts  || []),
-    ...(trendEngine?.trendMaturity?.growthWatchouts          || []),
-    ...(timingEngine?.momentumThrust?.growthWatchouts        || []),
-    ...(timingEngine?.volatilityRegime?.growthWatchouts      || []),
-    ...(dominanceEngine?.relativeStrength?.vsNifty?.growthWatchouts  || []),
-    ...(dominanceEngine?.relativeStrength?.vsSector?.growthWatchouts || []),
+    ...(structureEngine?.marketStructure?.growthWatchouts || []),
+    ...(structureEngine?.participation?.growthWatchouts   || []),
+    ...(structureEngine?.priceStructure?.growthWatchouts  || []),
+    ...(trendEngine?.trendQuality?.growthWatchouts        || []),
+    ...(timingEngine?.momentum?.growthWatchouts           || []),
+    ...(timingEngine?.volatility?.growthWatchouts         || []),
+    ...(dominanceEngine?.leadership?.vsNifty?.growthWatchouts  || []),
+    ...(dominanceEngine?.leadership?.vsSector?.growthWatchouts || []),
   ];
   return [...new Set(all)];
 }
@@ -827,9 +831,9 @@ function computeRuleEngine(d, row, crsData) {
 
   // ── Structure Engine ───────────────────────────────────────────────────────
 
-  // Market Phase
-  const wyckoffRule = _lookupRule(WYCKOFF_RULES, phase);
-  const marketPhase = {
+  // Market Structure bucket (Wyckoff Phase indicator)
+  const wyckoffRule = _lookupRule(WYCKOFF_INDICATOR_RULES, phase);
+  const marketStructure = {
     wyckoffPhase:    phase || null,
     growthOutput:    wyckoffRule.growthOutput,
     growthWatchouts: wyckoffRule.growthWatchouts,
@@ -837,17 +841,17 @@ function computeRuleEngine(d, row, crsData) {
     valueWatchouts:  wyckoffRule.valueWatchouts,
   };
 
-  // Capital Participation — Volume (vs 30-day avg)
+  // Participation bucket — Volume indicator (vs 30-day avg)
   const volSignal = d.volumeVsAvg30Signal || null;
-  const volRule   = _lookupRule(VOLUME_RULES, volSignal);
+  const volRule   = _lookupRule(VOLUME_INDICATOR_RULES, volSignal);
 
-  // Capital Participation — CMF
+  // Participation bucket — CMF indicator
   const cmfValue  = d.cmf20 != null ? Math.round(d.cmf20 * 10000) / 10000 : null;
   const cmfKey    = cmfValue == null ? null : (cmfValue > 0 ? 'POSITIVE' : 'NEGATIVE');
-  const cmfRule   = _lookupRule(CMF_RULES, cmfKey);
+  const cmfRule   = _lookupRule(CMF_INDICATOR_RULES, cmfKey);
 
   // Merge vol + CMF: use CMF as primary output, merge watchouts
-  const capitalParticipation = {
+  const participation = {
     volumeSignal:    volSignal,
     cmfSignal:       cmfKey,
     cmf:             cmfValue,
@@ -857,10 +861,10 @@ function computeRuleEngine(d, row, crsData) {
     valueWatchouts:  [...new Set([...volRule.valueWatchouts,  ...cmfRule.valueWatchouts])],
   };
 
-  // Price Architecture
+  // Price Structure bucket (Support & Resistance indicator)
   const priceZone = _classifyPriceArchitecture(cmp, support, resistance);
-  const priceRule = _lookupRule(PRICE_ARCH_RULES, priceZone);
-  const priceArchitecture = {
+  const priceRule = _lookupRule(PRICE_ARCH_INDICATOR_RULES, priceZone);
+  const priceStructure = {
     zone:            priceZone,
     growthOutput:    priceRule.growthOutput,
     growthWatchouts: priceRule.growthWatchouts,
@@ -868,13 +872,13 @@ function computeRuleEngine(d, row, crsData) {
     valueWatchouts:  priceRule.valueWatchouts,
   };
 
-  const structureEngine = { marketPhase, capitalParticipation, priceArchitecture };
+  const structureEngine = { marketStructure, participation, priceStructure };
 
   // ── Trend Engine ───────────────────────────────────────────────────────────
 
-  // Directional Bias (programmatic)
+  // Trend Direction bucket (SMA indicator — programmatic)
   const aboveSMA100 = d.sma100 != null ? d.cmp > d.sma100 : null;
-  const directionalBias = {
+  const trendDirection = {
     priceVsSMA20:  d.aboveSMA20  === true ? 'ABOVE' : d.aboveSMA20  === false ? 'BELOW' : null,
     priceVsSMA50:  d.aboveSMA50  === true ? 'ABOVE' : d.aboveSMA50  === false ? 'BELOW' : null,
     priceVsSMA100: aboveSMA100   === true ? 'ABOVE' : aboveSMA100   === false ? 'BELOW' : null,
@@ -883,9 +887,9 @@ function computeRuleEngine(d, row, crsData) {
     valueOutput:   _buildDirectionalBiasOutput(d, true),
   };
 
-  // Trend Maturity (ADX)
+  // Trend Quality bucket (ADX indicator)
   const adxBandKey = _classifyAdxBand(d.adx14, d.adxTrend);
-  const adxRule    = _lookupRule(ADX_RULES, adxBandKey);
+  const adxRule    = _lookupRule(ADX_INDICATOR_RULES, adxBandKey);
   const adxBandLabel = adxBandKey
     ? adxBandKey.replace('-RISING', '').replace('-FALLING', '')
     : null;
@@ -893,7 +897,7 @@ function computeRuleEngine(d, row, crsData) {
     ? `${adxBandLabel} & ${d.adxTrend.charAt(0) + d.adxTrend.slice(1).toLowerCase()}`
     : adxBandLabel;
 
-  const trendMaturity = {
+  const trendQuality = {
     adx:             d.adx14 != null ? Math.round(d.adx14 * 100) / 100 : null,
     adxTrend:        d.adxTrend || null,
     adxBand:         adxBandLabel,
@@ -904,14 +908,14 @@ function computeRuleEngine(d, row, crsData) {
     valueWatchouts:  adxRule.valueWatchouts,
   };
 
-  const trendEngine = { directionalBias, trendMaturity };
+  const trendEngine = { trendDirection, trendQuality };
 
   // ── Timing Engine ──────────────────────────────────────────────────────────
 
-  // Momentum Thrust (RSI)
+  // Momentum bucket (RSI indicator)
   const rsiBand = _classifyRsiBand(d.rsi14);
-  const rsiRule = _lookupRule(RSI_RULES, rsiBand);
-  const momentumThrust = {
+  const rsiRule = _lookupRule(RSI_INDICATOR_RULES, rsiBand);
+  const momentum = {
     rsi:             d.rsi14 != null ? Math.round(d.rsi14 * 100) / 100 : null,
     rsiZone:         rsiBand,
     growthOutput:    rsiRule.growthOutput,
@@ -920,13 +924,13 @@ function computeRuleEngine(d, row, crsData) {
     valueWatchouts:  rsiRule.valueWatchouts,
   };
 
-  // Volatility Regime (BB Width)
+  // Volatility bucket (BB Width indicator)
   const bbWidth     = d.bbWidth     != null ? Math.round(d.bbWidth     * 10000) / 10000 : null;
   const prevBbWidth = d.prevBbWidth != null ? Math.round(d.prevBbWidth * 10000) / 10000 : null;
   const bbExpanding = (bbWidth != null && prevBbWidth != null) ? bbWidth > prevBbWidth : null;
   const bbCondKey   = bbExpanding == null ? null : (bbExpanding ? 'EXPANDING' : 'CONTRACTING');
-  const bbRule      = _lookupRule(BB_RULES, bbCondKey);
-  const volatilityRegime = {
+  const bbRule      = _lookupRule(BB_INDICATOR_RULES, bbCondKey);
+  const volatility = {
     bbWidth,
     prevBbWidth,
     expanding:       bbExpanding,
@@ -937,7 +941,7 @@ function computeRuleEngine(d, row, crsData) {
     valueWatchouts:  bbRule.valueWatchouts,
   };
 
-  const timingEngine = { momentumThrust, volatilityRegime };
+  const timingEngine = { momentum, volatility };
 
   // ── Dominance Engine ───────────────────────────────────────────────────────
 
@@ -947,15 +951,15 @@ function computeRuleEngine(d, row, crsData) {
   const niftySignal = niftyCrs?.crsValue != null && niftyCrs?.prevCrsValue != null
     ? (niftyCrs.crsValue > niftyCrs.prevCrsValue ? 'OUTPERFORMING' : 'UNDERPERFORMING')
     : null;
-  const niftyRule = _lookupRule(RS_NIFTY_RULES, niftySignal);
+  const niftyRule = _lookupRule(RS_NIFTY_INDICATOR_RULES, niftySignal);
 
   const sectorSignal = sectorCrs?.crsValue != null && sectorCrs?.prevCrsValue != null
     ? (sectorCrs.crsValue > sectorCrs.prevCrsValue ? 'OUTPERFORMING' : 'UNDERPERFORMING')
     : null;
-  const sectorRule = _lookupRule(RS_SECTOR_RULES, sectorSignal);
+  const sectorRule = _lookupRule(RS_SECTOR_INDICATOR_RULES, sectorSignal);
 
   const dominanceEngine = {
-    relativeStrength: {
+    leadership: {
       vsNifty: {
         crsValue:        niftyCrs?.crsValue     ?? null,
         prevCrsValue:    niftyCrs?.prevCrsValue ?? null,
@@ -989,14 +993,14 @@ function computeRuleEngine(d, row, crsData) {
 
   // ── Strip label prefix from watchout arrays ────────────────────────────────
   const buckets = [
-    structureEngine.marketPhase,
-    structureEngine.capitalParticipation,
-    structureEngine.priceArchitecture,
-    trendEngine.trendMaturity,
-    timingEngine.momentumThrust,
-    timingEngine.volatilityRegime,
-    dominanceEngine.relativeStrength.vsNifty,
-    dominanceEngine.relativeStrength.vsSector,
+    structureEngine.marketStructure,
+    structureEngine.participation,
+    structureEngine.priceStructure,
+    trendEngine.trendQuality,
+    timingEngine.momentum,
+    timingEngine.volatility,
+    dominanceEngine.leadership.vsNifty,
+    dominanceEngine.leadership.vsSector,
   ];
   for (const bucket of buckets) {
     if (!bucket) continue;
@@ -1013,13 +1017,13 @@ module.exports = {
   computeRuleEngine,
   SECTOR_TICKER_MAP,
   // Exported for testing
-  WYCKOFF_RULES,
-  RSI_RULES,
-  ADX_RULES,
-  BB_RULES,
-  VOLUME_RULES,
-  CMF_RULES,
-  PRICE_ARCH_RULES,
-  RS_NIFTY_RULES,
-  RS_SECTOR_RULES,
+  WYCKOFF_INDICATOR_RULES,
+  RSI_INDICATOR_RULES,
+  ADX_INDICATOR_RULES,
+  BB_INDICATOR_RULES,
+  VOLUME_INDICATOR_RULES,
+  CMF_INDICATOR_RULES,
+  PRICE_ARCH_INDICATOR_RULES,
+  RS_NIFTY_INDICATOR_RULES,
+  RS_SECTOR_INDICATOR_RULES,
 };
