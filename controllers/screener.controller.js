@@ -2,6 +2,7 @@
 
 const YahooFinance = require('yahoo-finance2').default;
 const technicalAnalysis = require('../lib/technicalAnalysis');
+const financials = require('../lib/financials');
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
@@ -162,4 +163,14 @@ async function getTickerInfo(req, res, next) {
   }
 }
 
-module.exports = { getTickerInfo, getTechnicals };
+async function getFinancials(req, res, next) {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const result = await financials.analyze(symbol);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getTickerInfo, getTechnicals, getFinancials };
