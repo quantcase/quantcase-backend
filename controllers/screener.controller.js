@@ -3,6 +3,7 @@
 const YahooFinance = require('yahoo-finance2').default;
 const technicalAnalysis = require('../lib/technicalAnalysis');
 const financials = require('../lib/financials');
+const { generateDecisionIntelligence } = require('../utils/decisionIntelligence');
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
@@ -10,6 +11,7 @@ async function getTechnicals(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
     const result = await technicalAnalysis.analyze(symbol);
+    result.decisionIntelligence = await generateDecisionIntelligence(result);
     res.json(result);
   } catch (err) {
     if (err.statusCode === 404) return res.status(404).json({ error: err.message });
@@ -173,4 +175,36 @@ async function getFinancials(req, res, next) {
   }
 }
 
-module.exports = { getTickerInfo, getTechnicals, getFinancials };
+async function getPrices(req, res, next) {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const ticker = symbol + '.NS';
+
+    const period1 = req.query.from
+      ? new Date(req.query.from)
+      : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000); // default: 1 year
+    const period2 = req.query.to ? new Date(req.query.to) : new Date();
+
+    const rows = await yahooFinance.historical(ticker, {
+      period1,
+      period2,
+      interval: '1d',
+    });
+
+    const prices = rows.map((r) => ({
+      date: r.date.toISOString().slice(0, 10),
+      open: r.open ?? null,
+      high: r.high ?? null,
+      low: r.low ?? null,
+      close: r.close ?? null,
+      adjClose: r.adjClose ?? null,
+      volume: r.volume ?? null,
+    }));
+
+    res.json({ symbol, ticker, count: prices.length, prices });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getTickerInfo, getTechnicals, getFinancials, getPrices };

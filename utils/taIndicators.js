@@ -341,6 +341,27 @@ function avgVolume(volumes, period = 20) {
 }
 
 /**
+ * Chaikin Money Flow (CMF) over the last `period` bars.
+ * CMF = sum(MFV, period) / sum(volume, period)
+ * MFV = ((close - low) - (high - close)) / (high - low) * volume
+ * @param {Array<{high:number,low:number,close:number,volume:number}>} bars
+ * @param {number} [period=20]
+ * @returns {number|null}  range roughly -1 to +1
+ */
+function cmf(bars, period = 20) {
+  if (!bars || bars.length < period) return null;
+  const slice = bars.slice(-period);
+  let sumMFV = 0, sumVol = 0;
+  for (const bar of slice) {
+    const range = bar.high - bar.low;
+    const mfm   = range === 0 ? 0 : ((bar.close - bar.low) - (bar.high - bar.close)) / range;
+    sumMFV += mfm * bar.volume;
+    sumVol += bar.volume;
+  }
+  return sumVol === 0 ? null : sumMFV / sumVol;
+}
+
+/**
  * Volume trend: compare avg of last 5 bars vs avg of prior 15 bars (±10% threshold).
  * @param {number[]} volumes
  * @returns {'INCREASING'|'DECREASING'|'FLAT'}
@@ -471,7 +492,14 @@ function _computeTimeframe(bars, quote, full) {
   const stochResult = full ? stochastic(bars)   : null;
   const atr14       = full ? atr(bars)          : null;
   const bb          = full ? bollingerBands(closes) : null;
+  const prevBb      = full ? bollingerBands(closes.slice(0, -1)) : null;
+  const prevBbWidth = prevBb ? prevBb.width : null;
   const adx14       = adx(bars);
+  const adxPrev     = full ? adx(bars.slice(0, -1)) : null;
+  const adxTrend_   = (full && adx14 != null && adxPrev != null)
+    ? (adx14 > adxPrev + 0.3 ? 'RISING' : adx14 < adxPrev - 0.3 ? 'FALLING' : 'FLAT')
+    : null;
+  const cmf20       = full ? cmf(bars) : null;
   const structure   = marketStructure(bars);
 
   const crossovers  = full ? detectCrossovers(closes, dates)
@@ -480,7 +508,11 @@ function _computeTimeframe(bars, quote, full) {
   // Volume
   const currentVol  = lastBar.volume;
   const avgVol20    = avgVolume(volumes);
+  const avgVol30    = full ? avgVolume(volumes, 30) : null;
   const volRatio    = (avgVol20 && avgVol20 > 0) ? currentVol / avgVol20 : null;
+  const volumeVsAvg30Signal = (full && avgVol30 != null)
+    ? (currentVol > avgVol30 ? 'ABOVE_AVERAGE' : 'BELOW_AVERAGE')
+    : null;
   const volTrend    = volumeTrend(volumes);
   const volBreakout = volRatio != null && volRatio > 1.5;
   const priceChg    = cmp - prevClose;
@@ -537,19 +569,26 @@ function _computeTimeframe(bars, quote, full) {
     bbLower:   bb ? bb.lower   : null,
     bbWidth:   bb ? bb.width   : null,
     bbSqueeze: bb ? bb.squeeze : null,
+    prevBbWidth,
 
     // Trend structure
     adx14,
+    adxTrend: adxTrend_,
     higherHighs: structure.higherHighs,
     higherLows:  structure.higherLows,
 
     // Volume
     avgVolume20: avgVol20,
+    avgVolume30: avgVol30,
+    volumeVsAvg30Signal,
     volumeRatio: volRatio,
     volumeTrend: volTrend,
     volumeBreakout: volBreakout,
     accumulation:   accum,
     distribution:   distrib,
+
+    // Capital Participation (CMF)
+    cmf20,
   };
 }
 
@@ -565,6 +604,7 @@ module.exports = {
   atr,
   bollingerBands,
   adx,
+  cmf,
   avgVolume,
   volumeTrend,
   marketStructure,

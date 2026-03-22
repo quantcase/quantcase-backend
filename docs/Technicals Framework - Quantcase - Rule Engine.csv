@@ -1,0 +1,759 @@
+MODULE,INDICATOR USED,INDICATOR RULES/CONDITIONS,GROWTH,,VALUE,
+,,,OUTPUT,WATCHOUT OTHERS BUCKET,OUTPUT,WATCHOUT OTHERS BUCKET
+MARKET PHASE,WYCKOFF PHASE,ACCUMULATION,"Wait / Observe.
+Track for transition into Mark-Up.","Price Architecture: Watchout Resistance level for a possible breakout.
+Capital Participation: Sustained increase in volume and CMF remains above zero. 
+Relative Strength: Relative strength vs Index or Sector stabilizes and begins to improve.",Start phased buying near support with small quantity.,"Directional Bias: Watch 200 SMA for bullish or bearish regime change.
+Capital Participation: Monitor volume spikes on up days versus down days."
+MARKET PHASE,WYCKOFF PHASE,MARK-UP,Start or add position preferably on a pullback or support re-test.,"Directional Bias: Price should continue to hold above 50 and 100 SMA.
+Momentum Thrust: RSI should hold above 50.","Hold existing positions.
+Add only on meaningful pullbacks if valuation comfort remains.","Directional Bias: Watch 200 SMA for overall regime integrity. 
+Momentum Thrust: Alert if RSI Crosses below 50 or 30.
+Price Architecture: Failure to hold prior breakout levels is a warning."
+MARKET PHASE,WYCKOFF PHASE,RE-ACCUMULATION,Add to existing positions on pullbacks. Look to pyramid as the trend resumes.,"Directional Bias: Price should continue holding above 50 and 100 SMA.
+Volatility Regime: Volatility Regime expansion without upside progress is cautionary.
+Relative Strength: Relative strength vs Index or Sector should remain stable or improve. 
+Price Architecture: Support levels should hold.","Partial profit booking near resistance.
+Add on declines near support if not fully invested.","Directional Bias: Watch 200 SMA for regime stability. 
+Capital Participation: CMF should remain above zero. 
+Relative Strength: Relative strength vs Index or Sector should remain stable or improve. 
+Price Architecture: Support levels should hold. 
+Trend Maturity: ADX Should remain above 25."
+MARKET PHASE,WYCKOFF PHASE,DISTRIBUTION,"Avoid fresh entries.
+Reduce exposure on strength.","Directional Bias: Break below 50 SMA signals early weakness. Sustained trading below 100 SMA confirms deterioration.
+Capital Participation: Volume spikes on down days indicate selling pressure. Weak volume on rallies signals lack of demand.
+Relative Strength: Relative strength deterioration signals capital rotation. Failure to participate in sector rallies is a warning.
+Price Architecture: Support breakdown signals structural change.","Book partial profits.
+Avoid fresh accumulation.","Directional Bias: Watch 200 SMA for regime stability.
+Capital Participation: Volume spikes on declines suggest institutional selling.
+Price Architecture: Failure to hold support or breakdown from range confirms distribution. "
+MARKET PHASE,WYCKOFF PHASE,MARK-DOWN,"Avoid fresh entries.
+Exit or reduce positions on rebounds.","Directional Bias: Price holding below 50 SMA confirms downtrend. Reclaim above 50 SMA signals early turnaround.
+Price Architecture: Support breakdown confirms downtrend. Resistance breakout signals early turnaround.","Avoid fresh buying.
+Wait for accumulation or base formation.","Capital Participation: CMF moving above zero signals early accumulation.
+Price Architecture: Holding support levels signals base formation.
+Trend Maturity: ADX below 25 signals early accumulation.
+Directional Bias: Reclaim above 200 SMA signals regime improvement."
+MARKET PHASE,WYCKOFF PHASE,RE-DISTRIBUTION,"Avoid fresh entries.
+Monitor for structural repair before considering positions.","Directional Bias: Price holding below 100 SMA confirms continuation. Reclaim above 100 SMA signals early repair.
+Momentum Thrust: RSI holding below 30 confirms weakness. RSI moving above 70 signals Momentum Thrust improvement.
+Volatility Regime: Volatility Regime expansion on declines confirms risk. Volatility Regime contraction signals selling exhaustion.","Avoid fresh buying.
+Wait for clear base formation before accumulating.","Directional Bias: Sustained trading below 200 SMA confirms bearish regime.
+Reclaim above 200 SMA signals regime repair.
+Price Architecture: Lower lows or range breakdown confirm continuation.
+Support stabilization or base formation signals repair attempt.
+Trend Maturity: Rising ADX on declines confirms strengthening downtrend.
+ADX contraction signals weakening downside pressure."
+RELATIVE STRENGTH,"Comparative Relative Strength (CRS)
+Stock Vs NIFTY","STOCK RS>NIFTY RS
+Current CRS>Pre CRS","Strong Relative Strength detected.
+Initiate or add positions with trend confirmation.","MArket Phase: Prefer Mark-Up or Re-Accumulation phases.
+Directional Bias: Price should hold above 50 and 100 SMA.
+Price Architecture: Breakouts or higher highs should confirm Relative Strength.
+Failure to sustain breakouts is a warning.
+Capital Participation: Volume expansion should support Relative Strength.
+Weak Capital Participation signals fragile strength.","Hold existing positions.
+Avoid fresh buying at strength.","MArket Phase: Prefer Mark-Up or Re-Accumulation phases.
+If in Distribution, consider partial exit near resistance.
+Directional Bias: Price should hold above 50 and 100 SMA.
+Price Architecture: Failure to hold breakout levels or breakdown below support is a warning."
+RELATIVE STRENGTH,"Comparative Relative Strength (CRS)
+Stock Vs NIFTY","STOCK RS<NIFTY RS
+Current CRS<Pre CRS","Avoid fresh entries.
+Monitor for relative strength improvement.","MArket Phase: Prefer Accumulation with signs of transition into Mark-Up.
+Directional Bias: Watch 200 SMA for regime shift.
+Alternatively, look for a close above 100 SMA indicating trend improvement.
+Capital Participation: CMF should move above zero and continue rising.","Accept underperformance.
+Focus on structure and valuation comfort.","MArket Phase: Ensure accumulation or re-accumulation structure remains intact. 
+Directional Bias: Watch 200 SMA for regime stability. 
+Capital Participation: Persistent negative CMF is a warning. 
+Price Architecture: Failure to hold support while lagging the sector increases downside risk."
+RELATIVE STRENGTH,"Comparative Relative Strength (CRS)
+Stock Vs Sector","STOCK RS>SECTOR RS
+Current CRS>Pre CRS","Relative Strength strength detected.
+Initiate or add positions only if supported by other buckets.","MArket Phase: Prefer Mark-Up or Re-Accumulation phases.
+Directional Bias: Price should hold above 50 and 100 SMA.
+Momentum Thrust: RSI should hold above 50.
+Price Architecture: Breakouts or higher highs should confirm Relative Strength. Failure to sustain breakouts is a warning.","Hold existing positions.
+Avoid chasing strength.","MArket Phase: Prefer Mark-Up or Re-Accumulation phases.
+If in Distribution, consider partial exit near resistance.
+Directional Bias: Price should hold above 50 and 100 SMA.
+Price Architecture: Failure to hold breakout levels or breakdown below support is a warning."
+RELATIVE STRENGTH,"Comparative Relative Strength (CRS)
+Stock Vs Sector","STOCK RS<SECTOR RS
+Current CRS<Pre CRS","Avoid fresh entries.
+Monitor for relative strength improvement.","MArket Phase: Prefer Accumulation with signs of transition into Mark-Up.
+Directional Bias: Watch 200 SMA for regime shift.
+Alternatively, look for a close above 100 SMA indicating trend improvement.
+Capital Participation: CMF should move above zero and continue rising.","Accept underperformance.
+Focus on structure and valuation rather than relative strength.","MArket Phase: Ensure accumulation or re-accumulation structure remains intact. 
+Directional Bias: Watch 200 SMA for regime stability. 
+Capital Participation: Persistent negative CMF is a warning. 
+Price Architecture: Failure to hold support while lagging the sector increases downside risk."
+Momentum Thrust THRUST,RSI (14),0-30,"Avoid fresh entries.
+Wait for Momentum Thrust recovery.","MArket Phase: Prefer Accumulation or Re-Accumulation phases. RSI weakness during Mark-Down confirms continuation.
+Directional Bias: Price holding below 50 SMA confirms weakness. Reclaim above 50 SMA signals Momentum Thrust repair.
+Capital Participation: Volume expansion on declines confirms selling pressure. Reduced sell-side volume signals exhaustion.
+Price Architecture: Support breakdown confirms continuation. Support holding signals base formation attempt.
+Volatility Regime: Volatility Regime expansion confirms risk. Volatility Regime contraction signals selling exhaustion.","Oversold condition noted.
+Consider phased buying if structure supports.","MArket Phase: Prefer Accumulation or Re-Accumulation phases. RSI weakness during Mark-Down signals value trap risk.
+Directional Bias: Watch 200 SMA for regime stability.
+Capital Participation: Negative CMF confirms distribution pressure. Buying interest should emerge to validate accumulation.
+Price Architecture: Support holding strengthens accumulation case. Support breakdown signals structural deterioration.
+Volatility Regime: Volatility Regime expansion on declines increases risk. Volatility Regime contraction signals selling exhaustion."
+Momentum Thrust THRUST,RSI (14),30-50,"Neutral Momentum Thrust zone.
+Wait for Momentum Thrust expansion before initiating positions.","MArket Phase: Prefer Accumulation transitioning to Mark-Up.
+Directional Bias: Price reclaim above 50 SMA supports Momentum Thrust recovery.
+Capital Participation: Buying volume should increase as RSI improves. Weak Capital Participation signals fragile recovery.
+Price Architecture: Breakouts or higher lows should support recovery. Failure to sustain upside attempts is a warning.","Neutral Momentum Thrust zone.
+Accumulate selectively if structure is supportive.","MArket Phase: Prefer Accumulation or Re-Accumulation phases. RSI neutrality during Distribution signals caution.
+Directional Bias: Watch 200 SMA for regime stability. Sustained trading below 200 SMA weakens accumulation case.
+Capital Participation: Buying Capital Participation should emerge as RSI stabilizes. Negative CMF signals distribution pressure.
+Price Architecture: Support holding strengthens accumulation thesis. Support breakdown signals structural weakness."
+Momentum Thrust THRUST,RSI (14),50-70,"Positive Momentum Thrust zone.
+Initiate or add positions with trend support.","MArket Phase: Prefer Mark-Up or Re-Accumulation phases. Momentum Thrust strength during Distribution signals late-cycle risk.
+Directional Bias: Price should hold above 50 and 100 SMA. Break below 50 SMA signals weakening Momentum Thrust.
+Capital Participation: Volume expansion should support RSI strength. Weak Capital Participation signals fragile Momentum Thrust.
+Relative Strength: Relative strength vs Index or Sector should remain positive. Relative Strength deterioration is a warning.","Hold existing positions.
+Avoid aggressive buying at elevated Momentum Thrust.","MArket Phase:Momentum Thrust strength during Distribution signals late-cycle risk.
+Directional Bias:Extended distance above 200 SMA reduces margin of safety.
+Price Architecture:Extended moves far above support reduce risk–reward comfort.Failure to hold breakout levels is a warning."
+Momentum Thrust THRUST,RSI (14),70-100,"Strong Momentum Thrust zone.
+Hold positions and trail on strength.
+Add on confirmed breakouts.","MArket Phase: Momentum Thrust extremes during Distribution signal late-cycle risk.
+Directional Bias: Price should hold above 50 SMA. Break below 50 or 100 SMA signals Momentum Thrust cooling.
+Capital Participation: CMF below zero is a warning. Rising volume on declines signals distribution pressure.
+Trend Maturity: Very high ADX may signal trend climax. Falling ADX signals weakening trend strength.",Assess whether Momentum Thrust is signaling trend exhaustion or the start of a strong expansion phase.,"MArket Phase: Momentum Thrust extremes during Distribution signal late-cycle risk.
+Directional Bias: Price should hold above 50 SMA. Break below 50 or 100SMA signals Momentum Thrust cooling.
+Capital Participation: CMF below zero is a warning. Rising volume on declines signals distribution pressure.
+Trend Maturity: Very high ADX may signal trend climax. Falling ADX signals weakening trend strength."
+Volatility Regime REGIME,"Bollinger Bands Width (20,2)",Current BB Width>Previous BB Width,"Volatility Regime expansion detected.
+Align with the direction of the prevailing trend.","MArket Phase: Volatility Regime expansion during Mark-Up supports continuation. Expansion during Distribution signals instability.
+Directional Bias: Check if price is holding above or below 50 and 100 SMA.
+Relative Strength: Relative strength vs Index or Sector should remain positive. Deterioration signals rotation risk.
+Price Architecture: Breakouts with Volatility Regime expansion support continuation. Range breakdowns signal downside risk.","Heightened Volatility Regime detected.
+Avoid aggressive accumulation until stability returns.","MArket Phase: Volatility Regime expansion during Distribution signals supply emergence. Expansion during Accumulation may signal base resolution.
+Directional Bias: Check if price is holding above or below 50 and 100 SMA.
+Price Architecture: Support breakdown during Volatility Regime expansion signals structural deterioration. Breakout from base signals accumulation resolution.
+Relative Strength: Persistent underperformance signals capital exit. Stabilization signals improving confidence."
+Volatility Regime REGIME,"Bollinger Bands Width (20,2)",Current BB Width<Previous BB Width,"Volatility Regime contraction detected.
+Prepare for potential breakout expansion.","MArket Phase:Contraction during Accumulation supports upside breakout potential. Contraction during Distribution signals breakdown risk.
+Directional Bias:Price holding above 50 and 100 SMA supports bullish resolution. Break below signals downside risk.
+Momentum Thrust:RSI holding above 50 supports upside expansion. Weak RSI signals fragile setup.
+Price Architecture:Range tightening near resistance supports breakout. Compression near support signals breakdown risk.","Volatility Regime contraction detected.
+Accumulate gradually within the base.","MArket Phase: Contraction during Accumulation supports base formation. Contraction during Distribution signals false stability.
+Directional Bias: Watch 200 SMA for regime stability.
+Price Architecture: Support holding validates base formation. Support breakdown signals structural deterioration.
+Trend Maturity: Low ADX supports base-building phase. Rising ADX on declines signals emerging weakness."
+PRICE ARCHITECTURE,"Support, Resistance",Close below -2% from Support,"Support breakdown confirmed.
+Avoid fresh entries and reduce exposure.","MArket Phase: Breakdown from Accumulation or Distribution signals structural change.
+Directional Bias: Price holding below 50 and 100 SMA confirms structural weakness.Reclaim above signals repair attempt.
+Capital Participation: Volume expansion on breakdown confirms distribution.Low volume breakdown signals weak conviction.
+Trend Maturity: Rising ADX on declines confirms strengthening downtrend. ADX contraction signals weakening sell pressure.
+Volatility Regime: Volatility Regime expansion on breakdown confirms instability. Volatility Regime contraction signals exhaustion.","Support breakdown detected.
+Avoid fresh accumulation until structure stabilizes.","MArket Phase: Breakdown during Mark-Down confirms continuation risk. Breakdown during Accumulation may signal shakeout.
+Directional Bias: Watch 200 SMA for regime stability. Sustained trading below weakens accumulation comfort.
+Capital Participation: High selling volume confirms distribution pressure. Reduced sell-side volume signals exhaustion.
+Relative Strength: Persistent underperformance signals capital exit. Stabilization improves conviction."
+PRICE ARCHITECTURE,"Support, Resistance",Close above +2% from Resistance,"Resistance breakout confirmed.
+Initiate or add positions on strength.","MArket Phase: Breakout from Accumulation supports Mark-Up transition. Breakout during Distribution signals bull trap risk.
+Momentum Thrust: RSI strength should align with breakout. Weak RSI signals fragile expansion.
+Capital Participation: Volume expansion on breakout confirms accumulation. Low volume breakout signals weak conviction.
+Relative Strength: Relative strength vs Index or Sector should remain positive. Deterioration signals rotation risk.
+Trend Maturity: Rising ADX supports breakout continuation. Low ADX signals weak trend backing.
+Volatility Regime: Volatility Regime expansion supports breakout expansion. Volatility Regime spikes without progress signal instability.","Resistance breakout detected.
+Avoid fresh accumulation at elevated levels.","MArket Phase: Breakout from Accumulation supports structural re-rating. Breakout during Distribution signals exit liquidity risk.
+Capital Participation: Volume expansion should support breakout conviction. Weak Capital Participation signals fragile expansion.
+Trend Maturity: Very high ADX indicates mature trend. Falling ADX signals exhaustion risk.
+Momentum Thrust: RSI extremes signal overbought risk.Moderate Momentum Thrust supports continuation."
+PRICE ARCHITECTURE,"Support, Resistance",Close within -2% to +2% Support,"Price testing support zone.
+Wait for directional confirmation before initiating.","MArket Phase: Support tests during Accumulation support bounce probability. Support tests during Distribution increase breakdown risk.
+Directional Bias: Price holding above 50 and 100 SMA supports demand defense. Break below signals structural weakness.
+Momentum Thrust: RSI stabilization or reversal supports bounce. RSI weakness signals breakdown risk.
+Capital Participation: Buying volume near support supports absorption. Rising sell volume signals distribution.
+Volatility Regime: Volatility Regime contraction supports base formation. Volatility Regime expansion near support signals instability.","Price near support zone.
+Accumulate gradually within the base.","MArket Phase: Support tests during Accumulation support base formation. Support tests during Mark-Down increase breakdown risk.
+Directional Bias: Watch 200 SMA for regime stability. Weak regime reduces accumulation comfort.
+Capital Participation: Buying Capital Participation near support supports absorption. Rising sell pressure signals distribution risk.
+Trend Maturity: Low ADX supports base-building phase. Rising ADX on declines signals structural weakness.
+Momentum Thrust: RSI stabilization supports bounce probability.
+RSI weakness signals breakdown risk."
+PRICE ARCHITECTURE,"Support, Resistance",Close within -2% to +2% Resistance,"Price testing resistance zone.
+Wait for breakout confirmation before initiating or adding.","MArket Phase: Resistance tests during Mark-Up support breakout probability. Resistance tests during Distribution increase rejection risk.
+Directional Bias: Price holding above 50 and 100 SMA supports breakout strength. Break below signals weakening structure.
+Momentum Thrust: RSI strength near resistance supports breakout potential. Weak RSI signals rejection risk.
+Capital Participation: Buying volume near resistance supports absorption. Low volume signals weak breakout conviction.
+Volatility Regime: Volatility Regime contraction near resistance supports breakout build-up. Volatility Regime expansion without breakout signals instability.","Price near resistance zone.
+Avoid fresh accumulation at elevated levels.","MArket Phase: Resistance tests during Distribution increase rejection risk. Resistance tests during Accumulation may signal re-rating preparation.
+Capital Participation: Weak Capital Participation near resistance signals fragile demand. Strong Capital Participation supports absorption.
+Trend Maturity: Very high ADX indicates mature trend near resistance. Moderate ADX supports continuation.
+Volatility Regime: Volatility Regime expansion near resistance signals instability. Volatility Regime contraction supports breakout preparation.
+Momentum Thrust: RSI extremes signal overbought risk. Moderate Momentum Thrust supports continuation."
+PRICE ARCHITECTURE,"Support, Resistance",Close within +2% to +10% Support,"Price trading moderately above support.
+Wait for directional confirmation before initiating or adding.","MArket Phase: Position above support during Accumulation supports bounce probability. Position above support during Distribution increases breakdown risk.
+Directional Bias: Price holding above 50 and 100 SMA supports demand strength. Break below signals structural weakness.
+Capital Participation: Buying Capital Participation supports absorption near support. Rising sell pressure signals breakdown risk.
+Relative Strength: Relative strength stability supports demand defense. Underperformance signals weak demand.
+Volatility Regime: Volatility Regime contraction supports base formation. Volatility Regime expansion on declines signals instability.","Price moderately above support.
+Accumulate selectively on approach to support or after stability confirmation.","MArket Phase: Position above support during Accumulation supports base continuation. Position above support during Mark-Down increases breakdown risk.
+Directional Bias: Watch 200 SMA for regime stability. Weak regime reduces accumulation comfort.
+Capital Participation: Buying Capital Participation supports absorption near support. Rising sell pressure signals distribution risk.
+Trend Maturity: Low ADX supports base-building phase. Rising ADX on declines signals structural weakness.
+Volatility Regime: Volatility Regime contraction supports stability. Volatility Regime expansion on declines signals instability."
+PRICE ARCHITECTURE,"Support, Resistance",Close within -2% to -10% Resistance,"Price trading moderately below resistance.
+Wait for breakout or rejection confirmation before acting.","MArket Phase: Position below resistance during Mark-Up supports breakout probability. Position below resistance during Distribution increases rejection risk.
+Directional Bias: Price holding above 50 and 100 SMA supports breakout strength. Break below signals weakening structure.
+Trend Maturity: Rising ADX supports expansion probability. Low ADX signals range-bound behavior.
+Volatility Regime: Volatility Regime contraction supports breakout build-up. Volatility Regime expansion without breakout signals instability.","Price moderately below resistance.
+Avoid aggressive accumulation; prefer entries closer to support.","MArket Phase: Position below resistance during Accumulation supports re-rating preparation. Position below resistance during Distribution increases rejection risk.
+Capital Participation: Strong buying Capital Participation supports absorption of supply. Weak Capital Participation signals fragile demand.
+Trend Maturity: Moderate ADX supports healthy trend continuation. Very high ADX signals mature trend near resistance.
+Volatility Regime: Volatility Regime contraction supports breakout preparation. Volatility Regime expansion signals instability near supply."
+TREND MATURITY,ADX (14),0-15,"Weak trend environment.
+Avoid aggressive positioning until trend strength improves.","MArket Phase: Weak ADX during Accumulation supports base formation. Weak ADX during Distribution signals fragile structure.
+Capital Participation: Rising volume required to validate trend emergence. Low Capital Participation signals lack of conviction.
+Volatility Regime: Volatility Regime contraction supports base building. Volatility Regime expansion without trend signals instability.","Low trend strength detected.
+Accumulate gradually within base structures.","MArket Phase: Weak ADX during Accumulation supports base formation. Weak ADX during Mark-Down increases trap risk.
+Directional Bias: Watch 200 SMA for regime stability.
+Capital Participation: Buying Capital Participation should emerge gradually. Persistent sell pressure signals distribution.
+Volatility Regime: Volatility Regime contraction supports stability. Volatility Regime expansion signals structural risk."
+TREND MATURITY,ADX (14),15-25 & Rising,"Trend strength improving.
+Initiate or add positions aligned with price direction.","MArket Phase: Rising ADX during Mark-Up supports continuation. Rising ADX during Distribution signals emerging downside risk.
+Directional Bias: Price should hold above 50 and 100 SMA. Break below signals weakening structure.
+Momentum Thrust: RSI strength should align with rising trend strength. Weak RSI signals fragile expansion.
+Capital Participation: Rising volume should support trend emergence. Low Capital Participation signals weak conviction.
+Relative Strength: Relative strength should remain positive. Deterioration signals rotation risk.
+Volatility Regime: Volatility Regime expansion supports trend development. Volatility Regime instability signals risk.","Trend strength emerging.
+Accumulate selectively within supportive structures.","MArket Phase: Rising ADX during Accumulation supports base resolution. Rising ADX during Mark-Down increases downside risk.
+Directional Bias: Watch 200 SMA for regime stability.
+Capital Participation: Buying Capital Participation should support trend emergence. Weak Capital Participation signals fragile conviction.
+Relative Strength: Stabilization supports continuation comfort. Underperformance signals weak demand.
+Volatility Regime: Controlled Volatility Regime supports sustainable trend. Volatility Regime spikes signal instability.
+Momentum Thrust: RSI strength supports continuation. Momentum Thrust extremes signal overextension risk."
+TREND MATURITY,ADX (14),15-25 & Falling,"Trend strength weakening.
+Avoid fresh entries; manage existing positions cautiously.","MArket Phase: Falling ADX during Mark-Up signals trend fatigue. Falling ADX during Distribution signals weakening sell pressure.
+Directional Bias: Price should hold above 50 and 100 SMA. Break below signals structural deterioration.
+Capital Participation: Declining Capital Participation signals fading conviction. Rising Capital Participation may signal re-acceleration.
+Relative Strength: Relative strength deterioration signals rotation risk. Stabilization signals repair attempt.
+Volatility Regime: Volatility Regime contraction signals consolidation phase. Volatility Regime expansion without direction signals instability.","Trend strength weakening.
+Monitor for base formation or accumulation opportunity.","MArket Phase: Falling ADX during Accumulation supports base development.
+Falling ADX during Mark-Down may signal selling exhaustion.
+Directional Bias: Watch 200 SMA for regime stability.
+Capital Participation: Declining sell pressure supports accumulation setup. Persistent selling signals continuation risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. Volatility Regime expansion signals structural risk.
+Momentum Thrust: RSI stabilization supports repair. RSI weakness signals continued deterioration."
+TREND MATURITY,ADX (14),25-50 & Rising,"Strong trend environment. Check Directional Bias.
+Hold positions if already have and add on continuation signals.","MArket Phase: Rising ADX during Mark-Up supports continuation. Rising ADX during Distribution signals accelerating downside risk.
+Directional Bias: Price should hold above 50 and 100 SMA. Break below signals weakening trend structure.
+Momentum Thrust: RSI strength should align with strong trend. Momentum Thrust divergence signals exhaustion risk.
+Capital Participation: Rising volume should support trend strength. Weak Capital Participation signals fragile continuation.
+Relative Strength: Relative strength should remain positive. Deterioration signals rotation risk.
+Volatility Regime: Volatility Regime expansion supports trend continuation. Volatility Regime spikes without progress signal instability.","Strong trend in progress.
+Avoid aggressive accumulation; prefer pullbacks.","MArket Phase: Strong trend from Accumulation supports structural re-rating. Strong trend during Distribution signals exit liquidity risk.
+Directional Bias: Extended distance above 200 SMA reduces margin of safety.
+Capital Participation: Strong Capital Participation supports sustainability. Weak Capital Participation signals fragile expansion.
+Relative Strength: Excessive outperformance signals overextension risk. Stabilization supports continuation comfort.
+Volatility Regime: Controlled Volatility Regime supports sustainable trend. Volatility Regime spikes signal instability.
+Momentum Thrust: RSI extremes signal overbought risk. Moderate Momentum Thrust supports continuation."
+TREND MATURITY,ADX (14),25-50 & Falling,"Trend strength fading from elevated levels.
+Avoid fresh entries; trail and manage existing positions.","MArket Phase: Falling ADX during Mark-Up signals trend maturity. Falling ADX during Distribution signals weakening sell pressure.
+Directional Bias: Price should hold above 50 and 100 SMA. Break below signals structural deterioration.
+Capital Participation: Declining Capital Participation signals fading conviction. Rising Capital Participation may signal re-acceleration.
+Relative Strength: Relative strength deterioration signals rotation risk. Stabilization signals repair attempt.
+Volatility Regime: Volatility Regime contraction signals consolidation phase. Volatility Regime expansion without direction signals instability.","Trend maturing from strong levels.
+Wait for pullbacks or base formation for accumulation.","MArket Phase: Falling ADX after Mark-Up may precede re-accumulation. Falling ADX during Distribution signals structural risk.
+Capital Participation: Declining Capital Participation signals weakening conviction. Stable Capital Participation supports continuation comfort.
+Volatility Regime: Volatility Regime contraction supports base formation. Volatility Regime expansion signals instability.
+Momentum Thrust: RSI cooling from extremes supports pullback setup. Sharp RSI weakness signals deterioration risk."
+TREND MATURITY,ADX (14),50-75 & Rising,"Very strong trend in progress.
+Hold positions and add selectively on continuation signals.","MArket Phase: Rising ADX during Mark-Up supports powerful continuation. Rising ADX during Distribution signals accelerating downside risk.
+Directional Bias: Price should hold well above 50 and 100 SMA. Break below signals early trend fatigue.
+Momentum Thrust: RSI strength should align with strong trend. Momentum Thrust divergence signals exhaustion risk.
+Relative Strength: Relative strength should remain strong. Deterioration signals rotation risk.
+Volatility Regime: Volatility Regime expansion supports trend acceleration. Extreme Volatility Regime signals instability risk.","Highly extended trend environment.
+Avoid fresh accumulation; wait for correction or base.","MArket Phase: Very strong trend from Accumulation supports structural re-rating. Strong trend during Distribution signals exit liquidity risk.
+Directional Bias: Significant extension above 200 SMA reduces margin of safety.
+Relative Strength: Extreme outperformance signals overextension risk. Stabilization supports continuation comfort.
+Volatility Regime: Elevated Volatility Regime signals instability near highs. Controlled Volatility Regime supports sustainability.
+Momentum Thrust: RSI extremes signal overbought risk. Momentum Thrust cooling signals pullback setup."
+TREND MATURITY,ADX (14),50-75 & Falling,"Trend strength fading from extreme levels.
+Trail positions and avoid fresh entries.","MArket Phase: Falling ADX after Mark-Up signals late-stage trend maturity. Falling ADX during Distribution signals weakening sell pressure.
+Directional Bias: Price should hold above 50 and 100 SMA. Break below signals structural deterioration.
+Momentum Thrust: RSI divergence signals exhaustion risk. Momentum Thrust recovery signals continuation attempt.
+Capital Participation: Declining Capital Participation signals fading conviction. Rising Capital Participation may signal re-acceleration.
+Relative Strength: Relative strength deterioration signals rotation risk. Stabilization signals repair attempt.
+Volatility Regime: Volatility Regime contraction signals consolidation phase. Volatility Regime spikes signal instability risk.","Trend highly extended and cooling.
+Wait for correction or base formation for accumulation.","MArket Phase: Falling ADX after strong Mark-Up may precede re-accumulation. Falling ADX during Distribution signals structural risk.
+Directional Bias: Watch 200 SMA for regime stability.
+Capital Participation: Declining Capital Participation signals weakening conviction. Stable Capital Participation supports continuation comfort.
+Relative Strength: Extreme outperformance signals overextension risk. Stabilization supports accumulation comfort.
+Volatility Regime: Volatility Regime contraction supports base formation. Volatility Regime expansion signals instability.
+Momentum Thrust: RSI cooling from extremes supports pullback setup. Sharp RSI weakness signals deterioration risk."
+TREND MATURITY,ADX (14),75-100 & Rising,"Extreme trend acceleration in progress.
+Hold positions; add only on controlled continuation setups.","MArket Phase: Extreme ADX during Mark-Up supports parabolic continuation. Extreme ADX during Distribution signals accelerated downside risk.
+Directional Bias: Price should hold well above key moving averages. Break below signals sharp trend fatigue.
+Momentum Thrust: RSI extremes should align with acceleration. Momentum Thrust divergence signals exhaustion risk.
+Capital Participation: Very strong Capital Participation should support acceleration. Capital Participation divergence signals late-stage risk.
+Relative Strength: Extreme outperformance supports Momentum Thrust Relative Strength. Deterioration signals rotation risk.
+Volatility Regime: High Volatility Regime expansion supports acceleration. Extreme Volatility Regime signals blow-off risk.","Parabolic trend environment.
+Avoid fresh accumulation; wait for major correction.","MArket Phase: Extreme trend from Accumulation supports structural re-rating. Extreme trend during Distribution signals exit liquidity risk.
+Directional Bias: Significant extension above 200 SMA reduces margin of safety.
+Capital Participation: Excessive Capital Participation signals late-stage buying. Healthy Capital Participation supports sustainability.
+Relative Strength: Extreme outperformance signals overvaluation risk. Stabilization supports future entry comfort.
+Volatility Regime: Extreme Volatility Regime signals instability near highs. Volatility Regime contraction signals cooling phase.
+Momentum Thrust: RSI extremes signal blow-off risk. Momentum Thrust cooling signals correction setup."
+TREND MATURITY,ADX (14),75-100 & Falling,"Extreme trend exhaustion phase.
+Book partial profits and trail remaining positions.","MArket Phase:
+Falling ADX after parabolic Mark-Up signals blow-off exhaustion.
+Falling ADX during Distribution signals weakening downside pressure.
+
+Directional Bias:
+Price should hold above 50 and 100 SMA.
+Break below signals structural reversal risk.
+
+Momentum Thrust:
+RSI cooling from extremes signals exhaustion.
+Sharp Momentum Thrust breakdown signals reversal risk.
+
+Capital Participation:
+Declining Capital Participation signals trend fatigue.
+Capital Participation spikes on declines signal distribution.
+
+Relative Strength:
+Relative Strength deterioration signals capital rotation.
+Stabilization signals consolidation phase.
+
+Volatility Regime:
+Volatility Regime contraction signals cooling after blow-off.
+Extreme Volatility Regime spikes signal instability.","Post-parabolic cooling phase.
+Wait for deeper correction or base formation before accumulating.","MArket Phase:
+Falling ADX after extreme Mark-Up may precede re-accumulation.
+Falling ADX during Distribution signals structural risk.
+
+Directional Bias:
+Watch 200 SMA for regime stability.
+
+Capital Participation:
+Declining Capital Participation signals cooling demand.
+Stable Capital Participation supports accumulation preparation.
+
+Relative Strength:
+Extreme outperformance signals prior excess.
+Stabilization improves future entry comfort.
+
+Volatility Regime:
+Volatility Regime contraction supports base development.
+Residual Volatility Regime signals instability.
+
+Momentum Thrust:
+RSI cooling from extremes supports correction setup.
+Sharp RSI weakness signals deterioration risk."
+CAPITAL Capital Participation,Avg Volume(30),Current Volume>Average Volume,"Capital Participation expansion detected.
+Align positions with price direction.","MArket Phase: High volume during Mark-Up supports continuation. High volume during Distribution signals supply emergence.
+Directional Bias: Price should hold above 50 and 100 SMA. Break below signals sell-side pressure.
+Relative Strength: Relative strength vs Index or Sector should remain positive. Deterioration signals capital rotation.
+Price Architecture: Breakouts on high volume confirm continuation. Breakdowns on high volume signal distribution.
+Trend Maturity:Rising ADX supports directional Capital Participation. Low ADX signals unstable expansion.","Heightened Capital Participation detected.
+Accumulate selectively if aligned with accumulation structure.","MArket Phase: High volume during Accumulation supports smart money entry. High volume during Distribution signals supply emergence.
+Price Architecture: Support holding on high volume supports accumulation. Support breakdown on high volume signals structural deterioration.
+Relative Strength: Persistent underperformance despite high volume signals weak conviction. Stabilization improves accumulation comfort.
+Trend Maturity: Rising ADX on declines confirms strengthening downtrend. Low ADX signals selling pressure may be fading."
+CAPITAL Capital Participation,Avg Volume(30),Current Volume<Average Volume,"Low Capital Participation detected.
+Avoid aggressive positioning until volume expands.","Directional Bias: Price should hold above 50 and 100 SMA. Break below signals fragile trend support.
+Relative Strength: Relative strength vs Index or Sector should remain positive. Deterioration signals capital rotation.
+Price Architecture: Range consolidation on low volume supports base building. Breakdowns on low volume signal weak demand.
+Trend Maturity: Low ADX confirms consolidation phase. Rising ADX without volume signals unstable expansion.","Low Capital Participation detected.
+Accumulate gradually within the base.","Directional Bias: Watch 200 SMA for regime stability.
+Price Architecture: Support holding validates accumulation base. Support breakdown signals structural deterioration.
+Trend Maturity: Low ADX supports base-building phase. Rising ADX on declines signals emerging weakness.
+Relative Strength: Persistent underperformance signals neglect risk. Stabilization improves conviction."
+CAPITAL Capital Participation,Chaikin Money Flow(CMF)(20),Current CMF>0,"Positive money flow detected.
+Align positions with price strength.","MArket Phase: Positive CMF during Mark-Up supports continuation. Positive CMF during Distribution may signal exit liquidity.
+Momentum Thrust: RSI strength should support positive money flow. Weak RSI contradicts Capital Participation strength.
+Relative Strength: Relative strength vs Index or Sector should remain positive. Deterioration signals capital rotation.
+Price Architecture: Breakouts with positive CMF support continuation. Failure to sustain upside signals absorption.","Positive money flow detected.
+Accumulate gradually if aligned with accumulation structure.","Directional Bias: Watch 200 SMA for regime stability. Positive CMF below 200 SMA reduces conviction.
+Price Architecture: Support holding with positive CMF supports accumulation. Failure to hold breakout levels signals weak conviction.
+Relative Strength: Stabilization vs Index or Sector supports accumulation case. Persistent underperformance signals weak capital confidence.
+Volatility Regime: Controlled Volatility Regime supports steady accumulation. Volatility Regime spikes signal unstable Capital Participation."
+CAPITAL Capital Participation,Chaikin Money Flow(CMF)(20),Current CMF<0,"Negative money flow detected.
+Avoid fresh entries until Capital Participation improves.","MArket Phase: Negative CMF during Mark-Down confirms continuation. Negative CMF during Accumulation may signal selling exhaustion.
+Momentum Thrust: Weak RSI should align with negative money flow. RSI recovery contradicts selling pressure.
+Relative Strength: Relative underperformance confirms capital exit. Stabilization signals early repair.
+Price Architecture: Support breakdown with negative CMF confirms distribution. Support holding signals absorption.
+Volatility Regime: Volatility Regime expansion on declines confirms risk. Volatility Regime contraction signals selling exhaustion.","Negative money flow detected.
+Avoid aggressive accumulation until selling pressure subsides.","MArket Phase: Negative CMF during Mark-Down confirms continuation risk. Negative CMF during Accumulation may signal selling exhaustion.
+Price Architecture: Support breakdown with negative CMF signals structural deterioration. Support holding signals absorption.
+Relative Strength: Persistent underperformance signals capital exit. Stabilization improves conviction.
+Volatility Regime: Volatility Regime expansion on declines increases instability. Volatility Regime contraction signals selling exhaustion.
+Momentum Thrust: RSI weakness should align with negative money flow. RSI recovery signals early repair attempt."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C < 20 AND C < 50 AND C < 100 AND C < 200,"Short Term Trend: Down
+Intermediate Trend: Down
+Long Term Trend: Down
+Regime: Bearish
+Prices are trading below all four SMA.
+Strong bearish trend structure.
+Avoid fresh entries until trend reversal signals emerge.","MArket Phase: Prefer Accumulation or Re-Accumulation for early reversal signals. Distribution or Mark-Down continuation increases downside risk.
+Momentum Thrust: RSI stabilization above 30 signals selling exhaustion. Persistent RSI weakness signals continuation risk.
+Capital Participation: CMF moving above zero signals early accumulation. Heavy sell volume signals institutional distribution.
+Relative Strength: Relative strength stabilization vs Index or Sector signals repair. Continued underperformance signals capital exit.
+Trend Maturity: ADX rising supports downside continuation. ADX falling may signal trend exhaustion.
+Volatility Regime: Volatility Regime expansion on declines signals panic selling. Volatility Regime contraction signals base formation possibility.","Short Term Trend: Down
+Intermediate Trend: Down
+Long Term Trend: Down
+Regime: Bearish
+Prices are trading below all four SMA.
+Bearish regime environment.
+Avoid accumulation until base formation begins.","MArket Phase: Accumulation structure required before accumulation. Mark-Down continuation increases value trap risk.
+Capital Participation: CMF above zero signals early accumulation. Persistent selling pressure signals structural weakness.
+Relative Strength: Relative strength stabilization improves accumulation comfort. Continued underperformance signals neglect risk.
+Trend Maturity: Falling ADX may signal selling exhaustion. Rising ADX supports downside continuation.
+Volatility Regime: Volatility Regime contraction supports base development. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports base formation. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C < 20 AND C < 50 AND C < 100 AND C > 200,"Short Term Trend: Down
+Intermediate Trend: Down
+Long Term Trend: Down
+Regime: Bullish
+Prices are trading between 100 SMA & 200 SMA.
+Weakening trend within a bullish regime.
+Avoid fresh entries until short-term strength rebuilds.","MArket Phase:
+Prefer Re-Accumulation or Accumulation for trend repair. Distribution signals deeper correction risk.
+Momentum Thrust: RSI stabilization above 50 signals strength rebuilding. Persistent RSI weakness signals continuation risk.
+Capital Participation: CMF above zero signals accumulation on decline. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stabilization signals repair. Underperformance signals capital rotation risk.
+Trend Maturity: Falling ADX supports pullback exhaustion. Rising ADX on declines signals deeper weakness.
+Volatility Regime: Volatility Regime contraction supports base formation. Volatility Regime expansion signals instability.","Short Term Trend: Down
+Intermediate Trend: Down
+Long Term Trend: Down
+Regime: Bullish
+Prices are trading between 100 SMA & 200 SMA.
+Pullback within bullish regime.
+Accumulate selectively near strong supports.","MArket Phase: Re-Accumulation supports accumulation comfort. Mark-Down signals regime risk.
+Capital Participation: Buying Capital Participation should emerge near support. Weak Capital Participation signals fragile base.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Low or falling ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports accumulation setup. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C < 20 AND C < 50 AND C > 100 AND C < 200,"Short Term Trend: Down
+Intermediate Trend: Down
+Long Term Trend: Up
+Regime: Bearish
+Prices are trading between 50 SMA & 100 SMA.
+Short-term correction within weakening broader structure.
+Avoid fresh entries until trend alignment improves.","MArket Phase: Re-Accumulation supports trend repair. Distribution signals structural weakness.
+Momentum Thrust: RSI stabilization above 50 signals recovery attempt. Weak RSI signals continuation risk.
+Capital Participation: CMF above zero signals buying interest. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stabilization signals repair. Underperformance signals capital rotation risk.
+Trend Maturity: Falling ADX supports pullback exhaustion. Rising ADX on declines signals deeper weakness.
+Volatility Regime: Volatility Regime contraction supports consolidation. Volatility Regime expansion signals instability.","Short Term Trend: Down
+Intermediate Trend: Down
+Long Term Trend: Up
+Regime: Bearish
+Prices are trading between 50 SMA & 100 SMA.
+Corrective phase within long-term strength.
+Accumulate selectively near major supports.","MArket Phase: Accumulation or Re-Accumulation supports accumulation comfort. Mark-Down signals regime risk.
+Capital Participation: Buying Capital Participation should emerge near support. Weak Capital Participation signals fragile base.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Low or falling ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports accumulation setup. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C < 20 AND C < 50 AND C > 100 AND C > 200,"Short Term Trend: Down
+Intermediate Trend: Down
+Long Term Trend: Up
+Regime: Bullish
+Prices are trading between 50 SMA & 100 SMA.
+Short-term correction within bullish regime.
+Wait for strength rebuild before initiating.","MArket Phase: Re-Accumulation supports trend continuation. Distribution signals deeper correction risk.
+Momentum Thrust: RSI stabilization above 40 signals recovery attempt. Weak RSI signals continuation risk.
+Capital Participation: CMF above zero signals accumulation on decline. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports repair. Underperformance signals rotation risk.
+Trend Maturity: Falling ADX supports pullback exhaustion. Rising ADX on declines signals structural weakness.
+Volatility Regime: Volatility Regime contraction supports consolidation. Volatility Regime expansion signals instability.","Short Term Trend: Down
+Intermediate Trend: Down
+Long Term Trend: Up
+Regime: Bullish
+Prices are trading between 50 SMA & 100 SMA.
+Healthy pullback within bullish regime.
+Accumulate gradually near support zones.","MArket Phase: Re-Accumulation supports accumulation comfort. Mark-Down signals regime deterioration risk.
+Capital Participation: Buying Capital Participation should emerge near support. Weak Capital Participation signals fragile base.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Low or falling ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports accumulation setup. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C < 20 AND C > 50 AND C < 100 AND C < 200,"Short Term Trend: Down
+Intermediate Trend: Up
+Long Term Trend: Down
+Regime: Bearish
+Prices are trading between 20 SMA & 50 SMA.
+Counter-trend bounce within bearish regime.
+Avoid fresh entries until trend alignment improves.","MArket Phase: Distribution continuation increases downside risk. Re-Accumulation signals repair attempt.
+Momentum Thrust: RSI strength should sustain above 50. Weak RSI signals bounce failure.
+Capital Participation: Buying Capital Participation should support bounce. Sell pressure signals distribution.
+Relative Strength: Relative strength stability supports continuation. Underperformance signals rotation risk.
+Trend Maturity: Rising ADX on declines supports continuation risk. Falling ADX supports consolidation.
+Volatility Regime: Volatility Regime contraction supports base attempt. Volatility Regime expansion signals instability.
+","Short Term Trend: Down
+Intermediate Trend: Up
+Long Term Trend: Down
+Regime: Bearish
+Prices are trading between 20 SMA & 50 SMA.
+Short-term strength within bearish structure.
+Avoid accumulation until regime stabilizes.","MArket Phase: Accumulation required before accumulation comfort. Mark-Down continuation signals value trap risk.
+Capital Participation: Buying Capital Participation should improve. Weak Capital Participation signals fragile demand.
+Relative Strength: Relative strength stabilization improves comfort. Underperformance signals neglect risk.
+Trend Maturity: Low ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization required for base formation. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C < 20 AND C > 50 AND C < 100 AND C > 200,"Short Term Trend: Down
+Intermediate Trend: Up
+Long Term Trend: Down
+Regime: Bullish
+Prices are trading between 20 SMA & 50 SMA.
+Short-term pullback within mixed trend structure.
+Wait for alignment before initiating.","MArket Phase: Re-Accumulation supports trend continuation. Distribution signals deeper correction risk.
+Momentum Thrust: RSI stabilization above 50 supports recovery. Weak RSI signals pullback continuation.
+Capital Participation: Buying Capital Participation should support bounce. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports repair. Underperformance signals rotation risk.
+Trend Maturity: Falling ADX supports pullback exhaustion. Rising ADX on declines signals structural weakness.
+Volatility Regime: Volatility Regime contraction supports consolidation. Volatility Regime expansion signals instability.","Short Term Trend: Down
+Intermediate Trend: Up
+Long Term Trend: Down
+Regime: Bullish
+Prices are trading between 20 SMA & 50 SMA.
+Corrective phase within bullish regime.
+Accumulate selectively near stronger supports.","MArket Phase: Re-Accumulation supports accumulation comfort. Mark-Down signals regime deterioration risk.
+Capital Participation: Buying Capital Participation should emerge near support. Weak Capital Participation signals fragile base.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Low ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports accumulation setup. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C < 20 AND C > 50 AND C > 100 AND C < 200,"Short Term Trend: Down
+Intermediate Trend: Up
+Long Term Trend: Up
+Regime: Bearish
+Prices are trading between 20 SMA & 50 SMA.
+Short-term pullback within weakening broader structure.
+Avoid fresh entries until trend alignment improves.","MArket Phase: Re-Accumulation supports continuation attempt. Distribution signals structural weakness.
+Momentum Thrust: RSI stabilization above 50 signals recovery attempt. Weak RSI signals pullback continuation.
+Capital Participation: Buying Capital Participation should support bounce. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports repair. Underperformance signals rotation risk.
+Trend Maturity: Falling ADX supports pullback exhaustion. Rising ADX on declines signals structural weakness.
+Volatility Regime: Volatility Regime contraction supports consolidation. Volatility Regime expansion signals instability.","Short Term Trend: Down
+Intermediate Trend: Up
+Long Term Trend: Up
+Regime: Bearish
+Prices are trading between 20 SMA & 50 SMA.
+Corrective phase within long-term strength.
+Accumulate selectively near major supports.","MArket Phase: Accumulation or Re-Accumulation supports accumulation comfort. Mark-Down signals regime deterioration risk.
+Capital Participation: Buying Capital Participation should emerge near support. Weak Capital Participation signals fragile base.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Low ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports accumulation setup. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C < 20 AND C > 50 AND C > 100 AND C > 200,"Short Term Trend: Down
+Intermediate Trend: Up
+Long Term Trend: Up
+Regime: Bullish
+Prices are trading between 20 SMA & 50 SMA.
+Short-term pullback within bullish trend structure.
+Wait for strength resumption before initiating or adding.","MArket Phase: Re-Accumulation supports continuation of bullish trend. Distribution signals deeper correction risk.
+Momentum Thrust: RSI stabilization above 50 supports recovery attempt. Weak RSI signals pullback continuation.
+Capital Participation: Buying Capital Participation should support bounce. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports continuation. Underperformance signals rotation risk.
+Trend Maturity: Falling ADX supports pullback exhaustion. Rising ADX on declines signals structural weakness.
+Volatility Regime: Volatility Regime contraction supports consolidation. Volatility Regime expansion signals instability.","Short Term Trend: Down
+Intermediate Trend: Up
+Long Term Trend: Up
+Regime: Bullish
+Prices are trading between 20 SMA & 50 SMA.
+Healthy pullback within bullish regime.
+Accumulate gradually near support zones.","MArket Phase: Re-Accumulation supports accumulation comfort. Mark-Down signals regime deterioration risk.
+Capital Participation: Buying Capital Participation should emerge near support. Weak Capital Participation signals fragile base.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Low ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports accumulation setup. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C > 20 AND C < 50 AND C < 100 AND C < 200,"Short Term Trend: Up
+Intermediate Trend: Down
+Long Term Trend: Down
+Regime: Bearish
+Prices are trading between 20 SMA & 50 SMA.
+Short-term bounce within bearish regime.
+Avoid fresh entries until broader trend alignment improves.","MArket Phase: Distribution continuation increases downside risk. Re-Accumulation signals repair attempt.
+Momentum Thrust: RSI strength should sustain above 50. Weak RSI signals bounce failure.
+Capital Participation: Buying Capital Participation should support bounce. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports continuation. Underperformance signals rotation risk.
+Trend Maturity: Rising ADX on declines supports continuation risk. Falling ADX supports consolidation.
+Volatility Regime: Volatility Regime contraction supports base attempt. Volatility Regime expansion signals instability.","Short Term Trend: Up
+Intermediate Trend: Down
+Long Term Trend: Down
+Regime: Bearish
+Prices are trading between 20 SMA & 50 SMA.
+Temporary strength within bearish structure.
+Avoid accumulation until regime stabilizes.","MArket Phase: Accumulation required before accumulation comfort. Mark-Down continuation signals value trap risk.
+Capital Participation: Buying Capital Participation should improve. Weak Capital Participation signals fragile demand.
+Relative Strength: Relative strength stabilization improves comfort. Underperformance signals neglect risk.
+Trend Maturity: Low ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization required for base formation. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C > 20 AND C < 50 AND C < 100 AND C > 200,"Short Term Trend: Up
+Intermediate Trend: Down
+Long Term Trend: Down
+Regime: Bullish
+Prices are trading between 20 SMA & 50 SMA.
+Short-term bounce within weakening broader structure.
+Avoid fresh entries until trend alignment improves.","MArket Phase: Re-Accumulation supports repair attempt. Distribution signals deeper correction risk.
+Momentum Thrust: RSI strength should sustain above 50. Weak RSI signals bounce failure.
+Capital Participation: Buying Capital Participation should support bounce. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports continuation. Underperformance signals rotation risk.
+Trend Maturity: Falling ADX supports pullback exhaustion. Rising ADX on declines signals structural weakness.
+Volatility Regime: Volatility Regime contraction supports consolidation. Volatility Regime expansion signals instability.","Short Term Trend: Up
+Intermediate Trend: Down
+Long Term Trend: Down
+Regime: Bullish
+Prices are trading between 20 SMA & 50 SMA.
+Corrective phase within bullish regime.
+Accumulate selectively near stronger supports.","MArket Phase: Re-Accumulation supports accumulation comfort. Mark-Down signals regime deterioration risk.
+Capital Participation: Buying Capital Participation should emerge near support. Weak Capital Participation signals fragile base.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Low ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports accumulation setup. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C > 20 AND C < 50 AND C > 100 AND C < 200,"Short Term Trend: Up
+Intermediate Trend: Down
+Long Term Trend: Up
+Regime: Bearish
+Prices are trading between 20 SMA & 50 SMA.
+Short-term strength within weakening broader structure.
+Avoid fresh entries until trend alignment improves.","MArket Phase: Re-Accumulation supports continuation attempt. Distribution signals structural weakness.
+Momentum Thrust: RSI strength should sustain above 50. Weak RSI signals bounce failure.
+Capital Participation: Buying Capital Participation should support bounce. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports continuation. Underperformance signals rotation risk.
+Trend Maturity: Falling ADX supports pullback exhaustion. Rising ADX on declines signals structural weakness.
+Volatility Regime: Volatility Regime contraction supports consolidation. Volatility Regime expansion signals instability.","Short Term Trend: Up
+Intermediate Trend: Down
+Long Term Trend: Up
+Regime: Bearish
+Prices are trading between 20 SMA & 50 SMA.
+Counter-trend bounce within bearish regime.
+Avoid accumulation until regime stabilizes.","MArket Phase: Accumulation required before accumulation comfort. Mark-Down continuation signals value trap risk.
+Capital Participation: Buying Capital Participation should improve. Weak Capital Participation signals fragile demand.
+Relative Strength: Relative strength stabilization improves comfort. Underperformance signals neglect risk.
+Trend Maturity: Low ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization required for base formation. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C > 20 AND C < 50 AND C > 100 AND C > 200,"Short Term Trend: Up
+Intermediate Trend: Down
+Long Term Trend: Up
+Regime: Bullish
+Prices are trading between 20 SMA & 50 SMA.
+Short-term pullback within bullish trend structure.
+Wait for strength resumption before initiating or adding","MArket Phase: Re-Accumulation supports bullish continuation. Distribution signals deeper correction risk.
+Momentum Thrust: RSI strength should sustain above 50. Weak RSI signals pullback continuation.
+Capital Participation: Buying Capital Participation should support bounce. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports continuation. Underperformance signals rotation risk.
+Trend Maturity: Falling ADX supports consolidation. Rising ADX on declines signals structural weakness.
+Volatility Regime: Volatility Regime contraction supports base formation. Volatility Regime expansion signals instability.","Short Term Trend: Up
+Intermediate Trend: Down
+Long Term Trend: Up
+Regime: Bullish
+Prices are trading between 20 SMA & 50 SMA.
+Healthy consolidation within bullish regime.
+Accumulate gradually near support zones.","MArket Phase: Re-Accumulation supports accumulation comfort. Mark-Down signals regime deterioration risk.
+Capital Participation: Buying Capital Participation should emerge near support. Weak Capital Participation signals fragile base.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Low ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports accumulation setup. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C > 20 AND C > 50 AND C < 100 AND C < 200,"Short Term Trend: Up
+Intermediate Trend: Up
+Long Term Trend: Down
+Regime: Bearish
+Prices are trading between 50 SMA & 100 SMA.
+Counter-trend strength within bearish regime.
+Avoid fresh entries until regime alignment improves.","MArket Phase: Re-Accumulation supports continuation attempt. Distribution signals structural weakness.
+Momentum Thrust: RSI strength should sustain above 50. Weak RSI signals bounce failure.
+Capital Participation: Buying Capital Participation should support continuation. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports continuation. Underperformance signals rotation risk.
+Trend Maturity: Falling ADX supports consolidation. Rising ADX on declines signals structural weakness.
+Volatility Regime: Volatility Regime contraction supports base attempt. Volatility Regime expansion signals instability.","Short Term Trend: Up
+Intermediate Trend: Up
+Long Term Trend: Down
+Regime: Bearish
+Prices are trading between 50 SMA & 100 SMA.
+Intermediate bounce within bearish structure.
+Avoid accumulation until regime stabilizes.","MArket Phase: Accumulation required before accumulation comfort. Mark-Down continuation signals value trap risk.
+Capital Participation: Buying Capital Participation should improve. Weak Capital Participation signals fragile demand.
+Relative Strength: Relative strength stabilization improves comfort. Underperformance signals neglect risk.
+Trend Maturity: Low ADX supports base development. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization required for base formation. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C > 20 AND C > 50 AND C < 100 AND C > 200,"Short Term Trend: Up
+Intermediate Trend: Up
+Long Term Trend: Down
+Regime: Bullish
+Prices are trading between 50 SMA & 100 SMA.
+Intermediate strength within mixed broader structure.
+Initiate selectively only if strength sustains.","MArket Phase: Re-Accumulation supports bullish continuation. Distribution signals deeper correction risk.
+Momentum Thrust: RSI strength should sustain above 50. Weak RSI signals trend fragility.
+Capital Participation: Buying Capital Participation should support continuation. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports continuation. Underperformance signals rotation risk.
+Trend Maturity: Rising ADX supports trend development. Falling ADX signals consolidation risk.
+Volatility Regime: Volatility Regime contraction supports continuation build-up. Volatility Regime expansion signals instability.","Short Term Trend: Up
+Intermediate Trend: Up
+Long Term Trend: Down
+Regime: Bullish
+Prices are trading between 50 SMA & 100 SMA.
+Corrective phase within bullish regime.
+Accumulate selectively near stronger supports.","MArket Phase: Re-Accumulation supports accumulation comfort. Mark-Down signals regime deterioration risk.
+Capital Participation: Buying Capital Participation should emerge near support. Weak Capital Participation signals fragile base.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Moderate ADX supports sustainable trend. Rising ADX on declines signals structural risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports accumulation setup. Sharp RSI weakness signals deterioration risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C > 20 AND C > 50 AND C > 100 AND C < 200,"Short Term Trend: Up
+Intermediate Trend: Up
+Long Term Trend: Up
+Regime: Bearish
+Prices are trading between 100 SMA & 200 SMA.
+Strong uptrend within weakening regime backdrop.
+Initiate selectively but monitor regime risk closely.","MArket Phase: Re-Accumulation supports continuation. Distribution signals structural reversal risk.
+Momentum Thrust: RSI strength should sustain above 50. Weak RSI signals trend fatigue.
+Capital Participation: Buying Capital Participation should support continuation. Sell pressure signals institutional distribution.
+Relative Strength: Relative strength stability supports continuation. Underperformance signals rotation risk.
+Trend Maturity: Rising ADX supports trend strength. Falling ADX signals maturation risk.
+Volatility Regime: Volatility Regime contraction supports continuation. Volatility Regime expansion signals instability.","Short Term Trend: Up
+Intermediate Trend: Up
+Long Term Trend: Up
+Regime: Bearish
+Prices are trading between 100 SMA & 200 SMA.
+Strong uptrend within weakening regime backdrop.
+Initiate selectively but monitor regime risk closely.","MArket Phase: Re-Accumulation required for accumulation comfort. Distribution signals regime deterioration risk.
+Capital Participation: Buying Capital Participation should support continuation. Weak Capital Participation signals fragile demand.
+Relative Strength: Relative strength stability supports conviction. Underperformance signals weak demand.
+Trend Maturity: Moderate ADX supports sustainable trend. Very high ADX signals overextension risk.
+Volatility Regime: Volatility Regime contraction supports stabilization. High Volatility Regime signals instability.
+Momentum Thrust: RSI stabilization supports continuation comfort. Momentum Thrust extremes signal pullback risk."
+DIRECTIONAL BIAS,"SMA - Short(20), Intermediate(50), Long(100), Regime(200)",C > 20 AND C > 50 AND C > 100 AND C > 200,"Short Term Trend: Up
+Intermediate Trend: Up
+Long Term Trend: Up
+Regime: Bullish
+Prices are trading above all four SMA.
+Strong bullish trend structure.
+Hold positions and add on continuation or pullback setups.","MArket Phase: Mark-Up or Re-Accumulation supports continuation. Distribution signals late-stage risk.
+Momentum Thrust: RSI strength should sustain above 50. Momentum Thrust divergence signals exhaustion risk.
+Capital Participation: Strong Capital Participation should support continuation. Weak Capital Participation signals fragile expansion.
+Relative Strength: Relative strength should remain strong. Deterioration signals rotation risk.
+Trend Maturity: Rising ADX supports continuation strength. Falling ADX signals maturation risk.
+Volatility Regime: Controlled Volatility Regime supports sustainable trend. Volatility Regime spikes signal instability risk.","Short Term Trend: Up
+Intermediate Trend: Up
+Long Term Trend: Up
+Regime: Bullish
+Prices are trading above all four SMA.
+Extended bullish regime environment.
+Avoid aggressive accumulation; prefer pullbacks.","MArket Phase: Mark-Up continuation supports structural strength. Distribution signals exit liquidity risk.
+Capital Participation: Strong Capital Participation supports sustainability. Weak Capital Participation signals fragile demand.
+Relative Strength: Extreme outperformance signals overextension risk. Stabilization improves entry comfort.
+Trend Maturity: Moderate ADX supports healthy trend. Very high ADX signals overextension risk.
+Volatility Regime: Low Volatility Regime supports stable continuation. High Volatility Regime signals instability near highs.
+Momentum Thrust: RSI cooling from extremes supports pullback setup. Extreme Momentum Thrust signals exhaustion risk."
