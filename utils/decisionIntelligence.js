@@ -48,6 +48,17 @@ function buildContext(result) {
     alerts:          Array.isArray(re?.decisionContext?.alerts)
       ? re.decisionContext.alerts.join(', ')
       : 'N/A',
+
+    wyckoffGrowthWatchouts:       Array.isArray(se?.marketStructure?.growthWatchouts) ? se.marketStructure.growthWatchouts.join(' | ') : 'N/A',
+    wyckoffValueWatchouts:        Array.isArray(se?.marketStructure?.valueWatchouts)  ? se.marketStructure.valueWatchouts.join(' | ')  : 'N/A',
+    participationGrowthWatchouts: Array.isArray(se?.participation?.growthWatchouts)   ? se.participation.growthWatchouts.join(' | ')   : 'N/A',
+    participationValueWatchouts:  Array.isArray(se?.participation?.valueWatchouts)    ? se.participation.valueWatchouts.join(' | ')    : 'N/A',
+    priceStructureGrowthWatchouts: Array.isArray(se?.priceStructure?.growthWatchouts) ? se.priceStructure.growthWatchouts.join(' | ') : 'N/A',
+    priceStructureValueWatchouts:  Array.isArray(se?.priceStructure?.valueWatchouts)  ? se.priceStructure.valueWatchouts.join(' | ')  : 'N/A',
+    adxGrowthWatchouts:           Array.isArray(te?.trendQuality?.growthWatchouts)    ? te.trendQuality.growthWatchouts.join(' | ')   : 'N/A',
+    adxValueWatchouts:            Array.isArray(te?.trendQuality?.valueWatchouts)     ? te.trendQuality.valueWatchouts.join(' | ')    : 'N/A',
+    rsiGrowthWatchouts:           Array.isArray(ti?.momentum?.growthWatchouts)        ? ti.momentum.growthWatchouts.join(' | ')       : 'N/A',
+    rsiValueWatchouts:            Array.isArray(ti?.momentum?.valueWatchouts)         ? ti.momentum.valueWatchouts.join(' | ')        : 'N/A',
   };
 }
 
@@ -84,6 +95,13 @@ vs Sector (${ctx.vsSectorSignal}): ${ctx.vsSectorGrowth}
 Summary: ${ctx.decisionSummary}
 Risk Alerts: ${ctx.alerts}
 
+=== INDICATOR WATCHOUTS ===
+Wyckoff Phase | Growth: ${ctx.wyckoffGrowthWatchouts} | Value: ${ctx.wyckoffValueWatchouts}
+Participation | Growth: ${ctx.participationGrowthWatchouts} | Value: ${ctx.participationValueWatchouts}
+Price Structure | Growth: ${ctx.priceStructureGrowthWatchouts} | Value: ${ctx.priceStructureValueWatchouts}
+Trend Quality (ADX) | Growth: ${ctx.adxGrowthWatchouts} | Value: ${ctx.adxValueWatchouts}
+Momentum (RSI) | Growth: ${ctx.rsiGrowthWatchouts} | Value: ${ctx.rsiValueWatchouts}
+
 ---
 Respond ONLY with a valid JSON object matching this exact schema (no markdown fences, no preamble):
 {
@@ -97,7 +115,14 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
     "value": "<max 15 words for value investors>"
   },
   "riskAlerts": ["<3-5 words>", "<3-5 words>"],
-  "convictionLevel": "<Low | Medium | High>"
+  "convictionLevel": "<Low | Medium | High>",
+  "indicators": [
+    { "name": "Wyckoff Phase", "growthWatchout": "<max 15 words, crisp single-line watchout for growth managers>", "valueWatchout": "<max 15 words, crisp single-line watchout for value investors>" },
+    { "name": "Participation", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>" },
+    { "name": "Price Structure", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>" },
+    { "name": "Trend Quality", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>" },
+    { "name": "Momentum", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>" }
+  ]
 }
 
 Rules:
@@ -106,6 +131,7 @@ Rules:
 - strategyViews.growth and strategyViews.value: max 15 words each, no overlap with actionBias
 - riskAlerts: 3-5 items max, each exactly 3-5 words, noun phrases only
 - convictionLevel: High if STRONG_BUY or STRONG_SELL, Medium if BUY or SELL, Low otherwise
+- indicators: always exactly 5 objects in the order above; each growthWatchout and valueWatchout is a single crisp actionable sentence (max 15 words), distilled from the INDICATOR WATCHOUTS section above
 - No verbose explanations, no repeating context already stated above
 - Return pure JSON only`;
 }
@@ -114,7 +140,7 @@ async function callLLM(prompt) {
   const response = await openRouter.chat.completions.create({
     model: 'anthropic/claude-haiku-4-5',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 400,
+    max_tokens: 600,
     temperature: 0,
   });
   return response.choices[0]?.message?.content ?? null;

@@ -185,21 +185,24 @@ async function getPrices(req, res, next) {
       : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000); // default: 1 year
     const period2 = req.query.to ? new Date(req.query.to) : new Date();
 
-    const rows = await yahooFinance.historical(ticker, {
+    const result = await yahooFinance.chart(ticker, {
       period1,
       period2,
       interval: '1d',
     });
 
-    const prices = rows.map((r) => ({
-      date: r.date.toISOString().slice(0, 10),
-      open: r.open ?? null,
-      high: r.high ?? null,
-      low: r.low ?? null,
-      close: r.close ?? null,
-      adjClose: r.adjClose ?? null,
-      volume: r.volume ?? null,
-    }));
+    const quotes = result.quotes ?? [];
+    const prices = quotes
+      .filter((r) => r.close != null)
+      .map((r) => ({
+        date: new Date(r.date).toISOString().slice(0, 10),
+        open: r.open ?? null,
+        high: r.high ?? null,
+        low: r.low ?? null,
+        close: r.close ?? null,
+        adjClose: r.adjclose ?? null,
+        volume: r.volume ?? null,
+      }));
 
     res.json({ symbol, ticker, count: prices.length, prices });
   } catch (err) {
