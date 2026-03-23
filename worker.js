@@ -7,6 +7,8 @@ require('./workers/summarization');
 require('./workers/qe');
 require('./workers/deal');
 require('./workers/ofactor');
+require('./workers/wealthos.suggestion');
+require('./workers/wealthos.message');
 
 console.log('All workers started');
 
