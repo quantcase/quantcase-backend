@@ -23,8 +23,8 @@ async function getTickerInfo(req, res, next) {
     const { symbol } = req.params;
     const ticker = symbol.toUpperCase() + '.NS';
 
-    // Fetch in parallel: quote, summary modules, quarterly fundamentals
-    const [quoteResult, summaryResult, quarterlyResult] = await Promise.allSettled([
+    // Fetch in parallel: quote, summary modules, quarterly fundamentals, annual cash flow
+    const [quoteResult, summaryResult, quarterlyResult, cashFlowResult] = await Promise.allSettled([
       yahooFinance.quote(ticker),
       yahooFinance.quoteSummary(ticker, {
         modules: ['summaryProfile', 'financialData', 'defaultKeyStatistics'],
@@ -32,6 +32,11 @@ async function getTickerInfo(req, res, next) {
       yahooFinance.fundamentalsTimeSeries(ticker, {
         module: 'financials',
         type: 'quarterly',
+        period1: new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000), // last 2 years
+      }),
+      yahooFinance.fundamentalsTimeSeries(ticker, {
+        module: 'cash-flow',
+        type: 'annual',
         period1: new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000), // last 2 years
       }),
     ]);
@@ -43,6 +48,12 @@ async function getTickerInfo(req, res, next) {
     const profile  = summary.summaryProfile      || {};
     const fin      = summary.financialData       || {};
     const stats    = summary.defaultKeyStatistics || {};
+
+    // Get most recent annual cash flow entry
+    const cashFlowRaw = cashFlowResult.status === 'fulfilled' ? cashFlowResult.value : [];
+    const latestCashFlow = cashFlowRaw.length > 0
+      ? [...cashFlowRaw].sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+      : null;
 
     // Quarterly trend for revenue/EBITDA chart — sorted oldest→newest
     const quarterlyRaw = quarterlyResult.status === 'fulfilled' ? quarterlyResult.value : [];
@@ -101,8 +112,8 @@ async function getTickerInfo(req, res, next) {
         ebitdaMargins:    fin.ebitdaMargins     ?? null,
         operatingMargins: fin.operatingMargins  ?? null,
         profitMargins:    fin.profitMargins     ?? null,
-        operatingCashflow: fin.operatingCashflow ?? null,
-        freeCashflow:     fin.freeCashflow      ?? null,
+        operatingCashflow: latestCashFlow?.operatingCashFlow ?? fin.operatingCashflow ?? null,
+        freeCashflow:     latestCashFlow?.freeCashFlow     ?? fin.freeCashflow      ?? null,
         earningsGrowth:   fin.earningsGrowth    ?? null,
         revenuePerShare:  fin.revenuePerShare   ?? null,
         // Quarterly chart data
