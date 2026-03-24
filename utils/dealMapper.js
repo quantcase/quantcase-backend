@@ -93,9 +93,9 @@ function mapToDealResponseSchema(raw) {
         section_id: 'scenario_framework',
         title:      'Scenario Framework',
       },
-      bear: { points: sf.bear.key_drivers ?? [] },
-      base: { points: sf.base.key_drivers ?? [] },
-      bull: { points: sf.bull.key_drivers ?? [] },
+      bear: { points: sf.bear.key_drivers ?? [], signal_points: sf.bear.signal_points ?? [] },
+      base: { points: sf.base.key_drivers ?? [], signal_points: sf.base.signal_points ?? [] },
+      bull: { points: sf.bull.key_drivers ?? [], signal_points: sf.bull.signal_points ?? [] },
     },
 
     target_price_matrix: {
@@ -130,7 +130,14 @@ function mapToDealResponseSchema(raw) {
         value:    downsidePct != null ? pctStr(parseFloat((-downsidePct).toFixed(1))) : 'N/A',
         subtitle: `Bear case at ${sf.bear.probability_pct}% probability`,
       },
+
+      investment_thesis:  rrs.investment_thesis  ?? null,
+      key_risks:          rrs.key_risks          ?? [],
+      key_catalysts:      rrs.key_catalysts       ?? [],
     },
+
+    // Pass overview straight through — LLM generates in final shape
+    overview: raw?.overview ?? null,
 
     // Pass detailed_analysis straight through — LLM generates in final shape
     detailed_analysis: raw?.detailed_analysis ?? null,
