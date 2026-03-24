@@ -459,8 +459,8 @@ async function computeManagementAnalysis(callId, timeframe) {
     },
     governanceSignals: governanceSignalsArray,
     consistency: {
-      score:            Math.min(overallScore / 25, 4.0),
-      maxScore:         4.0,
+      score:            Math.min(Math.round((overallScore / 100) * 40), 40),
+      maxScore:         40,
       hitRate,
       hiddenCount,
       disclosurePattern: governanceSignals.transparent && riskDisclosures.some(r => r.disclosed_early)
