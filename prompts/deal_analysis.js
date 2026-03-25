@@ -166,6 +166,48 @@ Generate three scenarios — Bear, Base, and Bull — each with a specific EPS C
 
 Also generate a **risk_reward_summary** with probability_weighted_return_pct, risk_reward_ratio, downside_protection_pct, investment_thesis, key_risks (3-4 items), and key_catalysts (3-4 items).
 
+### Part 1b: Overview Cards (for dashboard display)
+
+Generate an **overview** object with the following sub-sections:
+
+#### eps_engine_card
+Score the EPS Engine out of 10. This represents the quality and trajectory of the company's earnings growth engine.
+- score: number between 1.0–10.0 (one decimal place), e.g. 1.5
+- drivers: exactly 3 short, scannable bullet strings. Each must be ≤10 words, NO emojis, end with a growth/CAGR figure or concrete outcome. Example: "Strong base case (16.8% CAGR)"
+
+#### valuation_rerating_card
+Score the Valuation Re-Rating potential out of 10. This represents how likely the stock is to re-rate upward/downward.
+- score: number between 1.0–10.0 (one decimal place), e.g. 3.5
+- drivers: exactly 3 short, scannable bullet strings. Each must be ≤10 words, NO emojis, with a concrete data point. Example: "Already at -38% P/E premium"
+
+#### deal_factor_score
+Overall conviction score = eps_engine_card.score + valuation_rerating_card.score (max 20).
+- overall: sum of the two scores (e.g. 5 if eps=1.5 and val=3.5)
+- eps_engine: same value as eps_engine_card.score
+- valuation_rerating: same value as valuation_rerating_card.score
+- level: "LOW" if overall < 8, "MODERATE" if 8–14, "HIGH" if >14
+
+#### key_takeaway
+Exactly 3 bullet strings summarising the investment case. Each ≤15 words, concrete and opinionated. Must be exactly 3, no more.
+
+#### deal_verdict
+- title: short verdict phrase (≤6 words), e.g. "Watch Execution closely"
+- description: 2-sentence elaboration explaining the verdict concisely
+
+#### scenario_summary
+Three objects (bear/base/bull), each with:
+- label: "BEAR CASE" / "BASE CASE" / "BULL CASE"
+- headline: bold 3–5 word outcome, e.g. "Protected by quality"
+- subtext: short qualifier in parentheses, e.g. "(downside limited)" or "(35% IRR possible)"
+
+### Part 1c: Scenario Framework with Signal Points
+
+For the scenario_framework bear/base/bull objects, add a signal_points array alongside key_drivers.
+signal_points must have exactly 4 items per scenario. Each item:
+- text: short, emoji-prefixed label up to 8 words with a concrete metric (e.g. "🚗 PV demand strong (+19% YoY)")
+- signal: one of "Positive", "Negative", "Temporary", "Neutral"
+- color: "green" for Positive, "red" for Negative, "yellow" for Temporary, "gray" for Neutral
+
 ### Part 2: Detailed Analysis
 Generate a **detailed_analysis** object with 4 sub-sections:
 
@@ -232,7 +274,13 @@ Return ONLY a valid JSON object. No markdown fences, no explanation:
       "upside_downside_pct": <number>,
       "cagr_pa_pct": <number>,
       "probability_pct": <number>,
-      "key_drivers": ["<string>", "<string>", "<string>"]
+      "key_drivers": ["<string>", "<string>", "<string>"],
+      "signal_points": [
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" },
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" },
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" },
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" }
+      ]
     },
     "base": {
       "eps_cagr_pct": <number>,
@@ -245,7 +293,13 @@ Return ONLY a valid JSON object. No markdown fences, no explanation:
       "upside_downside_pct": <number>,
       "cagr_pa_pct": <number>,
       "probability_pct": <number>,
-      "key_drivers": ["<string>", "<string>", "<string>"]
+      "key_drivers": ["<string>", "<string>", "<string>"],
+      "signal_points": [
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" },
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" },
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" },
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" }
+      ]
     },
     "bull": {
       "eps_cagr_pct": <number>,
@@ -258,7 +312,39 @@ Return ONLY a valid JSON object. No markdown fences, no explanation:
       "upside_downside_pct": <number>,
       "cagr_pa_pct": <number>,
       "probability_pct": <number>,
-      "key_drivers": ["<string>", "<string>", "<string>"]
+      "key_drivers": ["<string>", "<string>", "<string>"],
+      "signal_points": [
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" },
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" },
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" },
+        { "text": "<emoji + short label with metric>", "signal": "<Positive|Negative|Temporary|Neutral>", "color": "<green|red|yellow|gray>" }
+      ]
+    }
+  },
+  "overview": {
+    "eps_engine_card": {
+      "score": <number e.g. 1.5>,
+      "drivers": ["<emoji + ≤10 word outcome>", "<emoji + ≤10 word outcome>", "<emoji + ≤10 word outcome>"]
+    },
+    "valuation_rerating_card": {
+      "score": <number e.g. 3.5>,
+      "drivers": ["<≤10 word data point>", "<≤10 word data point>", "<≤10 word data point>"]
+    },
+    "deal_factor_score": {
+      "overall": <number — sum of eps_engine_card.score + valuation_rerating_card.score>,
+      "eps_engine": <number — same as eps_engine_card.score>,
+      "valuation_rerating": <number — same as valuation_rerating_card.score>,
+      "level": "<LOW|MODERATE|HIGH>"
+    },
+    "key_takeaway": ["<≤15 word bullet>", "<≤15 word bullet>", "<≤15 word bullet>"],
+    "deal_verdict": {
+      "title": "<≤6 word verdict phrase>",
+      "description": "<2-sentence elaboration>"
+    },
+    "scenario_summary": {
+      "bear": { "label": "BEAR CASE", "headline": "<3-5 word bold outcome>", "subtext": "<short qualifier in parens>" },
+      "base": { "label": "BASE CASE", "headline": "<3-5 word bold outcome>", "subtext": "<short qualifier in parens>" },
+      "bull": { "label": "BULL CASE", "headline": "<3-5 word bold outcome>", "subtext": "<short qualifier in parens>" }
     }
   },
   "risk_reward_summary": {
