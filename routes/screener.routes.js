@@ -2,6 +2,7 @@
 
 const router = require('express').Router();
 const screenerController = require('../controllers/screener.controller');
+const prowessController = require('../controllers/prowess.controller');
 
 // GET /api/screener/:symbol/technicals — technical data from Google Sheet watchlist
 router.get('/:symbol/technicals', screenerController.getTechnicals);
@@ -13,7 +14,7 @@ router.get('/:symbol/financials', screenerController.getFinancials);
 router.get('/:symbol/prices', screenerController.getPrices);
 
 // GET /api/screener/:symbol/charts — chart-ready data grouped by Price, PE Ratio, Sales & Margin
-router.get('/:symbol/charts', screenerController.getCharts);
+router.get('/:symbol/charts', prowessController.getCharts);
 
 // GET /api/screener/:symbol  — e.g. /api/screener/MSUMI or /api/screener/ABB
 router.get('/:symbol', screenerController.getTickerInfo);
