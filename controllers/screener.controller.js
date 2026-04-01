@@ -334,18 +334,53 @@ async function getCharts(req, res, next) {
       ],
     };
 
-    // ── 3. PE Ratio group ──────────────────────────────────────────────────
-    // X-axis: 3mo chart quarters (40 periods). PE = quarter-end price / TTM EPS.
-    // TTM EPS: use pe_data DB (closest entry within ±45 days); bar = pe_data PE value itself.
-    // Fallback computed PE = price / ttm_eps from quarterly fundamentals where available.
-
+    // ── 3–7. Shared helpers for fundamentals-based groups ─────────────────
+    // qChartQuotes: quarterly price series for priceForQuarter lookups
     const qChartQuotes = (quarterlyChart?.quotes ?? [])
       .filter((q) => q.close != null)
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    const peLabels = qChartQuotes.map((q) =>
-      new Date(q.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+    // Sort balance sheet and financials oldest→newest
+    const bsSorted = [...quarterlyBalanceSheet].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const qfSorted = [...quarterlyFundamentals].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Most recent balance sheet entry — fallback for quarters beyond last BS date
+    const latestBs = bsSorted.length > 0 ? bsSorted[bsSorted.length - 1] : null;
+
+    // Find closest entry within ±50 days
+    const MS_50D = 50 * 24 * 60 * 60 * 1000;
+    function closestByDate(arr, targetMs) {
+      let best = null, bestDiff = MS_50D;
+      for (const r of arr) {
+        const diff = Math.abs(new Date(r.date).getTime() - targetMs);
+        if (diff < bestDiff) { bestDiff = diff; best = r; }
+      }
+      return best;
+    }
+
+    // Balance sheet for a quarter: closest match, or latest if target is beyond last BS date
+    function bsForQuarter(targetMs) {
+      const exact = closestByDate(bsSorted, targetMs);
+      if (exact) return exact;
+      if (latestBs && targetMs > new Date(latestBs.date).getTime()) return latestBs;
+      return null;
+    }
+
+    // Price at a given quarter-end date, matched from qChartQuotes within ±50 days
+    function priceForQuarter(targetMs) {
+      return closestByDate(qChartQuotes.map((q) => ({ date: q.date, close: q.close })), targetMs)?.close ?? null;
+    }
+
+    // Shared x-axis labels for groups 3, 5–7 (oldest→newest, ~5 quarters)
+    const fundLabels = qfSorted.map((r) =>
+      new Date(r.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
     );
+
+    // ── 3. PE Ratio group ──────────────────────────────────────────────────
+    // X-axis: qfSorted (~5 quarters, same as groups 5–7).
+    // TTM EPS = sum of basicEPS for up to 4 quarters ending at this date.
+    // PE = price / TTM EPS. Fallback: closest pe_data entry within ±45 days.
+    // Median PE: from pe_data DB if available.
 
     // Median PE across all pe_data rows
     const allPeValues = peRows
@@ -360,24 +395,36 @@ async function getCharts(req, res, next) {
         : Math.round(allPeValues[mid] * 100) / 100;
     }
 
-    // For each quarter-end, find the closest pe_data entry within ±45 days
     const MS_45D = 45 * 24 * 60 * 60 * 1000;
-    const qPe = qChartQuotes.map((q) => {
-      const qt = new Date(q.date).getTime();
-      let best = null, bestDiff = MS_45D;
-      for (const r of peRows) {
-        const diff = Math.abs(new Date(r.date).getTime() - qt);
-        if (diff < bestDiff) { bestDiff = diff; best = r; }
-      }
-      return best?.pe != null ? Math.round(Number(best.pe) * 100) / 100 : null;
-    });
 
-    // TTM EPS per quarter: derive from price / PE where PE is known
-    const qTtmEps = qChartQuotes.map((q, i) => {
-      const price = q.close;
-      const pe = qPe[i];
-      if (price == null || !pe) return null;
-      return Math.round((price / pe) * 100) / 100;
+    // peData uses qfSorted as x-axis (same as groups 5–7)
+    const peData = qfSorted.map((r) => {
+      const qt = new Date(r.date).getTime();
+      const price = priceForQuarter(qt);
+
+      // TTM EPS: sum basicEPS across up to 4 quarters ending at this date
+      const eligible = qfSorted.filter((x) => new Date(x.date).getTime() <= qt);
+      const recent4 = eligible.slice(-4);
+      const ttmEps = recent4.length > 0 && recent4.every((x) => x.basicEPS != null)
+        ? Math.round(recent4.reduce((s, x) => s + x.basicEPS, 0) * 100) / 100
+        : null;
+
+      // Computed PE from price / ttmEps
+      let pe = price != null && ttmEps != null && ttmEps !== 0
+        ? Math.round((price / ttmEps) * 100) / 100
+        : null;
+
+      // Fallback: closest pe_data entry within ±45 days
+      if (pe === null) {
+        let best = null, bestDiff = MS_45D;
+        for (const row of peRows) {
+          const diff = Math.abs(new Date(row.date).getTime() - qt);
+          if (diff < bestDiff) { bestDiff = diff; best = row; }
+        }
+        if (best?.pe != null) pe = Math.round(Number(best.pe) * 100) / 100;
+      }
+
+      return { ttmEps, pe };
     });
 
     const peGroup = {
@@ -386,19 +433,19 @@ async function getCharts(req, res, next) {
         {
           dataKey: 'ttmEps',
           name: 'TTM EPS',
-          data: peLabels.map((x, i) => ({ x, y: qTtmEps[i] })),
+          data: fundLabels.map((x, i) => ({ x, y: peData[i].ttmEps })),
         },
       ],
       lineSeries: [
         {
           dataKey: 'pe',
           name: 'PE',
-          data: peLabels.map((x, i) => ({ x, y: qPe[i] })),
+          data: fundLabels.map((x, i) => ({ x, y: peData[i].pe })),
         },
         {
           dataKey: 'medianPe',
           name: 'Median PE',
-          data: peLabels.map((x) => ({ x, y: medianPe })),
+          data: fundLabels.map((x) => ({ x, y: medianPe })),
         },
       ],
     };
@@ -488,46 +535,6 @@ async function getCharts(req, res, next) {
         },
       ],
     };
-
-    // ── 5–7. Helpers for fundamentals-based groups ─────────────────────────
-    // These groups use fundamentalsTimeSeries as x-axis (5 quarters max from Yahoo),
-    // same pattern as Sales & Margin — avoids sparse median lines across 40 quarters.
-
-    // Sort balance sheet and financials oldest→newest
-    const bsSorted = [...quarterlyBalanceSheet].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const qfSorted = [...quarterlyFundamentals].sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    // Most recent balance sheet entry — fallback for quarters beyond last BS date
-    const latestBs = bsSorted.length > 0 ? bsSorted[bsSorted.length - 1] : null;
-
-    // Find closest entry within ±50 days
-    const MS_50D = 50 * 24 * 60 * 60 * 1000;
-    function closestByDate(arr, targetMs) {
-      let best = null, bestDiff = MS_50D;
-      for (const r of arr) {
-        const diff = Math.abs(new Date(r.date).getTime() - targetMs);
-        if (diff < bestDiff) { bestDiff = diff; best = r; }
-      }
-      return best;
-    }
-
-    // Balance sheet for a quarter: closest match, or latest if target is beyond last BS date
-    function bsForQuarter(targetMs) {
-      const exact = closestByDate(bsSorted, targetMs);
-      if (exact) return exact;
-      if (latestBs && targetMs > new Date(latestBs.date).getTime()) return latestBs;
-      return null;
-    }
-
-    // Price at a given quarter-end date, matched from qChartQuotes within ±50 days
-    function priceForQuarter(targetMs) {
-      return closestByDate(qChartQuotes.map((q) => ({ date: q.date, close: q.close })), targetMs)?.close ?? null;
-    }
-
-    // qfSorted is the x-axis for groups 5–7 (oldest→newest, ~5 quarters)
-    const fundLabels = qfSorted.map((r) =>
-      new Date(r.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
-    );
 
     // ── 5. EV / EBITDA group ───────────────────────────────────────────────
     // Bar: quarterly EBITDA (Cr). Line: EV/EBITDA per quarter. Median: 30.3.
