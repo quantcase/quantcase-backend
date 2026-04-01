@@ -7,6 +7,7 @@ const YahooFinance = require('yahoo-finance2').default;
 const technicalAnalysis = require('../lib/technicalAnalysis');
 const financials = require('../lib/financials');
 const { generateDecisionIntelligence } = require('../utils/decisionIntelligence');
+const { computeIndicatorSeries } = require('../utils/taIndicators');
 const prisma = require('../config/prisma');
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
@@ -280,7 +281,9 @@ async function getPrices(req, res, next) {
         volume: r.volume ?? null,
       }));
 
-    res.json({ symbol, ticker, count: prices.length, prices });
+    const indicators = computeIndicatorSeries(prices);
+
+    res.json({ symbol, ticker, count: prices.length, prices, indicators });
   } catch (err) {
     next(err);
   }
