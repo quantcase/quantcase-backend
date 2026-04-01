@@ -16,6 +16,10 @@ router.get('/:symbol/prices', screenerController.getPrices);
 // GET /api/screener/:symbol/charts — chart-ready data grouped by Price, PE Ratio, Sales & Margin
 router.get('/:symbol/charts', prowessController.getCharts);
 
+// POST /api/screener/:symbol/peers — peer comparison table with requested indicators
+// Body: { "indicators": ["cmp","pe","marketCap","divYld","npQtr","qtrProfitVar","salesQtr","qtrSalesVar","roce"] }
+router.post('/:symbol/peers', screenerController.getPeers);
+
 // GET /api/screener/:symbol  — e.g. /api/screener/MSUMI or /api/screener/ABB
 router.get('/:symbol', screenerController.getTickerInfo);
 

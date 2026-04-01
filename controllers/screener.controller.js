@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+const csvParse = require('csv-parse/sync');
 const YahooFinance = require('yahoo-finance2').default;
 const technicalAnalysis = require('../lib/technicalAnalysis');
 const financials = require('../lib/financials');
@@ -7,6 +10,67 @@ const { generateDecisionIntelligence } = require('../utils/decisionIntelligence'
 const prisma = require('../config/prisma');
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+
+// ── Peer comparison helpers (reuse Prowess CSV data) ────────────────────────
+
+// Identity CSV column indices (0-based)
+const ID_COL_NAME          = 0;
+const ID_COL_INDUSTRY_GRP  = 9;   // "Industry group"
+const ID_COL_NSE_BASIC_IND = 24;  // "NSE Basic Industry classification"
+const ID_COL_NSE_SYMBOL    = 25;  // "NSE symbol"
+
+// Fundamental CSV layout (same as prowess.controller)
+const PEER_COLS_PER_PERIOD = 20;
+const PEER_PERIOD_COUNT    = 8;
+const PEER_OFF = { SHARES: 0, MARKET_CAP: 1, ADJ_EPS: 3, PE: 5, PB: 6, YIELD: 8,
+                   EV: 9, TOTAL_INCOME: 13, NET_PROFIT: 15 };
+
+let _peerIdentityRows  = null; // raw parsed rows (array of arrays)
+let _peerIdentityHeader = null;
+let _peerFundMap       = null; // { companyName: row[] }
+let _peerFundQtrs      = null; // string[]
+
+function loadPeerIdentity() {
+  if (_peerIdentityRows) return { rows: _peerIdentityRows, header: _peerIdentityHeader };
+  const raw = fs.readFileSync(path.join(__dirname, '../lib/osc_identity.csv'), 'utf-8');
+  const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const all = csvParse.parse(content, { relax_column_count: true });
+  _peerIdentityHeader = all[0];
+  _peerIdentityRows   = all.slice(1);
+  return { rows: _peerIdentityRows, header: _peerIdentityHeader };
+}
+
+function loadPeerFundamentals() {
+  if (_peerFundMap) return { fundMap: _peerFundMap, qtrs: _peerFundQtrs };
+  const raw = fs.readFileSync(path.join(__dirname, '../lib/osc_fundamental_ind_qtr_v4.csv'), 'utf-8');
+  const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const all = csvParse.parse(content, { relax_column_count: true });
+  const quarterRow = all[4];
+  _peerFundQtrs = [];
+  for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
+    _peerFundQtrs.push(quarterRow[1 + i * PEER_COLS_PER_PERIOD] || `Q${i + 1}`);
+  }
+  _peerFundMap = {};
+  for (const row of all.slice(6)) {
+    const name = (row[0] || '').trim();
+    if (name) _peerFundMap[name] = row;
+  }
+  return { fundMap: _peerFundMap, qtrs: _peerFundQtrs };
+}
+
+function peerToFloat(val) {
+  if (val === '' || val == null) return null;
+  const n = parseFloat(val);
+  return isNaN(n) ? null : n;
+}
+
+function r2(v) { return v == null ? null : Math.round(v * 100) / 100; }
+
+/** Extract one metric from a Prowess row at a given period index */
+function peerPeriodVal(row, periodIndex, offset) {
+  const start = 1 + periodIndex * PEER_COLS_PER_PERIOD;
+  return peerToFloat(row[start + offset]);
+}
 
 async function getTechnicals(req, res, next) {
   try {
@@ -686,4 +750,198 @@ async function getCharts(req, res, next) {
   }
 }
 
-module.exports = { getTickerInfo, getTechnicals, getFinancials, getPrices, getCharts };
+// ── Peer comparison ───────────────────────────────────────────────────────────
+
+/**
+ * POST /api/screener/:symbol/peers
+ *
+ * Body (optional):
+ *   { "indicators": ["cmp","pe","marketCap","divYld","npQtr","qtrProfitVar","salesQtr","qtrSalesVar","roce"] }
+ *
+ * 1. Resolve symbol → NSE Basic Industry classification via osc_identity.csv
+ * 2. Collect all peers in the same basic industry (+ same industry group for tighter match)
+ * 3. Pull latest-quarter fundamentals from osc_fundamental_ind_qtr_v4.csv
+ * 4. Bulk-fetch Yahoo Finance quotes for live CMP & Market Cap
+ * 5. Return table rows with requested indicators as columns
+ */
+async function getPeers(req, res, next) {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+
+    // Default column set matches the image
+    const DEFAULT_INDICATORS = ['cmp','pe','marketCap','divYld','npQtr','qtrProfitVar','salesQtr','qtrSalesVar','roce'];
+    const requestedIndicators = (req.body && Array.isArray(req.body.indicators) && req.body.indicators.length > 0)
+      ? req.body.indicators
+      : DEFAULT_INDICATORS;
+
+    // ── 1. Find subject company in identity CSV ──────────────────────────────
+    const { rows: idRows } = loadPeerIdentity();
+    const subjectRow = idRows.find((r) => (r[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase() === symbol);
+    if (!subjectRow) {
+      return res.status(404).json({ error: `Symbol "${symbol}" not found in identity data` });
+    }
+
+    const subjectBasicInd  = (subjectRow[ID_COL_NSE_BASIC_IND] || '').trim();
+    const subjectIndGrp    = (subjectRow[ID_COL_INDUSTRY_GRP]  || '').trim();
+
+    // ── 2. Find all peers in same basic industry ─────────────────────────────
+    // Include subject itself so it appears in the table (highlighted by caller)
+    const peerRows = idRows.filter((r) => {
+      const ind = (r[ID_COL_NSE_BASIC_IND] || '').trim();
+      const sym = (r[ID_COL_NSE_SYMBOL] || '').trim();
+      return ind === subjectBasicInd && sym !== '';
+    });
+
+    if (peerRows.length === 0) {
+      return res.status(404).json({ error: `No peers found for industry "${subjectBasicInd}"` });
+    }
+
+    // ── 3. Load Prowess fundamentals ─────────────────────────────────────────
+    const { fundMap, qtrs } = loadPeerFundamentals();
+    const LATEST = PEER_PERIOD_COUNT - 1;   // index 7
+    const YEAR_AGO = LATEST - 4;            // index 3  (same quarter, prior year)
+
+    // ── 4. Bulk-fetch Yahoo Finance quotes ───────────────────────────────────
+    const nseSymbols = peerRows.map((r) => (r[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase()).filter(Boolean);
+    const tickers    = nseSymbols.map((s) => s + '.NS');
+
+    const quoteResults = await Promise.allSettled(
+      tickers.map((t) => yahooFinance.quote(t))
+    );
+
+    // Build a map: NSE symbol → quote
+    const quoteMap = {};
+    nseSymbols.forEach((sym, i) => {
+      if (quoteResults[i].status === 'fulfilled') quoteMap[sym] = quoteResults[i].value;
+    });
+
+    // ── 5. Build table rows ──────────────────────────────────────────────────
+    const latestQtr = qtrs[LATEST];
+    const yearAgoQtr = qtrs[YEAR_AGO] || null;
+
+    const peers = peerRows.map((idRow) => {
+      const peerSymbol = (idRow[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase();
+      const companyName = (idRow[ID_COL_NAME] || '').trim();
+      const quote = quoteMap[peerSymbol] || null;
+      const fundRow = fundMap[companyName] || null;
+
+      // ── Live quote data ──
+      const cmp = quote ? r2(quote.regularMarketPrice) : null;
+      let marketCap = quote && quote.marketCap != null ? r2(quote.marketCap / 1e7) : null; // Cr
+
+      // ── Prowess fundamentals (latest period) ──
+      let pe         = null;
+      let divYld     = null;
+      let npQtr      = null;      // Net Profit Qtr (Cr)
+      let salesQtr   = null;      // Sales Qtr (Cr)
+      let qtrProfitVar = null;    // YoY Net Profit Var %
+      let qtrSalesVar  = null;    // YoY Sales Var %
+      let roce         = null;    // ROCE % — approximated from Prowess data
+
+      if (fundRow) {
+        pe      = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.PE));
+        divYld  = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.YIELD));
+        npQtr   = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.NET_PROFIT));
+        salesQtr = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.TOTAL_INCOME));
+
+        // Qtr YoY variance
+        const npPrior    = peerPeriodVal(fundRow, YEAR_AGO, PEER_OFF.NET_PROFIT);
+        const salesPrior = peerPeriodVal(fundRow, YEAR_AGO, PEER_OFF.TOTAL_INCOME);
+        if (npQtr != null && npPrior != null && npPrior !== 0) {
+          qtrProfitVar = r2(((npQtr - npPrior) / Math.abs(npPrior)) * 100);
+        }
+        if (salesQtr != null && salesPrior != null && salesPrior !== 0) {
+          qtrSalesVar = r2(((salesQtr - salesPrior) / Math.abs(salesPrior)) * 100);
+        }
+
+        // ROCE ≈ EBIT / Capital Employed
+        // Prowess doesn't expose EBIT directly; approximate via:
+        //   EBIT ≈ Net Profit + Tax + Interest (not available in this CSV)
+        // Best proxy available: use Yahoo's returnOnEquity + debtToEquity from quoteSummary
+        // For now derive a rough ROCE from Yahoo financialData if quote exists
+        if (quote) {
+          // Yahoo doesn't surface ROCE directly; use returnOnEquity as stand-in when fundRow data is insufficient.
+          // Caller can override by requesting ROCE separately via /financials.
+          roce = null; // deferred — populated below via bulk quoteSummary
+        }
+      }
+
+      // Fall back to Yahoo PE if Prowess is missing
+      if (pe == null && quote) pe = r2(quote.trailingPE ?? null);
+      // Fall back to Yahoo marketCap if Prowess missing
+      if (marketCap == null && quote && quote.marketCap != null) {
+        marketCap = r2(quote.marketCap / 1e7);
+      }
+
+      const row = {
+        symbol:    peerSymbol,
+        name:      companyName,
+        isSubject: peerSymbol === symbol,
+      };
+
+      if (requestedIndicators.includes('cmp'))          row.cmp          = cmp;
+      if (requestedIndicators.includes('pe'))           row.pe           = pe;
+      if (requestedIndicators.includes('marketCap'))    row.marketCapCr  = marketCap;
+      if (requestedIndicators.includes('divYld'))       row.divYld       = divYld;
+      if (requestedIndicators.includes('npQtr'))        row.npQtrCr      = npQtr;
+      if (requestedIndicators.includes('qtrProfitVar')) row.qtrProfitVar = qtrProfitVar;
+      if (requestedIndicators.includes('salesQtr'))     row.salesQtrCr   = salesQtr;
+      if (requestedIndicators.includes('qtrSalesVar'))  row.qtrSalesVar  = qtrSalesVar;
+      if (requestedIndicators.includes('roce'))         row.roce         = roce;
+
+      return row;
+    });
+
+    // ── 6. Fetch ROCE via bulk quoteSummary (financialData.returnOnAssets/Equity) ──
+    if (requestedIndicators.includes('roce')) {
+      const roceResults = await Promise.allSettled(
+        nseSymbols.map((s) => yahooFinance.quoteSummary(s + '.NS', { modules: ['financialData'] }))
+      );
+      nseSymbols.forEach((sym, i) => {
+        const peerEntry = peers.find((p) => p.symbol === sym);
+        if (!peerEntry) return;
+        if (roceResults[i].status === 'fulfilled') {
+          const fin = roceResults[i].value?.financialData || {};
+          // Yahoo doesn't provide ROCE directly. Approximate:
+          // ROCE ≈ returnOnEquity * (equity / capitalEmployed)
+          // Since we lack balance sheet detail, use returnOnEquity × (1 + 1/debtToEquity) when debtToEquity > 0
+          const roe = fin.returnOnEquity ?? null;
+          const de  = fin.debtToEquity  ?? null;
+          if (roe != null) {
+            let roceVal;
+            if (de != null && de > 0) {
+              // Capital Employed = Equity + Debt ≈ Equity × (1 + D/E)
+              // ROCE ≈ NetIncome / CapitalEmployed = ROE / (1 + D/E)
+              roceVal = r2((roe / (1 + de / 100)) * 100);
+            } else {
+              roceVal = r2(roe * 100);
+            }
+            peerEntry.roce = roceVal;
+          }
+        }
+      });
+    }
+
+    // Sort: subject first, then by marketCap desc
+    peers.sort((a, b) => {
+      if (a.isSubject) return -1;
+      if (b.isSubject) return 1;
+      return (b.marketCapCr ?? 0) - (a.marketCapCr ?? 0);
+    });
+
+    res.json({
+      symbol,
+      basicIndustry: subjectBasicInd,
+      industryGroup: subjectIndGrp,
+      latestQuarter: latestQtr,
+      yearAgoQuarter: yearAgoQtr,
+      indicators: requestedIndicators,
+      count: peers.length,
+      peers,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getTickerInfo, getTechnicals, getFinancials, getPrices, getCharts, getPeers };
