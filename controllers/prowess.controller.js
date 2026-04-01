@@ -1,172 +1,25 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const csvParse = require('csv-parse/sync');
 const YahooFinance = require('yahoo-finance2').default;
+
+const {
+  r2,
+  loadIdentityMap,
+  loadFundamentalData,
+  loadShareholdingData,
+  fundPeriodData,
+  shPeriodData,
+  findFundCompanyRow,
+  FUND_PERIOD_COUNT,
+  SH_PERIOD_COUNT,
+} = require('../lib/prowess');
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
-// ── CSV: osc_fundamental_ind_qtr_v4.csv ──────────────────────────────────────
-// Rows 0–4 : header block (source, exchange, finance type, units, quarter labels)
-// Row 5    : indicator names (repeating every 20 cols)
-// Row 6+   : company data; col 0 = Company Name
-//
-// Layout   : 8 quarters × 20 indicators = 160 data cols (cols 1–160)
-// Quarters : Mar 2024 → Jun 2024 → Sep 2024 → Dec 2024 →
-//            Mar 2025 → Jun 2025 → Sep 2025 → Dec 2025  (oldest → latest)
-// Quarter labels are in row 4 directly — no back-calculation needed.
-//
-// Per-quarter indicator offsets (0-based within each 20-col block):
-//   0  Shares Outstanding
-//   1  Market Capitalisation         (Rs. Crore)
-//   2  Total Returns (%)
-//   3  Adjusted EPS
-//   4  Adjusted Cash EPS
-//   5  P/E (Price to Earnings Ratio)
-//   6  P/B (Price to Book Value Ratio)
-//   7  Book Value per Share          (Indian Rupee)
-//   8  Yield
-//   9  Enterprise value              (Rs. Crore)
-//  10  Market Capitalisation / Enterprise Value
-//  11  Enterprise Value / PBDITA
-//  12  Cost of goods sold            (Rs. Crore)
-//  13  Total income from continuing operations (Rs. Crore)
-//  14  Total expenses                (Rs. Crore)
-//  15  Net Profit                    (Rs. Crore)
-//  16  Earnings per share before extraordinary item (₹)
-//  17  Months
-//  18  Source
-//  19  Date signed
-
-const COLS_PER_PERIOD = 20;
-const PERIOD_COUNT = 8;
-
-const OFF = {
-  SHARES: 0,
-  MARKET_CAP: 1,
-  TOTAL_RETURNS: 2,
-  ADJ_EPS: 3,
-  ADJ_CASH_EPS: 4,
-  PE: 5,
-  PB: 6,
-  BVPS: 7,
-  YIELD: 8,
-  EV: 9,
-  MC_EV: 10,
-  EV_PBDITA: 11,
-  COGS: 12,
-  TOTAL_INCOME: 13,
-  TOTAL_EXPENSES: 14,
-  NET_PROFIT: 15,
-  EPS_BASIC: 16,
-  NTRM_MONTHS: 17,
-  NTRM_SOURCE: 18,
-  NTRM_DATE_SIGNED: 19,
-};
-
-// ── Lazy-loaded data ──────────────────────────────────────────────────────────
-
-let _identityMap = null;
-let _fundamentalData = null; // { quarterLabels: string[], companyMap: { [name]: row } }
-
-function loadIdentityMap() {
-  if (_identityMap) return _identityMap;
-  const raw = fs.readFileSync(
-    path.join(__dirname, '../lib/osc_identity.csv'),
-    'utf-8'
-  );
-  const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-  const rows = csvParse.parse(content, { columns: true, relax_column_count: true });
-  _identityMap = {};
-  for (const row of rows) {
-    const sym = (row['NSE symbol'] || '').trim().toUpperCase();
-    const name = (row['Company Name'] || '').trim();
-    if (sym && name) _identityMap[sym] = name;
-  }
-  return _identityMap;
-}
-
-function loadFundamentalData() {
-  if (_fundamentalData) return _fundamentalData;
-  const raw = fs.readFileSync(
-    path.join(__dirname, '../lib/osc_fundamental_ind_qtr_v4.csv'),
-    'utf-8'
-  );
-  const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-  const allRows = csvParse.parse(content, { relax_column_count: true });
-
-  // Row 4 contains quarter labels (e.g. "Mar 2024"), one per col per period
-  const quarterRow = allRows[4];
-  const quarterLabels = [];
-  for (let i = 0; i < PERIOD_COUNT; i++) {
-    quarterLabels.push(quarterRow[1 + i * COLS_PER_PERIOD] || `Q${i + 1}`);
-  }
-
-  const companyMap = {};
-  for (const row of allRows.slice(6)) {
-    const name = (row[0] || '').trim();
-    if (name) companyMap[name] = row;
-  }
-
-  _fundamentalData = { quarterLabels, companyMap };
-  return _fundamentalData;
-}
-
-/** Resolve NSE symbol → company row, returns null if not found */
-function findCompanyRow(symbol) {
-  const identityMap = loadIdentityMap();
-  const { companyMap } = loadFundamentalData();
-  const companyName = identityMap[symbol.toUpperCase()];
-  if (!companyName) return null;
-  return companyMap[companyName] ?? null;
-}
-
-/** Parse CSV cell to float; returns null on empty/NaN */
-function toFloat(val) {
-  if (val === '' || val == null) return null;
-  const n = parseFloat(val);
-  return isNaN(n) ? null : n;
-}
-
-/** Round to 2 decimal places */
-function r2(v) {
-  if (v == null) return null;
-  return Math.round(v * 100) / 100;
-}
-
-/** Extract one period's data from a company row (periodIndex: 0 = oldest, 7 = latest) */
-function periodData(row, periodIndex) {
-  const start = 1 + periodIndex * COLS_PER_PERIOD;
-  return {
-    shares: toFloat(row[start + OFF.SHARES]),
-    marketCapCr: toFloat(row[start + OFF.MARKET_CAP]),
-    totalReturns: toFloat(row[start + OFF.TOTAL_RETURNS]),
-    adjEps: toFloat(row[start + OFF.ADJ_EPS]),
-    adjCashEps: toFloat(row[start + OFF.ADJ_CASH_EPS]),
-    pe: toFloat(row[start + OFF.PE]),
-    pb: toFloat(row[start + OFF.PB]),
-    bvps: toFloat(row[start + OFF.BVPS]),
-    yield_: toFloat(row[start + OFF.YIELD]),
-    ev: toFloat(row[start + OFF.EV]),
-    mcEv: toFloat(row[start + OFF.MC_EV]),
-    evPbdita: toFloat(row[start + OFF.EV_PBDITA]),
-    cogsCr: toFloat(row[start + OFF.COGS]),
-    totalIncomeCr: toFloat(row[start + OFF.TOTAL_INCOME]),
-    totalExpCr: toFloat(row[start + OFF.TOTAL_EXPENSES]),
-    netProfitCr: toFloat(row[start + OFF.NET_PROFIT]),
-    epsBasic: toFloat(row[start + OFF.EPS_BASIC]),
-    ntrmMonths: toFloat(row[start + OFF.NTRM_MONTHS]),
-    ntrmSource: row[start + OFF.NTRM_SOURCE] || null,
-    ntrmDateSigned: row[start + OFF.NTRM_DATE_SIGNED] || null,
-  };
-}
-
-
-// ── Controller ────────────────────────────────────────────────────────────────
+// ── Charts ────────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/prowess/:symbol/charts
+ * GET /api/screener/:symbol/charts
  *
  * Chart groups:
  *   1. Price          — yfinance monthly (10 years)
@@ -181,7 +34,7 @@ async function getCharts(req, res, next) {
     const symbol = req.params.symbol.toUpperCase();
     const ticker = symbol + '.NS';
 
-    const companyRow = findCompanyRow(symbol);
+    const companyRow = findFundCompanyRow(symbol);
     if (!companyRow) {
       return res.status(404).json({
         error: `Symbol "${symbol}" not found in Prowess identity mapping or fundamentals data.`,
@@ -190,8 +43,8 @@ async function getCharts(req, res, next) {
     const companyName = companyRow[0];
 
     const { quarterLabels } = loadFundamentalData();
-    const periods = Array.from({ length: PERIOD_COUNT }, (_, i) => periodData(companyRow, i));
-    const quarterLabel = quarterLabels[PERIOD_COUNT - 1];
+    const periods = Array.from({ length: FUND_PERIOD_COUNT }, (_, i) => fundPeriodData(companyRow, i));
+    const quarterLabel = quarterLabels[FUND_PERIOD_COUNT - 1];
 
     // ── 1. Price group — yfinance ─────────────────────────────────────────────
     const now = Date.now();
@@ -414,7 +267,7 @@ async function getCharts(req, res, next) {
     };
 
     // ── 6. Market Cap / Sales group ───────────────────────────────────────────
-    const latestTotalIncomeCr = periods[PERIOD_COUNT - 1].totalIncomeCr;
+    const latestTotalIncomeCr = periods[FUND_PERIOD_COUNT - 1].totalIncomeCr;
     const ttmSalesCr = latestTotalIncomeCr != null ? latestTotalIncomeCr * 4 : null;
     const mcSalesValues = periods
       .map((p) => (p.marketCapCr != null && ttmSalesCr ? r2(p.marketCapCr / ttmSalesCr) : null))
@@ -476,4 +329,126 @@ async function getCharts(req, res, next) {
   }
 }
 
-module.exports = { getCharts };
+// ── Shareholding ──────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/screener/:symbol/shareholding
+ *
+ * Returns historical quarterly shareholding data as a tree of sections.
+ * Top-level rows are expandable (promoters, non-promoters) with children rows.
+ * Quarter columns run oldest → latest.
+ *
+ * Response shape:
+ * {
+ *   company, symbol, quarters: string[],
+ *   sections: [
+ *     {
+ *       id, label, isExpandable,
+ *       data: [{ quarter, value }],
+ *       children: [{ id, label, data: [{ quarter, value }] }]
+ *     }
+ *   ]
+ * }
+ */
+async function getShareholding(req, res, next) {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+
+    const identityMap = loadIdentityMap();
+    const { quarterLabels, companyMap } = loadShareholdingData();
+
+    const companyName = identityMap[symbol];
+    if (!companyName) {
+      return res.status(404).json({
+        error: `Symbol "${symbol}" not found in Prowess identity mapping.`,
+      });
+    }
+    const row = companyMap[companyName];
+    if (!row) {
+      return res.status(404).json({
+        error: `No shareholding data found for "${companyName}".`,
+      });
+    }
+
+    const periods = Array.from({ length: SH_PERIOD_COUNT }, (_, i) => shPeriodData(row, i));
+
+    // Build [{quarter, value}] series for a given field key
+    const series = (key) =>
+      periods.map((p, i) => ({ quarter: quarterLabels[i], value: r2(p[key]) }));
+
+    const sections = [
+      {
+        id: 'total',
+        label: 'Total Shares (%)',
+        isExpandable: false,
+        data: series('total'),
+        children: [],
+      },
+      {
+        id: 'promoters',
+        label: 'Promoters',
+        isExpandable: true,
+        data: series('promoters'),
+        children: [
+          { id: 'indianPromoters',        label: 'Indian Promoters',              data: series('indianPromoters') },
+          { id: 'indianPromoterIndvHuf',  label: 'Individuals & HUF',             data: series('indianPromoterIndvHuf') },
+          { id: 'indianCentralStateGovt', label: 'Central & State Govt.',          data: series('indianCentralStateGovt') },
+          { id: 'indianPromoterCorp',     label: 'Corporate Bodies',               data: series('indianPromoterCorp') },
+          { id: 'indianPromoterFiBanks',  label: 'FIs & Banks',                    data: series('indianPromoterFiBanks') },
+          { id: 'otherIndianPromoters',   label: 'Other Indian Promoters',         data: series('otherIndianPromoters') },
+          { id: 'foreignPromoters',       label: 'Foreign Promoters',              data: series('foreignPromoters') },
+          { id: 'foreignIndvNri',         label: 'Foreign Individuals (NRIs)',      data: series('foreignIndvNri') },
+          { id: 'foreignPromoterCorp',    label: 'Foreign Corporate Bodies',       data: series('foreignPromoterCorp') },
+          { id: 'foreignPromoterInst',    label: 'Foreign Institutions',           data: series('foreignPromoterInst') },
+          { id: 'promoterQfi',            label: 'Qualified Foreign Investor',     data: series('promoterQfi') },
+          { id: 'otherForeignPromoters',  label: 'Other Foreign Promoters',        data: series('otherForeignPromoters') },
+          { id: 'personsActingInConcert', label: 'Persons Acting in Concert',      data: series('personsActingInConcert') },
+        ],
+      },
+      {
+        id: 'nonPromoters',
+        label: 'Non-Promoters',
+        isExpandable: true,
+        data: series('nonPromoters'),
+        children: [
+          { id: 'nonPromoterInst',   label: 'Institutions',                       data: series('nonPromoterInst') },
+          { id: 'npMutualFunds',     label: 'Mutual Funds / UTI',                 data: series('npMutualFunds') },
+          { id: 'npBanksFiIns',      label: 'Banks, FIs, Insurance',              data: series('npBanksFiIns') },
+          { id: 'npInsurance',       label: 'Insurance Companies',                data: series('npInsurance') },
+          { id: 'npFiBanks',         label: 'Financial Institutions & Banks',     data: series('npFiBanks') },
+          { id: 'npCentralStateGovt',label: 'Central & State Govt.',              data: series('npCentralStateGovt') },
+          { id: 'npFiis',            label: 'FIIs',                               data: series('npFiis') },
+          { id: 'npVentureCapital',  label: 'Venture Capital Funds',              data: series('npVentureCapital') },
+          { id: 'npForeignVenture',  label: 'Foreign Venture Capital',            data: series('npForeignVenture') },
+          { id: 'npQfiInst',         label: 'Qualified Foreign Investor (Inst)',  data: series('npQfiInst') },
+          { id: 'otherInstNp',       label: 'Other Institutional',                data: series('otherInstNp') },
+          { id: 'npNonInst',         label: 'Non-Institutions',                   data: series('npNonInst') },
+          { id: 'npCorpBodies',      label: 'Corporate Bodies',                   data: series('npCorpBodies') },
+          { id: 'npIndividuals',     label: 'Individuals',                        data: series('npIndividuals') },
+          { id: 'npIndvUpto1L',      label: 'Individuals (up to ₹1 lakh)',        data: series('npIndvUpto1L') },
+          { id: 'npIndvOver1L',      label: 'Individuals (over ₹1 lakh)',         data: series('npIndvOver1L') },
+          { id: 'npQfi',             label: 'Qualified Foreign Investor',         data: series('npQfi') },
+          { id: 'otherNonInstNp',    label: 'Other Non-Institutional',            data: series('otherNonInstNp') },
+        ],
+      },
+      {
+        id: 'custodians',
+        label: 'Shares held by Custodians',
+        isExpandable: false,
+        data: series('custodians'),
+        children: [],
+      },
+    ];
+
+    res.json({
+      company: companyName,
+      symbol,
+      quarters: quarterLabels,
+      sections,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getCharts, getShareholding };

@@ -16,6 +16,9 @@ router.get('/:symbol/prices', screenerController.getPrices);
 // GET /api/screener/:symbol/charts — chart-ready data grouped by Price, PE Ratio, Sales & Margin
 router.get('/:symbol/charts', prowessController.getCharts);
 
+// GET /api/screener/:symbol/shareholding — historical quarterly shareholding breakdown
+router.get('/:symbol/shareholding', prowessController.getShareholding);
+
 // POST /api/screener/:symbol/peers — peer comparison table with requested indicators
 // Body: { "indicators": ["cmp","pe","marketCap","divYld","npQtr","qtrProfitVar","salesQtr","qtrSalesVar","roce"] }
 router.post('/:symbol/peers', screenerController.getPeers);
