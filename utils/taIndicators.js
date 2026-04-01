@@ -592,10 +592,197 @@ function _computeTimeframe(bars, quote, full) {
   };
 }
 
+// ─── Full Series Computations ─────────────────────────────────────────────────
+
+/**
+ * SMA series — one value per bar (null during warmup).
+ * @param {number[]} closes  sorted oldest→newest
+ * @param {number} period
+ * @returns {(number|null)[]}
+ */
+function smaSeries(closes, period) {
+  return closes.map((_, i) => {
+    if (i < period - 1) return null;
+    const slice = closes.slice(i - period + 1, i + 1);
+    return slice.reduce((a, b) => a + b, 0) / period;
+  });
+}
+
+/**
+ * RSI series using Wilder's smoothing — one value per bar (null during warmup).
+ * @param {number[]} closes
+ * @param {number} [period=14]
+ * @returns {(number|null)[]}
+ */
+function rsiSeries(closes, period = 14) {
+  const result = new Array(closes.length).fill(null);
+  if (closes.length < period + 1) return result;
+
+  const diffs = closes.map((c, i) => (i === 0 ? null : c - closes[i - 1]));
+
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = diffs[i];
+    if (d > 0) avgGain += d; else avgLoss += Math.abs(d);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+  result[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = diffs[i];
+    const g = d > 0 ? d : 0;
+    const l = d < 0 ? Math.abs(d) : 0;
+    avgGain = (avgGain * (period - 1) + g) / period;
+    avgLoss = (avgLoss * (period - 1) + l) / period;
+    result[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return result;
+}
+
+/**
+ * Bollinger Bands series — one {upper,middle,lower} per bar (null during warmup).
+ * @param {number[]} closes
+ * @param {number} [period=20]
+ * @param {number} [multiplier=2]
+ * @returns {{ upper: (number|null)[], middle: (number|null)[], lower: (number|null)[] }}
+ */
+function bollingerBandsSeries(closes, period = 20, multiplier = 2) {
+  const upper  = new Array(closes.length).fill(null);
+  const middle = new Array(closes.length).fill(null);
+  const lower  = new Array(closes.length).fill(null);
+
+  for (let i = period - 1; i < closes.length; i++) {
+    const slice = closes.slice(i - period + 1, i + 1);
+    const m = slice.reduce((a, b) => a + b, 0) / period;
+    const variance = slice.reduce((a, b) => a + Math.pow(b - m, 2), 0) / period;
+    const std = Math.sqrt(variance);
+    middle[i] = m;
+    upper[i]  = m + multiplier * std;
+    lower[i]  = m - multiplier * std;
+  }
+  return { upper, middle, lower };
+}
+
+/**
+ * CMF series (Chaikin Money Flow) — one value per bar (null during warmup).
+ * @param {Array<{high:number,low:number,close:number,volume:number}>} bars
+ * @param {number} [period=14]
+ * @returns {(number|null)[]}
+ */
+function cmfSeries(bars, period = 14) {
+  return bars.map((_, i) => {
+    if (i < period - 1) return null;
+    const slice = bars.slice(i - period + 1, i + 1);
+    let sumMFV = 0, sumVol = 0;
+    for (const bar of slice) {
+      const range = bar.high - bar.low;
+      const mfm = range === 0 ? 0 : ((bar.close - bar.low) - (bar.high - bar.close)) / range;
+      sumMFV += mfm * bar.volume;
+      sumVol += bar.volume;
+    }
+    return sumVol === 0 ? null : sumMFV / sumVol;
+  });
+}
+
+/**
+ * ADX series using Wilder's smoothing — one value per bar (null during warmup).
+ * @param {Array<{high:number,low:number,close:number}>} bars
+ * @param {number} [period=14]
+ * @returns {(number|null)[]}
+ */
+function adxSeries(bars, period = 14) {
+  const result = new Array(bars.length).fill(null);
+  if (bars.length < period * 2 + 1) return result;
+
+  const trArr = [], plusDMArr = [], minusDMArr = [];
+  for (let i = 1; i < bars.length; i++) {
+    const hl  = bars[i].high - bars[i].low;
+    const hpc = Math.abs(bars[i].high - bars[i - 1].close);
+    const lpc = Math.abs(bars[i].low  - bars[i - 1].close);
+    trArr.push(Math.max(hl, hpc, lpc));
+    const up   = bars[i].high - bars[i - 1].high;
+    const down = bars[i - 1].low - bars[i].low;
+    plusDMArr.push(up > down && up > 0 ? up : 0);
+    minusDMArr.push(down > up && down > 0 ? down : 0);
+  }
+
+  let atrS = trArr.slice(0, period).reduce((a, b) => a + b, 0);
+  let pDMS  = plusDMArr.slice(0, period).reduce((a, b) => a + b, 0);
+  let mDMS  = minusDMArr.slice(0, period).reduce((a, b) => a + b, 0);
+
+  const dxArr = [];
+  for (let i = period; i < trArr.length; i++) {
+    atrS = atrS - atrS / period + trArr[i];
+    pDMS  = pDMS  - pDMS  / period + plusDMArr[i];
+    mDMS  = mDMS  - mDMS  / period + minusDMArr[i];
+    const pDI = atrS > 0 ? (pDMS / atrS) * 100 : 0;
+    const mDI = atrS > 0 ? (mDMS / atrS) * 100 : 0;
+    const sum = pDI + mDI;
+    dxArr.push(sum > 0 ? (Math.abs(pDI - mDI) / sum) * 100 : 0);
+  }
+
+  // ADX = smoothed DX; first ADX value at index (period * 2 - 1) in trArr → bar index period * 2
+  let adxVal = dxArr.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  // bar index for first DX value: trArr[period] corresponds to bars[period+1], so first ADX
+  // corresponds to bars[ period + period ] = bars[ period * 2 ]
+  result[period * 2] = adxVal;
+  for (let i = period; i < dxArr.length; i++) {
+    adxVal = (adxVal * (period - 1) + dxArr[i]) / period;
+    result[period + 1 + i] = adxVal;
+  }
+  return result;
+}
+
+/**
+ * Compute all indicator series aligned to the same date array.
+ * @param {Array<{date:string,open:number,high:number,low:number,close:number,volume:number}>} bars
+ * @returns {object}  keyed by indicator name, values are [{date, value}] arrays
+ */
+function computeIndicatorSeries(bars) {
+  const closes = bars.map((b) => b.close);
+  const dates  = bars.map((b) => b.date);
+
+  const toSeries = (arr) =>
+    arr.map((v, i) => ({ date: dates[i], value: v == null ? null : r2(v) }));
+
+  const sma20s  = smaSeries(closes, 20);
+  const sma50s  = smaSeries(closes, 50);
+  const sma100s = smaSeries(closes, 100);
+  const sma200s = smaSeries(closes, 200);
+  const ema20s  = emaSeries(closes, 20);
+  const ema50s  = emaSeries(closes, 50);
+  const bb      = bollingerBandsSeries(closes);
+  const cmf14s  = cmfSeries(bars, 14);
+  const rsi14s  = rsiSeries(closes, 14);
+  const adx14s  = adxSeries(bars, 14);
+
+  return {
+    sma20:    toSeries(sma20s),
+    sma50:    toSeries(sma50s),
+    sma100:   toSeries(sma100s),
+    sma200:   toSeries(sma200s),
+    ema20:    toSeries(ema20s),
+    ema50:    toSeries(ema50s),
+    bbUpper:  toSeries(bb.upper),
+    bbMiddle: toSeries(bb.middle),
+    bbLower:  toSeries(bb.lower),
+    cmf14:    toSeries(cmf14s),
+    rsi14:    toSeries(rsi14s),
+    adx14:    toSeries(adx14s),
+  };
+}
+
 module.exports = {
   sma,
   ema,
   emaSeries,
+  smaSeries,
+  rsiSeries,
+  bollingerBandsSeries,
+  cmfSeries,
+  adxSeries,
+  computeIndicatorSeries,
   detectCrossovers,
   rsi,
   rsiTrend,
