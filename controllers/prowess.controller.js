@@ -12,9 +12,9 @@ const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 // osc_fundamental_ind_qtr_v3.csv : company rows (row 6+), 12 period blocks of 21 cols each
 //   Col 0 = Company Name; periods L-11 … L, each starting at col 1 + period_index*21
 //
-//   Each period block (L-11 to L) represents the SAME quarter for a company.
-//   L-11 to L are 12 consecutive NSE trading day price snapshots within that quarter.
-//   The quarter itself is identified by ntrm_date (offset 17) — e.g. "31-12-2025" = Dec-25 quarter.
+//   Each period block (L-11 to L) represents a DIFFERENT quarter.
+//   L-11 = oldest quarter, L = most recent quarter (last 12 quarters of data).
+//   The quarter is identified by ntrm_date (offset 17) — e.g. "31-12-2025" = Dec-25 quarter.
 //
 //   Within each period block (0-based offset):
 //     0  Shares Outstanding                                   [same across all 12 days]
@@ -106,17 +106,36 @@ function loadFundamentalMap() {
 
 
 /**
- * Derive the quarter label (Mon-YY format) from ntrm_date (DD-MM-YYYY).
- * ntrm_date is the quarter-end date (e.g. "31-12-2025" → "Dec-25").
- * All 12 L-11…L periods share the same ntrm_date, so this returns one label.
+ * Build x-axis labels for all 12 periods (L-11 … L) by working backwards
+ * from the latest period's quarter-end date (ntrm_date), stepping back 3 months per period.
+ *
+ * e.g. if L = Dec-25, then L-1 = Sep-25, L-2 = Jun-25, ..., L-11 = Sep-22.
+ *
+ * @param {string} latestNtrmDate  DD-MM-YYYY quarter-end date of period L
+ * @returns {string[]}  12 labels, index 0 = L-11 (oldest), index 11 = L (latest)
  */
-function quarterLabelFromNtrmDate(ntrmDateStr) {
-  const parts = (ntrmDateStr || '').split('-');
-  if (parts.length !== 3) return null;
-  const [, mm, yyyy] = parts;
+function buildQuarterLabels(latestNtrmDate) {
   const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const monthIdx = parseInt(mm, 10) - 1;
-  return `${monthShort[monthIdx]}-${String(yyyy).slice(2)}`;
+  const parts = (latestNtrmDate || '').split('-');
+  if (parts.length !== 3) {
+    // fallback: return period identifiers
+    return Array.from({ length: PERIOD_COUNT }, (_, i) => {
+      const offset = PERIOD_COUNT - 1 - i;
+      return offset === 0 ? 'L' : `L-${offset}`;
+    });
+  }
+  const [, mm, yyyy] = parts;
+  let month = parseInt(mm, 10) - 1; // 0-based
+  let year = parseInt(yyyy, 10);
+
+  // Build from L (latest) going back 11 steps of 3 months each
+  const labels = [];
+  for (let i = 0; i < PERIOD_COUNT; i++) {
+    labels.unshift(`${monthShort[month]}-${String(year).slice(2)}`);
+    month -= 3;
+    if (month < 0) { month += 12; year -= 1; }
+  }
+  return labels; // index 0 = L-11 (oldest), index 11 = L (latest)
 }
 
 /** Resolve NSE symbol → company row, returns null if not found */
@@ -183,9 +202,8 @@ function periodData(row, periodIndex) {
  *   5. Price to Book  — Prowess: bar=Stock Price (₹), line=P/B + Median PBV
  *   6. Market Cap / Sales — Prowess: bar=Quarter Sales (Cr), line=MC/TTM Sales + Median
  *
- * For groups 2-6: x-axis label = quarter derived from ntrm_date (e.g. "Dec-25").
- * All 12 L-11…L series points share the same quarter label since they are price
- * snapshots within the same quarter.
+ * For groups 2-6: x-axis labels = L-11, L-10, …, L (trading day snapshots within the current quarter).
+ * All 12 periods share the same ntrm_date; L-11 = oldest snapshot, L = most recent.
  */
 async function getCharts(req, res, next) {
   try {
@@ -201,18 +219,16 @@ async function getCharts(req, res, next) {
     }
     const companyName = companyRow[0];
 
-    // ── Extract all 12 periods (L-11 = oldest snapshot, L = latest snapshot) ──
+    // ── Extract all 12 periods (L-11 = oldest quarter, L = most recent quarter) ──
     const periods = Array.from({ length: PERIOD_COUNT }, (_, i) => periodData(companyRow, i));
 
-    // Quarter label derived from ntrm_date (all 12 periods share the same quarter).
-    // Use the latest period's ntrm_date as the authoritative quarter label.
-    const quarterLabel = quarterLabelFromNtrmDate(periods[PERIOD_COUNT - 1].ntrmDate) || 'Current';
+    // All 12 periods share the same ntrm_date (Dec-25 quarter), but represent
+    // 12 consecutive quarters: L = latest (Dec-25), L-1 = Sep-25, ..., L-11 = Sep-22.
+    // Derive quarter labels by stepping back 3 months from the latest period's ntrm_date.
+    const snapshotLabels = buildQuarterLabels(periods[PERIOD_COUNT - 1].ntrmDate);
 
-    // x-axis for Prowess charts: all 12 points are NSE trading day price snapshots
-    // within the same quarter (L-11 = oldest, L = latest). Labelled as "Mon-YY · N".
-    const snapshotLabels = Array.from({ length: PERIOD_COUNT }, (_, i) =>
-      `${quarterLabel} · ${i + 1}`
-    );
+    // Latest quarter label (L) for metadata
+    const quarterLabel = snapshotLabels[PERIOD_COUNT - 1];
 
     // ── 1. Price group — yfinance ─────────────────────────────────────────────
     const now = Date.now();
