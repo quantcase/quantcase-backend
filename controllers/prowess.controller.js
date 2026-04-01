@@ -9,49 +9,61 @@ const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 // ── CSV structure notes ────────────────────────────────────────────────────────
 // osc_identity.csv     : "Company Name" ↔ "NSE symbol" mapping (row 0 = header)
-// osc_fundamental_ind_qtr.csv : company rows (row 6+), 12 period blocks of 18 cols
-//   Col 0 = Company Name; periods L-11 … L, each starting at col 1 + period_index*18
-//   Within each period block (0-based offset):
-//     0  Date                    (DD-MM-YYYY)
-//     1  Shares Outstanding      (units)
-//     2  Market Capitalisation   (Rs. Crore)
-//     3  Total Returns (%)
-//     4  Adjusted EPS            (annualised TTM)
-//     5  Adjusted Cash EPS
-//     6  P/E
-//     7  P/B
-//     8  Book Value per Share    (₹)
-//     9  Yield
-//    10  Enterprise value        (Rs. Crore)
-//    11  Market Capitalisation / Enterprise Value
-//    12  Enterprise Value / PBDITA
-//    13  Cost of goods sold      (Rs. Crore)
-//    14  Total income from continuing operations  (Rs. Crore)
-//    15  Total expenses          (Rs. Crore)
-//    16  Net Profit              (Rs. Crore)
-//    17  Earnings per share before extraordinary item  (₹)
+// osc_fundamental_ind_qtr_v3.csv : company rows (row 6+), 12 period blocks of 21 cols each
+//   Col 0 = Company Name; periods L-11 … L, each starting at col 1 + period_index*21
 //
-// Fundamentals (cols 13-17) are the same across all 12 periods — single-quarter snapshot.
-// Price-derived fields (cols 2,4-12) vary daily across the 12 trading days.
+//   Each period block (L-11 to L) represents the SAME quarter for a company.
+//   L-11 to L are 12 consecutive NSE trading day price snapshots within that quarter.
+//   The quarter itself is identified by ntrm_date (offset 17) — e.g. "31-12-2025" = Dec-25 quarter.
+//
+//   Within each period block (0-based offset):
+//     0  Shares Outstanding                                   [same across all 12 days]
+//     1  Market Capitalisation         (Rs. Crore)            [price-derived — varies per trading day]
+//     2  Total Returns (%)                                    [price-derived — varies per trading day]
+//     3  Adjusted EPS                  (TTM)                  [price-derived — varies per trading day]
+//     4  Adjusted Cash EPS                                    [price-derived — varies per trading day]
+//     5  P/E (Price to Earnings Ratio)                        [price-derived — varies per trading day]
+//     6  P/B (Price to Book Value Ratio)                      [price-derived — varies per trading day]
+//     7  Book Value per Share          (Indian Rupee)         [quarterly fundamental — same across all 12 days]
+//     8  Yield                                                [price-derived — varies per trading day]
+//     9  Enterprise value              (Rs. Crore)            [price-derived — varies per trading day]
+//    10  Market Capitalisation / Enterprise Value             [price-derived — varies per trading day]
+//    11  Enterprise Value / PBDITA                            [price-derived — varies per trading day]
+//    12  Cost of goods sold            (Rs. Crore)            [quarterly fundamental — same across all 12 days]
+//    13  Total income from continuing operations (Rs. Crore)  [quarterly fundamental — same across all 12 days]
+//    14  Total expenses                (Rs. Crore)            [quarterly fundamental — same across all 12 days]
+//    15  Net Profit                    (Rs. Crore)            [quarterly fundamental — same across all 12 days]
+//    16  Earnings per share before extraordinary item (₹)    [quarterly fundamental — same across all 12 days]
+//    17  ntrm_date — quarter-end date  (DD-MM-YYYY)           [quarterly fundamental — same across all 12 days]
+//    18  ntrm_months — period length   (Months)               [quarterly fundamental — same across all 12 days]
+//    19  ntrm_source — data source     (Text)                 [quarterly fundamental — same across all 12 days]
+//    20  ntrm_date_signed — results filing date (DD-MM-YYYY)  [quarterly fundamental — same across all 12 days]
 
-const COLS_PER_PERIOD = 18;
+const COLS_PER_PERIOD = 21;
 const PERIOD_COUNT = 12; // L-11 … L
 
 const OFF = {
-  DATE: 0,
-  SHARES: 1,
-  MARKET_CAP: 2,
-  ADJ_EPS: 4,
-  PE: 6,
-  PB: 7,
-  BVPS: 8,
-  EV: 10,
-  EV_PBDITA: 12,
-  COGS: 13,
-  TOTAL_INCOME: 14,
-  TOTAL_EXPENSES: 15,
-  NET_PROFIT: 16,
-  EPS_BASIC: 17,
+  SHARES: 0,
+  MARKET_CAP: 1,
+  TOTAL_RETURNS: 2,
+  ADJ_EPS: 3,
+  ADJ_CASH_EPS: 4,
+  PE: 5,
+  PB: 6,
+  BVPS: 7,
+  YIELD: 8,
+  EV: 9,
+  MC_EV: 10,
+  EV_PBDITA: 11,
+  COGS: 12,
+  TOTAL_INCOME: 13,
+  TOTAL_EXPENSES: 14,
+  NET_PROFIT: 15,
+  EPS_BASIC: 16,
+  NTRM_DATE: 17,      // quarter-end date — use this to label the quarter
+  NTRM_MONTHS: 18,
+  NTRM_SOURCE: 19,
+  NTRM_DATE_SIGNED: 20,
 };
 
 // ── Lazy-loaded data ──────────────────────────────────────────────────────────
@@ -79,7 +91,7 @@ function loadIdentityMap() {
 function loadFundamentalMap() {
   if (_fundamentalMap) return _fundamentalMap;
   const raw = fs.readFileSync(
-    path.join(__dirname, '../lib/osc_fundamental_ind_qtr.csv'),
+    path.join(__dirname, '../lib/osc_fundamental_ind_qtr_v3.csv'),
     'utf-8'
   );
   const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
@@ -92,46 +104,19 @@ function loadFundamentalMap() {
   return _fundamentalMap;
 }
 
+
 /**
- * Derive quarter labels (Mon-YY format) for the 12 periods, anchored to the
- * latest nse_date in the company row. Indian quarters end in Mar/Jun/Sep/Dec.
- * L = latest quarter, L-1 = previous, etc.
+ * Derive the quarter label (Mon-YY format) from ntrm_date (DD-MM-YYYY).
+ * ntrm_date is the quarter-end date (e.g. "31-12-2025" → "Dec-25").
+ * All 12 L-11…L periods share the same ntrm_date, so this returns one label.
  */
-function deriveQuarterLabels(companyRow) {
-  // Parse latest period's date (DD-MM-YYYY) to find its quarter-end month
-  const latestDateStr = companyRow[1 + (PERIOD_COUNT - 1) * COLS_PER_PERIOD];
-  const parts = (latestDateStr || '').split('-');
-  let anchorYear = new Date().getFullYear();
-  let anchorMonth = new Date().getMonth(); // 0-based
-
-  if (parts.length === 3) {
-    const [, mm, yyyy] = parts;
-    anchorMonth = parseInt(mm, 10) - 1; // 0-based
-    anchorYear = parseInt(yyyy, 10);
-  }
-
-  // Snap to nearest Indian quarter-end month: Mar(2), Jun(5), Sep(8), Dec(11)
-  const quarterEndMonths = [2, 5, 8, 11];
-  const snapToQEnd = (month) => quarterEndMonths.reduce((prev, cur) =>
-    Math.abs(cur - month) < Math.abs(prev - month) ? cur : prev
-  );
-
-  let qMonth = snapToQEnd(anchorMonth);
-  let qYear = anchorYear;
-  // If snapped month is ahead of anchor, step back one quarter
-  if (qMonth > anchorMonth) {
-    qMonth -= 3;
-    if (qMonth < 0) { qMonth += 12; qYear -= 1; }
-  }
-
+function quarterLabelFromNtrmDate(ntrmDateStr) {
+  const parts = (ntrmDateStr || '').split('-');
+  if (parts.length !== 3) return null;
+  const [, mm, yyyy] = parts;
   const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const labels = [];
-  for (let i = PERIOD_COUNT - 1; i >= 0; i--) {
-    labels[i] = `${monthShort[qMonth]}-${String(qYear).slice(2)}`;
-    qMonth -= 3;
-    if (qMonth < 0) { qMonth += 12; qYear -= 1; }
-  }
-  return labels;
+  const monthIdx = parseInt(mm, 10) - 1;
+  return `${monthShort[monthIdx]}-${String(yyyy).slice(2)}`;
 }
 
 /** Resolve NSE symbol → company row, returns null if not found */
@@ -160,20 +145,27 @@ function r2(v) {
 function periodData(row, periodIndex) {
   const start = 1 + periodIndex * COLS_PER_PERIOD;
   return {
-    date: row[start + OFF.DATE] || null,
     shares: toFloat(row[start + OFF.SHARES]),
     marketCapCr: toFloat(row[start + OFF.MARKET_CAP]),
+    totalReturns: toFloat(row[start + OFF.TOTAL_RETURNS]),
     adjEps: toFloat(row[start + OFF.ADJ_EPS]),
+    adjCashEps: toFloat(row[start + OFF.ADJ_CASH_EPS]),
     pe: toFloat(row[start + OFF.PE]),
     pb: toFloat(row[start + OFF.PB]),
     bvps: toFloat(row[start + OFF.BVPS]),
+    yield_: toFloat(row[start + OFF.YIELD]),
     ev: toFloat(row[start + OFF.EV]),
+    mcEv: toFloat(row[start + OFF.MC_EV]),
     evPbdita: toFloat(row[start + OFF.EV_PBDITA]),
     cogsCr: toFloat(row[start + OFF.COGS]),
     totalIncomeCr: toFloat(row[start + OFF.TOTAL_INCOME]),
     totalExpCr: toFloat(row[start + OFF.TOTAL_EXPENSES]),
     netProfitCr: toFloat(row[start + OFF.NET_PROFIT]),
     epsBasic: toFloat(row[start + OFF.EPS_BASIC]),
+    ntrmDate: row[start + OFF.NTRM_DATE] || null,           // quarter-end date (DD-MM-YYYY)
+    ntrmMonths: toFloat(row[start + OFF.NTRM_MONTHS]),
+    ntrmSource: row[start + OFF.NTRM_SOURCE] || null,
+    ntrmDateSigned: row[start + OFF.NTRM_DATE_SIGNED] || null,
   };
 }
 
@@ -185,13 +177,15 @@ function periodData(row, periodIndex) {
  *
  * Chart groups:
  *   1. Price          — yfinance monthly (10 years)
- *   2. PE Ratio       — Prowess PE series (12 trading days) + Median PE (DB)
- *   3. Sales & Margin — Prowess single-quarter fundamentals + derived margins
- *   4. EV / EBITDA    — Prowess EV/PBDITA series (12 trading days)
- *   5. Price to Book  — Prowess P/B series (12 trading days)
- *   6. Market Cap / Sales — Prowess MC/TTM Sales (12 trading days)
+ *   2. PE Ratio       — Prowess: bar=Adj EPS (TTM), line=PE + Median PE
+ *   3. Sales & Margin — Prowess: bar=Quarter Sales (Cr), lines=GPM%/OPM%/NPM%
+ *   4. EV / EBITDA    — Prowess: bar=EV (Cr), line=EV/PBDITA + Median
+ *   5. Price to Book  — Prowess: bar=Stock Price (₹), line=P/B + Median PBV
+ *   6. Market Cap / Sales — Prowess: bar=Quarter Sales (Cr), line=MC/TTM Sales + Median
  *
- * Groups 2-6: bar series = 12-period values; line series = 12-period trend.
+ * For groups 2-6: x-axis label = quarter derived from ntrm_date (e.g. "Dec-25").
+ * All 12 L-11…L series points share the same quarter label since they are price
+ * snapshots within the same quarter.
  */
 async function getCharts(req, res, next) {
   try {
@@ -207,9 +201,18 @@ async function getCharts(req, res, next) {
     }
     const companyName = companyRow[0];
 
-    // ── Extract all 12 periods (oldest → newest) ──────────────────────────────
+    // ── Extract all 12 periods (L-11 = oldest snapshot, L = latest snapshot) ──
     const periods = Array.from({ length: PERIOD_COUNT }, (_, i) => periodData(companyRow, i));
-    const dailyLabels = deriveQuarterLabels(companyRow);
+
+    // Quarter label derived from ntrm_date (all 12 periods share the same quarter).
+    // Use the latest period's ntrm_date as the authoritative quarter label.
+    const quarterLabel = quarterLabelFromNtrmDate(periods[PERIOD_COUNT - 1].ntrmDate) || 'Current';
+
+    // x-axis for Prowess charts: all 12 points are NSE trading day price snapshots
+    // within the same quarter (L-11 = oldest, L = latest). Labelled as "Mon-YY · N".
+    const snapshotLabels = Array.from({ length: PERIOD_COUNT }, (_, i) =>
+      `${quarterLabel} · ${i + 1}`
+    );
 
     // ── 1. Price group — yfinance ─────────────────────────────────────────────
     const now = Date.now();
@@ -277,7 +280,7 @@ async function getCharts(req, res, next) {
       ],
     };
 
-    // ── Median PE from CSV periods ────────────────────────────────────────────
+    // ── Median PE from periods ────────────────────────────────────────────────
     const peValues = periods
       .map((p) => p.pe)
       .filter((v) => v != null)
@@ -291,45 +294,53 @@ async function getCharts(req, res, next) {
     }
 
     // ── 2. PE Ratio group ─────────────────────────────────────────────────────
-    // Bar: Adjusted EPS (TTM-annualised, single latest value).
-    // Line: PE (daily, 12 points) + Median PE (flat).
+    // Bar: Earnings Yield % = (1 / PE) × 100 — varies per snapshot since PE varies.
+    //   Useful for comparing against bond/FD rates to judge valuation.
+    // Line: PE ratio (price-derived) + Median PE (flat reference line).
     const peGroup = {
       group: 'PE Ratio',
       source: 'prowess',
+      quarter: quarterLabel,
       barSeries: [
         {
-          dataKey: 'ttmEps',
-          name: 'Adj. EPS (TTM)',
-          data: periods.map((p, i) => ({ x: dailyLabels[i], y: r2(p.adjEps) })),
+          dataKey: 'earningsYield',
+          name: 'Earnings Yield %',
+          data: periods.map((p, i) => ({
+            x: snapshotLabels[i],
+            y: p.pe != null && p.pe !== 0 ? r2((1 / p.pe) * 100) : null,
+          })),
         },
       ],
       lineSeries: [
         {
           dataKey: 'pe',
           name: 'PE',
-          data: periods.map((p, i) => ({ x: dailyLabels[i], y: r2(p.pe) })),
+          data: periods.map((p, i) => ({ x: snapshotLabels[i], y: r2(p.pe) })),
         },
         {
           dataKey: 'medianPe',
           name: 'Median PE',
-          data: periods.map((_, i) => ({ x: dailyLabels[i], y: medianPe })),
+          data: periods.map((_, i) => ({ x: snapshotLabels[i], y: medianPe })),
         },
       ],
     };
 
     // ── 3. Sales & Margin group ───────────────────────────────────────────────
-    // Bar: Total Income (Cr) per period. Lines: OPM%, GPM%, NPM% per period.
-    //   OPM% = (TotalIncome - TotalExpenses) / TotalIncome * 100
+    // Bar: Quarter Sales (Cr) — quarterly fundamental, same across all 12 snapshots.
+    // Lines: GPM%, OPM%, NPM% — also fixed quarterly fundamentals.
     //   GPM% = (TotalIncome - COGS) / TotalIncome * 100
+    //   OPM% = (TotalIncome - TotalExpenses) / TotalIncome * 100
     //   NPM% = NetProfit / TotalIncome * 100
+    // Note: All values are the same for each of the 12 snapshots (single quarter data).
     const salesMarginGroup = {
       group: 'Sales & Margin',
       source: 'prowess',
+      quarter: quarterLabel,
       barSeries: [
         {
           dataKey: 'quarterSales',
-          name: 'Quarter Sales',
-          data: periods.map((p, i) => ({ x: dailyLabels[i], y: r2(p.totalIncomeCr) })),
+          name: 'Quarter Sales (Cr)',
+          data: periods.map((p, i) => ({ x: snapshotLabels[i], y: r2(p.totalIncomeCr) })),
         },
       ],
       lineSeries: [
@@ -337,7 +348,7 @@ async function getCharts(req, res, next) {
           dataKey: 'gpm',
           name: 'GPM %',
           data: periods.map((p, i) => ({
-            x: dailyLabels[i],
+            x: snapshotLabels[i],
             y: p.totalIncomeCr && p.cogsCr != null
               ? r2(((p.totalIncomeCr - p.cogsCr) / p.totalIncomeCr) * 100) : null,
           })),
@@ -346,7 +357,7 @@ async function getCharts(req, res, next) {
           dataKey: 'opm',
           name: 'OPM %',
           data: periods.map((p, i) => ({
-            x: dailyLabels[i],
+            x: snapshotLabels[i],
             y: p.totalIncomeCr && p.totalExpCr != null
               ? r2(((p.totalIncomeCr - p.totalExpCr) / p.totalIncomeCr) * 100) : null,
           })),
@@ -355,7 +366,7 @@ async function getCharts(req, res, next) {
           dataKey: 'npm',
           name: 'NPM %',
           data: periods.map((p, i) => ({
-            x: dailyLabels[i],
+            x: snapshotLabels[i],
             y: p.totalIncomeCr && p.netProfitCr != null
               ? r2((p.netProfitCr / p.totalIncomeCr) * 100) : null,
           })),
@@ -364,9 +375,8 @@ async function getCharts(req, res, next) {
     };
 
     // ── 4. EV / EBITDA (EV / PBDITA) group ───────────────────────────────────
-    // Prowess computes EV/PBDITA directly (PBDITA ≈ EBITDA for Indian companies).
-    // Bar: Enterprise Value (Cr) at latest date.
-    // Line: EV/PBDITA (daily, 12 points) + median.
+    // Bar: Enterprise Value (Cr) — price-derived, varies per trading day snapshot.
+    // Line: EV/PBDITA (price-derived) + Median EV multiple (flat reference line).
     const evEbitdaValues = periods.map((p) => p.evPbdita).filter((v) => v != null).sort((a, b) => a - b);
     let MEDIAN_EV_EBITDA = null;
     if (evEbitdaValues.length > 0) {
@@ -378,30 +388,31 @@ async function getCharts(req, res, next) {
     const evEbitdaGroup = {
       group: 'EV / EBITDA',
       source: 'prowess',
+      quarter: quarterLabel,
       barSeries: [
         {
           dataKey: 'ev',
           name: 'Enterprise Value (Cr)',
-          data: periods.map((p, i) => ({ x: dailyLabels[i], y: r2(p.ev) })),
+          data: periods.map((p, i) => ({ x: snapshotLabels[i], y: r2(p.ev) })),
         },
       ],
       lineSeries: [
         {
           dataKey: 'evToEbitda',
           name: 'EV / PBDITA',
-          data: periods.map((p, i) => ({ x: dailyLabels[i], y: r2(p.evPbdita) })),
+          data: periods.map((p, i) => ({ x: snapshotLabels[i], y: r2(p.evPbdita) })),
         },
         {
           dataKey: 'medianEvMultiple',
           name: `Median EV Multiple = ${MEDIAN_EV_EBITDA}`,
-          data: periods.map((_, i) => ({ x: dailyLabels[i], y: MEDIAN_EV_EBITDA })),
+          data: periods.map((_, i) => ({ x: snapshotLabels[i], y: MEDIAN_EV_EBITDA })),
         },
       ],
     };
 
     // ── 5. Price to Book group ────────────────────────────────────────────────
-    // Prowess provides BVPS (fixed per quarter) and P/B (varies daily).
-    // Bar: BVPS at latest date. Line: P/B (daily, 12 points) + median.
+    // Bar: Stock Price (₹) = MarketCap × 1e7 / Shares — price-derived, varies per snapshot.
+    // Line: P/B ratio (price-derived) + Median PBV (flat reference line).
     const pbValues = periods.map((p) => p.pb).filter((v) => v != null).sort((a, b) => a - b);
     let MEDIAN_PBV = null;
     if (pbValues.length > 0) {
@@ -413,31 +424,39 @@ async function getCharts(req, res, next) {
     const priceToBookGroup = {
       group: 'Price to Book',
       source: 'prowess',
+      quarter: quarterLabel,
       barSeries: [
         {
-          dataKey: 'bookValue',
-          name: 'Book Value per Share (₹)',
-          data: periods.map((p, i) => ({ x: dailyLabels[i], y: r2(p.bvps) })),
+          dataKey: 'pricePerShare',
+          name: 'Stock Price (₹)',
+          data: periods.map((p, i) => ({
+            x: snapshotLabels[i],
+            y: p.marketCapCr != null && p.shares != null && p.shares > 0
+              ? r2((p.marketCapCr * 1e7) / p.shares)
+              : null,
+          })),
         },
       ],
       lineSeries: [
         {
           dataKey: 'priceToBV',
           name: 'Price to BV',
-          data: periods.map((p, i) => ({ x: dailyLabels[i], y: r2(p.pb) })),
+          data: periods.map((p, i) => ({ x: snapshotLabels[i], y: r2(p.pb) })),
         },
         {
           dataKey: 'medianPBV',
           name: `Median PBV = ${MEDIAN_PBV}`,
-          data: periods.map((_, i) => ({ x: dailyLabels[i], y: MEDIAN_PBV })),
+          data: periods.map((_, i) => ({ x: snapshotLabels[i], y: MEDIAN_PBV })),
         },
       ],
     };
 
     // ── 6. Market Cap / Sales group ───────────────────────────────────────────
-    // MarketCap varies daily; TotalIncome (quarterly) is fixed.
-    // TTM Sales proxy = TotalIncome × 4 (annualised from single quarter).
-    // Bar: Quarter Sales (Cr). Line: MC / TTM Sales (daily, 12 points) + median.
+    // Bar: Market Cap (Cr) — price-derived, varies per trading day snapshot.
+    // Line: MC / TTM Sales — MarketCap varies per snapshot; TTM Sales = latest quarter × 4.
+    // TTM Sales proxy = latest period's TotalIncome × 4 (annualised from single quarter).
+    // Note: Quarter Sales (TotalIncome) is a quarterly fundamental — same across all 12 snapshots,
+    //   so it is NOT used as the bar. Market Cap is used instead as it is price-derived.
     const latestTotalIncomeCr = periods[PERIOD_COUNT - 1].totalIncomeCr;
     const ttmSalesCr = latestTotalIncomeCr != null ? latestTotalIncomeCr * 4 : null;
     const mcSalesValues = periods
@@ -455,11 +474,12 @@ async function getCharts(req, res, next) {
     const mcSalesGroup = {
       group: 'Market Cap / Sales',
       source: 'prowess',
+      quarter: quarterLabel,
       barSeries: [
         {
-          dataKey: 'sales',
-          name: 'Sales (Cr)',
-          data: periods.map((p, i) => ({ x: dailyLabels[i], y: r2(p.totalIncomeCr) })),
+          dataKey: 'marketCap',
+          name: 'Market Cap (Cr)',
+          data: periods.map((p, i) => ({ x: snapshotLabels[i], y: r2(p.marketCapCr) })),
         },
       ],
       lineSeries: [
@@ -470,13 +490,13 @@ async function getCharts(req, res, next) {
             const ratio = p.marketCapCr != null && ttmSalesCr
               ? r2(p.marketCapCr / ttmSalesCr)
               : null;
-            return { x: dailyLabels[i], y: ratio };
+            return { x: snapshotLabels[i], y: ratio };
           }),
         },
         {
           dataKey: 'medianMcToSales',
           name: `Median Market Cap to Sales = ${MEDIAN_MC_SALES}`,
-          data: periods.map((_, i) => ({ x: dailyLabels[i], y: MEDIAN_MC_SALES })),
+          data: periods.map((_, i) => ({ x: snapshotLabels[i], y: MEDIAN_MC_SALES })),
         },
       ],
     };
@@ -484,6 +504,7 @@ async function getCharts(req, res, next) {
     res.json({
       company: companyName,
       symbol,
+      quarter: quarterLabel,
       chartGroups: [
         priceGroup,
         peGroup,
