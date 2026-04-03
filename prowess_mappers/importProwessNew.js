@@ -31,7 +31,10 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma     = new PrismaClient();
 const DO_INSERT  = process.argv.includes('--insert');
-const CSV_PATH   = path.join(__dirname, '../tmp/osc_sheet_1.csv');
+const csvArg     = process.argv.find(a => a.startsWith('--csv='));
+const CSV_PATH   = csvArg
+  ? path.resolve(csvArg.split('=')[1])
+  : path.join(__dirname, '../tmp/osc_sheet_1.csv');
 const TABLE_NAME = 'prowess_values_new';
 
 // ─── Unit / multiplier ────────────────────────────────────────────────────────
@@ -176,6 +179,16 @@ const BASE_COL_MAP = {
   'Borrowings: Total':       'BORR_TOTAL',      // first occurrence (col 86); col 89 auto-skipped
   'Loan advances: Total':    'LOAN_ADV_TOTAL',  // first occurrence (col 87); col 90 auto-skipped
   'Investment at BV: Total': 'INV_BV_TOTAL',    // first occurrence (col 88); col 91 auto-skipped
+};
+
+/**
+ * Optional columns — present in newer Prowess exports but not required.
+ * Skipped silently if the column is absent from the CSV.
+ */
+const OPTIONAL_COL_MAP = {
+  'Return (cash) on capital employed': 'ROCE',
+  'Capital employed':                  'CAP_EMP',
+  'Debt to equity ratio (times)':      'DE',
 };
 
 /** REV_OP: first non-empty of these two column names wins. */
@@ -381,9 +394,14 @@ async function main() {
       });
     }
 
-    // Mapped columns — all referenced by name
+    // Required columns
     for (const [colName, abbr] of Object.entries(BASE_COL_MAP)) {
       pushRow(colName, abbr);
+    }
+
+    // Optional columns — only pushed when present in this CSV
+    for (const [colName, abbr] of Object.entries(OPTIONAL_COL_MAP)) {
+      if (colName in colMap) pushRow(colName, abbr);
     }
 
     // REV_OP: first non-empty of the two mutually-exclusive columns

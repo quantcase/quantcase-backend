@@ -336,6 +336,38 @@ model KpiValue {
   @@index([kpi_abbr, period_type])
 }
 
+// Prowess (CMIE) KPI values — same schema as kpi_values, populated from importProwessNew.js.
+// company column uses Prowess company names (not NSE tickers); see utils/prowessResolver.js.
+model ProwessValueNew {
+  id          String    @id @default(uuid())
+  callId      String    @map("call_id")
+  company     String
+  fiscal_year String?
+  quarter     String?
+  call_date   String?
+  kpi_abbr    String
+  value       Float?
+  raw_value   String?   @map("raw_value")
+  unit        String?
+  multiplier  Int       @default(1)
+  start_date  String?   @map("start_date")
+  end_date    String?   @map("end_date")
+  period_type String?   @map("period_type")
+  source      KpiSource
+  source_path String    @default("")
+  statement   String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt      @map("updated_at")
+
+  @@map("prowess_values_new")
+  @@unique([callId, kpi_abbr], map: "pnv_call_kpi_unique")
+  @@index([callId],                  map: "idx_pnv_call_id")
+  @@index([company, fiscal_year, quarter], map: "idx_pnv_company_fy_q")
+  @@index([company, kpi_abbr],       map: "idx_pnv_company_kpi")
+  @@index([kpi_abbr],                map: "idx_pnv_kpi")
+  @@index([kpi_abbr, period_type],   map: "idx_pnv_kpi_period")
+}
+
 // Full milestone financial targets — separate from kpi_values.
 // Stores all three categories with both current and targeted values.
 // No deduplication logic applied here — source of truth for promise tracking.
