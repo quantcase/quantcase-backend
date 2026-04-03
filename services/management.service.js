@@ -478,18 +478,18 @@ async function computeManagementAnalysis(callId, timeframe) {
   const kpiDenomMap = Object.fromEntries(kpiRows.map(k => [k.abbr.trim().toLowerCase(), k.denomination]));
 
   const STATUS_SORT = { MISSED_UNDISCLOSED: 0, MISSED: 1, ACHIEVED: 2, HIDDEN: 3, PENDING: 4, KPI_MATCHING_NOT_FOUND: 5 };
-  const mapped = records
-    .map(r => {
-      const out = { ...r };
-      if (r.target_type === 'financial') {
-        out.metric = kpiNameMap[r.kpi_abbr?.trim().toLowerCase()] ?? r.kpi_abbr ?? '';
-        const denomination = kpiDenomMap[r.kpi_abbr?.trim().toLowerCase()];
-        out.targeted_value = formatGuidanceValue(r.targeted_value, denomination);
-        out.current_value  = formatGuidanceValue(r.current_value, denomination);
-      }
-      delete out.kpi_abbr;
-      return out;
-    })
+  const mappedAll = records.map(r => {
+    const out = { ...r };
+    if (r.target_type === 'financial') {
+      out.metric = kpiNameMap[r.kpi_abbr?.trim().toLowerCase()] ?? r.kpi_abbr ?? '';
+      const denomination = kpiDenomMap[r.kpi_abbr?.trim().toLowerCase()];
+      out.targeted_value = formatGuidanceValue(r.targeted_value, denomination);
+      out.current_value  = formatGuidanceValue(r.current_value, denomination);
+    }
+    delete out.kpi_abbr;
+    return out;
+  });
+  const mapped = mappedAll
     .filter(r =>
       r.target_type === 'financial'
         ? (r.targeted_value != null && (r.current_value != null || r.status === 'PENDING' || r.status === 'MISSED_UNDISCLOSED'))
@@ -548,12 +548,18 @@ async function computeManagementAnalysis(callId, timeframe) {
   const capitalScore      = calculateCapitalAllocationScore(governanceSignals);
   const overallScore      = calculateOverallScore(transparencyScore, guidanceScore, capitalScore);
 
+  // Group all records (incl. HIDDEN) by status for hover lists on governance signal items
+  const targetsByStatus = {};
+  for (const r of mappedAll) {
+    (targetsByStatus[r.status] ??= []).push({ metric: r.metric, statement: r.statement, period: r.period, targeted_value: r.targeted_value, current_value: r.current_value });
+  }
+
   const governanceSignalsArray = [];
   let sigId = 1;
   if (governanceSignals.transparent) {
     const early = riskDisclosures.filter(r => r.disclosed_early);
     if (early.length > 0)
-      governanceSignalsArray.push({ id: String(sigId++), text: `${early.length} risk(s) disclosed proactively`, isPositive: true });
+      governanceSignalsArray.push({ id: String(sigId++), text: `${early.length} risk(s) disclosed proactively`, isPositive: true, risks: early.map(r => ({ risk: r.risk, severity: r.severity ?? null, mitigation: r.mitigation ?? null })) });
     governanceSignalsArray.push({ id: String(sigId++), text: 'Management demonstrates transparency', isPositive: true });
   }
   if (governanceSignals.capital_allocation_clarity)
@@ -561,13 +567,13 @@ async function computeManagementAnalysis(callId, timeframe) {
   if (governanceSignals.defensive_language)
     governanceSignalsArray.push({ id: String(sigId++), text: 'Defensive or evasive language detected', isPositive: false });
   if (achievedCount > 0)
-    governanceSignalsArray.push({ id: String(sigId++), text: `${achievedCount} past target(s) achieved`, isPositive: true });
+    governanceSignalsArray.push({ id: String(sigId++), text: `${achievedCount} past target(s) achieved`, isPositive: true, targets: targetsByStatus['ACHIEVED'] ?? [] });
   if (missedCount > 0)
-    governanceSignalsArray.push({ id: String(sigId++), text: `${missedCount} past target(s) missed`, isPositive: false });
+    governanceSignalsArray.push({ id: String(sigId++), text: `${missedCount} past target(s) missed`, isPositive: false, targets: targetsByStatus['MISSED'] ?? [] });
   if (undisclosedMissCount > 0)
-    governanceSignalsArray.push({ id: String(sigId++), text: `${undisclosedMissCount} missed target(s) never acknowledged by management`, isPositive: false });
+    governanceSignalsArray.push({ id: String(sigId++), text: `${undisclosedMissCount} missed target(s) never acknowledged by management`, isPositive: false, targets: targetsByStatus['MISSED_UNDISCLOSED'] ?? [] });
   if (hiddenCount > 0)
-    governanceSignalsArray.push({ id: String(sigId++), text: `${hiddenCount} past target(s) never revisited`, isPositive: false });
+    governanceSignalsArray.push({ id: String(sigId++), text: `${hiddenCount} past target(s) never revisited`, isPositive: false, targets: targetsByStatus['HIDDEN'] ?? [] });
 
   const notablePatterns = riskDisclosures.map((risk, i) => ({
     id:          `risk-${i}`,
