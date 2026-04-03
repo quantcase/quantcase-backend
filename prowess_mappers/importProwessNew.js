@@ -67,6 +67,10 @@ const SNAPSHOT_ABBRS = new Set([
   'TOTAL_ASSETS', 'NONCURR_ASSETS', 'ASSET_PPE',    'ASSET_CWIP',   'INV_NONCURR',
   'LOANS_NONCURR','OTH_ASSET_NC',   'BANK_BAL_OTHER','CURR_ASSETS',  'INVENTORY',
   'INV_CURR',     'TRADE_RECV',     'CASH_EQUIV',    'LOANS_CURR',
+  // PPE breakdown
+  'ASSET_LAND_NET','ASSET_MINING_NET','ASSET_BIO_NET','ASSET_LEASE_IMP_NET','ASSET_BLDG_NET',
+  'ASSET_LAND_GRS','ASSET_PM_NET',   'ASSET_IT_NET', 'ASSET_ELEC_NET','ASSET_PM_GRS',
+  'ASSET_TRANS_NET','ASSET_FURN_NET',
   // Liabilities
   'TOTAL_LIAB',   'NONCURR_LIAB',   'DEBT_LT',       'DTL',          'PROV_LT',
   'CURR_LIAB',    'DEBT_ST',        'TRADE_PAY',      'OTH_LIAB_CURR','PROV_ST',
@@ -96,8 +100,13 @@ const STATEMENT_MAP = {
   EQ_SHARE_CAP:  'balance_sheet', NET_WORTH:       'balance_sheet', ASSET_GW:      'balance_sheet',
   ASSET_INTANG:  'balance_sheet', DEP_TOTAL:       'balance_sheet', BORR_TOTAL:    'balance_sheet',
   LOAN_ADV_TOTAL:'balance_sheet', INV_BV_TOTAL:    'balance_sheet', WORKING_FUNDS: 'balance_sheet',
-  CFO:           'cashflow',      CFI:             'cashflow',      CFF:           'cashflow',
-  NET_CASH_CHANGE:'cashflow',
+  CFO:              'cashflow',    CFI:               'cashflow',    CFF:              'cashflow',
+  NET_CASH_CHANGE:  'cashflow',
+  // PPE breakdown (balance sheet)
+  ASSET_LAND_NET:    'balance_sheet', ASSET_MINING_NET:  'balance_sheet', ASSET_BIO_NET:       'balance_sheet',
+  ASSET_LEASE_IMP_NET:'balance_sheet',ASSET_BLDG_NET:   'balance_sheet', ASSET_LAND_GRS:      'balance_sheet',
+  ASSET_PM_NET:      'balance_sheet', ASSET_IT_NET:      'balance_sheet', ASSET_ELEC_NET:      'balance_sheet',
+  ASSET_PM_GRS:      'balance_sheet', ASSET_TRANS_NET:   'balance_sheet', ASSET_FURN_NET:      'balance_sheet',
 };
 
 // ─── Column → KPI mapping (ALL references are by column NAME) ─────────────────
@@ -186,9 +195,22 @@ const BASE_COL_MAP = {
  * Skipped silently if the column is absent from the CSV.
  */
 const OPTIONAL_COL_MAP = {
-  'Return (cash) on capital employed': 'ROCE',
-  'Capital employed':                  'CAP_EMP',
-  'Debt to equity ratio (times)':      'DE',
+  'Return (cash) on capital employed':                          'ROCE',
+  'Capital employed':                                           'CAP_EMP',
+  'Debt to equity ratio (times)':                               'DE',
+  // PPE breakdown — Mar2025_annual.csv onwards (cols 96–107)
+  'Net land and buildings, including bearer plants':            'ASSET_LAND_NET',
+  'Net mining / oil & gas properties':                          'ASSET_MINING_NET',
+  'Net biological assets - bearer plants':                      'ASSET_BIO_NET',
+  'Net leasehold improvements':                                 'ASSET_LEASE_IMP_NET',
+  'Net buildings':                                              'ASSET_BLDG_NET',
+  'Gross land and buildings, including bearer plants':          'ASSET_LAND_GRS',
+  'Net plant & machinery, computers and electrical installations': 'ASSET_PM_NET',
+  'Net computers and IT systems':                               'ASSET_IT_NET',
+  'Net electrical installations & fittings':                    'ASSET_ELEC_NET',
+  'Gross plant & machinery, computers and electrical installations': 'ASSET_PM_GRS',
+  'Net transport & communication equipment and infrastructure': 'ASSET_TRANS_NET',
+  'Net furniture and other fixed assets':                       'ASSET_FURN_NET',
 };
 
 /** REV_OP: first non-empty of these two column names wins. */
@@ -264,7 +286,9 @@ async function ensureTable() {
 // ─── Batch insert ─────────────────────────────────────────────────────────────
 
 async function batchInsert(rows, batchSize = 500) {
-  let inserted = 0;
+  const countBefore = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM ${TABLE_NAME}`);
+  const before = countBefore[0].n;
+  let attempted = 0;
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
     const params = [];
@@ -292,10 +316,42 @@ async function batchInsert(rows, batchSize = 500) {
        ON CONFLICT ON CONSTRAINT pnv_call_kpi_unique DO NOTHING`,
       ...params
     );
-    inserted += batch.length;
-    process.stdout.write(`  Progress: ${inserted}/${rows.length}\r`);
+    attempted += batch.length;
+    process.stdout.write(`  Progress: ${attempted}/${rows.length}\r`);
   }
-  console.log(`\n✓ Inserted ${inserted} rows into ${TABLE_NAME}`);
+  const countAfter = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM ${TABLE_NAME}`);
+  const actuallyInserted = countAfter[0].n - before;
+  console.log(`\n✓ Attempted ${attempted} rows — ${actuallyInserted} actually inserted (${attempted - actuallyInserted} skipped as duplicates)`);
+}
+
+// ─── KPI seeding ──────────────────────────────────────────────────────────────
+
+const PPE_BREAKDOWN_KPIS = [
+  { abbr: 'ASSET_LAND_NET',     full_form: 'Net Land and Buildings (incl. Bearer Plants)',              kpi_type: 'assets' },
+  { abbr: 'ASSET_MINING_NET',   full_form: 'Net Mining / Oil & Gas Properties',                         kpi_type: 'assets' },
+  { abbr: 'ASSET_BIO_NET',      full_form: 'Net Biological Assets – Bearer Plants',                     kpi_type: 'assets' },
+  { abbr: 'ASSET_LEASE_IMP_NET',full_form: 'Net Leasehold Improvements',                                kpi_type: 'assets' },
+  { abbr: 'ASSET_BLDG_NET',     full_form: 'Net Buildings',                                             kpi_type: 'assets' },
+  { abbr: 'ASSET_LAND_GRS',     full_form: 'Gross Land and Buildings (incl. Bearer Plants)',             kpi_type: 'assets' },
+  { abbr: 'ASSET_PM_NET',       full_form: 'Net Plant & Machinery, Computers and Electrical Installations', kpi_type: 'assets' },
+  { abbr: 'ASSET_IT_NET',       full_form: 'Net Computers and IT Systems',                              kpi_type: 'assets' },
+  { abbr: 'ASSET_ELEC_NET',     full_form: 'Net Electrical Installations & Fittings',                   kpi_type: 'assets' },
+  { abbr: 'ASSET_PM_GRS',       full_form: 'Gross Plant & Machinery, Computers and Electrical Installations', kpi_type: 'assets' },
+  { abbr: 'ASSET_TRANS_NET',    full_form: 'Net Transport & Communication Equipment and Infrastructure', kpi_type: 'assets' },
+  { abbr: 'ASSET_FURN_NET',     full_form: 'Net Furniture and Other Fixed Assets',                      kpi_type: 'assets' },
+];
+
+async function seedPpeKpis() {
+  let created = 0, skipped = 0;
+  for (const kpi of PPE_BREAKDOWN_KPIS) {
+    const existing = await prisma.kpi.findFirst({ where: { abbr: kpi.abbr } });
+    if (existing) { skipped++; continue; }
+    await prisma.kpi.create({
+      data: { abbr: kpi.abbr, full_form: kpi.full_form, kpi_type: kpi.kpi_type, denomination: 'rupee', industry: [], source: 'QE' },
+    });
+    created++;
+  }
+  console.log(`✓ KPI seed: ${created} created, ${skipped} already existed`);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -479,6 +535,9 @@ async function main() {
   console.log(`\nCreating table ${TABLE_NAME}…`);
   await ensureTable();
   console.log('done.\n');
+
+  console.log('Seeding PPE breakdown KPIs…');
+  await seedPpeKpis();
 
   console.log(`Inserting ${finalRows.length} rows…`);
   await batchInsert(finalRows);
