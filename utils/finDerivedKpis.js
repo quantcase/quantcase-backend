@@ -13,7 +13,7 @@ const SOURCE_ABBRS = [
   'TOTAL_ASSETS', 'CURR_LIAB',
   'EQ_SHARE_CAP', 'RES_SURPLUS',
   'ASSET_PPE', 'ASSET_CWIP',
-  'CFO', 'PROV_CONT',
+  'CFO', 'CFI', 'PROV_CONT',
 ];
 
 /**
@@ -121,11 +121,8 @@ function computeDerivedKpis(raw, bfsi = false) {
     );
     roe.push({ ...base, value: roeVal, abbrUsed: 'ROE' });
 
-    // CAPEX = ASSET_PPE + ASSET_CWIP (CWIP may be null for BFSI — treat as 0)
-    const capexVal = derive(
-      [v('ASSET_PPE')],
-      ([ppe]) => ppe + (v('ASSET_CWIP') ?? 0),
-    );
+    // CAPEX = |CFI| (cash used in investing activities — proxy for capital expenditure)
+    const capexVal = derive([v('CFI')], ([cfi]) => Math.abs(cfi));
     capex.push({ ...base, value: capexVal, abbrUsed: 'CAPEX' });
 
     // FCF: non-BFSI = CFO - CAPEX; BFSI = CFO - CAPEX - PROV_CONT
