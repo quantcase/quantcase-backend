@@ -985,10 +985,18 @@ function computeRuleEngine(d, row, crsData) {
   // ── Decision Context ───────────────────────────────────────────────────────
 
   const allEngines = { structureEngine, trendEngine, timingEngine, dominanceEngine };
+
+  // SMA above-count drives marketBias and overallCondition labels
+  const smaAboveCount = [d.aboveSMA20, d.aboveSMA50, aboveSMA100, d.aboveSMA200].filter(Boolean).length;
+  const _BIAS_MAP = ['Strong bearish bias', 'Bearish bias', 'Neutral bias', 'Mild bullish bias', 'Bullish bias'];
+  const _COND_MAP = ['Risk-off', 'Risk-off', 'Neutral', 'Risk-on', 'Risk-on'];
+
   // Compute alerts first (needs growthWatchouts arrays intact)
   const decisionContext = {
-    summary: _generateDecisionSummary(allEngines),
-    alerts:  _collectAlerts(allEngines),
+    summary:          _generateDecisionSummary(allEngines),
+    alerts:           _collectAlerts(allEngines),
+    marketBias:       _BIAS_MAP[smaAboveCount],
+    overallCondition: _COND_MAP[smaAboveCount],
   };
 
   // ── Strip label prefix from watchout arrays ────────────────────────────────
