@@ -418,22 +418,30 @@ async function computeManagementAnalysis(callId, timeframe) {
 
   if (milestoneAbbrs.length > 0) {
     if (prowessMapping) {
-      // Fetch direct prowess values + source abbrs for derived KPI computation in parallel
+      // Fetch direct prowess values + source abbrs for all available fiscal years
+      const GROSS_PPE_ABBRS = ['ASSET_LAND_GRS', 'ASSET_PM_GRS'];
       const [directRows, sourceRows] = await Promise.all([
         prisma.prowessValueNew.findMany({
           where:  { company: prowessMapping.prowessName, kpi_abbr: { in: milestoneAbbrs } },
-          select: { callId: true, kpi_abbr: true, value: true, multiplier: true },
+          select: { callId: true, kpi_abbr: true, value: true, multiplier: true, fiscal_year: true },
         }),
         prisma.prowessValueNew.findMany({
           where:  { company: prowessMapping.prowessName, kpi_abbr: { in: SOURCE_ABBRS } },
-          select: { callId: true, kpi_abbr: true, value: true, multiplier: true },
+          select: { callId: true, kpi_abbr: true, value: true, multiplier: true, fiscal_year: true },
+          orderBy: { fiscal_year: 'desc' },
         }),
       ]);
 
-      // Compute derived KPIs (ROCE, CAPEX, EBIT, FCF, …) from prowess source values
-      const anchor = sourceRows[0];
+      // Group source rows by fiscal year; use latest for main KPIs
+      const byFY = {};
+      for (const r of sourceRows) (byFY[r.fiscal_year] ??= []).push(r);
+      const sortedFYs = Object.keys(byFY).sort().reverse(); // e.g. ['FY2025','FY2024']
+      const latestFY  = sortedFYs[0];
+      const prevFY    = sortedFYs[1] ?? null;
+
+      const anchor = byFY[latestFY]?.[0];
       if (anchor) {
-        const sourceMap = Object.fromEntries(sourceRows.map(r => [r.kpi_abbr, r]));
+        const sourceMap = Object.fromEntries(byFY[latestFY].map(r => [r.kpi_abbr, r]));
         // computeDerivedKpis expects display units (Cr / % / x), not absolute rupees
         const raw = Object.fromEntries(SOURCE_ABBRS.map(abbr => {
           const row = sourceMap[abbr];
@@ -442,6 +450,22 @@ async function computeManagementAnalysis(callId, timeframe) {
         }));
 
         const derived = computeDerivedKpis(raw, false /* non-BFSI */);
+
+        // Delta CAPEX = Δ(ASSET_LAND_GRS + ASSET_PM_GRS) when previous year data exists
+        if (prevFY) {
+          const prevMap  = Object.fromEntries(byFY[prevFY].map(r => [r.kpi_abbr, r]));
+          const grossLatest = GROSS_PPE_ABBRS.reduce((s, a) => {
+            const r = sourceMap[a];
+            return r?.value != null ? s + r.value / (r.multiplier || 1) : s;
+          }, 0);
+          const grossPrev = GROSS_PPE_ABBRS.reduce((s, a) => {
+            const r = prevMap[a];
+            return r?.value != null ? s + r.value / (r.multiplier || 1) : s;
+          }, 0);
+          const deltaCapex = grossLatest - grossPrev;
+          if (deltaCapex > 0) derived['CAPEX'] = [{ ...derived['CAPEX']?.[0], value: deltaCapex }];
+        }
+
         const directAbbrs = new Set(directRows.map(r => r.kpi_abbr.trim().toLowerCase()));
         const PCT_ABBRS   = new Set(['ROCE', 'ROA', 'ROE', 'EBIT_MARGIN']);
 

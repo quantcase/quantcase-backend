@@ -13,8 +13,13 @@ const SOURCE_ABBRS = [
   'TOTAL_ASSETS', 'CURR_LIAB',
   'EQ_SHARE_CAP', 'RES_SURPLUS',
   'ASSET_PPE', 'ASSET_CWIP',
-  'CFO', 'CFI', 'PROV_CONT',
+  'CFO', 'PROV_CONT',
+  // PPE breakdown — used for granular CAPEX calculation
+  'ASSET_LAND_NET', 'ASSET_MINING_NET', 'ASSET_BIO_NET', 'ASSET_LEASE_IMP_NET', 'ASSET_BLDG_NET',
+  'ASSET_LAND_GRS', 'ASSET_PM_NET', 'ASSET_IT_NET', 'ASSET_ELEC_NET', 'ASSET_PM_GRS',
+  'ASSET_TRANS_NET', 'ASSET_FURN_NET',
 ];
+
 
 /**
  * Compute derived financial KPIs from raw time-series data.
@@ -121,24 +126,11 @@ function computeDerivedKpis(raw, bfsi = false) {
     );
     roe.push({ ...base, value: roeVal, abbrUsed: 'ROE' });
 
-    // CAPEX = |CFI| (cash used in investing activities — proxy for capital expenditure)
-    const capexVal = derive([v('CFI')], ([cfi]) => Math.abs(cfi));
-    capex.push({ ...base, value: capexVal, abbrUsed: 'CAPEX' });
+    // CAPEX = delta gross PPE (ASSET_LAND_GRS + ASSET_PM_GRS), computed in service when multi-year data available
+    capex.push({ ...base, value: null, abbrUsed: 'CAPEX' });
 
-    // FCF: non-BFSI = CFO - CAPEX; BFSI = CFO - CAPEX - PROV_CONT
-    let fcfVal;
-    if (bfsi) {
-      fcfVal = derive(
-        [v('CFO'), capexVal],
-        ([cfo, cap]) => cfo - cap - (v('PROV_CONT') ?? 0),
-      );
-    } else {
-      fcfVal = derive(
-        [v('CFO'), capexVal],
-        ([cfo, cap]) => cfo - cap,
-      );
-    }
-    fcf.push({ ...base, value: fcfVal, abbrUsed: 'FCF' });
+    // FCF depends on CAPEX which is computed externally (delta gross PPE); set null here
+    fcf.push({ ...base, value: null, abbrUsed: 'FCF' });
   }
 
   return { EBIT: ebit, EBIT_MARGIN: ebitMargin, ROCE: roce, ROA: roa, ROE: roe, CAPEX: capex, FCF: fcf };
