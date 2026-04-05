@@ -239,6 +239,23 @@ async function getTickerInfo(req, res, next) {
       return 'Fair';
     }
 
+    // Market cap label (INR values; Yahoo Finance returns INR for .NS tickers)
+    function marketCapLabel(cap) {
+      if (cap == null) return null;
+      if (cap >= 200e9) return 'Large cap';   // ≥ ₹20,000 Cr
+      if (cap >= 50e9)  return 'Mid cap';     // ₹5,000–20,000 Cr
+      return 'Small cap';
+    }
+
+    // EPS CAGR label
+    function epsCagrLabel(cagr) {
+      if (cagr == null) return null;
+      if (cagr >= 0.15)  return 'Strong growth';
+      if (cagr >= 0.05)  return 'Moderate growth';
+      if (cagr >= 0)     return 'Slow growth';
+      return 'Declining';
+    }
+
     // Debt status
     function debtStatusLabel(debtToEquity) {
       if (debtToEquity == null) return null;
@@ -307,6 +324,7 @@ async function getTickerInfo(req, res, next) {
         week52High:     q.fiftyTwoWeekHigh            ?? null,
         week52Low:      q.fiftyTwoWeekLow             ?? null,
         marketCap:      q.marketCap                   ?? null,
+        marketCapLabel: marketCapLabel(q.marketCap    ?? null),
         currency:       q.currency || 'INR',
         marketState:    q.marketState                 || null,
         lastUpdated:    q.regularMarketTime           || null,
@@ -409,7 +427,8 @@ async function getTickerInfo(req, res, next) {
       },
 
       financials: {
-        eps_cagr_3y:     epsCagr3y,
+        eps_cagr_3y:       epsCagr3y,
+        eps_cagr_3y_label: epsCagrLabel(epsCagr3y),
         ebitda_ev_yield: ebitdaEvYield,
         cfo_ebitda_pct:  cfoEbitdaPct,
         net_debt_ebitda: netDebtEbitda,
