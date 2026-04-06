@@ -468,35 +468,39 @@ async function getFinancials(req, res, next) {
 async function getPrices(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
-    const ticker = symbol + '.NS';
 
     const period1 = req.query.from
       ? new Date(req.query.from)
       : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000); // default: 1 year
     const period2 = req.query.to ? new Date(req.query.to) : new Date();
 
-    const result = await yahooFinance.chart(ticker, {
-      period1,
-      period2,
-      interval: '1d',
+    const rows = await prisma.nse_equity.findMany({
+      where: {
+        symbol,
+        datetime: { gte: period1, lte: period2 },
+      },
+      orderBy: { datetime: 'asc' },
+      select: { datetime: true, open: true, high: true, low: true, close: true, volume: true },
     });
 
-    const quotes = result.quotes ?? [];
-    const prices = quotes
+    if (rows.length === 0) {
+      return res.status(404).json({ error: `No price data found for symbol ${symbol}` });
+    }
+
+    const prices = rows
       .filter((r) => r.close != null)
       .map((r) => ({
-        date: new Date(r.date).toISOString().slice(0, 10),
+        date: r.datetime.toISOString().slice(0, 10),
         open: r.open ?? null,
         high: r.high ?? null,
         low: r.low ?? null,
         close: r.close ?? null,
-        adjClose: r.adjclose ?? null,
-        volume: r.volume ?? null,
+        volume: r.volume != null ? Number(r.volume) : null,
       }));
 
     const indicators = computeIndicatorSeries(prices);
 
-    res.json({ symbol, ticker, count: prices.length, prices, indicators });
+    res.json({ symbol, count: prices.length, prices, indicators });
   } catch (err) {
     next(err);
   }
