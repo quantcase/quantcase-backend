@@ -4,8 +4,8 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")        // pooler — used at runtime
-  directUrl = env("DIRECT_DATABASE_URL") // direct — used for db:push / migrations
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -80,12 +80,12 @@ model earnings_calls_test {
   transcript_text       String?
   ppt_url               String?
   ppt_text              String?
-  updated_ppt_text      String?   // ← add this
   created_at            DateTime? @default(now()) @db.Timestamp(6)
   updated_at            DateTime? @default(now()) @db.Timestamp(6)
   quarterly_result      String?
   quarterly_result_url  String?
   quarterly_result_text String?
+  updated_ppt_text      String?
 
   @@index([company, fiscal_year, quarter], map: "idx_company_fy_quarter")
 }
@@ -135,78 +135,439 @@ model users {
   role       String?
 }
 
-// Jobs table for API
 model Job {
   id           String   @id @default(uuid())
   callId       String   @map("call_id")
   type         String
   status       String   @default("pending")
-  bullmqId     String?  @unique @map("bullmq_id")
   result       Json?
   error        String?
-  prompt       String?                       // full prompt sent to LLM
-  llm_response String?  @map("llm_response") // raw text response from LLM before parsing
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
+  bullmqId     String?  @unique @map("bullmq_id")
+  llm_response String?  @map("llm_response")
+  prompt       String?
 
-  @@map("jobs")
   @@index([callId])
   @@index([status])
+  @@map("jobs")
 }
 
-// Summaries table for storing extracted call data (legacy — do not modify)
 model Summary {
   id                String   @id @default(uuid())
   callId            String   @unique @map("call_id")
-  kpis              Json?                              // from QE worker: [{kpi_abbr, value}]
-  entities          Json?                              // from transcript worker
-  milestones        Json?                              // from transcript worker
-  riskDisclosures   Json?    @map("risk_disclosures")  // from transcript worker
-  governanceSignals Json?    @map("governance_signals") // from transcript worker
-  industryAnalysis  Json?    @map("industry_analysis")  // from transcript worker
-  tone              String?                            // from transcript worker
-  confidence        String?                            // from transcript worker
+  entities          Json?
+  milestones        Json?
+  governanceSignals Json?    @map("governance_signals")
+  confidence        String?
   createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt      @map("updated_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  riskDisclosures   Json?    @map("risk_disclosures")
+  tone              String?
+  industryAnalysis  Json?    @map("industry_analysis")
+  kpis              Json?
 
-  @@map("summaries")
   @@index([callId])
+  @@map("summaries")
 }
 
-// New summaries table with financial_strength and client_traction
 model SummaryNew {
   id                String   @id @default(uuid())
   callId            String   @unique @map("call_id")
-  kpis              Json?                              // from QE worker: [{kpi_abbr, value}]
-  entities          Json?                              // from transcript worker
-  milestones        Json?                              // from transcript worker
-  riskDisclosures   Json?    @map("risk_disclosures")  // from transcript worker
-  governanceSignals Json?    @map("governance_signals") // from transcript worker
-  industryAnalysis  Json?    @map("industry_analysis")  // from transcript worker
-  financialStrength Json?    @map("financial_strength") // from transcript worker
-  clientTraction    Json?    @map("client_traction")    // from transcript worker
-  tone              String?                            // from transcript worker
-  confidence        String?                            // from transcript worker
+  kpis              Json?
+  entities          Json?
+  milestones        Json?
+  riskDisclosures   Json?    @map("risk_disclosures")
+  governanceSignals Json?    @map("governance_signals")
+  industryAnalysis  Json?    @map("industry_analysis")
+  financialStrength Json?    @map("financial_strength")
+  clientTraction    Json?    @map("client_traction")
+  tone              String?
+  confidence        String?
   createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt      @map("updated_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
-  @@map("summary_new")
   @@index([callId])
+  @@map("summary_new")
 }
-model Kpi {
-  id           String           @id @default(uuid())
-  abbr         String           @unique
-  full_form    String
-  kpi_type     KpiTypeCategory?
-  denomination DenominationType?
-  industry     String[]         @default([])
-  source       KpiSource
-  createdAt    DateTime         @default(now()) @map("created_at")
-  updatedAt    DateTime         @updatedAt      @map("updated_at")
 
-  @@map("kpis")
+model Kpi {
+  id           String            @id @default(uuid())
+  abbr         String            @unique
+  full_form    String
+  denomination DenominationType?
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  industry     String[]          @default([])
+  source       KpiSource
+  kpi_type     KpiTypeCategory?
+
   @@index([abbr])
   @@index([source])
+  @@map("kpis")
+}
+
+model market_cap {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  date          DateTime? @db.Date
+  symbol        String?
+  market_cap_cr Float?    @map("market_cap(Cr)")
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  market_cap    BigInt?
+}
+
+model pe_data {
+  id         BigInt    @id @default(autoincrement())
+  company    String
+  date       DateTime  @db.Date
+  pe         Decimal?  @db.Decimal
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+
+  @@unique([company, date])
+  @@index([company])
+}
+
+model SubstituteKpi {
+  id             String   @id @default(uuid())
+  primaryKpiAbbr String   @unique @map("primary_kpi_abbr")
+  substitutes    String[]
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([primaryKpiAbbr])
+  @@map("substitute_kpis")
+}
+
+model OFactorResult {
+  id            String   @id @default(uuid())
+  callId        String   @unique @map("call_id")
+  subjectTicker String   @map("subject_ticker")
+  peerTickers   String[] @map("peer_tickers")
+  result        Json
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([callId])
+  @@index([subjectTicker])
+  @@map("ofactor_results")
+}
+
+model DealResult {
+  id        String   @id @default(uuid())
+  callId    String   @unique @map("call_id")
+  ticker    String
+  result    Json
+  inputs    Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([callId])
+  @@index([ticker])
+  @@map("deal_results")
+}
+
+model KpiValue {
+  id          String    @id @default(uuid())
+  callId      String    @map("call_id")
+  company     String
+  fiscal_year String?
+  quarter     String?
+  call_date   String?
+  kpi_abbr    String
+  value       Float?
+  raw_value   String?   @map("raw_value")
+  unit        String?
+  multiplier  Int       @default(1)
+  source      KpiSource
+  source_path String    @default("")
+  statement   String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  end_date    String?   @map("end_date")
+  start_date  String?   @map("start_date")
+  period_type String?   @map("period_type")
+
+  @@unique([callId, kpi_abbr], map: "kpi_values_call_kpi_unique")
+  @@index([callId])
+  @@index([company, fiscal_year, quarter])
+  @@index([company, kpi_abbr])
+  @@index([kpi_abbr])
+  @@index([kpi_abbr, period_type])
+  @@map("kpi_values")
+}
+
+model ProwessValueNew {
+  id          String    @default(uuid())
+  callId      String    @map("call_id")
+  company     String
+  fiscal_year String?
+  quarter     String?
+  call_date   String?
+  kpi_abbr    String
+  value       Float?
+  raw_value   String?   @map("raw_value")
+  unit        String?
+  multiplier  Int       @default(1)
+  source      KpiSource
+  source_path String    @default("")
+  statement   String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  end_date    String?   @map("end_date")
+  start_date  String?   @map("start_date")
+  period_type String?   @map("period_type")
+
+  @@unique([callId, kpi_abbr], map: "pnv_call_kpi_unique")
+  @@index([callId], map: "idx_pnv_call_id")
+  @@index([company, fiscal_year, quarter], map: "idx_pnv_company_fy_q")
+  @@index([company, kpi_abbr], map: "idx_pnv_company_kpi")
+  @@index([kpi_abbr], map: "idx_pnv_kpi")
+  @@index([kpi_abbr, period_type], map: "idx_pnv_kpi_period")
+  @@map("prowess_values_new")
+}
+
+model MilestoneKpiTarget {
+  id             String   @id @default(uuid())
+  callId         String   @map("call_id")
+  company        String
+  fiscal_year    String?
+  quarter        String?
+  call_date      String?
+  category       String
+  kpi_abbr       String
+  statement      String?
+  current_value  Float?   @map("current_value")
+  targeted_value Float?   @map("targeted_value")
+  initial_time   String?  @map("initial_time")
+  target_time    String?  @map("target_time")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  multiplier     Int      @default(1)
+
+  @@index([callId])
+  @@index([company, kpi_abbr])
+  @@index([kpi_abbr])
+  @@map("milestone_kpi_targets")
+}
+
+model WealthRmUser {
+  id                String              @id @default(uuid())
+  name              String
+  email             String?             @unique
+  team              String?
+  performance_score Float               @default(0)
+  created_at        DateTime            @default(now())
+  updated_at        DateTime            @updatedAt
+  actions           WealthAction[]
+  clients           WealthClient[]
+  interactions      WealthInteraction[]
+
+  @@index([team])
+  @@map("wealth_rm_users")
+}
+
+model WealthClient {
+  id                String                     @id @default(uuid())
+  name              String
+  email             String?
+  phone             String?
+  rm_id             String?
+  segment           WealthClientSegment
+  risk_profile      WealthRiskProfile
+  engagement_score  Float                      @default(0)
+  churn_probability Float                      @default(0)
+  last_contact_at   DateTime?
+  metadata          Json?
+  created_at        DateTime                   @default(now())
+  updated_at        DateTime                   @updatedAt
+  actions           WealthAction[]
+  model_mappings    WealthClientModelMapping[]
+  rm                WealthRmUser?              @relation(fields: [rm_id], references: [id])
+  feature_store     WealthFeatureStore[]
+  interactions      WealthInteraction[]
+  portfolio         WealthPortfolio?
+  suggestions       WealthSuggestion[]
+
+  @@index([rm_id])
+  @@index([segment])
+  @@index([churn_probability])
+  @@index([last_contact_at])
+  @@map("wealth_clients")
+}
+
+model WealthPortfolio {
+  id                  String       @id @default(uuid())
+  client_id           String       @unique
+  total_value         Float        @default(0)
+  risk_score          Float        @default(0)
+  last_rebalance_date DateTime?
+  holdings            Json?
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+  client              WealthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@index([client_id])
+  @@map("wealth_portfolios")
+}
+
+model WealthInteraction {
+  id         String                @id @default(uuid())
+  client_id  String
+  rm_id      String?
+  type       WealthInteractionType
+  summary    String?
+  sentiment  String?
+  timestamp  DateTime              @default(now())
+  metadata   Json?
+  created_at DateTime              @default(now())
+  client     WealthClient          @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  rm         WealthRmUser?         @relation(fields: [rm_id], references: [id])
+
+  @@index([client_id])
+  @@index([rm_id])
+  @@index([timestamp])
+  @@map("wealth_interactions")
+}
+
+model WealthSuggestion {
+  id               String                   @id @default(uuid())
+  client_id        String
+  priority         WealthSuggestionPriority @default(MEDIUM)
+  reason           String?
+  suggested_action String?
+  message          String?
+  talking_points   Json?
+  status           WealthSuggestionStatus   @default(pending)
+  score            Float                    @default(0)
+  job_id           String?
+  created_at       DateTime                 @default(now())
+  updated_at       DateTime                 @updatedAt
+  actions          WealthAction[]
+  client           WealthClient             @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@index([client_id])
+  @@index([status])
+  @@index([priority])
+  @@index([score])
+  @@map("wealth_suggestions")
+}
+
+model WealthAction {
+  id            String            @id @default(uuid())
+  suggestion_id String?
+  client_id     String
+  rm_id         String?
+  action_type   String
+  content       String?
+  outcome       String?
+  created_at    DateTime          @default(now())
+  client        WealthClient      @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  rm            WealthRmUser?     @relation(fields: [rm_id], references: [id])
+  suggestion    WealthSuggestion? @relation(fields: [suggestion_id], references: [id])
+
+  @@index([client_id])
+  @@index([rm_id])
+  @@index([suggestion_id])
+  @@map("wealth_actions")
+}
+
+model WealthApprovedModel {
+  id              String                     @id @default(uuid())
+  name            String
+  description     String?
+  model_type      WealthModelType
+  data            Json?
+  created_at      DateTime                   @default(now())
+  updated_at      DateTime                   @updatedAt
+  client_mappings WealthClientModelMapping[]
+
+  @@index([model_type])
+  @@map("wealth_approved_models")
+}
+
+model WealthClientModelMapping {
+  id          String              @id @default(uuid())
+  client_id   String
+  model_id    String
+  assigned_at DateTime            @default(now())
+  client      WealthClient        @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  model       WealthApprovedModel @relation(fields: [model_id], references: [id], onDelete: Cascade)
+
+  @@unique([client_id, model_id])
+  @@index([client_id])
+  @@index([model_id])
+  @@map("wealth_client_model_mappings")
+}
+
+model WealthAuditLog {
+  id           String   @id @default(uuid())
+  entity_type  String
+  entity_id    String
+  action       String
+  performed_by String?
+  timestamp    DateTime @default(now())
+  payload      Json?
+
+  @@index([entity_type, entity_id])
+  @@index([performed_by])
+  @@index([timestamp])
+  @@map("wealth_audit_logs")
+}
+
+model WealthFeatureStore {
+  id           String       @id @default(uuid())
+  client_id    String
+  feature_name String
+  value        Float
+  updated_at   DateTime     @updatedAt
+  client       WealthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@unique([client_id, feature_name])
+  @@index([client_id])
+  @@index([feature_name])
+  @@map("wealth_feature_store")
+}
+
+model investor_presentations_ppt {
+  id             String    @id
+  company        String?
+  fiscal_year    String?
+  quarter        String?
+  call_date      String?
+  ppt_url        String?
+  ppt_text       String?
+  basic_industry String?
+  company_name   String?
+  created_at     DateTime? @db.Timestamp(6)
+  updated_at     DateTime? @db.Timestamp(6)
+}
+
+model prowess_kpi_values {
+  id          String
+  call_id     String
+  company     String
+  fiscal_year String?
+  quarter     String?
+  call_date   String?
+  kpi_abbr    String
+  value       Float?
+  raw_value   String?
+  unit        String?
+  multiplier  Int       @default(1)
+  source      KpiSource
+  source_path String    @default("")
+  statement   String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime
+  end_date    String?
+  start_date  String?
+  period_type String?
+
+  @@unique([call_id, kpi_abbr], map: "prowess_kv_call_kpi_unique")
+  @@index([call_id], map: "idx_pkv_call_id")
+  @@index([company, fiscal_year, quarter], map: "idx_pkv_company_fy_q")
+  @@index([company, kpi_abbr], map: "idx_pkv_company_kpi")
+  @@index([kpi_abbr], map: "idx_pkv_kpi")
+  @@index([kpi_abbr, period_type], map: "idx_pkv_kpi_period")
 }
 
 enum DenominationType {
@@ -222,7 +583,6 @@ enum KpiSource {
 }
 
 enum KpiTypeCategory {
-  // QE source types
   assets
   liabilities
   equity
@@ -231,171 +591,9 @@ enum KpiTypeCategory {
   operating_expenses
   profit_lines
   cashflow
-  // transcript source types
   customer_kpis
   industry_specific
 }
-
-model market_cap {
-  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  created_at                DateTime  @default(now()) @db.Timestamptz(6)
-  market_cap                BigInt?
-  date                      DateTime? @db.Date
-  market_cap_cr             Float?    @map("market_cap(Cr)")
-  symbol                    String?
-}
-
-model pe_data {
-  id         BigInt    @id @default(autoincrement())
-  company    String
-  date       DateTime  @db.Date
-  pe         Decimal?  @db.Decimal
-  created_at DateTime? @default(now()) @db.Timestamp(6)
-
-  @@unique([company, date], map: "pe_data_company_date_key")
-  @@index([company])
-}
-
-model SubstituteKpi {
-  id             String   @id @default(uuid())
-  primaryKpiAbbr String   @unique @map("primary_kpi_abbr")
-  substitutes    String[]                                   // ordered list, index 0 = highest priority
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  @@map("substitute_kpis")
-  @@index([primaryKpiAbbr])
-}
-
-model OFactorResult {
-  id             String   @id @default(uuid())
-  callId         String   @unique @map("call_id")
-  subjectTicker  String   @map("subject_ticker")
-  peerTickers    String[] @map("peer_tickers")
-  result         Json                              // full parsed Claude output (OFactorResponseSchema shape)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt      @map("updated_at")
-
-  @@map("ofactor_results")
-  @@index([callId])
-  @@index([subjectTicker])
-}
-
-model DealResult {
-  id        String   @id @default(uuid())
-  callId    String   @unique @map("call_id")
-  ticker    String
-  result    Json                              // full parsed Claude output (DealResponseSchema shape)
-  inputs    Json                              // EPS/PE CAGR inputs used to generate the result
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
-
-  @@map("deal_results")
-  @@index([callId])
-  @@index([ticker])
-}
-
-// Flattened KPI values for fast time-series DB lookups — sourced from summary_new.
-//
-// source_path values:
-//   QE KPIs         : ""
-//   Transcript KPIs : "industry_analysis.demand" | "industry_analysis.supply"
-//                     "industry_analysis.operating_margins"
-//                     "client_traction.customer_growth" | "client_traction.revenue_streams"
-//   Milestone KPIs  : "milestones.future_goals" | "milestones.success_disclosures"
-//                     "milestones.failure_disclosures"
-//                     (only added when kpi_abbr is absent from QE + transcript rows for that call)
-//
-// statement is populated for transcript/milestone KPIs for auditing.
-model KpiValue {
-  id          String    @id @default(uuid())
-  callId      String    @map("call_id")       // → earnings_calls.id / summary_new.call_id
-  company     String                          // denormalized from earnings_calls.company
-  fiscal_year String?
-  quarter     String?
-  call_date   String?
-  kpi_abbr    String                          // → kpis.abbr
-  value       Float?                          // normalized: llm_value * multiplier (absolute units)
-  raw_value   String?   @map("raw_value")     // llm-reported value before normalization (audit)
-  unit        String?                         // from kpis.denomination: "Cr" | "%" | "x" | ""
-  multiplier  Int       @default(1)           // LLM scale factor (1 | 100000 | 10000000); applied to value at ingestion
-  start_date  String?   @map("start_date")    // period start; null for snapshots (balance sheet)
-  end_date    String?   @map("end_date")      // period end or snapshot date
-  period_type String?   @map("period_type")   // derived at ingestion: snapshot|quarterly|half_yearly|annual|multi_year
-  source      KpiSource                       // "QE" | "transcript"
-  source_path String    @default("")          // which column/path in summary_new
-  statement   String?                         // supporting quote for transcript/milestone KPIs (audit)
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt      @map("updated_at")
-
-  @@map("kpi_values")
-  @@unique([callId, kpi_abbr], map: "kpi_values_call_kpi_unique")
-  @@index([callId])
-  @@index([company, fiscal_year, quarter])
-  @@index([company, kpi_abbr])
-  @@index([kpi_abbr])
-  @@index([kpi_abbr, period_type])
-}
-
-// Prowess (CMIE) KPI values — same schema as kpi_values, populated from importProwessNew.js.
-// company column uses Prowess company names (not NSE tickers); see utils/prowessResolver.js.
-model ProwessValueNew {
-  id          String    @id @default(uuid())
-  callId      String    @map("call_id")
-  company     String
-  fiscal_year String?
-  quarter     String?
-  call_date   String?
-  kpi_abbr    String
-  value       Float?
-  raw_value   String?   @map("raw_value")
-  unit        String?
-  multiplier  Int       @default(1)
-  start_date  String?   @map("start_date")
-  end_date    String?   @map("end_date")
-  period_type String?   @map("period_type")
-  source      KpiSource
-  source_path String    @default("")
-  statement   String?
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt      @map("updated_at")
-
-  @@map("prowess_values_new")
-  @@unique([callId, kpi_abbr], map: "pnv_call_kpi_unique")
-  @@index([callId],                  map: "idx_pnv_call_id")
-  @@index([company, fiscal_year, quarter], map: "idx_pnv_company_fy_q")
-  @@index([company, kpi_abbr],       map: "idx_pnv_company_kpi")
-  @@index([kpi_abbr],                map: "idx_pnv_kpi")
-  @@index([kpi_abbr, period_type],   map: "idx_pnv_kpi_period")
-}
-
-// Full milestone financial targets — separate from kpi_values.
-// Stores all three categories with both current and targeted values.
-// No deduplication logic applied here — source of truth for promise tracking.
-model MilestoneKpiTarget {
-  id              String   @id @default(uuid())
-  callId          String   @map("call_id")
-  company         String
-  fiscal_year     String?
-  quarter         String?
-  call_date       String?
-  category        String                      // "future_goals" | "success_disclosures" | "failure_disclosures"
-  kpi_abbr        String
-  statement       String?                     // natural language description from transcript
-  current_value   Float?   @map("current_value")
-  targeted_value  Float?   @map("targeted_value")
-  multiplier      Int      @default(1)        // scale factor (1 | 100000 | 10000000); applied to values at ingestion
-  initial_time    String?  @map("initial_time")   // YYYY-MM-DD when target was announced
-  target_time     String?  @map("target_time")    // YYYY-MM-DD when target is due
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt      @map("updated_at")
-
-  @@map("milestone_kpi_targets")
-  @@index([callId])
-  @@index([company, kpi_abbr])
-  @@index([kpi_abbr])
-}
-
-// ─── WealthOS Models ──────────────────────────────────────────────────────────
 
 enum WealthClientSegment {
   HNI
@@ -438,191 +636,4 @@ enum WealthModelType {
   structured
   pms
   aif
-}
-
-model WealthRmUser {
-  id                String   @id @default(uuid())
-  name              String
-  email             String?  @unique
-  team              String?
-  performance_score Float    @default(0)
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
-
-  clients      WealthClient[]
-  interactions WealthInteraction[]
-  actions      WealthAction[]
-
-  @@map("wealth_rm_users")
-  @@index([team])
-}
-
-model WealthClient {
-  id                String               @id @default(uuid())
-  name              String
-  email             String?
-  phone             String?
-  rm_id             String?
-  segment           WealthClientSegment
-  risk_profile      WealthRiskProfile
-  engagement_score  Float                @default(0)
-  churn_probability Float                @default(0)
-  last_contact_at   DateTime?
-  metadata          Json?
-  created_at        DateTime             @default(now())
-  updated_at        DateTime             @updatedAt
-
-  rm             WealthRmUser?              @relation(fields: [rm_id], references: [id])
-  portfolio      WealthPortfolio?
-  interactions   WealthInteraction[]
-  suggestions    WealthSuggestion[]
-  actions        WealthAction[]
-  model_mappings WealthClientModelMapping[]
-  feature_store  WealthFeatureStore[]
-
-  @@map("wealth_clients")
-  @@index([rm_id])
-  @@index([segment])
-  @@index([churn_probability])
-  @@index([last_contact_at])
-}
-
-model WealthPortfolio {
-  id                  String    @id @default(uuid())
-  client_id           String    @unique
-  total_value         Float     @default(0)
-  risk_score          Float     @default(0)
-  last_rebalance_date DateTime?
-  holdings            Json?
-  created_at          DateTime  @default(now())
-  updated_at          DateTime  @updatedAt
-
-  client WealthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
-
-  @@map("wealth_portfolios")
-  @@index([client_id])
-}
-
-model WealthInteraction {
-  id         String                @id @default(uuid())
-  client_id  String
-  rm_id      String?
-  type       WealthInteractionType
-  summary    String?
-  sentiment  String?
-  timestamp  DateTime              @default(now())
-  metadata   Json?
-  created_at DateTime              @default(now())
-
-  client WealthClient  @relation(fields: [client_id], references: [id], onDelete: Cascade)
-  rm     WealthRmUser? @relation(fields: [rm_id], references: [id])
-
-  @@map("wealth_interactions")
-  @@index([client_id])
-  @@index([rm_id])
-  @@index([timestamp])
-}
-
-model WealthSuggestion {
-  id               String                   @id @default(uuid())
-  client_id        String
-  priority         WealthSuggestionPriority @default(MEDIUM)
-  reason           String?
-  suggested_action String?
-  message          String?
-  talking_points   Json?
-  status           WealthSuggestionStatus   @default(pending)
-  score            Float                    @default(0)
-  job_id           String?
-  created_at       DateTime                 @default(now())
-  updated_at       DateTime                 @updatedAt
-
-  client  WealthClient   @relation(fields: [client_id], references: [id], onDelete: Cascade)
-  actions WealthAction[]
-
-  @@map("wealth_suggestions")
-  @@index([client_id])
-  @@index([status])
-  @@index([priority])
-  @@index([score])
-}
-
-model WealthAction {
-  id            String   @id @default(uuid())
-  suggestion_id String?
-  client_id     String
-  rm_id         String?
-  action_type   String
-  content       String?
-  outcome       String?
-  created_at    DateTime @default(now())
-
-  client     WealthClient      @relation(fields: [client_id], references: [id], onDelete: Cascade)
-  rm         WealthRmUser?     @relation(fields: [rm_id], references: [id])
-  suggestion WealthSuggestion? @relation(fields: [suggestion_id], references: [id])
-
-  @@map("wealth_actions")
-  @@index([client_id])
-  @@index([rm_id])
-  @@index([suggestion_id])
-}
-
-model WealthApprovedModel {
-  id          String          @id @default(uuid())
-  name        String
-  description String?
-  model_type  WealthModelType
-  data        Json?
-  created_at  DateTime        @default(now())
-  updated_at  DateTime        @updatedAt
-
-  client_mappings WealthClientModelMapping[]
-
-  @@map("wealth_approved_models")
-  @@index([model_type])
-}
-
-model WealthClientModelMapping {
-  id          String   @id @default(uuid())
-  client_id   String
-  model_id    String
-  assigned_at DateTime @default(now())
-
-  client WealthClient        @relation(fields: [client_id], references: [id], onDelete: Cascade)
-  model  WealthApprovedModel @relation(fields: [model_id], references: [id], onDelete: Cascade)
-
-  @@unique([client_id, model_id])
-  @@map("wealth_client_model_mappings")
-  @@index([client_id])
-  @@index([model_id])
-}
-
-model WealthAuditLog {
-  id           String   @id @default(uuid())
-  entity_type  String
-  entity_id    String
-  action       String
-  performed_by String?
-  timestamp    DateTime @default(now())
-  payload      Json?
-
-  @@map("wealth_audit_logs")
-  @@index([entity_type, entity_id])
-  @@index([performed_by])
-  @@index([timestamp])
-}
-
-model WealthFeatureStore {
-  id           String   @id @default(uuid())
-  client_id    String
-  feature_name String
-  value        Float
-  updated_at   DateTime @updatedAt
-
-  client WealthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
-
-  @@unique([client_id, feature_name])
-  @@map("wealth_feature_store")
-  @@index([client_id])
-  @@index([feature_name])
 }
