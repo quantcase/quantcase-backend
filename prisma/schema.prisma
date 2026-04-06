@@ -342,6 +342,7 @@ model MilestoneKpiTarget {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
   multiplier     Int      @default(1)
+  currency       String?  @map("currency")
 
   @@index([callId])
   @@index([company, kpi_abbr])

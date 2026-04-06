@@ -5,6 +5,34 @@ const prisma = require('../config/prisma');
 const { resolveProwess }                   = require('../utils/prowessResolver');
 const { SOURCE_ABBRS, computeDerivedKpis } = require('../utils/finDerivedKpis');
 
+// ─── Disclosures normalizer ───────────────────────────────────────────────────
+
+function normalizeDisclosures(raw) {
+  if (!raw) return { risk: [], bad_news: [], legal_issues: [] };
+  // New schema: object with risk/bad_news/legal_issues keys
+  if (typeof raw === 'object' && !Array.isArray(raw) &&
+      ('risk' in raw || 'bad_news' in raw || 'legal_issues' in raw)) {
+    return {
+      risk:         Array.isArray(raw.risk)          ? raw.risk          : [],
+      bad_news:     Array.isArray(raw.bad_news)       ? raw.bad_news      : [],
+      legal_issues: Array.isArray(raw.legal_issues)   ? raw.legal_issues  : [],
+    };
+  }
+  // Old schema: flat array of { risk, severity, disclosed_early }
+  if (Array.isArray(raw)) {
+    return {
+      risk: raw.map(r => ({
+        risk_title:          r.risk ?? '',
+        risk_type:           r.severity === 'high' ? 'High Risk' : r.severity === 'low' ? 'Low Risk' : 'Market Risk',
+        mitigation_strategy: r.mitigation ?? null,
+      })),
+      bad_news:     [],
+      legal_issues: [],
+    };
+  }
+  return { risk: [], bad_news: [], legal_issues: [] };
+}
+
 // ─── Score helpers ────────────────────────────────────────────────────────────
 
 function parseCallId(callId) {
@@ -29,8 +57,13 @@ function calculateTransparencyScore(governanceSignals, riskDisclosures, undisclo
   let score = 50;
   if (governanceSignals?.transparent) score += 35;
   if (!governanceSignals?.defensive_language) score += 15;
-  const earlyDisclosures = Array.isArray(riskDisclosures)
-    ? riskDisclosures.filter(r => r.disclosed_early).length : 0;
+  // Support both old flat array (disclosed_early) and new disclosures object (bad_news proactive count)
+  let earlyDisclosures = 0;
+  if (Array.isArray(riskDisclosures)) {
+    earlyDisclosures = riskDisclosures.filter(r => r.disclosed_early).length;
+  } else if (riskDisclosures?.bad_news) {
+    earlyDisclosures = riskDisclosures.bad_news.filter(n => n.disclosure_type === 'proactive').length;
+  }
   if (earlyDisclosures > 0) score += Math.min(earlyDisclosures * 5, 20);
   // Deduct for missed targets management never acknowledged in failure disclosures
   if (undisclosedMissCount > 0) score -= Math.min(undisclosedMissCount * 10, 30);
@@ -408,9 +441,12 @@ async function computeManagementAnalysis(callId, timeframe) {
       return pa.quarter - pb.quarter;
     });
 
-  const latest           = summaries[summaries.length - 1];
-  const governanceSignals = latest.governanceSignals ?? {};
-  const riskDisclosures  = Array.isArray(latest.riskDisclosures) ? latest.riskDisclosures : [];
+  const latest              = summaries[summaries.length - 1];
+  const governanceSignals   = latest.governanceSignals ?? {};
+  const riskDisclosures     = latest.riskDisclosures ?? null;
+  const normalizedDisclosures = normalizeDisclosures(riskDisclosures);
+  // flatRisks: old-schema array for backward-compatible governance signal logic
+  const flatRisks = Array.isArray(riskDisclosures) ? riskDisclosures : [];
 
   const milestoneAbbrs = [...new Set(rawMilestones.map(m => m.kpi_abbr))];
   const prowessMapping = resolveProwess(companyPrefix);
@@ -581,7 +617,7 @@ async function computeManagementAnalysis(callId, timeframe) {
   const governanceSignalsArray = [];
   let sigId = 1;
   if (governanceSignals.transparent) {
-    const early = riskDisclosures.filter(r => r.disclosed_early);
+    const early = flatRisks.filter(r => r.disclosed_early);
     if (early.length > 0)
       governanceSignalsArray.push({ id: String(sigId++), text: `${early.length} risk(s) disclosed proactively`, isPositive: true, risks: early.map(r => ({ risk: r.risk, severity: r.severity ?? null, mitigation: r.mitigation ?? null })) });
     governanceSignalsArray.push({ id: String(sigId++), text: 'Management demonstrates transparency', isPositive: true });
@@ -599,7 +635,7 @@ async function computeManagementAnalysis(callId, timeframe) {
   if (hiddenCount > 0)
     governanceSignalsArray.push({ id: String(sigId++), text: `${hiddenCount} past target(s) never revisited`, isPositive: false, targets: targetsByStatus['HIDDEN'] ?? [] });
 
-  const notablePatterns = riskDisclosures.map((risk, i) => ({
+  const notablePatterns = flatRisks.map((risk, i) => ({
     id:          `risk-${i}`,
     title:       risk.risk,
     description: risk.disclosed_early ? 'Disclosed proactively' : 'Disclosed when pressed',
@@ -634,11 +670,13 @@ async function computeManagementAnalysis(callId, timeframe) {
       maxScore:         40,
       hitRate,
       hiddenCount,
-      disclosurePattern: governanceSignals.transparent && riskDisclosures.some(r => r.disclosed_early)
+      disclosurePattern: governanceSignals.transparent &&
+          (flatRisks.some(r => r.disclosed_early) || normalizedDisclosures.bad_news.some(n => n.disclosure_type === 'proactive'))
         ? 'Early & Explicit'
         : governanceSignals.transparent ? 'Transparent' : 'Reactive',
     },
     guidanceRecords,
+    disclosures: normalizedDisclosures,
     notablePatterns,
     selectedTimeframe: timeframe,
   };

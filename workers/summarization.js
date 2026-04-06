@@ -103,7 +103,7 @@ async function processSummarizationJob(job) {
     const summaryPayload = {
       entities:          extractedData.entities           ?? null,
       milestones:        extractedData.milestones          ?? null,
-      riskDisclosures:   extractedData.risk_disclosures    ?? null,
+      riskDisclosures:   extractedData.disclosures ?? extractedData.risk_disclosures ?? null,
       governanceSignals: extractedData.governance_signals  ?? null,
       industryAnalysis:  extractedData.industry_analysis
         ? { ...extractedData.industry_analysis, industry: basicIndustry }
@@ -229,6 +229,7 @@ async function processSummarizationJob(job) {
             current_value:  isNaN(currentVal)  ? null : applyMultiplier(currentVal,  mult),
             targeted_value: isNaN(targetedVal) ? null : applyMultiplier(targetedVal, mult),
             multiplier:     mult,
+            currency:       t.currency     ?? null,
             initial_time:   t.initial_time ?? null,
             target_time:    t.target_time  ?? null,
           });
