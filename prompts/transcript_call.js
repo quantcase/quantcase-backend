@@ -67,6 +67,7 @@ Each has financial_targets and conceptual_targets arrays.
   "current_value": number | null,   // Decimal only, no units/currency text, use absolute values
   "targeted_value": number | null,  // Decimal only, no units/currency text, use absolute values
   "multiplier": number,             // Scale factor for current_value and targeted_value (e.g. 10000000 for Crores, 100000 for Lakhs, 1 for ratios/%)
+  "currency": "INR" | "USD" | "EUR" | "GBP" | "percentage" | "ratio" | "other",  // Currency or unit type
   "initial_time": "YYYY-MM-DD",     // When this target was first announced
   "target_time": "YYYY-MM-DD"       // When it is/was expected to be achieved
 }
@@ -81,12 +82,27 @@ Each has financial_targets and conceptual_targets arrays.
   "target_time": "YYYY-MM-DD" | null
 }
 
-### 3. risk_disclosures
-[{
-  "risk": string,
-  "severity": "low" | "medium" | "high",
-  "disclosed_early": boolean
-}]
+### 3. disclosures
+Three categories of negative/sensitive disclosures. Keep all text SHORT and CONCISE (max 10 words per title/description — no full sentences).
+
+{
+  "risk": [{
+    "risk_title": string,           // Short label, e.g. "Copper price cost pressure"
+    "risk_type": string,            // e.g. "Market Risk", "Operational Risk", "Technology Risk", "Regulatory Risk", "Execution Risk"
+    "mitigation_strategy": string | null  // Short action or null — output "No guidance on mitigation"
+  }],
+  "bad_news": [{
+    "news_title": string,           // Short label, e.g. "Volume decline in Europe"
+    "disclosure_type": "proactive" | "reactive" | "partial" | "forced",
+    "mitigation_strategy": string | null
+  }],
+  "legal_issues": [{
+    "issue_title": string,          // Short label
+    "issue_type": "current" | "past",
+    "impact": string                // Short impact description
+  }]
+}
+If no items in a category, return an empty array [].
 
 ### 4. governance_signals
 {
@@ -172,11 +188,12 @@ Each must be fully classified per schema:
 4. new_kpis kpi_type must be "customer_kpis" (for user/customer metrics like ARPU, DAU) or "industry_specific" (for everything else).
 5. If a section has no data, return an empty array or null as appropriate — never omit the key.
 6. Return ONLY the JSON. No explanation, no markdown fences.
-7. SEGMENT vs TOTAL KPIs — never use the same abbr for a segment metric and the company-wide total:
-   - Use the base abbr (e.g. REV_OP, PAT, EBITDA_MARGIN) ONLY for the company-wide consolidated figure.
-   - For any business-segment or division metric, prefix with SEG_<SEGMENT>_ where SEGMENT is a short uppercase label for that division (e.g. SEG_ELEC_REV_OP for Electrification revenue, SEG_PA_REV_OP for Process Automation revenue, SEG_MOT_PAT for Motion segment profit).
-   - Register new SEG_* abbrs in new_kpis.
-   - This applies to every KPI type — revenue, margin, profit, order book, etc.`;
+7. SEGMENT vs TOTAL KPIs — CRITICAL: never assign the same abbr to both a segment metric and the consolidated company total.
+   - The base abbr (REV_OP, PAT, EBITDA_MARGIN, etc.) is RESERVED exclusively for the consolidated company-wide figure.
+   - For ANY KPI belonging to a specific business segment or division — even if that segment dominates total revenue — prefix with SEG_<SEGMENT>_ (e.g. SEG_ELEC_REV_OP, SEG_PA_EBITDA_MARGIN, SEG_MOT_PAT).
+   - SEGMENT is a short uppercase label derived from the segment name (e.g. ELEC, PA, MOT, INFRA, WIRING).
+   - All SEG_* abbrs MUST be registered in new_kpis. Never silently reuse a base abbr for a segment figure.
+   - SELF-CHECK before finalising each abbr: "Is this the single consolidated number for the whole company?" If no → apply SEG_ prefix.`;
 }
 
 module.exports = { transcriptExtractorPrompt };

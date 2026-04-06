@@ -5,6 +5,34 @@ const prisma = require('../config/prisma');
 const { resolveProwess }                   = require('../utils/prowessResolver');
 const { SOURCE_ABBRS, computeDerivedKpis } = require('../utils/finDerivedKpis');
 
+// ─── Disclosures normalizer ───────────────────────────────────────────────────
+
+function normalizeDisclosures(raw) {
+  if (!raw) return { risk: [], bad_news: [], legal_issues: [] };
+  // New schema: object with risk/bad_news/legal_issues keys
+  if (typeof raw === 'object' && !Array.isArray(raw) &&
+      ('risk' in raw || 'bad_news' in raw || 'legal_issues' in raw)) {
+    return {
+      risk:         Array.isArray(raw.risk)          ? raw.risk          : [],
+      bad_news:     Array.isArray(raw.bad_news)       ? raw.bad_news      : [],
+      legal_issues: Array.isArray(raw.legal_issues)   ? raw.legal_issues  : [],
+    };
+  }
+  // Old schema: flat array of { risk, severity, disclosed_early }
+  if (Array.isArray(raw)) {
+    return {
+      risk: raw.map(r => ({
+        risk_title:          r.risk ?? '',
+        risk_type:           r.severity === 'high' ? 'High Risk' : r.severity === 'low' ? 'Low Risk' : 'Market Risk',
+        mitigation_strategy: r.mitigation ?? null,
+      })),
+      bad_news:     [],
+      legal_issues: [],
+    };
+  }
+  return { risk: [], bad_news: [], legal_issues: [] };
+}
+
 // ─── Score helpers ────────────────────────────────────────────────────────────
 
 function parseCallId(callId) {
@@ -29,12 +57,236 @@ function calculateTransparencyScore(governanceSignals, riskDisclosures, undisclo
   let score = 50;
   if (governanceSignals?.transparent) score += 35;
   if (!governanceSignals?.defensive_language) score += 15;
-  const earlyDisclosures = Array.isArray(riskDisclosures)
-    ? riskDisclosures.filter(r => r.disclosed_early).length : 0;
+  // Support both old flat array (disclosed_early) and new disclosures object (bad_news proactive count)
+  let earlyDisclosures = 0;
+  if (Array.isArray(riskDisclosures)) {
+    earlyDisclosures = riskDisclosures.filter(r => r.disclosed_early).length;
+  } else if (riskDisclosures?.bad_news) {
+    earlyDisclosures = riskDisclosures.bad_news.filter(n => n.disclosure_type === 'proactive').length;
+  }
   if (earlyDisclosures > 0) score += Math.min(earlyDisclosures * 5, 20);
   // Deduct for missed targets management never acknowledged in failure disclosures
   if (undisclosedMissCount > 0) score -= Math.min(undisclosedMissCount * 10, 30);
   return Math.max(0, Math.min(score, 100));
+}
+
+// ─── Capital Allocation builder ───────────────────────────────────────────────
+
+/**
+ * Format a Cr value (display units) into a human-readable label.
+ * e.g. 27800 Cr → "$27.8B" (using generic currency symbol; callers can adjust)
+ */
+function formatCrLabel(crValue) {
+  if (crValue == null) return null;
+  const b = crValue / 100000; // 1 lakh Cr = 1B (approx for INR in context)
+  if (Math.abs(b) >= 1)  return `₹${parseFloat(b.toFixed(1))}T`;
+  const billions = crValue / 10000; // 1 Cr = 1e7 rupees; 10000 Cr = 1B rupees
+  if (Math.abs(billions) >= 1) return `₹${parseFloat(billions.toFixed(1))}B`;
+  return `₹${parseFloat(crValue.toFixed(0))}Cr`;
+}
+
+/**
+ * Build capex_breakdown and roce_trend from multi-year Prowess data (byFY map).
+ * byFY: { 'FY2025': [prowessValueNew rows], 'FY2024': [...], ... }
+ * Each row: { kpi_abbr, value (absolute rupees), multiplier, fiscal_year }
+ */
+function computeCapitalAllocation(byFY, sortedFYs) {
+  // ── helpers ──────────────────────────────────────────────────────────────
+  const getCr = (fyMap, abbr) => {
+    const r = fyMap[abbr];
+    if (!r || r.value == null) return null;
+    return r.value / (r.multiplier || 1); // display units (Cr)
+  };
+
+  const toFyMap = (rows) => Object.fromEntries(rows.map(r => [r.kpi_abbr, r]));
+
+  const GROSS_PPE = ['ASSET_LAND_GRS', 'ASSET_PM_GRS'];
+
+  // Pre-compute delta CAPEX and CFF per (latestFY, prevFY) pair — used across timeframes
+  const capexDeltaByFY = {}; // capexDeltaByFY['FY2025'] = delta from FY2024→FY2025
+  const cffByFY = {};
+  for (let i = 0; i < sortedFYs.length; i++) {
+    const fy = sortedFYs[i];
+    const fyMap = toFyMap(byFY[fy] ?? []);
+    cffByFY[fy] = getCr(fyMap, 'CFF');
+    if (i < sortedFYs.length - 1) {
+      const prevMap = toFyMap(byFY[sortedFYs[i + 1]] ?? []);
+      const gL = GROSS_PPE.reduce((s, a) => { const v = getCr(fyMap, a); return v != null ? s + v : s; }, 0);
+      const gP = GROSS_PPE.reduce((s, a) => { const v = getCr(prevMap, a); return v != null ? s + v : s; }, 0);
+      capexDeltaByFY[fy] = gL > gP ? gL - gP : null;
+    }
+  }
+
+  // ── capex breakdown for a specific timeframe window ──────────────────────
+  const buildCapexBreakdown = (fyCount) => {
+    // For "last_quarter" use the latest year only (no delta possible without prev year)
+    // For others we need fyCount FYs of delta capex, so fyCount+1 raw FYs
+    if (sortedFYs.length < 2) return null;
+
+    const windowFYs = sortedFYs.slice(0, fyCount + 1);
+    if (windowFYs.length < 2) return null;
+
+    // Sum capex deltas across all years in window
+    let totalCapexCr = 0;
+    let capexCount = 0;
+    for (const fy of windowFYs.slice(0, -1)) { // exclude oldest (no delta)
+      if (capexDeltaByFY[fy] != null) { totalCapexCr += capexDeltaByFY[fy]; capexCount++; }
+    }
+    const capexCr = capexCount > 0 ? totalCapexCr : null;
+
+    // Shareholder return: sum of |CFF| where CFF < 0 across window years
+    let totalShareholder = 0;
+    let shCount = 0;
+    for (const fy of windowFYs.slice(0, -1)) {
+      const cff = cffByFY[fy];
+      if (cff != null && cff < 0) { totalShareholder += Math.abs(cff); shCount++; }
+    }
+    const shareholder = shCount > 0 ? totalShareholder : null;
+
+    const parts = [
+      { name: 'Capex',             value: capexCr },
+      { name: 'Shareholder Return', value: shareholder },
+    ].filter(p => p.value != null && p.value > 0);
+
+    if (parts.length === 0) return null;
+
+    const total = parts.reduce((s, p) => s + p.value, 0);
+
+    // 5-year average capex for vs_5yr_avg_pct
+    const hist5 = sortedFYs.slice(0, 6); // up to 5 deltas
+    const hist5Values = hist5.slice(0, -1).map(fy => capexDeltaByFY[fy]).filter(v => v != null);
+    const avgCapex5 = hist5Values.length >= 2
+      ? hist5Values.reduce((s, v) => s + v, 0) / hist5Values.length
+      : null;
+    const vs5yrAvgPct = avgCapex5 != null && capexCr != null
+      ? Math.round(((capexCr - avgCapex5) / avgCapex5) * 100)
+      : null;
+
+    const slices = parts.map(p => ({
+      name:         p.name,
+      percentage:   Math.round((p.value / total) * 100),
+      amount_label: formatCrLabel(p.value),
+    }));
+
+    const largest = slices.reduce((a, b) => a.percentage >= b.percentage ? a : b);
+
+    return {
+      total_deployed:         Math.round(total * 1e7), // Cr → rupees
+      total_deployed_label:   formatCrLabel(total),
+      vs_5yr_avg_pct:         vs5yrAvgPct,
+      largest_allocation:     largest.name,
+      largest_allocation_pct: largest.percentage,
+      slices,
+    };
+  };
+
+  // ── capex_breakdown: all 4 timeframes ────────────────────────────────────
+  const capexBreakdown = {
+    last_quarter: buildCapexBreakdown(1),
+    '12_months':  buildCapexBreakdown(1),
+    '3_years':    buildCapexBreakdown(3),
+    '5_years':    buildCapexBreakdown(5),
+  };
+
+  // ── roce_trend ────────────────────────────────────────────────────────────
+  const WACC_DEFAULT = 8; // assumed WACC threshold (%)
+
+  // Yearly data points (chronological)
+  const yearlyPoints = [];
+  for (const fy of [...sortedFYs].reverse()) {
+    const fyMap = toFyMap(byFY[fy] ?? []);
+    const pbt = getCr(fyMap, 'PBT');
+    const fin = getCr(fyMap, 'FIN_COST');
+    const ta  = getCr(fyMap, 'TOTAL_ASSETS');
+    const cl  = getCr(fyMap, 'CURR_LIAB');
+    if (pbt == null || fin == null || ta == null || cl == null) continue;
+    const ce = ta - cl;
+    if (ce === 0) continue;
+    const roce = parseFloat((((pbt + fin) / ce) * 100).toFixed(2));
+    // period label: "FY2025" → "2025"
+    const label = fy.replace('FY', '');
+    yearlyPoints.push({ period: label, roce });
+  }
+
+  let roceTrend = null;
+
+  if (yearlyPoints.length >= 2) {
+    const first    = yearlyPoints[0].roce;
+    const last     = yearlyPoints[yearlyPoints.length - 1].roce;
+    const isRising = last > first;
+    const diff     = parseFloat((last - first).toFixed(1));
+    const years    = yearlyPoints.length - 1;
+
+    const monotone = yearlyPoints.every((p, i) => i === 0 || p.roce >= yearlyPoints[i - 1].roce);
+    let summary;
+    if (yearlyPoints.length >= 3) {
+      summary = monotone
+        ? `ROCE improving consistently over ${years} year${years > 1 ? 's' : ''}`
+        : isRising
+          ? `ROCE generally improving over ${years} year${years > 1 ? 's' : ''} (+${diff}pp)`
+          : `ROCE declining over ${years} year${years > 1 ? 's' : ''} (${diff}pp)`;
+    } else {
+      summary = isRising ? `ROCE up ${diff}pp YoY` : `ROCE down ${Math.abs(diff)}pp YoY`;
+    }
+
+    // Build shared metrics for both views
+    const buildMetrics = (points) => {
+      const latestRoce = points[points.length - 1].roce;
+      const prevRoce   = points[points.length - 2]?.roce ?? null;
+      const peakRoce   = Math.max(...points.map(p => p.roce));
+      const peakPeriod = points.find(p => p.roce === peakRoce)?.period ?? '';
+      const avgRoce    = parseFloat((points.reduce((s, p) => s + p.roce, 0) / points.length).toFixed(1));
+      const vsWacc     = parseFloat((latestRoce - WACC_DEFAULT).toFixed(1));
+      const yoyDiff    = prevRoce != null ? parseFloat((latestRoce - prevRoce).toFixed(1)) : null;
+
+      return [
+        {
+          label:     'Latest ROCE',
+          value:     `${latestRoce}%`,
+          sub_label: yoyDiff != null ? `${yoyDiff >= 0 ? '+' : ''}${yoyDiff}pp vs prior` : null,
+          sentiment: yoyDiff == null ? 'neutral' : yoyDiff >= 0 ? 'positive' : 'negative',
+        },
+        {
+          label:     'Peak ROCE',
+          value:     `${peakRoce}%`,
+          sub_label: peakPeriod ? `FY ${peakPeriod}` : null,
+          sentiment: 'neutral',
+        },
+        {
+          label:     'Avg ROCE',
+          value:     `${avgRoce}%`,
+          sub_label: 'period average',
+          sentiment: 'neutral',
+        },
+        {
+          label:     `vs WACC (${WACC_DEFAULT}%)`,
+          value:     `${vsWacc >= 0 ? '+' : ''}${vsWacc}pp`,
+          sub_label: vsWacc > 0 ? 'value-creating' : 'value-destructive',
+          sentiment: vsWacc > 0 ? 'positive' : 'negative',
+        },
+      ];
+    };
+
+    const yearlyAvg = parseFloat((yearlyPoints.reduce((s, p) => s + p.roce, 0) / yearlyPoints.length).toFixed(1));
+    const yearlyDateRange = yearlyPoints.length >= 2
+      ? `${yearlyPoints[0].period} – ${yearlyPoints[yearlyPoints.length - 1].period}`
+      : null;
+
+    roceTrend = {
+      summary,
+      yearly: {
+        date_range:      yearlyDateRange,
+        wacc_threshold:  WACC_DEFAULT,
+        period_avg_roce: yearlyAvg,
+        data_points:     yearlyPoints,
+        metrics:         buildMetrics(yearlyPoints),
+      },
+      // quarterly: null until quarterly Prowess data is available
+      quarterly: null,
+    };
+  }
+
+  return { capex_breakdown: capexBreakdown, roce_trend: roceTrend ?? null };
 }
 
 function calculateCapitalAllocationScore(governanceSignals) {
@@ -408,36 +660,48 @@ async function computeManagementAnalysis(callId, timeframe) {
       return pa.quarter - pb.quarter;
     });
 
-  const latest           = summaries[summaries.length - 1];
-  const governanceSignals = latest.governanceSignals ?? {};
-  const riskDisclosures  = Array.isArray(latest.riskDisclosures) ? latest.riskDisclosures : [];
+  const latest              = summaries[summaries.length - 1];
+  const governanceSignals   = latest.governanceSignals ?? {};
+  const riskDisclosures     = latest.riskDisclosures ?? null;
+  const normalizedDisclosures = normalizeDisclosures(riskDisclosures);
+  // flatRisks: old-schema array for backward-compatible governance signal logic
+  const flatRisks = Array.isArray(riskDisclosures) ? riskDisclosures : [];
 
   const milestoneAbbrs = [...new Set(rawMilestones.map(m => m.kpi_abbr))];
   const prowessMapping = resolveProwess(companyPrefix);
   let kpiValueRows = [];
+  // Hoisted for use by computeCapitalAllocation later
+  let prowessByFY = {};
+  let prowessSortedFYs = [];
 
-  if (milestoneAbbrs.length > 0) {
-    if (prowessMapping) {
-      // Fetch direct prowess values + source abbrs for all available fiscal years
-      const GROSS_PPE_ABBRS = ['ASSET_LAND_GRS', 'ASSET_PM_GRS'];
-      const [directRows, sourceRows] = await Promise.all([
-        prisma.prowessValueNew.findMany({
+  if (prowessMapping) {
+    // Always fetch source rows when prowess mapping exists (needed for capital_allocation even without milestones)
+    const GROSS_PPE_ABBRS = ['ASSET_LAND_GRS', 'ASSET_PM_GRS'];
+    const directRowsPromise = milestoneAbbrs.length > 0
+      ? prisma.prowessValueNew.findMany({
           where:  { company: prowessMapping.prowessName, kpi_abbr: { in: milestoneAbbrs } },
           select: { callId: true, kpi_abbr: true, value: true, multiplier: true, fiscal_year: true },
-        }),
-        prisma.prowessValueNew.findMany({
-          where:  { company: prowessMapping.prowessName, kpi_abbr: { in: SOURCE_ABBRS } },
-          select: { callId: true, kpi_abbr: true, value: true, multiplier: true, fiscal_year: true },
-          orderBy: { fiscal_year: 'desc' },
-        }),
-      ]);
+        })
+      : Promise.resolve([]);
+    const [directRows, sourceRows] = await Promise.all([
+      directRowsPromise,
+      prisma.prowessValueNew.findMany({
+        where:  { company: prowessMapping.prowessName, kpi_abbr: { in: SOURCE_ABBRS } },
+        select: { callId: true, kpi_abbr: true, value: true, multiplier: true, fiscal_year: true },
+        orderBy: { fiscal_year: 'desc' },
+      }),
+    ]);
 
-      // Group source rows by fiscal year; use latest for main KPIs
-      const byFY = {};
-      for (const r of sourceRows) (byFY[r.fiscal_year] ??= []).push(r);
-      const sortedFYs = Object.keys(byFY).sort().reverse(); // e.g. ['FY2025','FY2024']
-      const latestFY  = sortedFYs[0];
-      const prevFY    = sortedFYs[1] ?? null;
+    // Group source rows by fiscal year; use latest for main KPIs
+    const byFY = {};
+    for (const r of sourceRows) (byFY[r.fiscal_year] ??= []).push(r);
+    const sortedFYs = Object.keys(byFY).sort().reverse(); // e.g. ['FY2025','FY2024']
+    prowessByFY      = byFY;
+    prowessSortedFYs = sortedFYs;
+    const latestFY  = sortedFYs[0];
+    const prevFY    = sortedFYs[1] ?? null;
+
+    if (milestoneAbbrs.length > 0) {
 
       const anchor = byFY[latestFY]?.[0];
       if (anchor) {
@@ -479,12 +743,12 @@ async function computeManagementAnalysis(callId, timeframe) {
       }
 
       kpiValueRows = directRows.map(r => ({ callId: r.callId, kpi_abbr: r.kpi_abbr, value: r.value }));
-    } else {
-      kpiValueRows = await prisma.kpiValue.findMany({
-        where:  { company: companyPrefix, kpi_abbr: { in: milestoneAbbrs } },
-        select: { callId: true, kpi_abbr: true, value: true },
-      });
     }
+  } else if (milestoneAbbrs.length > 0) {
+    kpiValueRows = await prisma.kpiValue.findMany({
+      where:  { company: companyPrefix, kpi_abbr: { in: milestoneAbbrs } },
+      select: { callId: true, kpi_abbr: true, value: true },
+    });
   }
 
   const milestoneByCall  = groupMilestonesByCall(rawMilestones);
@@ -581,7 +845,7 @@ async function computeManagementAnalysis(callId, timeframe) {
   const governanceSignalsArray = [];
   let sigId = 1;
   if (governanceSignals.transparent) {
-    const early = riskDisclosures.filter(r => r.disclosed_early);
+    const early = flatRisks.filter(r => r.disclosed_early);
     if (early.length > 0)
       governanceSignalsArray.push({ id: String(sigId++), text: `${early.length} risk(s) disclosed proactively`, isPositive: true, risks: early.map(r => ({ risk: r.risk, severity: r.severity ?? null, mitigation: r.mitigation ?? null })) });
     governanceSignalsArray.push({ id: String(sigId++), text: 'Management demonstrates transparency', isPositive: true });
@@ -599,12 +863,14 @@ async function computeManagementAnalysis(callId, timeframe) {
   if (hiddenCount > 0)
     governanceSignalsArray.push({ id: String(sigId++), text: `${hiddenCount} past target(s) never revisited`, isPositive: false, targets: targetsByStatus['HIDDEN'] ?? [] });
 
-  const notablePatterns = riskDisclosures.map((risk, i) => ({
+  const notablePatterns = flatRisks.map((risk, i) => ({
     id:          `risk-${i}`,
     title:       risk.risk,
     description: risk.disclosed_early ? 'Disclosed proactively' : 'Disclosed when pressed',
     category:    risk.severity === 'high' ? 'negative' : risk.severity === 'low' ? 'positive' : 'neutral',
   }));
+
+  const capitalAllocation = computeCapitalAllocation(prowessByFY, prowessSortedFYs);
 
   return {
     company: {
@@ -634,13 +900,16 @@ async function computeManagementAnalysis(callId, timeframe) {
       maxScore:         40,
       hitRate,
       hiddenCount,
-      disclosurePattern: governanceSignals.transparent && riskDisclosures.some(r => r.disclosed_early)
+      disclosurePattern: governanceSignals.transparent &&
+          (flatRisks.some(r => r.disclosed_early) || normalizedDisclosures.bad_news.some(n => n.disclosure_type === 'proactive'))
         ? 'Early & Explicit'
         : governanceSignals.transparent ? 'Transparent' : 'Reactive',
     },
     guidanceRecords,
+    disclosures: normalizedDisclosures,
     notablePatterns,
     selectedTimeframe: timeframe,
+    capital_allocation: capitalAllocation,
   };
 }
 
