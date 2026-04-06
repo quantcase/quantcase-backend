@@ -637,3 +637,17 @@ enum WealthModelType {
   pms
   aif
 }
+
+model AiInsight {
+  id         String   @id @default(uuid())
+  ticker     String
+  type       String                        // e.g. "technicals", "financials", "peers"
+  insight    Json                          // raw LLM output, stored as-is for frontend rendering
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([ticker, type])
+  @@map("ai_insights")
+  @@index([ticker])
+  @@index([type])
+}
