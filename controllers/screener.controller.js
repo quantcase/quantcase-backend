@@ -77,7 +77,23 @@ async function getTechnicals(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
     const result = await technicalAnalysis.analyze(symbol);
-    result.decisionIntelligence = await generateDecisionIntelligence(result);
+
+    const dbInsight = await prisma.aiInsight.findUnique({
+      where: { ticker_type: { ticker: symbol, type: 'technicals' } },
+    });
+
+    if (dbInsight) {
+      result.decisionIntelligence = dbInsight.insight;
+    } else {
+      const insight = await generateDecisionIntelligence(result);
+      result.decisionIntelligence = insight;
+      await prisma.aiInsight.upsert({
+        where: { ticker_type: { ticker: symbol, type: 'technicals' } },
+        create: { ticker: symbol, type: 'technicals', insight },
+        update: { insight, updated_at: new Date() },
+      });
+    }
+
     res.json(result);
   } catch (err) {
     if (err.statusCode === 404) return res.status(404).json({ error: err.message });
