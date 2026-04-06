@@ -31,6 +31,7 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma     = new PrismaClient();
 const DO_INSERT  = process.argv.includes('--insert');
+const DO_CLEAR   = process.argv.includes('--clear');
 const csvArg     = process.argv.find(a => a.startsWith('--csv='));
 const CSV_PATH   = csvArg
   ? path.resolve(csvArg.split('=')[1])
@@ -367,6 +368,12 @@ async function main() {
   const unitRow  = records[3];          // row 4 = unit strings
   const dataRows = records.slice(6).filter(r => (r[0] || '').trim());
 
+  // Auto-detect consolidated vs standalone from row 3
+  const typeLabel  = (records[2][1] || '').trim();
+  const isConsolidated = typeLabel.toLowerCase().includes('consolidated');
+  const CALL_SUFFIX    = isConsolidated ? 'C' : 'S';
+  console.log(`  Type      : ${isConsolidated ? 'Consolidated' : 'Standalone'} (suffix=${CALL_SUFFIX})`);
+
   console.log(`  Companies : ${dataRows.length}`);
   console.log(`  Columns   : ${headers.length}`);
 
@@ -416,7 +423,7 @@ async function main() {
     if (!endDate || !fiscalYear) continue;
 
     const startDate   = startOfPeriod(endDate);
-    const callId      = `prowess_new_${normalizeName(company)}_${fiscalYear}_S`;
+    const callId      = `prowess_new_${normalizeName(company)}_${fiscalYear}_${CALL_SUFFIX}`;
 
     function pushRow(colName, abbr) {
       const idx = colMap[colName];
@@ -445,7 +452,7 @@ async function main() {
         end_date:     endDate,
         period_type:  isSnap ? 'snapshot' : 'annual',
         source:       'QE',
-        source_path:  'prowess/osc_sheet_1.csv',
+        source_path:  `prowess/${path.basename(CSV_PATH)}`,
         statement:    STATEMENT_MAP[abbr] ?? null,
       });
     }
@@ -535,6 +542,12 @@ async function main() {
   console.log(`\nCreating table ${TABLE_NAME}…`);
   await ensureTable();
   console.log('done.\n');
+
+  if (DO_CLEAR) {
+    console.log(`Clearing all rows from ${TABLE_NAME}…`);
+    const deleted = await prisma.$executeRawUnsafe(`DELETE FROM ${TABLE_NAME}`);
+    console.log(`✓ Deleted ${deleted} rows.\n`);
+  }
 
   console.log('Seeding PPE breakdown KPIs…');
   await seedPpeKpis();
