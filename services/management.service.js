@@ -486,7 +486,7 @@ function buildSupplementaryRecords(summaries, milestoneByCall, coveredFinKeys, c
 
 const GUIDANCE_TOLERANCE_PCT = 5;
 
-function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr) {
+function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr, kpiValueLookupFallback, latestKpiByAbbrFallback, primarySource) {
   const records = [];
   let recordId           = 0;
   let hiddenCount        = 0;
@@ -513,9 +513,15 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
     const allFailureConceptual = subsequent.flatMap(s => s.milestones?.failure_disclosures?.conceptual_targets ?? []);
 
     const resolveKpiValue = (match, kpiAbbr) => {
-      if (!match) return null;
-      if (match.current_value != null) return match.current_value;
-      return kpiValueLookup.get(`${match.callId}:::${kpiAbbr?.trim().toLowerCase()}`) ?? null;
+      if (!match) return { value: null, source: null };
+      if (match.current_value != null) return { value: match.current_value, source: 'transcript+ppt' };
+      const abbr = kpiAbbr?.trim().toLowerCase();
+      const key  = `${match.callId}:::${abbr}`;
+      const pv   = kpiValueLookup.get(key);
+      if (pv != null) return { value: pv, source: primarySource };
+      const fv   = kpiValueLookupFallback.get(key);
+      if (fv != null) return { value: fv, source: 'transcript+ppt' };
+      return { value: null, source: null };
     };
 
     // ── Financial ──
@@ -529,18 +535,34 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
         new Date(c.target_time) >= new Date(goal.target_time)
       );
 
-      const successValue = resolveKpiValue(successMatch, goal.kpi_abbr);
-      const failureValue = resolveKpiValue(failureMatch, goal.kpi_abbr);
-      const rawCurrentValue = successValue ?? failureValue;
-      const isDirectValue = successMatch?.current_value != null || failureMatch?.current_value != null;
-      const matchedValue = isDirectValue
+      const successResolved  = resolveKpiValue(successMatch, goal.kpi_abbr);
+      const failureResolved  = resolveKpiValue(failureMatch, goal.kpi_abbr);
+      const rawCurrentValue  = successResolved.value ?? failureResolved.value;
+      const rawSource        = successResolved.value != null ? successResolved.source : failureResolved.source;
+      const isDirectValue    = successMatch?.current_value != null || failureMatch?.current_value != null;
+      const matchedValue     = isDirectValue
         ? normalizeActualUnit(goal.targeted_value, rawCurrentValue)
         : rawCurrentValue;
-      const currentValue = matchedValue ?? latestKpiByAbbr.get(goal.kpi_abbr?.trim().toLowerCase()) ?? null;
+
+      let currentValue = matchedValue;
+      let dataSource   = rawSource;
+      if (currentValue == null) {
+        const prowessVal = latestKpiByAbbr.get(goal.kpi_abbr?.trim().toLowerCase());
+        if (prowessVal != null) {
+          currentValue = prowessVal;
+          dataSource   = primarySource;
+        } else {
+          const fallbackVal = latestKpiByAbbrFallback.get(goal.kpi_abbr?.trim().toLowerCase());
+          if (fallbackVal != null) {
+            currentValue = fallbackVal;
+            dataSource   = 'transcript+ppt';
+          }
+        }
+      }
 
       const deadlineIsFuture = goal.target_time && new Date(goal.target_time) > latestCoveredDate;
       const latestVariance    = currentValue != null ? calcVariance(goal.targeted_value, currentValue) : null;
-      const successVariance   = successValue != null ? calcVariance(goal.targeted_value, successValue) : null;
+      const successVariance   = successResolved.value != null ? calcVariance(goal.targeted_value, successResolved.value) : null;
       const targetActuallyMet = (successMatch && successVariance !== null && successVariance >= -GUIDANCE_TOLERANCE_PCT)
                               || (currentValue != null && latestVariance !== null && latestVariance >= -GUIDANCE_TOLERANCE_PCT);
 
@@ -574,6 +596,7 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
                           : null,
         status:         status === 'MISSED' && !failureMatch ? 'MISSED_UNDISCLOSED' : status,
         target_type:    'financial',
+        data_source:    dataSource,
       });
     }
 
@@ -615,6 +638,7 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
         variance_pct:   null,
         status:         status === 'MISSED' && !failureMatch ? 'MISSED_UNDISCLOSED' : status,
         target_type:    'conceptual',
+        data_source:    'transcript+ppt',
       });
     }
   }
@@ -751,12 +775,24 @@ async function computeManagementAnalysis(callId, timeframe) {
     });
   }
 
-  const milestoneByCall  = groupMilestonesByCall(rawMilestones);
-  const kpiValueLookup   = buildKpiValueLookup(kpiValueRows);
-  const latestKpiByAbbr  = buildLatestKpiByAbbr(kpiValueRows);
+  // Fetch kpi_values as fallback when prowess is primary (to fill gaps)
+  const primarySource = prowessMapping ? 'financialData' : 'transcript+ppt';
+  let kpiValueFallbackRows = [];
+  if (prowessMapping && milestoneAbbrs.length > 0) {
+    kpiValueFallbackRows = await prisma.kpiValue.findMany({
+      where:  { company: companyPrefix, kpi_abbr: { in: milestoneAbbrs } },
+      select: { callId: true, kpi_abbr: true, value: true },
+    });
+  }
+
+  const milestoneByCall         = groupMilestonesByCall(rawMilestones);
+  const kpiValueLookup          = buildKpiValueLookup(kpiValueRows);
+  const latestKpiByAbbr         = buildLatestKpiByAbbr(kpiValueRows);
+  const kpiValueLookupFallback  = buildKpiValueLookup(kpiValueFallbackRows);
+  const latestKpiByAbbrFallback = buildLatestKpiByAbbr(kpiValueFallbackRows);
 
   const { records, hiddenCount, achievedCount, missedCount, undisclosedMissCount, hitRate, guidanceScore } =
-    buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr);
+    buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr, kpiValueLookupFallback, latestKpiByAbbrFallback, primarySource);
 
   // Use all milestone abbrs (covers future_goals + success/failure disclosures) for KPI metadata
   const kpiRows = milestoneAbbrs.length > 0
