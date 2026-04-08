@@ -24,41 +24,62 @@ function buildContext(result) {
     marketStructureGrowthOutput: na(se?.marketStructure?.growthOutput),
     marketStructureValueOutput:  na(se?.marketStructure?.valueOutput),
     participation:               na(se?.participation?.growthOutput),
+    participationValue:          na(se?.participation?.valueOutput),
     priceStructure:              na(se?.priceStructure?.growthOutput),
+    priceStructureValue:         na(se?.priceStructure?.valueOutput),
 
     trendDirectionGrowth:  na(te?.trendDirection?.growthOutput),
     trendDirectionValue:   na(te?.trendDirection?.valueOutput),
+    priceVsSMA20:          na(te?.trendDirection?.priceVsSMA20),
+    priceVsSMA50:          na(te?.trendDirection?.priceVsSMA50),
+    priceVsSMA100:         na(te?.trendDirection?.priceVsSMA100),
+    priceVsSMA200:         na(te?.trendDirection?.priceVsSMA200),
     adxCondition:          na(te?.trendQuality?.condition),
+    adx:                   na(te?.trendQuality?.adx),
+    adxTrend:              na(te?.trendQuality?.adxTrend),
     trendQualityGrowth:    na(te?.trendQuality?.growthOutput),
     trendQualityValue:     na(te?.trendQuality?.valueOutput),
 
     rsiZone:          na(ti?.momentum?.rsiZone),
+    rsi:              na(ti?.momentum?.rsi),
     momentumGrowth:   na(ti?.momentum?.growthOutput),
     momentumValue:    na(ti?.momentum?.valueOutput),
     bbCondition:      na(ti?.volatility?.condition),
+    bbWidth:          na(ti?.volatility?.bbWidth),
+    bbExpanding:      na(ti?.volatility?.expanding),
     volatilityGrowth: na(ti?.volatility?.growthOutput),
     volatilityValue:  na(ti?.volatility?.valueOutput),
 
     vsNiftySignal:  na(de?.vsNifty?.signal),
     vsNiftyGrowth:  na(de?.vsNifty?.growthOutput),
+    vsNiftyValue:   na(de?.vsNifty?.valueOutput),
     vsSectorSignal: na(de?.vsSector?.signal),
     vsSectorGrowth: na(de?.vsSector?.growthOutput),
+    vsSectorValue:  na(de?.vsSector?.valueOutput),
 
     decisionSummary: na(re?.decisionContext?.summary),
+    marketBias:      na(re?.decisionContext?.marketBias),
+    overallCondition: na(re?.decisionContext?.overallCondition),
     alerts:          Array.isArray(re?.decisionContext?.alerts)
       ? re.decisionContext.alerts.join(', ')
       : 'N/A',
 
-    wyckoffGrowthWatchouts:       Array.isArray(se?.marketStructure?.growthWatchouts) ? se.marketStructure.growthWatchouts.join(' | ') : 'N/A',
-    wyckoffValueWatchouts:        Array.isArray(se?.marketStructure?.valueWatchouts)  ? se.marketStructure.valueWatchouts.join(' | ')  : 'N/A',
-    participationGrowthWatchouts: Array.isArray(se?.participation?.growthWatchouts)   ? se.participation.growthWatchouts.join(' | ')   : 'N/A',
-    participationValueWatchouts:  Array.isArray(se?.participation?.valueWatchouts)    ? se.participation.valueWatchouts.join(' | ')    : 'N/A',
-    priceStructureGrowthWatchouts: Array.isArray(se?.priceStructure?.growthWatchouts) ? se.priceStructure.growthWatchouts.join(' | ') : 'N/A',
-    priceStructureValueWatchouts:  Array.isArray(se?.priceStructure?.valueWatchouts)  ? se.priceStructure.valueWatchouts.join(' | ')  : 'N/A',
-    adxGrowthWatchouts:           Array.isArray(te?.trendQuality?.growthWatchouts)    ? te.trendQuality.growthWatchouts.join(' | ')   : 'N/A',
-    adxValueWatchouts:            Array.isArray(te?.trendQuality?.valueWatchouts)     ? te.trendQuality.valueWatchouts.join(' | ')    : 'N/A',
-    rsiGrowthWatchouts:           Array.isArray(ti?.momentum?.growthWatchouts)        ? ti.momentum.growthWatchouts.join(' | ')       : 'N/A',
-    rsiValueWatchouts:            Array.isArray(ti?.momentum?.valueWatchouts)         ? ti.momentum.valueWatchouts.join(' | ')        : 'N/A',
+    wyckoffGrowthWatchout:       na(se?.marketStructure?.growthWatchout),
+    wyckoffValueWatchout:        na(se?.marketStructure?.valueWatchout),
+    participationGrowthWatchout: na(se?.participation?.growthWatchout),
+    participationValueWatchout:  na(se?.participation?.valueWatchout),
+    priceStructureGrowthWatchout: na(se?.priceStructure?.growthWatchout),
+    priceStructureValueWatchout:  na(se?.priceStructure?.valueWatchout),
+    adxGrowthWatchout:           na(te?.trendQuality?.growthWatchout),
+    adxValueWatchout:            na(te?.trendQuality?.valueWatchout),
+    rsiGrowthWatchout:           na(ti?.momentum?.growthWatchout),
+    rsiValueWatchout:            na(ti?.momentum?.valueWatchout),
+    bbGrowthWatchout:            na(ti?.volatility?.growthWatchout),
+    bbValueWatchout:             na(ti?.volatility?.valueWatchout),
+    vsNiftyGrowthWatchout:       na(de?.vsNifty?.growthWatchout),
+    vsNiftyValueWatchout:        na(de?.vsNifty?.valueWatchout),
+    vsSectorGrowthWatchout:      na(de?.vsSector?.growthWatchout),
+    vsSectorValueWatchout:       na(de?.vsSector?.valueWatchout),
   };
 }
 
@@ -67,49 +88,70 @@ function buildPrompt(ctx) {
 
 SYMBOL: ${ctx.symbol} | SECTOR: ${ctx.sector}
 OVERALL SIGNAL: ${ctx.overallSignal} (score: ${ctx.score}/100)
+MARKET BIAS: ${ctx.marketBias} | CONDITION: ${ctx.overallCondition}
 
 === STRUCTURE ENGINE ===
 Wyckoff Phase: ${ctx.wyckoffPhase}
 Market Structure (Growth): ${ctx.marketStructureGrowthOutput}
 Market Structure (Value): ${ctx.marketStructureValueOutput}
-Participation: ${ctx.participation}
-Price Structure: ${ctx.priceStructure}
+Participation (Growth): ${ctx.participation}
+Participation (Value): ${ctx.participationValue}
+Price Structure (Growth): ${ctx.priceStructure}
+Price Structure (Value): ${ctx.priceStructureValue}
 
 === TREND ENGINE ===
+SMA Position: 20=${ctx.priceVsSMA20}, 50=${ctx.priceVsSMA50}, 100=${ctx.priceVsSMA100}, 200=${ctx.priceVsSMA200}
 Trend Direction (Growth): ${ctx.trendDirectionGrowth}
 Trend Direction (Value): ${ctx.trendDirectionValue}
-Trend Quality (ADX condition: ${ctx.adxCondition}): ${ctx.trendQualityGrowth}
+ADX: ${ctx.adx} (${ctx.adxCondition}, trend: ${ctx.adxTrend})
+Trend Quality (Growth): ${ctx.trendQualityGrowth}
 Trend Quality (Value): ${ctx.trendQualityValue}
 
 === TIMING ENGINE ===
-Momentum (RSI zone: ${ctx.rsiZone}): ${ctx.momentumGrowth}
+RSI: ${ctx.rsi} (zone: ${ctx.rsiZone})
+Momentum (Growth): ${ctx.momentumGrowth}
 Momentum (Value): ${ctx.momentumValue}
-Volatility (BB: ${ctx.bbCondition}): ${ctx.volatilityGrowth}
+BB Width: ${ctx.bbWidth} (${ctx.bbCondition}, expanding: ${ctx.bbExpanding})
+Volatility (Growth): ${ctx.volatilityGrowth}
 Volatility (Value): ${ctx.volatilityValue}
 
 === DOMINANCE ENGINE ===
-vs Nifty (${ctx.vsNiftySignal}): ${ctx.vsNiftyGrowth}
-vs Sector (${ctx.vsSectorSignal}): ${ctx.vsSectorGrowth}
+vs Nifty (${ctx.vsNiftySignal}): Growth: ${ctx.vsNiftyGrowth} | Value: ${ctx.vsNiftyValue}
+vs Sector (${ctx.vsSectorSignal}): Growth: ${ctx.vsSectorGrowth} | Value: ${ctx.vsSectorValue}
 
 === DECISION CONTEXT ===
 Summary: ${ctx.decisionSummary}
 Risk Alerts: ${ctx.alerts}
 
 === INDICATOR WATCHOUTS ===
-Wyckoff Phase | Growth: ${ctx.wyckoffGrowthWatchouts} | Value: ${ctx.wyckoffValueWatchouts}
-Participation | Growth: ${ctx.participationGrowthWatchouts} | Value: ${ctx.participationValueWatchouts}
-Price Structure | Growth: ${ctx.priceStructureGrowthWatchouts} | Value: ${ctx.priceStructureValueWatchouts}
-Trend Quality (ADX) | Growth: ${ctx.adxGrowthWatchouts} | Value: ${ctx.adxValueWatchouts}
-Momentum (RSI) | Growth: ${ctx.rsiGrowthWatchouts} | Value: ${ctx.rsiValueWatchouts}
+Market Structure | Growth: ${ctx.wyckoffGrowthWatchout} | Value: ${ctx.wyckoffValueWatchout}
+Participation | Growth: ${ctx.participationGrowthWatchout} | Value: ${ctx.participationValueWatchout}
+Price Structure | Growth: ${ctx.priceStructureGrowthWatchout} | Value: ${ctx.priceStructureValueWatchout}
+Trend Direction | Growth: ${ctx.trendDirectionGrowth} | Value: ${ctx.trendDirectionValue}
+Trend Quality (ADX) | Growth: ${ctx.adxGrowthWatchout} | Value: ${ctx.adxValueWatchout}
+Momentum (RSI) | Growth: ${ctx.rsiGrowthWatchout} | Value: ${ctx.rsiValueWatchout}
+Volatility (BB) | Growth: ${ctx.bbGrowthWatchout} | Value: ${ctx.bbValueWatchout}
+Relative Strength | vs Nifty: ${ctx.vsNiftyGrowthWatchout} | vs Sector: ${ctx.vsSectorGrowthWatchout}
 
 ---
 Respond ONLY with a valid JSON object matching this exact schema (no markdown fences, no preamble):
 {
+  "tag": "<2-5 words alignment tag, e.g. Full Bearish Alignment | Bullish Momentum Building | Mixed Signals Neutral>",
+  "lens": "<Value | Growth>",
+  "idealFor": "<Investment | Swing | Positional>",
+  "timeframe": "<6M+ | 3-6M | 0-3M>",
   "currentRegime": {
     "label": "<2-4 words, e.g. Strong Uptrend | Sideways Consolidation | Distribution Phase | Oversold Reversal>",
     "description": "<max 12 words, one sharp phrase characterizing the structure>"
   },
   "actionBias": "<max 25 words, one crisp actionable sentence combining growth and value lenses>",
+  "actionableInsight": {
+    "action": "<Buy | Sell | Hold | Avoid | Ignore>",
+    "firstShift": "<max 20 words, what the first structural shift to watch for is>",
+    "existingHolderAction": "<max 15 words, what existing holders should do>",
+    "reEvaluateCondition": "<max 20 words, condition that would trigger re-evaluation>"
+  },
+  "whatCanChange": ["<max 15 words each, 3-5 catalysts that could shift the current regime>"],
   "strategyViews": {
     "growth": "<max 15 words for momentum managers>",
     "value": "<max 15 words for value investors>"
@@ -117,21 +159,35 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
   "riskAlerts": ["<3-5 words>", "<3-5 words>"],
   "convictionLevel": "<Low | Medium | High>",
   "indicators": [
-    { "name": "Wyckoff Phase", "growthWatchout": "<max 15 words, crisp single-line watchout for growth managers>", "valueWatchout": "<max 15 words, crisp single-line watchout for value investors>" },
-    { "name": "Participation", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>" },
-    { "name": "Price Structure", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>" },
-    { "name": "Trend Quality", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>" },
-    { "name": "Momentum", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>" }
+    { "name": "Market Structure", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words, e.g. Distribution phase>", "explanation": "<max 20 words tooltip explaining this indicator's current state>", "sentiment": "<positive | negative | transitional>" },
+    { "name": "Capital Participation", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
+    { "name": "Price Architecture", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
+    { "name": "Trend Direction", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
+    { "name": "Trend Quality", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
+    { "name": "Momentum", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
+    { "name": "Volatility", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
+    { "name": "Relative Strength", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" }
   ]
 }
 
 Rules:
+- tag: 2-5 word alignment summary reflecting whether all indicators agree (e.g. "Full Bearish Alignment") or diverge (e.g. "Mixed Signals")
+- lens: "Value" if market bias is bearish and price is below 200 SMA, "Growth" if bullish momentum is present
+- idealFor: "Investment" for 6M+ holds, "Positional" for 3-6M, "Swing" for 0-3M
+- timeframe: must match idealFor ("Investment"→"6M+", "Positional"→"3-6M", "Swing"→"0-3M")
+- actionableInsight.action: "Buy" for STRONG_BUY, "Sell" for STRONG_SELL, "Hold" for mild signals, "Avoid" for bearish/distribution, "Ignore" for insufficient data
+- whatCanChange: 3-5 specific catalysts that could shift the regime (e.g. "RSI sustains above 40 — momentum recovery")
 - description: max 12 words, no filler
-- actionBias: max 25 words, direct imperative tone (e.g. "Ride the trend. Take partial profits on overbought RSI.")
+- actionBias: max 25 words, direct imperative tone
 - strategyViews.growth and strategyViews.value: max 15 words each, no overlap with actionBias
 - riskAlerts: 3-5 items max, each exactly 3-5 words, noun phrases only
 - convictionLevel: High if STRONG_BUY or STRONG_SELL, Medium if BUY or SELL, Low otherwise
-- indicators: always exactly 5 objects in the order above; each growthWatchout and valueWatchout is a single crisp actionable sentence (max 15 words), distilled from the INDICATOR WATCHOUTS section above
+- indicators: always exactly 8 objects in the order above
+  - tag: 2-5 word summary of indicator state (e.g. "Distribution phase", "Smart money exiting", "Bearish crossover active")
+  - explanation: max 20 words, tooltip text explaining the indicator for a non-expert
+  - sentiment: "positive" for bullish signals (green), "negative" for bearish (red), "transitional" for neutral/mixed (orange)
+  - growthWatchout and valueWatchout: MUST be a single crisp actionable sentence, max 15 words. Do NOT copy or concatenate the raw watchout text from the input. Instead, synthesize the multiple watchout points into one sharp, original insight. Example: "Monitor volume confirmation before adding positions near breakout."
+- CRITICAL: Each watchout must be ONE sentence only. Never join or list multiple points. Distill, don't copy.
 - No verbose explanations, no repeating context already stated above
 - Return pure JSON only`;
 }
@@ -140,7 +196,7 @@ async function callLLM(prompt) {
   const response = await openRouter.chat.completions.create({
     model: 'anthropic/claude-haiku-4-5',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 600,
+    max_tokens: 5000,
     temperature: 0,
   });
   return response.choices[0]?.message?.content ?? null;

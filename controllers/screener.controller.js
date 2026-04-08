@@ -82,16 +82,38 @@ async function getTechnicals(req, res, next) {
       where: { ticker_type: { ticker: symbol, type: 'technicals' } },
     });
 
-    if (dbInsight) {
+    if (dbInsight?.insight) {
       result.decisionIntelligence = dbInsight.insight;
     } else {
       const insight = await generateDecisionIntelligence(result);
       result.decisionIntelligence = insight;
-      await prisma.aiInsight.upsert({
-        where: { ticker_type: { ticker: symbol, type: 'technicals' } },
-        create: { ticker: symbol, type: 'technicals', insight },
-        update: { insight, updated_at: new Date() },
-      });
+      if (insight) {
+        await prisma.aiInsight.upsert({
+          where: { ticker_type: { ticker: symbol, type: 'technicals' } },
+          create: { ticker: symbol, type: 'technicals', insight },
+          update: { insight, updated_at: new Date() },
+        });
+      }
+    }
+
+    // Strip joined watchout strings from ruleEngine — decisionIntelligence has distilled versions
+    if (result.ruleEngine) {
+      const re = result.ruleEngine;
+      const buckets = [
+        re.structureEngine?.marketStructure,
+        re.structureEngine?.participation,
+        re.structureEngine?.priceStructure,
+        re.trendEngine?.trendQuality,
+        re.timingEngine?.momentum,
+        re.timingEngine?.volatility,
+        re.dominanceEngine?.leadership?.vsNifty,
+        re.dominanceEngine?.leadership?.vsSector,
+      ];
+      for (const bucket of buckets) {
+        if (!bucket) continue;
+        delete bucket.growthWatchout;
+        delete bucket.valueWatchout;
+      }
     }
 
     res.json(result);
