@@ -4,7 +4,7 @@ const { OFactorResponseSchema } = require('../../utils/constants');
 
 const LENGTH_GUIDELINES = `
 Output length guidelines:
-  • text.takeaway — 50 words max user friendly sentence with narrative. You may mention hard metrics in parentheses.
+  • text.takeaway — ONE punchy sentence, 15 words max. Comma-separated key facts with one metric in parentheses. Example: "High operating leverage, capex below operating cash flow — self-funding"
   • text.key_takeaway — 30 words max
   • text.cash_flow.quality_analysis — 30 words max per item
   • text.balance_sheet.strengths, .considerations — 30 words max per item

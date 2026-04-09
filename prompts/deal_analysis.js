@@ -173,12 +173,12 @@ Generate an **overview** object with the following sub-sections:
 #### eps_engine_card
 Score the EPS Engine out of 10. This represents the quality and trajectory of the company's earnings growth engine.
 - score: number between 1.0–10.0 (one decimal place), e.g. 1.5
-- drivers: exactly 3 short, scannable bullet strings. Each must be ≤10 words, NO emojis, end with a growth/CAGR figure or concrete outcome. Example: "Strong base case (16.8% CAGR)"
+- drivers: exactly 3 short, scannable bullet strings. Each must be ≤10 words, NO emojis. Format: "fact — metric/outcome". Examples: "8–10% EPS growth expected — not a re-rating catalyst", "Strong base case — 16.8% CAGR", "Margin expansion likely — OPM up 200bps"
 
 #### valuation_rerating_card
 Score the Valuation Re-Rating potential out of 10. This represents how likely the stock is to re-rate upward/downward.
 - score: number between 1.0–10.0 (one decimal place), e.g. 3.5
-- drivers: exactly 3 short, scannable bullet strings. Each must be ≤10 words, NO emojis, with a concrete data point. Example: "Already at -38% P/E premium"
+- drivers: exactly 3 short, scannable bullet strings. Each must be ≤10 words, NO emojis. Format: "fact — metric/outcome". Examples: "30% above 5-quarter median — minimal upside", "Already at -38% P/E premium", "Re-rating needs execution proof — high bar"
 
 #### deal_factor_score
 Overall conviction score = eps_engine_card.score + valuation_rerating_card.score (max 20).
@@ -188,7 +188,8 @@ Overall conviction score = eps_engine_card.score + valuation_rerating_card.score
 - level: "LOW" if overall < 8, "MODERATE" if 8–14, "HIGH" if >14
 
 #### key_takeaway
-Exactly 3 bullet strings summarising the investment case. Each ≤15 words, concrete and opinionated. Must be exactly 3, no more.
+Exactly 3 bullet strings summarising the investment case. Each must follow the format: "Label — concise detail with metric". Max 12 words each, concrete and opinionated. Must be exactly 3, no more.
+Examples: "P/E re-rating — 30% above median, minimal upside", "EPS growth — 8–10% expected, not a catalyst", "Margin safety — OPM stable at 22%, no compression risk"
 
 #### deal_verdict
 - title: short verdict phrase (≤6 words), e.g. "Watch Execution closely"
@@ -324,11 +325,11 @@ Return ONLY a valid JSON object. No markdown fences, no explanation:
   "overview": {
     "eps_engine_card": {
       "score": <number e.g. 1.5>,
-      "drivers": ["<emoji + ≤10 word outcome>", "<emoji + ≤10 word outcome>", "<emoji + ≤10 word outcome>"]
+      "drivers": ["<fact — metric/outcome, ≤10 words, NO emojis>", "<fact — metric/outcome>", "<fact — metric/outcome>"]
     },
     "valuation_rerating_card": {
       "score": <number e.g. 3.5>,
-      "drivers": ["<≤10 word data point>", "<≤10 word data point>", "<≤10 word data point>"]
+      "drivers": ["<fact — metric/outcome, ≤10 words, NO emojis>", "<fact — metric/outcome>", "<fact — metric/outcome>"]
     },
     "deal_factor_score": {
       "overall": <number — sum of eps_engine_card.score + valuation_rerating_card.score>,
@@ -336,7 +337,7 @@ Return ONLY a valid JSON object. No markdown fences, no explanation:
       "valuation_rerating": <number — same as valuation_rerating_card.score>,
       "level": "<LOW|MODERATE|HIGH>"
     },
-    "key_takeaway": ["<≤15 word bullet>", "<≤15 word bullet>", "<≤15 word bullet>"],
+    "key_takeaway": ["<Label — concise detail with metric, ≤12 words>", "<Label — detail>", "<Label — detail>"],
     "deal_verdict": {
       "title": "<≤6 word verdict phrase>",
       "description": "<2-sentence elaboration>"

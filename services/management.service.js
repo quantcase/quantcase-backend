@@ -651,6 +651,36 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
   return { records, hiddenCount, achievedCount, missedCount, undisclosedMissCount, hitRate, guidanceScore };
 }
 
+// ─── Descriptor builders (concise, data-driven summary text for each factor) ─
+
+function buildGuidanceDescriptor(hitRate, achievedCount, missedCount) {
+  const total = achievedCount + missedCount;
+  if (total === 0) return 'No trackable guidance yet';
+  const pct = `${Math.round(hitRate)}% hit rate`;
+  if (hitRate >= 60) return `${pct} — delivers on commitments`;
+  if (hitRate >= 30) return `${pct} — over-optimistic on targets`;
+  return `${pct} — frequent misses (${missedCount} of ${total})`;
+}
+
+function buildDisclosureDescriptor(transparencyScore, governanceSignals, flatRisks, normalizedDisclosures) {
+  const earlyCount = flatRisks.filter(r => r.disclosed_early).length;
+  if (transparencyScore >= 70 && earlyCount > 0) return 'Proactively discloses bad news early';
+  if (transparencyScore >= 70) return 'Transparent — no red flags in disclosures';
+  if (governanceSignals.defensive_language) return 'Evasive language detected in calls';
+  if (transparencyScore >= 50) return 'Adequate but reactive on disclosures';
+  return 'Limited transparency — key risks under-reported';
+}
+
+function buildCapitalDescriptor(capitalScore, capitalAllocation) {
+  const latestRoce = capitalAllocation?.roce_trend?.yearly?.data_points?.slice(-1)[0]?.roce;
+  if (latestRoce != null && capitalScore >= 70) return `Disciplined, ROCE at ${latestRoce}%`;
+  if (latestRoce != null && capitalScore >= 50) return `Adequate allocation, ROCE at ${latestRoce}%`;
+  if (latestRoce != null) return `Unclear strategy, ROCE only ${latestRoce}%`;
+  if (capitalScore >= 70) return 'Clear capital allocation strategy';
+  if (capitalScore >= 50) return 'Adequate but lacks clarity on allocation';
+  return 'No clear capital allocation framework';
+}
+
 // ─── Main service function ────────────────────────────────────────────────────
 
 async function computeManagementAnalysis(callId, timeframe) {
@@ -918,9 +948,9 @@ async function computeManagementAnalysis(callId, timeframe) {
       transcriptsAnalyzed: summaries.length,
     },
     scores: [
-      { factor: 'Guidance Accuracy',  rating: getRating(guidanceScore),     descriptor: hitRate >= 60 ? 'Consistent Delivery' : hitRate >= 30 ? 'Mixed Track Record' : 'Inconsistent' },
-      { factor: 'Disclosure Honesty', rating: getRating(transparencyScore),  descriptor: transparencyScore >= 70 ? 'Transparent Ops' : transparencyScore >= 50 ? 'Adequate Disclosure' : 'Limited Transparency' },
-      { factor: 'Capital Allocation', rating: getRating(capitalScore),       descriptor: capitalScore >= 70 ? 'Value Accretive' : capitalScore >= 50 ? 'Adequate Strategy' : 'Unclear Direction' },
+      { factor: 'Guidance Accuracy',  rating: getRating(guidanceScore),     descriptor: buildGuidanceDescriptor(hitRate, achievedCount, missedCount) },
+      { factor: 'Disclosure Honesty', rating: getRating(transparencyScore),  descriptor: buildDisclosureDescriptor(transparencyScore, governanceSignals, flatRisks, normalizedDisclosures) },
+      { factor: 'Capital Allocation', rating: getRating(capitalScore),       descriptor: buildCapitalDescriptor(capitalScore, capitalAllocation) },
     ],
     trust: {
       overall: getOverallTrust(overallScore),

@@ -68,10 +68,10 @@ Using ONLY the information above:
 4. investment_thesis — 1–2 sentences that capture the core opportunity and main risk. 
 5. key_highlights — 3–5 concise bullet points (10–15 words each), one per strongest positive.
 6. key_risks      — 2–3 concise bullet points (10–15 words each), one per top concern.
-7. section_scores — copy score, status, and takeaway from each section above (do NOT paraphrase the takeaway).
+7. section_scores — for each section, copy the score and status. For the takeaway: write ONE punchy sentence, 15 words max, comma-separated key facts with a metric in parentheses. Examples: "High growth, demand rising, no import competition", "No concentration risk, distribution depth intact".
 8. Keep the language in thesis, risks and highlights simple and easy to understand. You may mention hard metrics in parentheses.
 9. Whenever you give an insight, try incorporating a short metric in parentheses to back it with hard data.
-Output length: keep investment_thesis under 40 words; each highlight/risk under 15 words.
+Output length: keep investment_thesis under 40 words; each highlight/risk under 15 words; each section takeaway under 15 words.
 
 ══════════════════════════════════════════════════════════
 OUTPUT FORMAT

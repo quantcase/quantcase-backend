@@ -10,7 +10,7 @@ const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
 Populate with short and crisp points.
 
 Output length guidelines:
-  • text.takeaway — 3-4 sentences in user friendly language. You may mention hard metrics in parentheses.
+  • text.takeaway — ONE punchy sentence, 15 words max. Comma-separated key facts with one metric in parentheses. Example: "High growth, demand rising, no import competition"
   • text.opm_trend.margin_drivers, text.opm_trend.key_observations — 30 words max per item
   • text.opm_trend.forward_outlook — 30 words max
   • text.demand_supply_dynamics.demand, .supply — 4–6 bullet points each, 20 words max per point
