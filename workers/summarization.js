@@ -230,8 +230,9 @@ async function processSummarizationJob(job) {
             targeted_value: isNaN(targetedVal) ? null : applyMultiplier(targetedVal, mult),
             multiplier:     mult,
             currency:       t.currency     ?? null,
-            initial_time:   t.initial_time ?? null,
-            target_time:    t.target_time  ?? null,
+            initial_time:        t.initial_time      ?? null,
+            target_time:         t.target_time       ?? null,
+            cumulative_period:   Number.isFinite(t.cumulative_period) ? Math.round(t.cumulative_period) : null,
           });
         }
       }

@@ -4,6 +4,7 @@ const prisma = require('../config/prisma');
 
 const { resolveProwess }                   = require('../utils/prowessResolver');
 const { SOURCE_ABBRS, computeDerivedKpis } = require('../utils/finDerivedKpis');
+const { computePeriodType }                = require('../utils/workerUtils');
 
 // ─── Disclosures normalizer ───────────────────────────────────────────────────
 
@@ -327,10 +328,13 @@ function getConfidenceLevel(confidence) {
 
 function matchTarget(goal, candidatePool, type) {
   if (type === 'financial') {
+    if (!goal.target_time) return null;
+    const goalMs = new Date(goal.target_time).getTime();
     return candidatePool.find(c => {
       if (c.kpi_abbr?.trim().toLowerCase() !== goal.kpi_abbr?.trim().toLowerCase()) return false;
-      if (!c.target_time || !goal.target_time) return false;
-      return new Date(c.target_time) < new Date(goal.target_time);
+      if (!c.target_time) return false;
+      const daysDiff = Math.abs(new Date(c.target_time).getTime() - goalMs) / 86400000;
+      return daysDiff <= 30;
     }) ?? null;
   }
 
@@ -417,6 +421,52 @@ function buildLatestKpiByAbbr(rows) {
   return map;
 }
 
+// Maps `abbr:::period_type` → latest value for period-aware fallback.
+// Resolves period_type from stored field or derives from start_date/end_date when null.
+function buildLatestKpiByAbbrAndPeriod(rows) {
+  const map = new Map();
+  const sorted = [...rows].sort((a, b) => {
+    const pa = parseCallId(a.callId), pb = parseCallId(b.callId);
+    if (pa.fiscalYear !== pb.fiscalYear) return pa.fiscalYear - pb.fiscalYear;
+    return pa.quarter - pb.quarter;
+  });
+  for (const row of sorted) {
+    if (row.value == null) continue;
+    const pt = row.period_type ?? computePeriodType(row.start_date ?? null, row.end_date ?? null);
+    if (pt) map.set(`${row.kpi_abbr.trim().toLowerCase()}:::${pt}`, row.value);
+  }
+  return map;
+}
+
+// Indian FY: Apr-Mar. Jul 2025 → FY2026, Mar 2026 → FY2026
+function getIndianFY(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d)) return null;
+  return d.getMonth() >= 3 ? `FY${d.getFullYear() + 1}` : `FY${d.getFullYear()}`;
+}
+
+// Build Map of `abbr:::startFY:::endFY` → cumulative sum from prowess annual rows
+// prowessByFY: { 'FY2025': [prowessValueNew rows], ... }  values already in display units (Cr)
+function buildCumulativeSumLookup(prowessByFY) {
+  const fys = Object.keys(prowessByFY).sort();
+  const map = new Map();
+  for (let i = 0; i < fys.length; i++) {
+    const running = {};
+    for (let j = i; j < fys.length; j++) {
+      for (const row of prowessByFY[fys[j]] ?? []) {
+        const abbr = row.kpi_abbr.trim().toLowerCase();
+        const val  = row.value != null ? row.value / (row.multiplier || 1) : null;
+        if (val != null) running[abbr] = (running[abbr] ?? 0) + val;
+      }
+      for (const [abbr, sum] of Object.entries(running)) {
+        map.set(`${abbr}:::${fys[i]}:::${fys[j]}`, sum);
+      }
+    }
+  }
+  return map;
+}
+
 // ─── Supplementary records from disclosures ───────────────────────────────────
 
 function buildSupplementaryRecords(summaries, milestoneByCall, coveredFinKeys, coveredConKeys) {
@@ -497,7 +547,7 @@ function buildSupplementaryRecords(summaries, milestoneByCall, coveredFinKeys, c
 
 const GUIDANCE_TOLERANCE_PCT = 5;
 
-function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr, kpiValueLookupFallback, latestKpiByAbbrFallback, primarySource) {
+function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr, kpiValueLookupFallback, latestKpiByAbbrFallback, primarySource, latestKpiByAbbrAndPeriod, cumulativeSumLookup) {
   const records = [];
   let recordId           = 0;
   let hiddenCount        = 0;
@@ -558,15 +608,42 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
       let currentValue = matchedValue;
       let dataSource   = rawSource;
       if (currentValue == null) {
-        const prowessVal = latestKpiByAbbr.get(goal.kpi_abbr?.trim().toLowerCase());
-        if (prowessVal != null) {
-          currentValue = prowessVal;
-          dataSource   = primarySource;
+        const abbr = goal.kpi_abbr?.trim().toLowerCase();
+        const cp   = goal.cumulative_period; // months, from LLM
+
+        if (cp != null && cp > 12) {
+          // Multi-year cumulative — sum available annual prowess data for the target range
+          const startFY = getIndianFY(goal.initial_time);
+          const endFY   = getIndianFY(goal.target_time);
+          const cumVal  = cumulativeSumLookup?.get(`${abbr}:::${startFY}:::${endFY}`);
+          if (cumVal != null) { currentValue = cumVal; dataSource = primarySource; }
+        } else if (cp != null && cp <= 3) {
+          // Quarterly target — prefer period-matched transcript data
+          const pVal = latestKpiByAbbrAndPeriod?.get(`${abbr}:::quarterly`);
+          if (pVal != null) { currentValue = pVal; dataSource = 'transcript+ppt'; }
+          else {
+            const fv = latestKpiByAbbrFallback.get(abbr);
+            if (fv != null) { currentValue = fv; dataSource = 'transcript+ppt'; }
+          }
+        } else if (cp != null && cp <= 6) {
+          // Half-yearly
+          const pVal = latestKpiByAbbrAndPeriod?.get(`${abbr}:::half_yearly`);
+          if (pVal != null) { currentValue = pVal; dataSource = 'transcript+ppt'; }
+          else {
+            const fv = latestKpiByAbbrFallback.get(abbr);
+            if (fv != null) { currentValue = fv; dataSource = 'transcript+ppt'; }
+          }
         } else {
-          const fallbackVal = latestKpiByAbbrFallback.get(goal.kpi_abbr?.trim().toLowerCase());
-          if (fallbackVal != null) {
-            currentValue = fallbackVal;
-            dataSource   = 'transcript+ppt';
+          // Annual (cp == 12, or null for old records) — prefer prowess annual
+          const prowessVal = latestKpiByAbbr.get(abbr);
+          if (prowessVal != null) { currentValue = prowessVal; dataSource = primarySource; }
+          else {
+            const pVal = latestKpiByAbbrAndPeriod?.get(`${abbr}:::annual`);
+            if (pVal != null) { currentValue = pVal; dataSource = 'transcript+ppt'; }
+            else {
+              const fv = latestKpiByAbbrFallback.get(abbr);
+              if (fv != null) { currentValue = fv; dataSource = 'transcript+ppt'; }
+            }
           }
         }
       }
@@ -579,7 +656,7 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
 
       let status;
       if      (targetActuallyMet)                                        status = 'ACHIEVED';
-      else if (failureMatch || (successMatch && !deadlineIsFuture))      status = 'MISSED';
+      else if (!deadlineIsFuture && (failureMatch || successMatch))      status = 'MISSED';
       else if (currentValue != null && !deadlineIsFuture)                status = 'MISSED';
       else if (deadlineIsFuture || hasFutureCandidate)                   status = 'PENDING';
       else                                                               status = 'HIDDEN';
@@ -742,7 +819,7 @@ async function computeManagementAnalysis(callId, timeframe) {
     const directRowsPromise = milestoneAbbrs.length > 0
       ? prisma.prowessValueNew.findMany({
           where:  { company: prowessMapping.prowessName, kpi_abbr: { in: milestoneAbbrs } },
-          select: { callId: true, kpi_abbr: true, value: true, multiplier: true, fiscal_year: true },
+          select: { callId: true, kpi_abbr: true, value: true, multiplier: true, fiscal_year: true, period_type: true, start_date: true, end_date: true },
         })
       : Promise.resolve([]);
     const [directRows, sourceRows] = await Promise.all([
@@ -800,16 +877,16 @@ async function computeManagementAnalysis(callId, timeframe) {
           const val = series[0]?.value;
           if (val == null) continue;
           // Convert back to absolute units: Cr → rupees (×10M); % stays as-is (multiplier=1)
-          directRows.push({ callId: anchor.callId, kpi_abbr: abbr, value: PCT_ABBRS.has(abbr) ? val : val * 1e7 });
+          directRows.push({ callId: anchor.callId, kpi_abbr: abbr, value: PCT_ABBRS.has(abbr) ? val : val * 1e7, period_type: anchor.period_type ?? null, start_date: anchor.start_date ?? null, end_date: anchor.end_date ?? null });
         }
       }
 
-      kpiValueRows = directRows.map(r => ({ callId: r.callId, kpi_abbr: r.kpi_abbr, value: r.value }));
+      kpiValueRows = directRows.map(r => ({ callId: r.callId, kpi_abbr: r.kpi_abbr, value: r.value, period_type: r.period_type ?? null, start_date: r.start_date ?? null, end_date: r.end_date ?? null }));
     }
   } else if (milestoneAbbrs.length > 0) {
     kpiValueRows = await prisma.kpiValue.findMany({
       where:  { company: companyPrefix, kpi_abbr: { in: milestoneAbbrs } },
-      select: { callId: true, kpi_abbr: true, value: true },
+      select: { callId: true, kpi_abbr: true, value: true, period_type: true, start_date: true, end_date: true },
     });
   }
 
@@ -819,18 +896,20 @@ async function computeManagementAnalysis(callId, timeframe) {
   if (prowessMapping && milestoneAbbrs.length > 0) {
     kpiValueFallbackRows = await prisma.kpiValue.findMany({
       where:  { company: companyPrefix, kpi_abbr: { in: milestoneAbbrs } },
-      select: { callId: true, kpi_abbr: true, value: true },
+      select: { callId: true, kpi_abbr: true, value: true, period_type: true, start_date: true, end_date: true },
     });
   }
 
-  const milestoneByCall         = groupMilestonesByCall(rawMilestones);
-  const kpiValueLookup          = buildKpiValueLookup(kpiValueRows);
-  const latestKpiByAbbr         = buildLatestKpiByAbbr(kpiValueRows);
-  const kpiValueLookupFallback  = buildKpiValueLookup(kpiValueFallbackRows);
-  const latestKpiByAbbrFallback = buildLatestKpiByAbbr(kpiValueFallbackRows);
+  const milestoneByCall            = groupMilestonesByCall(rawMilestones);
+  const kpiValueLookup             = buildKpiValueLookup(kpiValueRows);
+  const latestKpiByAbbr            = buildLatestKpiByAbbr(kpiValueRows);
+  const kpiValueLookupFallback     = buildKpiValueLookup(kpiValueFallbackRows);
+  const latestKpiByAbbrFallback    = buildLatestKpiByAbbr(kpiValueFallbackRows);
+  const latestKpiByAbbrAndPeriod   = buildLatestKpiByAbbrAndPeriod(kpiValueFallbackRows);
+  const cumulativeSumLookup        = prowessMapping ? buildCumulativeSumLookup(prowessByFY) : null;
 
   const { records, hiddenCount, achievedCount, missedCount, undisclosedMissCount, hitRate, guidanceScore } =
-    buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr, kpiValueLookupFallback, latestKpiByAbbrFallback, primarySource);
+    buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latestKpiByAbbr, kpiValueLookupFallback, latestKpiByAbbrFallback, primarySource, latestKpiByAbbrAndPeriod, cumulativeSumLookup);
 
   // Use all milestone abbrs (covers future_goals + success/failure disclosures) for KPI metadata
   const kpiRows = milestoneAbbrs.length > 0
