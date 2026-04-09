@@ -10,7 +10,7 @@ const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
 Populate with short and crisp points.
 
 Output length guidelines:
-  • text.takeaway — 1 concise sentence
+  • text.takeaway — ONE punchy sentence, 15 words max. Comma-separated key facts with one metric in parentheses. Example: "Top quartile across all KPIs, strong moat"
   • text.pricing_power_dynamics.current_state, .watch_outs, .future_trajectory, .shifting_dynamics — 10 words max each
   • text.competitive_positioning.strengths, .opportunities, .areas_to_monitor — 10 words max per item`;
 

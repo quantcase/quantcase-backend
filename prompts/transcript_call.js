@@ -83,26 +83,16 @@ Each has financial_targets and conceptual_targets arrays.
 }
 
 ### 3. disclosures
-Three categories of negative/sensitive disclosures. Keep all text SHORT and CONCISE (max 10 words per title/description — no full sentences).
+A flat array of all negative/sensitive disclosures (risks, bad news, legal issues combined). Keep all text SHORT and CONCISE (max 10 words per title — no full sentences).
 
-{
-  "risk": [{
-    "risk_title": string,           // Short label, e.g. "Copper price cost pressure"
-    "risk_type": string,            // e.g. "Market Risk", "Operational Risk", "Technology Risk", "Regulatory Risk", "Execution Risk"
-    "mitigation_strategy": string | null  // Short action or null — output "No guidance on mitigation"
-  }],
-  "bad_news": [{
-    "news_title": string,           // Short label, e.g. "Volume decline in Europe"
-    "disclosure_type": "proactive" | "reactive" | "partial" | "forced",
-    "mitigation_strategy": string | null
-  }],
-  "legal_issues": [{
-    "issue_title": string,          // Short label
-    "issue_type": "current" | "past",
-    "impact": string                // Short impact description
-  }]
-}
-If no items in a category, return an empty array [].
+[{
+  "disclosure_type": "risk" | "bad_news" | "legal",   // category of disclosure
+  "disclosure_title": string,                          // Short label, e.g. "Copper price cost pressure"
+  "disclosure_timing": "proactive" | "reactive" | "partial" | "forced" | "past",  // how/when disclosed
+  "mitigation_strategy": string | null,                // Short action or null — output "No guidance on mitigation"
+  "severity": "high" | "medium" | "low"               // severity of this disclosure
+}]
+If there are no disclosures, return an empty array [].
 
 ### 4. governance_signals
 {

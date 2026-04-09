@@ -20,7 +20,7 @@ Set proxy-based metric values as a descriptive string (e.g. "Order Inflow ₹14,
 and explain the proxy in the sublabel field.
 
 Output length guidelines:
-  • text.takeaway — 1 concise sentence
+  • text.takeaway — ONE punchy sentence, 15 words max. Comma-separated key facts with one metric in parentheses. Example: "No concentration risk, distribution depth intact"
   • text.key_takeaway — 10 words max
   • text.retention.expansion_drivers, .product_stickiness — 10 words max per item
   • text.segmentation.growth_strategy, .revenue_quality — 10 words max per item

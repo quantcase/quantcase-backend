@@ -26,10 +26,21 @@ const PEER_PERIOD_COUNT    = 8;
 const PEER_OFF = { SHARES: 0, MARKET_CAP: 1, ADJ_EPS: 3, PE: 5, PB: 6, YIELD: 8,
                    EV: 9, TOTAL_INCOME: 13, NET_PROFIT: 15 };
 
+// osc_mod_qtr_v1.csv layout — 54 data cols per period (col 0 = Company Name, then groups of 54)
+const MOD_COLS_PER_PERIOD = 54;
+const MOD_OFF = {
+  NET_PROFIT:  30, // "Net Profit/(Loss) for the period from continuing operations (after tax)"
+  INTEREST:    23, // "Interest expenses"
+  PAID_CAP:    32, // "Paid up capital"
+  RESERVES:    33, // "Reserves"
+  BORROWINGS:  36, // "Borrowings"
+};
+
 let _peerIdentityRows  = null; // raw parsed rows (array of arrays)
 let _peerIdentityHeader = null;
 let _peerFundMap       = null; // { companyName: row[] }
 let _peerFundQtrs      = null; // string[]
+let _modMap            = null; // { companyName: row[] } from osc_mod_qtr_v1.csv
 
 function loadPeerIdentity() {
   if (_peerIdentityRows) return { rows: _peerIdentityRows, header: _peerIdentityHeader };
@@ -57,6 +68,20 @@ function loadPeerFundamentals() {
     if (name) _peerFundMap[name] = row;
   }
   return { fundMap: _peerFundMap, qtrs: _peerFundQtrs };
+}
+
+function loadModData() {
+  if (_modMap) return _modMap;
+  const raw = fs.readFileSync(path.join(__dirname, '../lib/osc_mod_qtr_v1.csv'), 'utf-8');
+  const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const all = csvParse.parse(content, { relax_column_count: true });
+  _modMap = {};
+  // Row 5 (index 5) is the header row with "Company Name" in col 0
+  for (const row of all.slice(6)) {
+    const name = (row[0] || '').trim();
+    if (name) _modMap[name] = row;
+  }
+  return _modMap;
 }
 
 function peerToFloat(val) {
@@ -1043,50 +1068,101 @@ async function getPeers(req, res, next) {
     const LATEST = PEER_PERIOD_COUNT - 1;   // index 7
     const YEAR_AGO = LATEST - 4;            // index 3  (same quarter, prior year)
 
-    // ── 4. Bulk-fetch Yahoo Finance quotes ───────────────────────────────────
     const nseSymbols = peerRows.map((r) => (r[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase()).filter(Boolean);
-    const tickers    = nseSymbols.map((s) => s + '.NS');
 
-    const quoteResults = await Promise.allSettled(
-      tickers.map((t) => yahooFinance.quote(t))
-    );
+    // ── 4. Bulk-fetch CMP, Market Cap, and PE from DB ────────────────────────
+    const needCmp       = requestedIndicators.includes('cmp');
+    const needMarketCap = requestedIndicators.includes('marketCap');
+    const needPe        = requestedIndicators.includes('pe');
+    const needRoce      = requestedIndicators.includes('roce');
 
-    // Build a map: NSE symbol → quote
-    const quoteMap = {};
-    nseSymbols.forEach((sym, i) => {
-      if (quoteResults[i].status === 'fulfilled') quoteMap[sym] = quoteResults[i].value;
-    });
+    // CMP: latest close per symbol from nse_equity
+    const cmpMap = {};
+    if (needCmp || needMarketCap) {
+      const latestPrices = await prisma.$queryRaw`
+        SELECT DISTINCT ON (symbol) symbol, close
+        FROM nse_equity
+        WHERE symbol = ANY(${nseSymbols})
+        ORDER BY symbol, datetime DESC
+      `;
+      for (const row of latestPrices) {
+        if (row.close != null) cmpMap[row.symbol.toUpperCase()] = parseFloat(row.close);
+      }
+    }
+
+    // Market Cap: latest entry per symbol from market_cap table
+    const mktCapMap = {};
+    if (needMarketCap) {
+      const latestMktCap = await prisma.$queryRaw`
+        SELECT DISTINCT ON (symbol) symbol, "market_cap(Cr)" AS market_cap_cr
+        FROM market_cap
+        WHERE symbol = ANY(${nseSymbols})
+        ORDER BY symbol, date DESC
+      `;
+      for (const row of latestMktCap) {
+        if (row.market_cap_cr != null) mktCapMap[row.symbol.toUpperCase()] = parseFloat(row.market_cap_cr);
+      }
+    }
+
+    // PE: latest entry per company from pe_data table (keyed by company name)
+    const peDbMap = {};
+    if (needPe) {
+      const companyNames = peerRows.map((r) => (r[ID_COL_NAME] || '').trim()).filter(Boolean);
+      const latestPe = await prisma.$queryRaw`
+        SELECT DISTINCT ON (company) company, pe
+        FROM pe_data
+        WHERE company = ANY(${companyNames})
+        ORDER BY company, date DESC
+      `;
+      for (const row of latestPe) {
+        if (row.pe != null) peDbMap[row.company.trim()] = parseFloat(row.pe);
+      }
+    }
+
+    // ROCE: load osc_mod_qtr_v1.csv — EBIT / Capital Employed
+    // EBIT ≈ Net Profit + Interest (annualised from latest quarter × 4 is not done; use raw Qtr EBIT)
+    // Capital Employed = Paid-up Capital + Reserves + Borrowings
+    const modMap = needRoce ? loadModData() : {};
 
     // ── 5. Build table rows ──────────────────────────────────────────────────
     const latestQtr = qtrs[LATEST];
     const yearAgoQtr = qtrs[YEAR_AGO] || null;
 
     const peers = peerRows.map((idRow) => {
-      const peerSymbol = (idRow[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase();
+      const peerSymbol  = (idRow[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase();
       const companyName = (idRow[ID_COL_NAME] || '').trim();
-      const quote = quoteMap[peerSymbol] || null;
-      const fundRow = fundMap[companyName] || null;
+      const fundRow     = fundMap[companyName] || null;
 
-      // ── Live quote data ──
-      const cmp = quote ? r2(quote.regularMarketPrice) : null;
-      let marketCap = quote && quote.marketCap != null ? r2(quote.marketCap / 1e7) : null; // Cr
+      // ── DB-sourced data ──
+      const cmp       = needCmp       ? r2(cmpMap[peerSymbol] ?? null)    : undefined;
+      let   marketCap = needMarketCap ? r2(mktCapMap[peerSymbol] ?? null)  : undefined;
+
+      // If market_cap table is missing the symbol, derive from CMP × shares (Prowess)
+      if (needMarketCap && marketCap == null && fundRow) {
+        const shares = peerPeriodVal(fundRow, LATEST, PEER_OFF.SHARES); // crore shares
+        const price  = cmpMap[peerSymbol] ?? null;
+        if (shares != null && price != null) {
+          marketCap = r2((shares * price) / 100); // shares(Cr) × price / 100 → Cr (price in ₹, shares in Cr)
+        }
+      }
 
       // ── Prowess fundamentals (latest period) ──
-      let pe         = null;
-      let divYld     = null;
-      let npQtr      = null;      // Net Profit Qtr (Cr)
-      let salesQtr   = null;      // Sales Qtr (Cr)
-      let qtrProfitVar = null;    // YoY Net Profit Var %
-      let qtrSalesVar  = null;    // YoY Sales Var %
-      let roce         = null;    // ROCE % — approximated from Prowess data
+      let pe           = needPe ? r2(peDbMap[companyName] ?? null) : undefined;
+      let divYld       = null;
+      let npQtr        = null;
+      let salesQtr     = null;
+      let qtrProfitVar = null;
+      let qtrSalesVar  = null;
+      let roce         = null;
 
       if (fundRow) {
-        pe      = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.PE));
-        divYld  = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.YIELD));
-        npQtr   = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.NET_PROFIT));
+        // PE fallback: Prowess CSV if DB had no entry
+        if (needPe && pe == null) pe = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.PE));
+
+        divYld   = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.YIELD));
+        npQtr    = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.NET_PROFIT));
         salesQtr = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.TOTAL_INCOME));
 
-        // Qtr YoY variance
         const npPrior    = peerPeriodVal(fundRow, YEAR_AGO, PEER_OFF.NET_PROFIT);
         const salesPrior = peerPeriodVal(fundRow, YEAR_AGO, PEER_OFF.TOTAL_INCOME);
         if (npQtr != null && npPrior != null && npPrior !== 0) {
@@ -1095,24 +1171,36 @@ async function getPeers(req, res, next) {
         if (salesQtr != null && salesPrior != null && salesPrior !== 0) {
           qtrSalesVar = r2(((salesQtr - salesPrior) / Math.abs(salesPrior)) * 100);
         }
-
-        // ROCE ≈ EBIT / Capital Employed
-        // Prowess doesn't expose EBIT directly; approximate via:
-        //   EBIT ≈ Net Profit + Tax + Interest (not available in this CSV)
-        // Best proxy available: use Yahoo's returnOnEquity + debtToEquity from quoteSummary
-        // For now derive a rough ROCE from Yahoo financialData if quote exists
-        if (quote) {
-          // Yahoo doesn't surface ROCE directly; use returnOnEquity as stand-in when fundRow data is insufficient.
-          // Caller can override by requesting ROCE separately via /financials.
-          roce = null; // deferred — populated below via bulk quoteSummary
-        }
       }
 
-      // Fall back to Yahoo PE if Prowess is missing
-      if (pe == null && quote) pe = r2(quote.trailingPE ?? null);
-      // Fall back to Yahoo marketCap if Prowess missing
-      if (marketCap == null && quote && quote.marketCap != null) {
-        marketCap = r2(quote.marketCap / 1e7);
+      // ROCE from osc_mod_qtr_v1.csv
+      // Formula: ROCE = EBIT / Capital Employed × 100
+      //   EBIT            = Net Profit + Interest Expenses  (latest quarter, annualised ×4)
+      //   Capital Employed = Paid-up Capital + Reserves + Borrowings
+      if (needRoce) {
+        const modRow = modMap[companyName] || null;
+        if (modRow) {
+          // Latest period = last block: col offset = 1 + (n-1)*54 where n is derived from row length
+          const totalCols   = modRow.length - 1; // exclude col 0 (company name)
+          const periodCount = Math.floor(totalCols / MOD_COLS_PER_PERIOD);
+          const lastPeriod  = periodCount - 1;
+          const base        = 1 + lastPeriod * MOD_COLS_PER_PERIOD;
+
+          const netProfit  = peerToFloat(modRow[base + MOD_OFF.NET_PROFIT]);
+          const interest   = peerToFloat(modRow[base + MOD_OFF.INTEREST]);
+          const paidCap    = peerToFloat(modRow[base + MOD_OFF.PAID_CAP]);
+          const reserves   = peerToFloat(modRow[base + MOD_OFF.RESERVES]);
+          const borrowings = peerToFloat(modRow[base + MOD_OFF.BORROWINGS]);
+
+          if (netProfit != null && interest != null && paidCap != null && reserves != null && borrowings != null) {
+            const ebitQtr        = netProfit + interest;
+            const ebitAnnualised = ebitQtr * 4;
+            const capitalEmployed = paidCap + reserves + borrowings;
+            if (capitalEmployed > 0) {
+              roce = r2((ebitAnnualised / capitalEmployed) * 100);
+            }
+          }
+        }
       }
 
       const row = {
@@ -1121,9 +1209,9 @@ async function getPeers(req, res, next) {
         isSubject: peerSymbol === symbol,
       };
 
-      if (requestedIndicators.includes('cmp'))          row.cmp          = cmp;
-      if (requestedIndicators.includes('pe'))           row.pe           = pe;
-      if (requestedIndicators.includes('marketCap'))    row.marketCapCr  = marketCap;
+      if (requestedIndicators.includes('cmp'))          row.cmp          = cmp ?? null;
+      if (requestedIndicators.includes('pe'))           row.pe           = pe ?? null;
+      if (requestedIndicators.includes('marketCap'))    row.marketCapCr  = marketCap ?? null;
       if (requestedIndicators.includes('divYld'))       row.divYld       = divYld;
       if (requestedIndicators.includes('npQtr'))        row.npQtrCr      = npQtr;
       if (requestedIndicators.includes('qtrProfitVar')) row.qtrProfitVar = qtrProfitVar;
@@ -1133,36 +1221,6 @@ async function getPeers(req, res, next) {
 
       return row;
     });
-
-    // ── 6. Fetch ROCE via bulk quoteSummary (financialData.returnOnAssets/Equity) ──
-    if (requestedIndicators.includes('roce')) {
-      const roceResults = await Promise.allSettled(
-        nseSymbols.map((s) => yahooFinance.quoteSummary(s + '.NS', { modules: ['financialData'] }))
-      );
-      nseSymbols.forEach((sym, i) => {
-        const peerEntry = peers.find((p) => p.symbol === sym);
-        if (!peerEntry) return;
-        if (roceResults[i].status === 'fulfilled') {
-          const fin = roceResults[i].value?.financialData || {};
-          // Yahoo doesn't provide ROCE directly. Approximate:
-          // ROCE ≈ returnOnEquity * (equity / capitalEmployed)
-          // Since we lack balance sheet detail, use returnOnEquity × (1 + 1/debtToEquity) when debtToEquity > 0
-          const roe = fin.returnOnEquity ?? null;
-          const de  = fin.debtToEquity  ?? null;
-          if (roe != null) {
-            let roceVal;
-            if (de != null && de > 0) {
-              // Capital Employed = Equity + Debt ≈ Equity × (1 + D/E)
-              // ROCE ≈ NetIncome / CapitalEmployed = ROE / (1 + D/E)
-              roceVal = r2((roe / (1 + de / 100)) * 100);
-            } else {
-              roceVal = r2(roe * 100);
-            }
-            peerEntry.roce = roceVal;
-          }
-        }
-      });
-    }
 
     // Sort: subject first, then by marketCap desc
     peers.sort((a, b) => {
