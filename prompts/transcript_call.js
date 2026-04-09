@@ -60,16 +60,19 @@ Return ONLY a valid JSON object with the following top-level keys:
 Organized into three sub-keys: future_goals, failure_disclosures, success_disclosures.
 Each has financial_targets and conceptual_targets arrays.
 
+⚠️ KPI SCOPE IN MILESTONES: The same SEGMENT vs TOTAL rule (Rule 7 below) applies here. If the target is for a subsidiary, business segment, or product line (not the whole consolidated company), you MUST use a SEG_* abbr — never the base abbr (e.g. REV_OP, PAT). See Rule 7.
+
 **Financial Target Object:**
 {
   "statement": string,              // Full natural language description
-  "kpi_abbr": string,               // Must match an abbr from AVAILABLE KPIs or new_kpis
+  "kpi_abbr": string,               // Must match an abbr from AVAILABLE KPIs or new_kpis. Use SEG_* for any segment/subsidiary target — never reuse base abbrs (REV_OP, PAT, etc.) for non-consolidated figures.
   "current_value": number | null,   // Decimal only, no units/currency text, use absolute values
   "targeted_value": number | null,  // Decimal only, no units/currency text, use absolute values
   "multiplier": number,             // Scale factor for current_value and targeted_value (e.g. 10000000 for Crores, 100000 for Lakhs, 1 for ratios/%)
   "currency": "INR" | "USD" | "EUR" | "GBP" | "percentage" | "ratio" | "other",  // Currency or unit type
   "initial_time": "YYYY-MM-DD",     // When this target was first announced
-  "target_time": "YYYY-MM-DD"       // When it is/was expected to be achieved
+  "target_time": "YYYY-MM-DD",      // When it is/was expected to be achieved
+  "cumulative_period": number | null  // Duration in months that this target covers: 3=single quarter, 6=half-year, 12=full fiscal year, 24=2-year aggregate, 36=3-year aggregate, etc. Use null ONLY for rate/ratio metrics (margin %, ROCE) where summing across periods is meaningless.
 }
 
 **Conceptual Target Object:**
@@ -178,11 +181,12 @@ Each must be fully classified per schema:
 4. new_kpis kpi_type must be "customer_kpis" (for user/customer metrics like ARPU, DAU) or "industry_specific" (for everything else).
 5. If a section has no data, return an empty array or null as appropriate — never omit the key.
 6. Return ONLY the JSON. No explanation, no markdown fences.
-7. SEGMENT vs TOTAL KPIs — CRITICAL: never assign the same abbr to both a segment metric and the consolidated company total.
+7. SEGMENT vs TOTAL KPIs — CRITICAL: applies to ALL sections including milestones (future_goals, success_disclosures, failure_disclosures).
    - The base abbr (REV_OP, PAT, EBITDA_MARGIN, etc.) is RESERVED exclusively for the consolidated company-wide figure.
-   - For ANY KPI belonging to a specific business segment or division — even if that segment dominates total revenue — prefix with SEG_<SEGMENT>_ (e.g. SEG_ELEC_REV_OP, SEG_PA_EBITDA_MARGIN, SEG_MOT_PAT).
-   - SEGMENT is a short uppercase label derived from the segment name (e.g. ELEC, PA, MOT, INFRA, WIRING).
-   - All SEG_* abbrs MUST be registered in new_kpis. Never silently reuse a base abbr for a segment figure.
+   - For ANY KPI belonging to a specific business segment, subsidiary, or division — prefix with SEG_<SEGMENT>_ (e.g. SEG_ARI_REV for ARI subsidiary revenue, SEG_SIM_REV_OP for simulator segment revenue, SEG_PA_EBITDA_MARGIN for personal audio EBITDA margin).
+   - SEGMENT is a short uppercase label: use the subsidiary/segment name (e.g. ARI, UTS, SIM, ELEC, INFRA).
+   - All SEG_* abbrs MUST be registered in new_kpis if not already in AVAILABLE KPIs. Never silently reuse a base abbr for a segment figure.
+   - EXAMPLES of violations to avoid: using REV_OP for "ARI subsidiary expects to contribute 170Cr" → WRONG; correct is SEG_ARI_REV. Using REV_OP for "Simulation business revenue" → WRONG; correct is SEG_SIM_REV_OP.
    - SELF-CHECK before finalising each abbr: "Is this the single consolidated number for the whole company?" If no → apply SEG_ prefix.`;
 }
 
