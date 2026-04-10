@@ -605,11 +605,18 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
         ? normalizeActualUnit(goal.targeted_value, rawCurrentValue)
         : rawCurrentValue;
 
+      const deadlineIsFuture = goal.target_time && new Date(goal.target_time) > latestCoveredDate;
+
       let currentValue = matchedValue;
       let dataSource   = rawSource;
       if (currentValue == null) {
         const abbr = goal.kpi_abbr?.trim().toLowerCase();
-        const cp   = goal.cumulative_period; // months, from LLM
+        // LLM-provided cumulative_period; fall back to date-range estimate for old records
+        const cp = goal.cumulative_period != null
+          ? goal.cumulative_period
+          : (goal.initial_time && goal.target_time
+              ? Math.round((new Date(goal.target_time) - new Date(goal.initial_time)) / (86400000 * 30))
+              : null);
 
         if (cp != null && cp > 12) {
           // Multi-year cumulative — sum available annual prowess data for the target range
@@ -618,20 +625,25 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
           const cumVal  = cumulativeSumLookup?.get(`${abbr}:::${startFY}:::${endFY}`);
           if (cumVal != null) { currentValue = cumVal; dataSource = primarySource; }
         } else if (cp != null && cp <= 3) {
-          // Quarterly target — prefer period-matched transcript data
-          const pVal = latestKpiByAbbrAndPeriod?.get(`${abbr}:::quarterly`);
-          if (pVal != null) { currentValue = pVal; dataSource = 'transcript+ppt'; }
-          else {
-            const fv = latestKpiByAbbrFallback.get(abbr);
-            if (fv != null) { currentValue = fv; dataSource = 'transcript+ppt'; }
+          // Quarterly: only use period-matched fallback for future goals; if past and no explicit
+          // match from matchTarget, leave null to avoid using a different quarter's data
+          if (deadlineIsFuture) {
+            const pVal = latestKpiByAbbrAndPeriod?.get(`${abbr}:::quarterly`);
+            if (pVal != null) { currentValue = pVal; dataSource = 'transcript+ppt'; }
+            else {
+              const fv = latestKpiByAbbrFallback.get(abbr);
+              if (fv != null) { currentValue = fv; dataSource = 'transcript+ppt'; }
+            }
           }
         } else if (cp != null && cp <= 6) {
-          // Half-yearly
-          const pVal = latestKpiByAbbrAndPeriod?.get(`${abbr}:::half_yearly`);
-          if (pVal != null) { currentValue = pVal; dataSource = 'transcript+ppt'; }
-          else {
-            const fv = latestKpiByAbbrFallback.get(abbr);
-            if (fv != null) { currentValue = fv; dataSource = 'transcript+ppt'; }
+          // Half-yearly: same guard
+          if (deadlineIsFuture) {
+            const pVal = latestKpiByAbbrAndPeriod?.get(`${abbr}:::half_yearly`);
+            if (pVal != null) { currentValue = pVal; dataSource = 'transcript+ppt'; }
+            else {
+              const fv = latestKpiByAbbrFallback.get(abbr);
+              if (fv != null) { currentValue = fv; dataSource = 'transcript+ppt'; }
+            }
           }
         } else {
           // Annual (cp == 12, or null for old records) — prefer prowess annual
@@ -647,8 +659,6 @@ function buildGuidanceRecords(summaries, milestoneByCall, kpiValueLookup, latest
           }
         }
       }
-
-      const deadlineIsFuture = goal.target_time && new Date(goal.target_time) > latestCoveredDate;
       const latestVariance    = currentValue != null ? calcVariance(goal.targeted_value, currentValue) : null;
       const successVariance   = successResolved.value != null ? calcVariance(goal.targeted_value, successResolved.value) : null;
       const targetActuallyMet = (successMatch && successVariance !== null && successVariance >= -GUIDANCE_TOLERANCE_PCT)
@@ -793,8 +803,15 @@ async function computeManagementAnalysis(callId, timeframe) {
     throw err;
   }
 
+  // Fetch actual call dates for all summaries
+  const callDateRecords = await prisma.earnings_calls.findMany({
+    where:  { id: { in: rawSummaries.map(s => s.callId) } },
+    select: { id: true, call_date: true },
+  });
+  const callDateMap = new Map(callDateRecords.map(c => [c.id, c.call_date]));
+
   const summaries = rawSummaries
-    .map(s => ({ ...s, callDate: s.createdAt }))
+    .map(s => ({ ...s, callDate: callDateMap.get(s.callId) ?? s.createdAt }))
     .sort((a, b) => {
       const pa = parseCallId(a.callId);
       const pb = parseCallId(b.callId);
