@@ -653,6 +653,35 @@ model AiInsight {
   @@index([type])
 }
 
+// ─── Watchlists ──────────────────────────────────────────────────────────────
+
+model Watchlist {
+  id             String           @id @default(uuid())
+  user_id        String
+  name           String
+  total_assets   Int              @default(0) @map("total_assets")
+  created_at     DateTime         @default(now())
+  updated_at     DateTime         @updatedAt
+  assets         WatchlistAsset[]
+
+  @@index([user_id])
+  @@map("watchlists")
+}
+
+model WatchlistAsset {
+  id           String    @id @default(uuid())
+  watchlist_id String
+  symbol       String
+  added_on     DateTime  @default(now())
+  notes        String?
+  watchlist    Watchlist @relation(fields: [watchlist_id], references: [id], onDelete: Cascade)
+
+  @@unique([watchlist_id, symbol])
+  @@index([watchlist_id])
+  @@index([symbol])
+  @@map("watchlist_assets")
+}
+
 // ─── Skills & Plugins ────────────────────────────────────────────────────────
 
 enum PluginCategory {
