@@ -5,11 +5,8 @@ const connection    = require('../config/redis');
 const prisma        = require('../config/prisma');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { suggestionGenerationPrompt } = require('../prompts/wealthos/suggestion_generation');
-const { wealthosSuggestionSchema }   = require('../outputSchemas/wealthos.suggestion');
 const { validateSuggestionOutput }   = require('../services/wealthos/compliance.service');
-
-const MODEL     = 'anthropic/claude-sonnet-4-6';
-const MAX_TOKENS = 8000;
+const { loadSkillConfig }            = require('../utils/skillConfig');
 
 async function processSuggestionJob(job) {
   const { clients, rmId } = job.data;
@@ -17,16 +14,16 @@ async function processSuggestionJob(job) {
 
   await job.updateProgress(10);
 
-  const prompt = suggestionGenerationPrompt(clients);
+  const { model, maxTokens, outputSchema, promptTemplate } = await loadSkillConfig('wealthos_suggestion');
+  const prompt = suggestionGenerationPrompt(clients, promptTemplate);
   console.log(`[wealthos_suggestion] Prompt length: ${prompt.length} chars`);
 
   await job.updateProgress(25);
-
   const responseText = await llmStream({
-    model:           MODEL,
-    max_tokens:      MAX_TOKENS,
+    model,
+    max_tokens:      maxTokens,
     messages:        [{ role: 'user', content: prompt }],
-    response_format: wealthosSuggestionSchema,
+    ...(outputSchema && { response_format: outputSchema }),
   });
 
   await job.updateProgress(60);

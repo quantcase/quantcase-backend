@@ -652,3 +652,61 @@ model AiInsight {
   @@index([ticker])
   @@index([type])
 }
+
+// ─── Skills & Plugins ────────────────────────────────────────────────────────
+
+enum PluginCategory {
+  management
+  deal
+  opportunity
+  wealthos
+  technicals
+}
+
+model Skill {
+  id                  String        @id @default(uuid())
+  name                String        @unique
+  description         String?
+  promptKey           String        @map("prompt_key")
+  promptTemplate      String?       @map("prompt_template")        // Static instructional portion of the prompt — editable without code deploys
+  defaultInstructions String?       @map("default_instructions")   // DEFAULT_INSTRUCTIONS text injected at {{DEFAULT_INSTRUCTIONS}} in the template
+  model               String        @default("anthropic/claude-sonnet-4-6")
+  maxTokens           Int           @default(16000) @map("max_tokens")
+  outputSchema        Json?         @map("output_schema")
+  isActive            Boolean       @default(true) @map("is_active")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+  pluginSkills        PluginSkill[]
+
+  @@index([name])
+  @@map("skills")
+}
+
+model Plugin {
+  id           String         @id @default(uuid())
+  name         String         @unique
+  description  String?
+  category     PluginCategory
+  isActive     Boolean        @default(true) @map("is_active")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  pluginSkills PluginSkill[]
+
+  @@index([category])
+  @@map("plugins")
+}
+
+model PluginSkill {
+  id       String @id @default(uuid())
+  pluginId String @map("plugin_id")
+  skillId  String @map("skill_id")
+  order    Int
+  plugin   Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  skill    Skill  @relation(fields: [skillId],  references: [id], onDelete: Cascade)
+
+  @@unique([pluginId, skillId])
+  @@unique([pluginId, order])
+  @@index([pluginId])
+  @@index([skillId])
+  @@map("plugin_skills")
+}

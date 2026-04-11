@@ -2,6 +2,7 @@
 
 const prisma    = require('../config/prisma');
 const jobQueue  = require('../lib/jobQueue');
+const { enqueuePlugin } = require('./plugins.service');
 
 const VALID_OFACTOR_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction', 'final_takeaways']);
 
@@ -30,17 +31,15 @@ async function addSummarizationJob(callId) {
     throw err;
   }
 
-  const summarizationJob = await jobQueue.addJob('summarization', {
+  const enqueuedJobs = await enqueuePlugin('management', {
     callId,
-    type:        'summarization',
-    companyName: call.company_name || call.company,
+    companyName:    call.company_name || call.company,
     transcriptText: call.transcript_text,
     pptText:        call.ppt_text,
   });
 
-  await jobQueue.addJob('qe_extraction', { callId, type: 'qe_extraction' });
-
-  return summarizationJob;
+  // Return the first job (summarization) as the primary job reference, matching prior API contract
+  return enqueuedJobs[0];
 }
 
 async function addQeExtractionJob(callId) {
@@ -87,6 +86,23 @@ async function addOFactorAnalysisJob(callId, section) {
 }
 
 /**
+ * Enqueue all 5 opportunity sections at once via the "opportunity" plugin.
+ */
+async function addFullOpportunityAnalysis(callId) {
+  const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
+  if (!call) {
+    const err = new Error('Call not found');
+    err.status = 404;
+    throw err;
+  }
+
+  return enqueuePlugin('opportunity', {
+    callId,
+    subjectTicker: call.company,
+  });
+}
+
+/**
  * Search for a job across all known queues.
  * Returns { job, status } or null if not found.
  */
@@ -123,6 +139,7 @@ module.exports = {
   addSummarizationJob,
   addQeExtractionJob,
   addOFactorAnalysisJob,
+  addFullOpportunityAnalysis,
   findJob,
   VALID_OFACTOR_SECTIONS,
 };

@@ -8,8 +8,8 @@ const enqueueSummarization = asyncHandler(async (req, res) => {
   const job = await jobsService.addSummarizationJob(callId);
   res.json({
     success: true,
-    message: 'Summarization job queued',
-    job: { id: job.id, callId, type: 'summarization', status: 'pending', createdAt: job.createdAt },
+    message: 'Management plugin enqueued (summarization + qe_extraction)',
+    job: { id: job.jobId, callId, type: job.skillName, status: 'pending' },
   });
 });
 
@@ -34,6 +34,16 @@ const enqueueOFactorAnalysis = asyncHandler(async (req, res) => {
   });
 });
 
+const enqueueFullOpportunityAnalysis = asyncHandler(async (req, res) => {
+  const { callId } = req.params;
+  const jobs = await jobsService.addFullOpportunityAnalysis(callId);
+  res.json({
+    success: true,
+    message: `Opportunity full-pipeline enqueued (${jobs.length} skills)`,
+    jobs: jobs.map(j => ({ skillName: j.skillName, queue: j.queue, jobId: j.jobId })),
+  });
+});
+
 const getJobStatus = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
   const job = await jobsService.findJob(jobId);
@@ -41,4 +51,4 @@ const getJobStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, data: job });
 });
 
-module.exports = { enqueueSummarization, enqueueQeExtraction, enqueueOFactorAnalysis, getJobStatus };
+module.exports = { enqueueSummarization, enqueueQeExtraction, enqueueOFactorAnalysis, enqueueFullOpportunityAnalysis, getJobStatus };

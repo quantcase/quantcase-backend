@@ -12,10 +12,17 @@ const { competitionPrompt }         = require('../prompts/of-prompts/competition
 const { financialStrengthPrompt }   = require('../prompts/of-prompts/financial-strength-prompt');
 const { customerTractionPrompt }    = require('../prompts/of-prompts/customer-traction-prompt');
 const { finalTakeawaysPrompt }      = require('../prompts/of-prompts/final-takeaways-prompt');
-
-const MAX_TOKENS = 16000;
+const { loadSkillConfig }           = require('../utils/skillConfig');
 
 const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction', 'final_takeaways']);
+
+const SECTION_TO_SKILL = {
+  industry:           'ofactor_industry',
+  competition:        'ofactor_competition',
+  financial_strength: 'ofactor_financial_strength',
+  customer_traction:  'ofactor_customer_traction',
+  final_takeaways:    'ofactor_final_takeaways',
+};
 
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -73,7 +80,7 @@ async function getAutoPeerSummaries(subjectTicker, industry) {
 
 // ─── Section-Specific Prompt Builders ────────────────────────────────────────
 
-async function buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions) {
+async function buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions) {
   const RAW_ABBRS = [
     'REV_OP', 'TOTAL_INCOME', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
     'EMP_EXP', 'OTH_EXP', 'FIN_COST', 'DEP_AMORT',
@@ -94,10 +101,10 @@ async function buildIndustrySection(subjectTicker, industry, subjectSummaries, p
   const peerData    = peerSummaries.map(s => ({ callId: s.callId, industryAnalysis: s.industryAnalysis }));
   const metrics     = { rawBatch: q4Only(rawBatch), derivedBatch: q4Only(derivedBatch), derivedBatchAll: derivedBatch, bfsi };
 
-  return { prompt: industryPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions), sectionKey: 'industry_overview' };
+  return { prompt: industryPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'industry_overview' };
 }
 
-async function buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions) {
+async function buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions) {
   const allCallIds = [...subjectSummaries, ...peerSummaries].map(s => s.callId);
 
   const [stockEps, stockPe, industryEps, industryPe, kpiRows] = await Promise.all([
@@ -132,10 +139,10 @@ async function buildCompetitionSection(subjectTicker, industry, subjectSummaries
   const peerData    = peerSummaries.map(pickFields);
   const metrics     = { stockEps, stockPe, industryEps, industryPe };
 
-  return { prompt: competitionPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions), sectionKey: 'competition' };
+  return { prompt: competitionPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'competition' };
 }
 
-async function buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions) {
+async function buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions) {
   const RAW_ABBRS = [
     'REV_OP', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
     'EMP_EXP', 'OTH_EXP', 'DEP_AMORT', 'FIN_COST',
@@ -180,10 +187,10 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
     marketCap,
   };
 
-  return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics, customInstructions), sectionKey: 'financial_strength' };
+  return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'financial_strength' };
 }
 
-async function buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions) {
+async function buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions) {
   const subjectCallIds = subjectSummaries.map(s => s.callId);
 
   const [custLatest, custCagr, relevantKpiRows, kpiRows] = await Promise.all([
@@ -227,10 +234,10 @@ async function buildCustomerTractionSection(subjectTicker, subjectSummaries, hel
   }));
   const metrics = { custLatest: resolvedCustLatest, custCagr };
 
-  return { prompt: customerTractionPrompt(subjectTicker, subjectData, metrics, customInstructions), sectionKey: 'customer_traction' };
+  return { prompt: customerTractionPrompt(subjectTicker, subjectData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'customer_traction' };
 }
 
-async function buildFinalTakeawaysSection(callId) {
+async function buildFinalTakeawaysSection(callId, dbTemplate) {
   const record = await prisma.oFactorResult.findUnique({ where: { callId } });
   if (!record?.result) throw new Error(`No oFactorResult found for callId: ${callId}`);
 
@@ -243,6 +250,7 @@ async function buildFinalTakeawaysSection(callId) {
     record.subjectTicker,
     industry_overview?.meta?.subtitle ?? 'Unknown Industry',
     { industry_overview, competition, financial_strength, customer_traction },
+    dbTemplate,
   );
 
   return { prompt, sectionKey: 'final_takeaways' };
@@ -272,11 +280,13 @@ async function processOFactorJob(job) {
     const fallbackIndustry = call.basic_industry || 'Unknown Industry';
     await job.updateProgress(10);
 
+    const { model, maxTokens, promptTemplate: dbTemplate, defaultInstructions: dbInstructions } = await loadSkillConfig(SECTION_TO_SKILL[section]);
+
     let promptText, sectionKey;
 
     if (section === 'final_takeaways') {
       // Reads directly from saved oFactorResult — no summaries/peers/helper needed
-      ({ prompt: promptText, sectionKey } = await buildFinalTakeawaysSection(callId));
+      ({ prompt: promptText, sectionKey } = await buildFinalTakeawaysSection(callId, dbTemplate));
       await job.updateProgress(55);
     } else {
     // Fetch subject summaries → resolve industry
@@ -296,13 +306,13 @@ async function processOFactorJob(job) {
     const helper = new FinHelper(prisma);
 
     if (section === 'industry') {
-      ({ prompt: promptText, sectionKey } = await buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions));
+      ({ prompt: promptText, sectionKey } = await buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions));
     } else if (section === 'competition') {
-      ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions));
+      ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions));
     } else if (section === 'financial_strength') {
-      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions));
+      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
     } else {
-      ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions));
+      ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
     }
     } // end else (non-final_takeaways sections)
 
@@ -311,8 +321,8 @@ async function processOFactorJob(job) {
 
     console.log(`[OFactor] Calling LLM for section "${section}"...`);
     const responseText = await llmStream({
-      model: 'anthropic/claude-sonnet-4-6',
-      max_tokens: MAX_TOKENS,
+      model,
+      max_tokens: maxTokens,
       messages: [{ role: 'user', content: promptText }]
     });
     await job.updateProgress(85);

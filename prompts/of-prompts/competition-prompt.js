@@ -27,6 +27,8 @@ const METRICS = [
   { name: 'Management tone', type: 'qualitative' },
 ];
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 function fmtCagr(obj) {
   if (!obj || obj.value == null) return 'N/A';
   const note = obj.type === 'latest_value'
@@ -35,15 +37,11 @@ function fmtCagr(obj) {
   return `${obj.value}%` + note;
 }
 
-/**
- * Serialize competition-relevant fields from a summaryNew row.
- */
 function serializeCompetitionData(row) {
   if (!row) return '(No data available)';
   const { callId, entities, milestones, kpis, governanceSignals, riskDisclosures, tone } = row;
   const parts = [`[Call: ${callId}]`];
 
-  // Entities
   if (entities) {
     const e = entities;
     if (e.company_name)                parts.push(`Company: ${e.company_name}`);
@@ -54,7 +52,6 @@ function serializeCompetitionData(row) {
     if (e.key_suppliers?.length)       parts.push(`Key Suppliers: ${e.key_suppliers.join(', ')}`);
   }
 
-  // Milestones (guidance)
   if (milestones) {
     const m = milestones;
     const financialGoals  = m.future_goals?.financial_targets  ?? [];
@@ -87,19 +84,16 @@ function serializeCompetitionData(row) {
     }
   }
 
-  // KPIs
   if (Array.isArray(kpis) && kpis.length > 0) {
     const withValues = kpis.filter(k => k.value != null);
     if (withValues.length > 0)
       parts.push(`Current Quarter KPIs: ${withValues.map(k => `${k.kpi_abbr}=${k.value}`).join(', ')}`);
   }
 
-  // Governance signals
   if (governanceSignals?.defensive_language) {
     parts.push('Governance: defensive language detected');
   }
 
-  // High-severity risks
   if (riskDisclosures?.length) {
     const highRisks = riskDisclosures.filter(r => r.severity === 'high');
     if (highRisks.length > 0) {
@@ -109,22 +103,50 @@ function serializeCompetitionData(row) {
   }
 
   if (tone) parts.push(`Tone: ${tone}`);
-
   return parts.join('\n');
 }
 
-/**
- * @param {string} subjectTicker
- * @param {string} industry
- * @param {{ callId, entities, milestones, kpis, governanceSignals, riskDisclosures, tone }[]} subjectData
- * @param {{ callId, entities, milestones, kpis, governanceSignals, riskDisclosures, tone }[]} peerData
- * @param {{ stockEps, stockPe, industryEps, industryPe }} computedMetrics
- */
-function competitionPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions) {
+// ─── Static template stored in DB ────────────────────────────────────────────
+
+const PROMPT_TEMPLATE = `You are a senior equity research analyst. Analyze the competitive dynamics for the subject company.
+
+{{DATA_BLOCK}}
+
+══════════════════════════════════════════════════════════
+C. ANALYSIS INSTRUCTIONS
+══════════════════════════════════════════════════════════
+
+{{DEFAULT_INSTRUCTIONS}}
+
+Populate the "final_scoring" field INSIDE the competition JSON object (same level as "metrics"). Award 1 point per check, max 10:
+  1. Porter's score ≥ 7/10 → metrics.porters_score
+  2. Pricing power is "High" → metrics.pricing_power
+  3. Entry barriers are "High" → metrics.entry_barriers
+  4. Competitive intensity is "Low" → metrics.competitive_intensity
+  5. Clear moat identified (IP / brand / switching costs / network effects) → text.competitive_positioning.strengths
+  6. No major disruption threat in the near term → text.competitive_positioning.areas_to_monitor
+  7. Subject company gaining or holding market share → based on EPS/PE CAGR vs industry
+  8. Subject EPS CAGR > Industry EPS CAGR → computed metrics above
+  9. Pricing power dynamics are stable or improving → text.pricing_power_dynamics.future_trajectory
+  10. Competitive advantages sustainable 3+ years → text.competitive_positioning.strengths
+  status: score >= 7 → "STRONG POSITION" (green), score 5–6 → "MODERATE POSITION" (yellow), score < 5 → "WEAK POSITION" (red).
+
+══════════════════════════════════════════════════════════
+D. OUTPUT FORMAT
+══════════════════════════════════════════════════════════
+
+Return ONLY valid JSON in EXACTLY the structure below.
+Replace ALL placeholder values with your actual analysis. Use null where data is unavailable.
+Do NOT include any text, explanation, or markdown fences outside the JSON object.
+
+{{OUTPUT_SCHEMA}}`;
+
+// ─── Data block builder ───────────────────────────────────────────────────────
+
+function buildDataBlock(subjectTicker, industry, subjectData, peerData, computedMetrics) {
   const { stockEps, stockPe, industryEps, industryPe } = computedMetrics;
   const peerTickers = [...new Set(peerData.map(r => r.callId.split('_FY')[0]).filter(Boolean))];
 
-  // Determine analysis period from the latest subject call
   const _latestCallId = subjectData.length > 0 ? subjectData[subjectData.length - 1].callId : null;
   const _pm = _latestCallId && _latestCallId.match(/_FY(\d{4})_(Q\d)$/i);
   const snapshotPeriod = _pm ? `${_pm[2]} FY${_pm[1].slice(-2)}` : 'latest available';
@@ -140,11 +162,7 @@ function competitionPrompt(subjectTicker, industry, subjectData, peerData, compu
   const indEpsLine = `${fmtCagr(industryEps)}${industryEps?.validTickerCount != null ? ` [${industryEps.validTickerCount}/${industryEps.tickerCount} tickers]` : ''}`;
   const indPeLine  = `${fmtCagr(industryPe)}${industryPe?.avgLatestPe != null ? ` (avg latest P/E: ${industryPe.avgLatestPe})` : ''}`;
 
-  const schemaString = JSON.stringify({ competition: OFactorResponseSchema.competition }, null, 2);
-
-  return `You are a senior equity research analyst. Analyze the competitive dynamics for ${subjectTicker} in the ${industry} industry.
-
-SUBJECT COMPANY : ${subjectTicker}
+  return `SUBJECT COMPANY : ${subjectTicker}
 INDUSTRY        : ${industry}
 PEER COMPANIES  : ${peerTickers.length > 0 ? peerTickers.join(', ') : 'N/A'}
 ANALYSIS PERIOD : ${snapshotPeriod}
@@ -171,36 +189,22 @@ ${subjectText}
 ### PEERS
 ${peerText}
 
-══════════════════════════════════════════════════════════
-C. ANALYSIS INSTRUCTIONS
-══════════════════════════════════════════════════════════
-
-Period context: Transcript data above reflects ${snapshotPeriod}. Do NOT append or repeat the period label inside metric values, sublabels, or any other output fields.
-
-${customInstructions ?? DEFAULT_INSTRUCTIONS}
-
-Populate the "final_scoring" field INSIDE the competition JSON object (same level as "metrics"). Award 1 point per check, max 10:
-  1. Porter's score ≥ 7/10 → metrics.porters_score
-  2. Pricing power is "High" → metrics.pricing_power
-  3. Entry barriers are "High" → metrics.entry_barriers
-  4. Competitive intensity is "Low" → metrics.competitive_intensity
-  5. Clear moat identified (IP / brand / switching costs / network effects) → text.competitive_positioning.strengths
-  6. No major disruption threat in the near term → text.competitive_positioning.areas_to_monitor
-  7. Subject company gaining or holding market share → based on EPS/PE CAGR vs industry
-  8. Subject EPS CAGR > Industry EPS CAGR → computed metrics above
-  9. Pricing power dynamics are stable or improving → text.pricing_power_dynamics.future_trajectory
-  10. Competitive advantages sustainable 3+ years → text.competitive_positioning.strengths
-  status: score >= 7 → "STRONG POSITION" (green), score 5–6 → "MODERATE POSITION" (yellow), score < 5 → "WEAK POSITION" (red).
-
-══════════════════════════════════════════════════════════
-D. OUTPUT FORMAT
-══════════════════════════════════════════════════════════
-
-Return ONLY valid JSON in EXACTLY the structure below.
-Replace ALL placeholder values with your actual analysis. Use null where data is unavailable.
-Do NOT include any text, explanation, or markdown fences outside the JSON object.
-
-${schemaString}`;
+Period context: Transcript data above reflects ${snapshotPeriod}. Do NOT append or repeat the period label inside metric values, sublabels, or any other output fields.`;
 }
 
-module.exports = { competitionPrompt, DEFAULT_INSTRUCTIONS, METRICS };
+// ─── Main exported prompt builder ────────────────────────────────────────────
+
+function competitionPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions, dbTemplate = null, dbInstructions = null) {
+  const schemaString = JSON.stringify({ competition: OFactorResponseSchema.competition }, null, 2);
+
+  const dataBlock    = buildDataBlock(subjectTicker, industry, subjectData, peerData, computedMetrics);
+  const instructions = customInstructions ?? dbInstructions ?? DEFAULT_INSTRUCTIONS;
+  const template     = dbTemplate ?? PROMPT_TEMPLATE;
+
+  return template
+    .replace('{{DATA_BLOCK}}', dataBlock)
+    .replace('{{DEFAULT_INSTRUCTIONS}}', instructions)
+    .replace('{{OUTPUT_SCHEMA}}', schemaString);
+}
+
+module.exports = { competitionPrompt, buildDataBlock, DEFAULT_INSTRUCTIONS, PROMPT_TEMPLATE, METRICS };

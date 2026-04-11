@@ -4,9 +4,9 @@ const prisma       = require('../config/prisma');
 const { llmStream, parseJson, computePeriodType, applyMultiplier } = require('../utils/workerUtils');
 const { transcriptExtractorPrompt } = require('../prompts/transcript_call');
 const { upsertNewKpis } = require('../services/db/kpis.db');
+const { loadSkillConfig } = require('../utils/skillConfig');
 
 const TRANSCRIPT_CHAR_LIMIT = 50000;
-const MAX_TOKENS = 16000;
 const FISCAL_YEAR_END = process.env.FISCAL_YEAR_END || '03-31';
 
 const DENOM_UNIT = { rupee: 'Cr', percentage: '%', ratio: 'x', other: '' };
@@ -79,12 +79,13 @@ async function processSummarizationJob(job) {
     await job.updateProgress(25);
 
     const truncatedText = combinedText.substring(0, TRANSCRIPT_CHAR_LIMIT);
-    const prompt = transcriptExtractorPrompt(truncatedText, existingKpis, callDate, FISCAL_YEAR_END);
+    const { model, maxTokens, promptTemplate } = await loadSkillConfig('summarization');
+    const prompt = transcriptExtractorPrompt(truncatedText, existingKpis, callDate, FISCAL_YEAR_END, promptTemplate);
     console.log(`Prompt length: ${prompt.length} chars`);
     await job.updateProgress(40);
 
     console.log('Calling LLM API...');
-    const responseText = await llmStream({ model: 'anthropic/claude-sonnet-4-6', max_tokens: MAX_TOKENS, messages: [{ role: 'user', content: prompt }] });
+    const responseText = await llmStream({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
     await job.updateProgress(70);
 
     if (!responseText) throw new Error('Empty response from LLM');

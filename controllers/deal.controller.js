@@ -11,7 +11,7 @@ const createDealAnalysis = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: 'Deal analysis job created and queued',
-    job: { id: job.id, callId, type: 'deal_analysis', status: 'pending', createdAt: new Date(job.timestamp).toISOString() },
+    job: { id: job.jobId, callId, type: 'deal_analysis', status: 'pending' },
   });
 });
 

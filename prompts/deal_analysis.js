@@ -1,154 +1,13 @@
 'use strict';
 
 /**
- * Build the deal analysis prompt.
- *
- * @param {string}  ticker
- * @param {string}  companyName
- * @param {string}  industry
- * @param {number|null} cmp              - Current Market Price (₹)
- * @param {object}  stockEps             - { value, type, latestValue, firstValue, spanYears, periodsUsed, note? }
- * @param {object}  stockPe              - { value, type, latestPe, firstPe, avgPe, spanYears, periodsUsed }
- * @param {object}  industryEps          - { value, type, tickerCount, validTickerCount }
- * @param {object}  industryPe           - { value, type, avgLatestPe, tickerCount, validTickerCount }
- * @param {Array}   recentSummaries      - Array of Summary objects (milestones, governanceSignals, financialStrength, tone, confidence)
- * @param {object}  stockRev             - { value, type, spanYears, periodsUsed, latestValue, firstValue }
- * @param {object}  stockRoce            - { value, type, period }
- * @returns {string}
+ * PROMPT_TEMPLATE — static instructional portion stored in the DB.
+ * Dynamic company/financial data is injected at {{DATA_BLOCK}}.
  */
-function dealAnalysisPrompt(
-  ticker,
-  companyName,
-  industry,
-  cmp,
-  stockEps,
-  stockPe,
-  industryEps,
-  industryPe,
-  recentSummaries = [],
-  stockRev = null,
-  stockRoce = null,
-  ebitMargin = null,         // latest EBIT margin % (derived from kpi_values)
-  roe = null,                // latest ROE % (derived from kpi_values)
-  cashConversionPct = null,  // FCF/PAT % (derived from kpi_values)
-  industryRev = null         // industry Revenue CAGR object { value, type, tickerCount }
-) {
-  // ── Derive key numbers ──────────────────────────────────────────────────────
-  const latestQuarterlyEps = stockEps?.latestValue ?? null;
-  const annualizedEpsRunRate = latestQuarterlyEps != null
-    ? parseFloat((latestQuarterlyEps * 4).toFixed(2))
-    : null;
+const PROMPT_TEMPLATE = `You are a senior quantitative equity analyst specializing in Indian listed equities. Your task is to produce a rigorous Bear / Base / Bull scenario analysis for the following stock, along with a detailed earnings quality and valuation analysis.
 
-  const currentPe       = stockPe?.latestPe   ?? null;
-  const avgHistoricalPe = stockPe?.avgPe       ?? null;
-  const historicalPeCagr = stockPe?.value      ?? null;
-  const peSpanYears     = stockPe?.spanYears   ?? null;
+{{DATA_BLOCK}}
 
-  const industryAvgPe   = industryPe?.avgLatestPe ?? null;
-  const industryPeCagr  = industryPe?.value       ?? null;
-
-  const companyEpsCagr  = stockEps?.value         ?? null;
-  const companyRevCagr  = stockRev?.value          ?? null;
-  const companyRoce     = stockRoce?.value         ?? null;
-  const companyEbitMargin      = ebitMargin        ?? null;
-  const companyRoe             = roe               ?? null;
-  const companyCashConversion  = cashConversionPct ?? null;
-  const industryRevCagrVal     = industryRev?.value ?? null;
-
-  // Estimated CMP if not provided from API
-  const derivedCmp = (cmp == null && currentPe != null && annualizedEpsRunRate != null)
-    ? parseFloat((currentPe * annualizedEpsRunRate).toFixed(2))
-    : cmp;
-
-  const displayCmp = derivedCmp ?? 'N/A';
-
-  // EPS CAGR note
-  const epsHistoricalNote = stockEps?.type === 'partial_cagr'
-    ? `NOTE: Only ${stockEps.periodsUsed} quarters of EPS data available (span: ${stockEps.spanYears} yrs). ` +
-      `Historical CAGR of ${stockEps.value}% is annualized from a very short window — use as a directional signal, not a hard anchor.`
-    : stockEps?.type === 'latest_value'
-    ? `NOTE: Only 1 quarter of EPS data available (no CAGR computable). Latest quarterly EPS = ₹${latestQuarterlyEps}.`
-    : `Historical EPS CAGR: ${stockEps?.value}% over ${stockEps?.spanYears} years.`;
-
-  const industryEpsNote = (industryEps?.validTickerCount ?? 0) < 3
-    ? `NOTE: Only ${industryEps?.validTickerCount ?? 0} of ${industryEps?.tickerCount ?? 0} industry peers had sufficient EPS history — treat industry EPS CAGR as low-confidence.`
-    : `Industry EPS CAGR based on ${industryEps.validTickerCount}/${industryEps.tickerCount} peers.`;
-
-  // Execution alpha: how much the company's EPS growth exceeds industry (ratio)
-  const execAlphaRatio = (companyEpsCagr != null && industryEps?.value != null && industryEps.value > 0)
-    ? parseFloat((companyEpsCagr / industryEps.value).toFixed(1))
-    : null;
-
-  // ── Management context from summaries ──────────────────────────────────────
-  let managementContext = '';
-  let managementScore = null;
-
-  if (recentSummaries.length > 0) {
-    const allSignals = recentSummaries.flatMap(s => (s.governanceSignals ?? []));
-    const signals = allSignals
-      .slice(0, 8)
-      .map(g => `  - ${g?.signal ?? (typeof g === 'string' ? g : JSON.stringify(g))}`)
-      .join('\n');
-
-    const tone = recentSummaries.at(-1)?.tone ?? null;
-    const confidence = recentSummaries.at(-1)?.confidence ?? null;
-
-    // Derive a management quality score 0-10 from governance signals
-    const positiveKeywords = ['strong', 'beat', 'exceeded', 'improved', 'consistent', 'growth', 'delivered', 'outperform'];
-    const negativeKeywords = ['missed', 'weak', 'delay', 'declined', 'pressure', 'risk', 'lower', 'below'];
-    let score = 5;
-    for (const g of allSignals) {
-      const text = String(g?.signal ?? (typeof g === 'string' ? g : '')).toLowerCase();
-      if (positiveKeywords.some(k => text.includes(k))) score += 0.3;
-      if (negativeKeywords.some(k => text.includes(k))) score -= 0.3;
-    }
-    managementScore = Math.min(10, Math.max(1, parseFloat(score.toFixed(1))));
-
-    managementContext = `
-## Management Quality Signals (from recent earnings calls)
-${signals || '  - No governance signals available'}
-- Latest Call Tone: ${tone ?? 'N/A'}
-- Management Confidence Level: ${confidence ?? 'N/A'}
-- Computed Management Quality Score: ${managementScore}/10
-`;
-  }
-
-  // ── Prompt body ────────────────────────────────────────────────────────────
-  return `You are a senior quantitative equity analyst specializing in Indian listed equities. Your task is to produce a rigorous Bear / Base / Bull scenario analysis for the following stock, along with a detailed earnings quality and valuation analysis.
-
-## Company Context
-- Ticker:       ${ticker}
-- Company:      ${companyName}
-- Industry:     ${industry}
-- CMP:          ₹${displayCmp}
-- Forecast Horizon: 3 years
-
----
-
-## EPS & Profitability Data (from kpi_values)
-- Latest Quarterly EPS:      ₹${latestQuarterlyEps ?? 'N/A'}
-- Annualized EPS Run-Rate:   ₹${annualizedEpsRunRate ?? 'N/A'} (quarterly × 4)
-- ${epsHistoricalNote}
-- Company EPS 5yr CAGR:      ${companyEpsCagr != null ? `${companyEpsCagr}%` : 'N/A'}
-- Company Revenue 5yr CAGR:  ${companyRevCagr != null ? `${companyRevCagr}%` : 'N/A'}
-- Company ROCE (latest):     ${companyRoce != null ? `${companyRoce}%` : 'N/A'}
-- Company EBIT Margin (latest): ${companyEbitMargin != null ? `${companyEbitMargin}%` : 'N/A'}
-- Company ROE (latest):      ${companyRoe != null ? `${companyRoe}%` : 'N/A'}
-- Company Cash Conversion:   ${companyCashConversion != null ? `${companyCashConversion}% (FCF/PAT)` : 'N/A'}
-
-## P/E Ratio Data (from daily market data)
-- Current P/E (latest):           ${currentPe ?? 'N/A'}x
-- Historical P/E CAGR:            ${historicalPeCagr != null ? `${historicalPeCagr}% over ${peSpanYears} yrs` : 'N/A'}
-- Average P/E over history:       ${avgHistoricalPe ?? 'N/A'}x
-
-## Industry Benchmarks
-- Industry Average Latest P/E:    ${industryAvgPe ?? 'N/A'}x  (${industryPe?.tickerCount ?? 0} peers)
-- Industry P/E CAGR (3yr avg):    ${industryPeCagr != null ? `${industryPeCagr}%` : 'N/A'}
-- Industry EPS CAGR:              ${industryEps?.value != null ? `${industryEps.value}%` : 'N/A'}
-- Industry Revenue CAGR:          ${industryRevCagrVal != null ? `${industryRevCagrVal}%` : 'N/A'}
-- ${industryEpsNote}
-- Execution Alpha (historical):   ${execAlphaRatio != null ? `${execAlphaRatio}x (company EPS CAGR / industry EPS CAGR)` : 'N/A'}
-${managementContext}
 ---
 
 ## Your Task
@@ -157,9 +16,9 @@ ${managementContext}
 Generate three scenarios — Bear, Base, and Bull — each with a specific EPS CAGR assumption for the next 3 years. For each scenario:
 1. **EPS CAGR** — choose a realistic annualized EPS growth rate
 2. **Forward EPS** — compute: annualized_eps_run_rate × (1 + eps_cagr/100)^3
-3. **Exit P/E range** — anchor to current P/E (${currentPe}x), historical avg P/E (${avgHistoricalPe}x), industry avg P/E (${industryAvgPe}x). The spread between exit_pe_low and exit_pe_high must not exceed 15% of exit_pe_low (e.g. if low=35, high must be ≤40.25)
+3. **Exit P/E range** — anchor to current P/E, historical avg P/E, industry avg P/E. The spread between exit_pe_low and exit_pe_high must not exceed 15% of exit_pe_low (e.g. if low=35, high must be ≤40.25)
 4. **Target Price Range** — forward_eps × exit_pe_low and forward_eps × exit_pe_high
-5. **Upside/Downside %** — relative to CMP ₹${displayCmp}
+5. **Upside/Downside %** — relative to CMP
 6. **CAGR p.a.** — annualized return from CMP to midpoint of target range over 3 years
 7. **Probability** — assign probabilities that SUM TO EXACTLY 100%
 8. **Key Drivers** — 3-4 concise bullet points per scenario
@@ -217,31 +76,31 @@ For each scenario (bear/base/bull) provide:
 - industry_cagr: assumed industry EPS CAGR in this scenario (bear=lower than historical, base=near historical, bull=higher)
 - revenue_growth: assumed company revenue growth; include mgmt_guidance (the stated revenue guidance range from earnings calls, e.g. "15-20%") and mgmt_result (what happens in this scenario)
 - margin_trajectory: margin change in bps or %; include mgmt_guidance (stated margin/OPM target) and mgmt_result (actual margin outcome in this scenario)
-- execution_alpha: rating is the management quality score (${managementScore != null ? `${managementScore}/10` : 'compute from governance signals'}), value is 0.5x/1.0x/1.3x for bear/base/bull, note is Underperform/Meet/Exceed guidance
+- execution_alpha: rating is the management quality score, value is 0.5x/1.0x/1.3x for bear/base/bull, note is Underperform/Meet/Exceed guidance
 - expected_eps_cagr: must match the eps_cagr_pct from scenario_framework
 Also write a 2-3 sentence insight explaining the earnings trajectory logic.
 
 #### B. historical_performance — Company vs Industry EPS Growth
-- company_growth: company 5yr EPS CAGR (${companyEpsCagr != null ? `${companyEpsCagr}%` : 'compute from available data'})
-- industry_growth: industry 5yr EPS CAGR (${industryEps?.value != null ? `${industryEps.value}%` : 'estimate'})
+- company_growth: company 5yr EPS CAGR
+- industry_growth: industry 5yr EPS CAGR
 - chart_data: generate 5-6 years of annual data with company and industry EPS growth % per year. Use your training knowledge for historical financials, anchored to the CAGR values above. Include FY20-FY25E labels.
 - stats: 3 computed stats — avg outperformance vs industry, consistency (e.g. "6/6 yrs"), latest year growth
 
 #### C. quality_of_earnings — Atomic Metrics
 - metrics: 4 metric cards using the values provided above:
-  - EBITDA MARGIN: use EBIT Margin of ${companyEbitMargin != null ? `${companyEbitMargin}%` : 'N/A (estimate from industry knowledge)'}; compute change vs historical average
-  - RETURN ON EQUITY: use ROE of ${companyRoe != null ? `${companyRoe}%` : 'N/A (estimate from industry knowledge)'}; compute change vs historical average
+  - EBITDA MARGIN: use EBIT Margin provided; compute change vs historical average
+  - RETURN ON EQUITY: use ROE provided; compute change vs historical average
   - MARKET SHARE: estimate from industry knowledge if not directly available
-  - CASH CONVERSION: use ${companyCashConversion != null ? `${companyCashConversion}% (FCF/PAT)` : 'N/A (estimate from industry knowledge)'}
-- chart_data: generate 5-6 years of ROE, ROIC (estimate as ROCE proxy), and market_share trend. Anchor ROE to ${companyRoe != null ? `${companyRoe}%` : 'N/A'}, ROIC to ROCE of ${companyRoce != null ? `${companyRoce}%` : 'N/A'}.
+  - CASH CONVERSION: use FCF/PAT% provided
+- chart_data: generate 5-6 years of ROE, ROIC (estimate as ROCE proxy), and market_share trend.
 - bottom_line: 2-3 sentence earnings quality summary citing specific metrics
 
 #### D. valuation_vs_peers — Valuation Context
-- current_position: 4 comparison cards using the values provided above:
-  - P/E MULTIPLE: use current P/E=${currentPe ?? 'N/A'}x vs industry avg P/E=${industryAvgPe ?? 'N/A'}x; show pct premium/discount
-  - EV/EBITDA: estimate from industry knowledge anchored to EBIT Margin of ${companyEbitMargin != null ? `${companyEbitMargin}%` : 'N/A'}
-  - ROE QUALITY: use company ROE=${companyRoe != null ? `${companyRoe}%` : 'N/A'} vs industry estimate; show premium/discount
-  - GROWTH RATE: use company Revenue CAGR=${companyRevCagr != null ? `${companyRevCagr}%` : 'N/A'} vs industry Revenue CAGR=${industryRevCagrVal != null ? `${industryRevCagrVal}%` : 'N/A'}; show premium/discount
+- current_position: 4 comparison cards:
+  - P/E MULTIPLE: use current P/E vs industry avg P/E; show pct premium/discount
+  - EV/EBITDA: estimate from industry knowledge anchored to EBIT Margin provided
+  - ROE QUALITY: use company ROE vs industry estimate; show premium/discount
+  - GROWTH RATE: use company Revenue CAGR vs industry Revenue CAGR; show premium/discount
 - re_rating_view: badge (EXPAND/SUSTAIN/CONTRACT based on base case), title, and description with bear/base/bull P/E multiples embedded as rich text array with {text, bold?, color?} parts
 - expansion_drivers: 4 items with text (bold label) and detail (brief qualifier)
 - contraction_risks: 4 items with text and detail
@@ -256,8 +115,8 @@ Return ONLY a valid JSON object. No markdown fences, no explanation:
 {
   "scenario_framework": {
     "meta": {
-      "ticker": "${ticker}",
-      "company_name": "${companyName}",
+      "ticker": "<ticker>",
+      "company_name": "<company>",
       "cmp": <number>,
       "forecast_horizon_years": 3,
       "base_annualized_eps": <number>,
@@ -398,8 +257,8 @@ Return ONLY a valid JSON object. No markdown fences, no explanation:
       },
       "company_growth":  { "value": "<string e.g. 24.2%>", "label": "5 yr CAGR" },
       "industry_growth": { "value": "<string>", "label": "5 yr CAGR" },
-      "company_name":  "${companyName}",
-      "industry_name": "${industry}",
+      "company_name":  "<company name>",
+      "industry_name": "<industry>",
       "chart_data": [
         { "year": "FY20",  "company": <number>, "industry": <number> },
         { "year": "FY21",  "company": <number>, "industry": <number> },
@@ -477,6 +336,178 @@ Return ONLY a valid JSON object. No markdown fences, no explanation:
     }
   }
 }`;
+
+/**
+ * Assemble the runtime data block from precomputed financial metrics.
+ */
+function buildDataBlock(
+  ticker, companyName, industry, cmp,
+  stockEps, stockPe, industryEps, industryPe,
+  recentSummaries = [],
+  stockRev = null, stockRoce = null,
+  ebitMargin = null, roe = null, cashConversionPct = null, industryRev = null
+) {
+  const latestQuarterlyEps = stockEps?.latestValue ?? null;
+  const annualizedEpsRunRate = latestQuarterlyEps != null
+    ? parseFloat((latestQuarterlyEps * 4).toFixed(2))
+    : null;
+
+  const currentPe       = stockPe?.latestPe   ?? null;
+  const avgHistoricalPe = stockPe?.avgPe       ?? null;
+  const historicalPeCagr = stockPe?.value      ?? null;
+  const peSpanYears     = stockPe?.spanYears   ?? null;
+
+  const industryAvgPe   = industryPe?.avgLatestPe ?? null;
+  const industryPeCagr  = industryPe?.value       ?? null;
+
+  const companyEpsCagr  = stockEps?.value         ?? null;
+  const companyRevCagr  = stockRev?.value          ?? null;
+  const companyRoce     = stockRoce?.value         ?? null;
+  const companyEbitMargin      = ebitMargin        ?? null;
+  const companyRoe             = roe               ?? null;
+  const companyCashConversion  = cashConversionPct ?? null;
+  const industryRevCagrVal     = industryRev?.value ?? null;
+
+  const derivedCmp = (cmp == null && currentPe != null && annualizedEpsRunRate != null)
+    ? parseFloat((currentPe * annualizedEpsRunRate).toFixed(2))
+    : cmp;
+  const displayCmp = derivedCmp ?? 'N/A';
+
+  const epsHistoricalNote = stockEps?.type === 'partial_cagr'
+    ? `NOTE: Only ${stockEps.periodsUsed} quarters of EPS data available (span: ${stockEps.spanYears} yrs). ` +
+      `Historical CAGR of ${stockEps.value}% is annualized from a very short window — use as a directional signal, not a hard anchor.`
+    : stockEps?.type === 'latest_value'
+    ? `NOTE: Only 1 quarter of EPS data available (no CAGR computable). Latest quarterly EPS = ₹${latestQuarterlyEps}.`
+    : `Historical EPS CAGR: ${stockEps?.value}% over ${stockEps?.spanYears} years.`;
+
+  const industryEpsNote = (industryEps?.validTickerCount ?? 0) < 3
+    ? `NOTE: Only ${industryEps?.validTickerCount ?? 0} of ${industryEps?.tickerCount ?? 0} industry peers had sufficient EPS history — treat industry EPS CAGR as low-confidence.`
+    : `Industry EPS CAGR based on ${industryEps.validTickerCount}/${industryEps.tickerCount} peers.`;
+
+  const execAlphaRatio = (companyEpsCagr != null && industryEps?.value != null && industryEps.value > 0)
+    ? parseFloat((companyEpsCagr / industryEps.value).toFixed(1))
+    : null;
+
+  let managementContext = '';
+  let managementScore = null;
+
+  if (recentSummaries.length > 0) {
+    const allSignals = recentSummaries.flatMap(s => (s.governanceSignals ?? []));
+    const signals = allSignals
+      .slice(0, 8)
+      .map(g => `  - ${g?.signal ?? (typeof g === 'string' ? g : JSON.stringify(g))}`)
+      .join('\n');
+
+    const tone = recentSummaries.at(-1)?.tone ?? null;
+    const confidence = recentSummaries.at(-1)?.confidence ?? null;
+
+    const positiveKeywords = ['strong', 'beat', 'exceeded', 'improved', 'consistent', 'growth', 'delivered', 'outperform'];
+    const negativeKeywords = ['missed', 'weak', 'delay', 'declined', 'pressure', 'risk', 'lower', 'below'];
+    let score = 5;
+    for (const g of allSignals) {
+      const text = String(g?.signal ?? (typeof g === 'string' ? g : '')).toLowerCase();
+      if (positiveKeywords.some(k => text.includes(k))) score += 0.3;
+      if (negativeKeywords.some(k => text.includes(k))) score -= 0.3;
+    }
+    managementScore = Math.min(10, Math.max(1, parseFloat(score.toFixed(1))));
+
+    managementContext = `
+## Management Quality Signals (from recent earnings calls)
+${signals || '  - No governance signals available'}
+- Latest Call Tone: ${tone ?? 'N/A'}
+- Management Confidence Level: ${confidence ?? 'N/A'}
+- Computed Management Quality Score: ${managementScore}/10
+`;
+  }
+
+  return `## Company Context
+- Ticker:       ${ticker}
+- Company:      ${companyName}
+- Industry:     ${industry}
+- CMP:          ₹${displayCmp}
+- Forecast Horizon: 3 years
+
+---
+
+## EPS & Profitability Data (from kpi_values)
+- Latest Quarterly EPS:      ₹${latestQuarterlyEps ?? 'N/A'}
+- Annualized EPS Run-Rate:   ₹${annualizedEpsRunRate ?? 'N/A'} (quarterly × 4)
+- ${epsHistoricalNote}
+- Company EPS 5yr CAGR:      ${companyEpsCagr != null ? `${companyEpsCagr}%` : 'N/A'}
+- Company Revenue 5yr CAGR:  ${companyRevCagr != null ? `${companyRevCagr}%` : 'N/A'}
+- Company ROCE (latest):     ${companyRoce != null ? `${companyRoce}%` : 'N/A'}
+- Company EBIT Margin (latest): ${companyEbitMargin != null ? `${companyEbitMargin}%` : 'N/A'}
+- Company ROE (latest):      ${companyRoe != null ? `${companyRoe}%` : 'N/A'}
+- Company Cash Conversion:   ${companyCashConversion != null ? `${companyCashConversion}% (FCF/PAT)` : 'N/A'}
+
+## P/E Ratio Data (from daily market data)
+- Current P/E (latest):           ${currentPe ?? 'N/A'}x
+- Historical P/E CAGR:            ${historicalPeCagr != null ? `${historicalPeCagr}% over ${peSpanYears} yrs` : 'N/A'}
+- Average P/E over history:       ${avgHistoricalPe ?? 'N/A'}x
+
+## Industry Benchmarks
+- Industry Average Latest P/E:    ${industryAvgPe ?? 'N/A'}x  (${industryPe?.tickerCount ?? 0} peers)
+- Industry P/E CAGR (3yr avg):    ${industryPeCagr != null ? `${industryPeCagr}%` : 'N/A'}
+- Industry EPS CAGR:              ${industryEps?.value != null ? `${industryEps.value}%` : 'N/A'}
+- Industry Revenue CAGR:          ${industryRevCagrVal != null ? `${industryRevCagrVal}%` : 'N/A'}
+- ${industryEpsNote}
+- Execution Alpha (historical):   ${execAlphaRatio != null ? `${execAlphaRatio}x (company EPS CAGR / industry EPS CAGR)` : 'N/A'}
+${managementContext}
+---
+
+## Key Parameters for Scenario Calculations
+- CMP: ₹${displayCmp}
+- Current P/E: ${currentPe ?? 'N/A'}x
+- Historical avg P/E: ${avgHistoricalPe ?? 'N/A'}x
+- Industry avg P/E: ${industryAvgPe ?? 'N/A'}x
+- Management quality score: ${managementScore != null ? `${managementScore}/10` : 'compute from governance signals'}
+- Company EPS CAGR: ${companyEpsCagr != null ? `${companyEpsCagr}%` : 'N/A'}
+- Industry EPS CAGR: ${industryEps?.value != null ? `${industryEps.value}%` : 'N/A'}
+- Company EBIT Margin: ${companyEbitMargin != null ? `${companyEbitMargin}%` : 'N/A'}
+- Company ROE: ${companyRoe != null ? `${companyRoe}%` : 'N/A'}
+- Company ROCE: ${companyRoce != null ? `${companyRoce}%` : 'N/A'}
+- Company Revenue CAGR: ${companyRevCagr != null ? `${companyRevCagr}%` : 'N/A'}
+- Industry Revenue CAGR: ${industryRevCagrVal != null ? `${industryRevCagrVal}%` : 'N/A'}
+- Cash Conversion: ${companyCashConversion != null ? `${companyCashConversion}% (FCF/PAT)` : 'N/A'}`;
 }
 
-module.exports = { dealAnalysisPrompt };
+/**
+ * Build the full deal analysis prompt.
+ *
+ * @param {string}  ticker
+ * @param {string}  companyName
+ * @param {string}  industry
+ * @param {number|null} cmp
+ * @param {object}  stockEps
+ * @param {object}  stockPe
+ * @param {object}  industryEps
+ * @param {object}  industryPe
+ * @param {Array}   recentSummaries
+ * @param {object}  stockRev
+ * @param {object}  stockRoce
+ * @param {number|null} ebitMargin
+ * @param {number|null} roe
+ * @param {number|null} cashConversionPct
+ * @param {object|null} industryRev
+ * @param {string|null} [dbTemplate=null]
+ * @returns {string}
+ */
+function dealAnalysisPrompt(
+  ticker, companyName, industry, cmp,
+  stockEps, stockPe, industryEps, industryPe,
+  recentSummaries = [],
+  stockRev = null, stockRoce = null,
+  ebitMargin = null, roe = null, cashConversionPct = null, industryRev = null,
+  dbTemplate = null
+) {
+  const dataBlock = buildDataBlock(
+    ticker, companyName, industry, cmp,
+    stockEps, stockPe, industryEps, industryPe,
+    recentSummaries, stockRev, stockRoce,
+    ebitMargin, roe, cashConversionPct, industryRev
+  );
+  const template = dbTemplate ?? PROMPT_TEMPLATE;
+  return template.replace('{{DATA_BLOCK}}', dataBlock);
+}
+
+module.exports = { dealAnalysisPrompt, buildDataBlock, PROMPT_TEMPLATE };

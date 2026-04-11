@@ -5,11 +5,8 @@ const connection    = require('../config/redis');
 const prisma        = require('../config/prisma');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { messageGenerationPrompt } = require('../prompts/wealthos/message_generation');
-const { wealthosMessageSchema }   = require('../outputSchemas/wealthos.message');
 const { validateMessageOutput }   = require('../services/wealthos/compliance.service');
-
-const MODEL      = 'anthropic/claude-sonnet-4-6';
-const MAX_TOKENS = 2000;
+const { loadSkillConfig }         = require('../utils/skillConfig');
 
 async function processMessageJob(job) {
   const { clientId, client, portfolio, interactions, channel, context, rmId } = job.data;
@@ -17,15 +14,15 @@ async function processMessageJob(job) {
 
   await job.updateProgress(15);
 
-  const prompt = messageGenerationPrompt(client, portfolio, interactions ?? [], channel, context);
+  const { model, maxTokens, outputSchema, promptTemplate } = await loadSkillConfig('wealthos_message');
+  const prompt = messageGenerationPrompt(client, portfolio, interactions ?? [], channel, context, promptTemplate);
 
   await job.updateProgress(30);
-
   const responseText = await llmStream({
-    model:           MODEL,
-    max_tokens:      MAX_TOKENS,
+    model,
+    max_tokens:      maxTokens,
     messages:        [{ role: 'user', content: prompt }],
-    response_format: wealthosMessageSchema,
+    ...(outputSchema && { response_format: outputSchema }),
   });
 
   await job.updateProgress(70);

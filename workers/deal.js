@@ -9,13 +9,13 @@ const { fetchTickerFinancials } = require('../utils/fincruxHelper');
 const { upsertDealResult }      = require('../services/db/deal.db');
 const { FinHelper }             = require('../utils/finHelper');
 const { isBFSI }                = require('../utils/industryClassifier');
+const { loadSkillConfig }       = require('../utils/skillConfig');
 
 /** Latest non-null value from a time-series array, or null. */
 const _latest = (series) =>
   Array.isArray(series) ? series.filter(s => s.value != null).at(-1)?.value ?? null : null;
 
-const TEMP_DIR   = path.join(__dirname, '..', 'tmp');
-const MAX_TOKENS = 16000;
+const TEMP_DIR = path.join(__dirname, '..', 'tmp');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -85,7 +85,8 @@ async function processDealJob(job) {
       console.warn(`[Deal] Could not compute derived KPIs for ${ticker}: ${err.message}`);
     }
 
-    const prompt = dealAnalysisPrompt(ticker, companyName, industry, cmp, stockEps, stockPe, industryEps, industryPe, recentSummaries, stockRev, stockRoce, ebitMargin, roe, cashConversionPct, industryRev);
+    const { model, maxTokens, promptTemplate } = await loadSkillConfig('deal_analysis');
+    const prompt = dealAnalysisPrompt(ticker, companyName, industry, cmp, stockEps, stockPe, industryEps, industryPe, recentSummaries, stockRev, stockRoce, ebitMargin, roe, cashConversionPct, industryRev, promptTemplate);
     console.log(`[Deal] Prompt length: ${prompt.length} chars`);
 
     if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -95,7 +96,7 @@ async function processDealJob(job) {
     await job.updateProgress(45);
 
     console.log('[Deal] Calling LLM API...');
-    const responseText = await llmStream({ model: 'anthropic/claude-sonnet-4-6', max_tokens: MAX_TOKENS, messages: [{ role: 'user', content: prompt }] });
+    const responseText = await llmStream({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
     await job.updateProgress(80);
 
     if (!responseText) throw new Error('Empty response from LLM');
