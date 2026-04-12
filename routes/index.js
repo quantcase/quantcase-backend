@@ -13,6 +13,8 @@ const dealRouter          = require('./deal.routes');
 const adminRouter         = require('./admin.routes');
 const wealthosRouter      = require('./wealthos.routes');
 const screenerRouter      = require('./screener.routes');
+const basketsRouter       = require('./baskets.routes');
+const watchlistRouter     = require('./watchlist.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -28,6 +30,12 @@ router.use('/api/deal',        dealRouter);
 
 // Screener routes
 router.use('/api/screener', screenerRouter);
+
+// Baskets (stock screen) routes
+router.use('/api/baskets', basketsRouter);
+
+// Watchlist routes
+router.use('/api/watchlists', watchlistRouter);
 
 // WealthOS routes
 router.use('/api/wealthos', wealthosRouter);

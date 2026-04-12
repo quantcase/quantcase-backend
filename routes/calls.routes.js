@@ -20,10 +20,11 @@ router.get('/:callId', callsController.getCallById);
 router.get('/:callId/summary', summaryController.getSummary);
 
 // Job enqueue routes
-router.post('/:callId/summarize',            jobsController.enqueueSummarization);
-router.post('/:callId/extract-qe',           jobsController.enqueueQeExtraction);
-router.post('/:callId/opportunity/analysis', jobsController.enqueueOFactorAnalysis);
-router.post('/:callId/opportunity/analysis/custom', opportunityController.enqueueCustomOFactorAnalysis);
+router.post('/:callId/summarize',                    jobsController.enqueueSummarization);
+router.post('/:callId/extract-qe',                   jobsController.enqueueQeExtraction);
+router.post('/:callId/opportunity/analysis',         jobsController.enqueueOFactorAnalysis);
+router.post('/:callId/opportunity/analysis/full',    jobsController.enqueueFullOpportunityAnalysis);
+router.post('/:callId/opportunity/analysis/custom',  opportunityController.enqueueCustomOFactorAnalysis);
 
 // Deal analysis
 router.post('/:callId/deal/analysis', dealController.createDealAnalysis);

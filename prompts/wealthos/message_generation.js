@@ -7,16 +7,33 @@ const CHANNEL_TONE = {
 };
 
 /**
- * Build the message generation prompt for a single client.
+ * PROMPT_TEMPLATE — static instructional portion stored in the DB.
+ * Dynamic client/portfolio/channel data is injected at {{DATA_BLOCK}}.
+ */
+const PROMPT_TEMPLATE = `You are drafting a client communication for a Relationship Manager.
+
+{{DATA_BLOCK}}
+
+STRICT RULES:
+1. Only reference equity symbols from the allowed symbols list above
+2. NEVER use: "guaranteed returns", "sure profit", "insider", "confidential tip", "risk-free"
+3. Do NOT make specific price predictions
+4. Use the client's name naturally
+5. End with a clear call-to-action
+
+Generate the message now. Return JSON with fields: subject (string or null), body (string), channel (string).`;
+
+/**
+ * Assemble the runtime data block from client/portfolio/interaction context.
  *
  * @param {object} client
  * @param {object|null} portfolio
  * @param {Array<object>} recentInteractions
  * @param {string} channel - 'call' | 'email' | 'whatsapp'
- * @param {string|null} [context] - Optional context hint from the RM
+ * @param {string|null} [context]
  * @returns {string}
  */
-function messageGenerationPrompt(client, portfolio, recentInteractions, channel, context) {
+function buildDataBlock(client, portfolio, recentInteractions, channel, context) {
   const holdings = portfolio?.holdings ?? [];
   const symbolList = Array.isArray(holdings)
     ? holdings.map(h => h.symbol).filter(Boolean).join(', ')
@@ -29,9 +46,7 @@ function messageGenerationPrompt(client, portfolio, recentInteractions, channel,
     date:      i.timestamp,
   }));
 
-  return `You are drafting a client communication for a Relationship Manager.
-
-CLIENT:
+  return `CLIENT:
 - Name: ${client.name}
 - Segment: ${client.segment}
 - Risk Profile: ${client.risk_profile}
@@ -42,22 +57,30 @@ PORTFOLIO:
 - Total Value: ${portfolio?.total_value != null ? `₹${portfolio.total_value} Cr` : 'Not available'}
 - Risk Score: ${portfolio?.risk_score ?? 'N/A'} / 10
 - Holdings: ${symbolList || 'No holdings data'}
+- Allowed Symbols: ${symbolList || 'none'}
 
 RECENT INTERACTIONS:
 ${recentSummaries.length > 0 ? JSON.stringify(recentSummaries, null, 2) : 'No recent interactions'}
 
-${context ? `RM CONTEXT NOTE: ${context}\n` : ''}
-CHANNEL: ${channel}
-TONE GUIDE: ${CHANNEL_TONE[channel] ?? CHANNEL_TONE.call}
-
-STRICT RULES:
-1. Only reference equity symbols from this list: ${symbolList || 'none'}
-2. NEVER use: "guaranteed returns", "sure profit", "insider", "confidential tip", "risk-free"
-3. Do NOT make specific price predictions
-4. Use the client's name naturally
-5. End with a clear call-to-action
-
-Generate the message now. Return JSON with fields: subject (string or null), body (string), channel (string).`;
+${context ? `RM CONTEXT NOTE: ${context}\n` : ''}CHANNEL: ${channel}
+TONE GUIDE: ${CHANNEL_TONE[channel] ?? CHANNEL_TONE.call}`;
 }
 
-module.exports = { messageGenerationPrompt };
+/**
+ * Build the message generation prompt.
+ *
+ * @param {object} client
+ * @param {object|null} portfolio
+ * @param {Array<object>} recentInteractions
+ * @param {string} channel
+ * @param {string|null} [context]
+ * @param {string|null} [dbTemplate=null]
+ * @returns {string}
+ */
+function messageGenerationPrompt(client, portfolio, recentInteractions, channel, context, dbTemplate = null) {
+  const dataBlock = buildDataBlock(client, portfolio, recentInteractions, channel, context);
+  const template  = dbTemplate ?? PROMPT_TEMPLATE;
+  return template.replace('{{DATA_BLOCK}}', dataBlock);
+}
+
+module.exports = { messageGenerationPrompt, buildDataBlock, PROMPT_TEMPLATE, CHANNEL_TONE };

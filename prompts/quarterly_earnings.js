@@ -1,25 +1,10 @@
 /**
- * @param {Array<{abbr: string, label: string, aliases: string[]}>} kpis
- * @param {string} quarter - e.g. "Q2"
- * @param {string} fiscal_year - e.g. "FY2025"
- * @param {string} callDate - ISO date string e.g. "2024-11-14"
+ * PROMPT_TEMPLATE — static instructional portion stored in the DB (skills.prompt_template).
+ * Dynamic runtime data is injected at {{DATA_BLOCK}} by the worker.
  */
-function quarterlyEarningsPrompt(kpis, quarter, fiscal_year, callDate) {
-  const kpiReference = kpis.map(k =>
-    `- ${k.abbr}: ${k.label}${k.aliases.length ? ` (also: ${k.aliases.join(', ')})` : ''}`
-  ).join('\n');
+const PROMPT_TEMPLATE = `You are a financial data extraction specialist. Extract KPI values from the quarterly earnings document provided.
 
-  return `You are a financial data extraction specialist. Extract KPI values from the quarterly earnings document provided.
-
-QUARTER: ${quarter}
-FISCAL YEAR: ${fiscal_year}
-CALL DATE: ${callDate}
-
-----------------------
-
-## KPIs TO EXTRACT
-
-${kpiReference}
+{{DATA_BLOCK}}
 
 ----------------------
 
@@ -57,6 +42,46 @@ Return a structured JSON object with keys: balance_sheet, pnl, cashflow.
 Each KPI field: { "abbr": "<KPI_ABBR>", "value": <number|null>, "start_date": <"YYYY-MM-DD"|null>, "end_date": <"YYYY-MM-DD"|null>, "multiplier": <number|null> }
 
 Return only the JSON object. No explanation, no markdown fences.`;
+
+/**
+ * Assemble the runtime data block (quarter metadata + KPI reference list).
+ *
+ * @param {Array<{abbr: string, label: string, aliases: string[]}>} kpis
+ * @param {string} quarter
+ * @param {string} fiscal_year
+ * @param {string} callDate
+ * @returns {string}
+ */
+function buildDataBlock(kpis, quarter, fiscal_year, callDate) {
+  const kpiReference = kpis.map(k =>
+    `- ${k.abbr}: ${k.label}${k.aliases.length ? ` (also: ${k.aliases.join(', ')})` : ''}`
+  ).join('\n');
+
+  return `QUARTER: ${quarter}
+FISCAL YEAR: ${fiscal_year}
+CALL DATE: ${callDate}
+
+----------------------
+
+## KPIs TO EXTRACT
+
+${kpiReference}`;
 }
 
-module.exports = { quarterlyEarningsPrompt };
+/**
+ * Build the full quarterly earnings prompt.
+ *
+ * @param {Array<{abbr, label, aliases}>} kpis
+ * @param {string} quarter
+ * @param {string} fiscal_year
+ * @param {string} callDate
+ * @param {string|null} [dbTemplate=null]
+ * @returns {string}
+ */
+function quarterlyEarningsPrompt(kpis, quarter, fiscal_year, callDate, dbTemplate = null) {
+  const dataBlock = buildDataBlock(kpis, quarter, fiscal_year, callDate);
+  const template  = dbTemplate ?? PROMPT_TEMPLATE;
+  return template.replace('{{DATA_BLOCK}}', dataBlock);
+}
+
+module.exports = { quarterlyEarningsPrompt, buildDataBlock, PROMPT_TEMPLATE };

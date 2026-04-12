@@ -5,8 +5,7 @@ const openRouter   = require('../config/llm');
 const { parseJson, computePeriodType, applyMultiplier } = require('../utils/workerUtils');
 const { quarterlyEarningsPrompt } = require('../prompts/quarterly_earnings');
 const { upsertNewKpis } = require('../services/db/kpis.db');
-
-const MAX_TOKENS = 16000;
+const { loadSkillConfig } = require('../utils/skillConfig');
 
 const QE_KPI_CONFIG = require('../lib/qe_kpi_config.json');
 const { isBFSI } = require('../utils/industryClassifier');
@@ -96,21 +95,22 @@ async function processQeJob(job) {
     console.log(`Loaded ${kpis.length} KPIs from config (industry: ${call.basic_industry})`);
     await job.updateProgress(35);
 
+    const { model, maxTokens, promptTemplate } = await loadSkillConfig('qe_extraction');
     const prompt = quarterlyEarningsPrompt(
       kpis,
       call.quarter     || '',
       call.fiscal_year || '',
-      call.call_date   || ''
+      call.call_date   || '',
+      promptTemplate
     );
 
     console.log(`QE prompt length: ${prompt.length} chars`);
     console.log('Downloading PDF...');
     const pdfBlock = await buildPdfBlock(qeUrl);
     console.log('Calling LLM API with PDF...');
-
     const stream = await openRouter.chat.completions.create({
-      model:      'anthropic/claude-sonnet-4-6',
-      max_tokens: MAX_TOKENS,
+      model,
+      max_tokens: maxTokens,
       provider:   { order: ['Anthropic'], allow_fallbacks: false },
       messages:   [{ role: 'user', content: [pdfBlock, { type: 'text', text: prompt }] }],
       stream:     true,

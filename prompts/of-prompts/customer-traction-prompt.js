@@ -33,6 +33,8 @@ const METRICS = [
   { name: 'Client traction from transcripts (customer growth, retention, segmentation)', type: 'qualitative' },
 ];
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 function fmtCagr(obj) {
   if (!obj || obj.value == null) return 'N/A';
   const note = obj.type === 'latest_value'
@@ -69,7 +71,6 @@ function serializeSubjectData(row) {
     revFactors.forEach(f => parts.push(`  • ${f}`));
   }
 
-  // Pass through retention/segmentation qualitative context if present
   if (ct?.retention && Object.keys(ct.retention).length > 0) {
     parts.push('\nRetention Context:');
     parts.push(JSON.stringify(ct.retention, null, 2));
@@ -87,52 +88,15 @@ function serializeSubjectData(row) {
   return parts.join('\n');
 }
 
-/**
- * @param {string} subjectTicker
- * @param {{ callId, clientTraction }[]} subjectData  - subject only, no peers
- * @param {{ custLatest, custCagr }} computedMetrics
- */
-function customerTractionPrompt(subjectTicker, subjectData, computedMetrics, customInstructions) {
-  const { custLatest, custCagr } = computedMetrics;
+// ─── Static template stored in DB ────────────────────────────────────────────
 
-  // Determine analysis period from the latest subject call
-  const _latestCallId = subjectData.length > 0 ? subjectData[subjectData.length - 1].callId : null;
-  const _pm = _latestCallId && _latestCallId.match(/_FY(\d{4})_(Q\d)$/i);
-  const snapshotPeriod = _pm
-    ? `${_pm[2]} FY${_pm[1].slice(-2)}`
-    : (custLatest?.period ?? 'latest available');
-
-  const subjectText = subjectData.length > 0
-    ? subjectData.map(r => serializeSubjectData(r)).join('\n\n---\n\n')
-    : '(No subject client traction data available)';
-
-  const schemaString = JSON.stringify({ customer_traction: OFactorResponseSchema.customer_traction }, null, 2);
-
-  return `You are a senior equity research analyst. Analyze client/customer traction for ${subjectTicker}.
-
-SUBJECT COMPANY : ${subjectTicker}
-ANALYSIS PERIOD : ${snapshotPeriod}
-
-══════════════════════════════════════════════════════════
-A. PRE-COMPUTED CUSTOMER METRICS (use these directly)
-══════════════════════════════════════════════════════════
-
-  Active Customers (latest) : ${fmtKpi(custLatest)}
-  Customer Count CAGR       : ${fmtCagr(custCagr)}
-
-══════════════════════════════════════════════════════════
-B. CLIENT TRACTION FROM TRANSCRIPTS (subject only)
-══════════════════════════════════════════════════════════
-
-${subjectText}
+const PROMPT_TEMPLATE = `{{DATA_BLOCK}}
 
 ══════════════════════════════════════════════════════════
 C. ANALYSIS INSTRUCTIONS
 ══════════════════════════════════════════════════════════
 
-Period context: Data above reflects ${snapshotPeriod}. Do NOT append or repeat the period label inside metric values, sublabels, or any other output fields.
-
-${customInstructions ?? DEFAULT_INSTRUCTIONS}
+{{DEFAULT_INSTRUCTIONS}}
 
 Populate the "final_scoring" field INSIDE the customer_traction JSON object (same level as "metrics"). Award 1 point per check, max 10:
   1. Customer count growing YoY → text.customer_growth.metrics.current_base trend
@@ -155,7 +119,57 @@ Return ONLY valid JSON in EXACTLY the structure below.
 Replace ALL placeholder values with your actual analysis. Use null where data is unavailable.
 Do NOT include any text, explanation, or markdown fences outside the JSON object.
 
-${schemaString}`;
+{{OUTPUT_SCHEMA}}`;
+
+// ─── Data block builder ───────────────────────────────────────────────────────
+
+function buildDataBlock(subjectTicker, subjectData, computedMetrics) {
+  const { custLatest, custCagr } = computedMetrics;
+
+  const _latestCallId = subjectData.length > 0 ? subjectData[subjectData.length - 1].callId : null;
+  const _pm = _latestCallId && _latestCallId.match(/_FY(\d{4})_(Q\d)$/i);
+  const snapshotPeriod = _pm
+    ? `${_pm[2]} FY${_pm[1].slice(-2)}`
+    : (custLatest?.period ?? 'latest available');
+
+  const subjectText = subjectData.length > 0
+    ? subjectData.map(r => serializeSubjectData(r)).join('\n\n---\n\n')
+    : '(No subject client traction data available)';
+
+  return `You are a senior equity research analyst. Analyze client/customer traction for ${subjectTicker}.
+
+SUBJECT COMPANY : ${subjectTicker}
+ANALYSIS PERIOD : ${snapshotPeriod}
+
+══════════════════════════════════════════════════════════
+A. PRE-COMPUTED CUSTOMER METRICS (use these directly)
+══════════════════════════════════════════════════════════
+
+  Active Customers (latest) : ${fmtKpi(custLatest)}
+  Customer Count CAGR       : ${fmtCagr(custCagr)}
+
+══════════════════════════════════════════════════════════
+B. CLIENT TRACTION FROM TRANSCRIPTS (subject only)
+══════════════════════════════════════════════════════════
+
+${subjectText}
+
+Period context: Data above reflects ${snapshotPeriod}. Do NOT append or repeat the period label inside metric values, sublabels, or any other output fields.`;
 }
 
-module.exports = { customerTractionPrompt, DEFAULT_INSTRUCTIONS, METRICS };
+// ─── Main exported prompt builder ────────────────────────────────────────────
+
+function customerTractionPrompt(subjectTicker, subjectData, computedMetrics, customInstructions, dbTemplate = null, dbInstructions = null) {
+  const schemaString = JSON.stringify({ customer_traction: OFactorResponseSchema.customer_traction }, null, 2);
+
+  const dataBlock    = buildDataBlock(subjectTicker, subjectData, computedMetrics);
+  const instructions = customInstructions ?? dbInstructions ?? DEFAULT_INSTRUCTIONS;
+  const template     = dbTemplate ?? PROMPT_TEMPLATE;
+
+  return template
+    .replace('{{DATA_BLOCK}}', dataBlock)
+    .replace('{{DEFAULT_INSTRUCTIONS}}', instructions)
+    .replace('{{OUTPUT_SCHEMA}}', schemaString);
+}
+
+module.exports = { customerTractionPrompt, buildDataBlock, DEFAULT_INSTRUCTIONS, PROMPT_TEMPLATE, METRICS };

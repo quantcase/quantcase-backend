@@ -1,34 +1,13 @@
 /**
- * @param {string} transcriptText
- * @param {Array<{id: string, abbr: string, full_form: string, kpi_type?: string, denomination?: string, source: 'QE'|'transcript'}>} existingKpis
- * @param {string} callDate - ISO date string of the earnings call e.g. "2024-11-14"
- * @param {string} [fiscalYearEnd="03-31"] - MM-DD, e.g. "03-31" for Indian FY
+ * PROMPT_TEMPLATE — static instructional portion stored in the DB (skills.prompt_template).
+ * Dynamic runtime data is injected at {{DATA_BLOCK}} by the worker.
+ *
+ * To edit the prompt without a code deploy: update the `prompt_template` column on the
+ * `summarization` skill row in the database.
  */
-function transcriptExtractorPrompt(transcriptText, existingKpis, callDate, fiscalYearEnd = "03-31") {
-  const kpiReference = existingKpis.map(k => {
-    const parts = [k.full_form];
-    if (k.kpi_type)    parts.push(`kpi_type: ${k.kpi_type}`);
-    if (k.denomination) parts.push(`denomination: ${k.denomination}`);
-    parts.push(`source: ${k.source}`);
-    return `${k.abbr} (${parts.join(', ')})`;
-  }).join('\n  ');
+const PROMPT_TEMPLATE = `You are an expert financial analyst extracting structured intelligence from an earnings call transcript to assess management integrity, disclosure quality, and industry positioning.
 
-  return `You are an expert financial analyst extracting structured intelligence from an earnings call transcript to assess management integrity, disclosure quality, and industry positioning.
-
-CALL DATE: ${callDate}
-FISCAL YEAR END (MM-DD): ${fiscalYearEnd}
-
-TRANSCRIPT:
-${transcriptText}
-
-----------------------
-
-## AVAILABLE KPIs (from database)
-When referencing any KPI in your output, always use its exact \`abbr\` from this list:
-
-  ${kpiReference}
-
-If you encounter a KPI that is NOT in the above list, do NOT invent an abbr. Instead, collect it in the \`new_kpis\` array (schema defined below) and reference it by the abbr you assign there.
+{{DATA_BLOCK}}
 
 ----------------------
 
@@ -188,6 +167,58 @@ Each must be fully classified per schema:
    - All SEG_* abbrs MUST be registered in new_kpis if not already in AVAILABLE KPIs. Never silently reuse a base abbr for a segment figure.
    - EXAMPLES of violations to avoid: using REV_OP for "ARI subsidiary expects to contribute 170Cr" → WRONG; correct is SEG_ARI_REV. Using REV_OP for "Simulation business revenue" → WRONG; correct is SEG_SIM_REV_OP.
    - SELF-CHECK before finalising each abbr: "Is this the single consolidated number for the whole company?" If no → apply SEG_ prefix.`;
+
+/**
+ * Assemble the runtime data block (call metadata + KPI reference + transcript).
+ * This block is injected at {{DATA_BLOCK}} in the template.
+ *
+ * @param {string} transcriptText
+ * @param {Array<{abbr, full_form, kpi_type?, denomination?, source}>} existingKpis
+ * @param {string} callDate - ISO date string e.g. "2024-11-14"
+ * @param {string} [fiscalYearEnd="03-31"]
+ * @returns {string}
+ */
+function buildDataBlock(transcriptText, existingKpis, callDate, fiscalYearEnd = '03-31') {
+  const kpiReference = existingKpis.map(k => {
+    const parts = [k.full_form];
+    if (k.kpi_type)     parts.push(`kpi_type: ${k.kpi_type}`);
+    if (k.denomination) parts.push(`denomination: ${k.denomination}`);
+    parts.push(`source: ${k.source}`);
+    return `${k.abbr} (${parts.join(', ')})`;
+  }).join('\n  ');
+
+  return `CALL DATE: ${callDate}
+FISCAL YEAR END (MM-DD): ${fiscalYearEnd}
+
+TRANSCRIPT:
+${transcriptText}
+
+----------------------
+
+## AVAILABLE KPIs (from database)
+When referencing any KPI in your output, always use its exact \`abbr\` from this list:
+
+  ${kpiReference}
+
+If you encounter a KPI that is NOT in the above list, do NOT invent an abbr. Instead, collect it in the \`new_kpis\` array (schema defined below) and reference it by the abbr you assign there.`;
 }
 
-module.exports = { transcriptExtractorPrompt };
+/**
+ * Build the full transcript extractor prompt.
+ * Workers call this; the static template portion is also stored in the DB
+ * (skills.prompt_template for the "summarization" skill) for runtime editing.
+ *
+ * @param {string} transcriptText
+ * @param {Array<{abbr, full_form, kpi_type?, denomination?, source}>} existingKpis
+ * @param {string} callDate
+ * @param {string} [fiscalYearEnd="03-31"]
+ * @param {string|null} [dbTemplate=null] - promptTemplate from DB; falls back to PROMPT_TEMPLATE
+ * @returns {string}
+ */
+function transcriptExtractorPrompt(transcriptText, existingKpis, callDate, fiscalYearEnd = '03-31', dbTemplate = null) {
+  const dataBlock = buildDataBlock(transcriptText, existingKpis, callDate, fiscalYearEnd);
+  const template  = dbTemplate ?? PROMPT_TEMPLATE;
+  return template.replace('{{DATA_BLOCK}}', dataBlock);
+}
+
+module.exports = { transcriptExtractorPrompt, buildDataBlock, PROMPT_TEMPLATE };

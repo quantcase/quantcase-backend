@@ -1,7 +1,7 @@
 'use strict';
 
 const prisma             = require('../config/prisma');
-const jobQueue           = require('../lib/jobQueue');
+const { enqueuePlugin }  = require('./plugins.service');
 const { FinHelper }      = require('../utils/finHelper');
 const { getDealResult }  = require('./db/deal.db');
 const { mapToDealResponseSchema } = require('../utils/dealMapper');
@@ -31,9 +31,8 @@ async function createDealJob(callId) {
     industry ? helper.industryRevCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
   ]);
 
-  const bullmqJob = await jobQueue.addJob('deal_analysis', {
+  const enqueuedJobs = await enqueuePlugin('deal', {
     callId,
-    type:        'deal_analysis',
     ticker,
     companyName: call.company_name,
     industry,
@@ -44,9 +43,10 @@ async function createDealJob(callId) {
     stockRev,
     stockRoce,
     industryRev,
-  }, { jobId: `deal_${callId}` });
+  });
 
-  return bullmqJob;
+  // Return the first enqueued job to match prior API contract
+  return enqueuedJobs[0];
 }
 
 async function fetchDealResult(callId) {
