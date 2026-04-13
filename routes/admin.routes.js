@@ -19,6 +19,7 @@ router.get(
 
 const createSkillSchema = z.object({
   name:         z.string().min(1),
+  slug:         z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slug must be kebab-case').optional(),
   promptKey:    z.string().min(1),
   description:  z.string().optional(),
   model:        z.string().optional(),
@@ -41,6 +42,7 @@ const PLUGIN_CATEGORIES = ['management', 'deal', 'opportunity', 'wealthos', 'tec
 
 const createPluginSchema = z.object({
   name:        z.string().min(1),
+  slug:        z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slug must be kebab-case').optional(),
   category:    z.enum(PLUGIN_CATEGORIES),
   description: z.string().optional(),
   isActive:    z.boolean().optional(),

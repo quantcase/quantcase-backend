@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma = require('../config/prisma');
+const { slugify } = require('../utils/slugify');
 
 const PLUGIN_INCLUDE = {
   pluginSkills: {
@@ -29,11 +30,14 @@ async function getPlugin(id) {
 }
 
 async function createPlugin(data) {
-  return prisma.plugin.create({ data, include: PLUGIN_INCLUDE });
+  const slug = data.slug ?? slugify(data.name);
+  return prisma.plugin.create({ data: { ...data, slug }, include: PLUGIN_INCLUDE });
 }
 
 async function updatePlugin(id, data) {
   await getPlugin(id); // throws 404 if not found
+  // If name is being updated and slug isn't explicitly provided, regenerate slug
+  if (data.name && data.slug === undefined) data.slug = slugify(data.name);
   return prisma.plugin.update({ where: { id }, data, include: PLUGIN_INCLUDE });
 }
 
