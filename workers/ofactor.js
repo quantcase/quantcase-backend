@@ -17,11 +17,11 @@ const { loadSkillConfig }           = require('../utils/skillConfig');
 const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction', 'final_takeaways']);
 
 const SECTION_TO_SKILL = {
-  industry:           'ofactor_industry',
-  competition:        'ofactor_competition',
-  financial_strength: 'ofactor_financial_strength',
-  customer_traction:  'ofactor_customer_traction',
-  final_takeaways:    'ofactor_final_takeaways',
+  industry:           'ofactor-industry',
+  competition:        'ofactor-competition',
+  financial_strength: 'ofactor-financial-strength',
+  customer_traction:  'ofactor-customer-traction',
+  final_takeaways:    'ofactor-final-takeaways',
 };
 
 

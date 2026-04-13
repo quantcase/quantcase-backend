@@ -85,7 +85,7 @@ async function processDealJob(job) {
       console.warn(`[Deal] Could not compute derived KPIs for ${ticker}: ${err.message}`);
     }
 
-    const { model, maxTokens, promptTemplate } = await loadSkillConfig('deal_analysis');
+    const { model, maxTokens, promptTemplate } = await loadSkillConfig('deal-analysis');
     const prompt = dealAnalysisPrompt(ticker, companyName, industry, cmp, stockEps, stockPe, industryEps, industryPe, recentSummaries, stockRev, stockRoce, ebitMargin, roe, cashConversionPct, industryRev, promptTemplate);
     console.log(`[Deal] Prompt length: ${prompt.length} chars`);
 
