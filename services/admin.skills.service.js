@@ -2,6 +2,7 @@
 
 const prisma = require('../config/prisma');
 const { SKILLS_REGISTRY } = require('../lib/skillsRegistry');
+const { slugify } = require('../utils/slugify');
 
 const VALID_PROMPT_KEYS = new Set(Object.keys(SKILLS_REGISTRY));
 
@@ -33,7 +34,8 @@ async function createSkill(data) {
     err.status = 400;
     throw err;
   }
-  return prisma.skill.create({ data });
+  const slug = data.slug ?? slugify(data.name);
+  return prisma.skill.create({ data: { ...data, slug } });
 }
 
 async function updateSkill(id, data) {
@@ -43,6 +45,8 @@ async function updateSkill(id, data) {
     err.status = 400;
     throw err;
   }
+  // If name is being updated and slug isn't explicitly provided, regenerate slug
+  if (data.name && data.slug === undefined) data.slug = slugify(data.name);
   return prisma.skill.update({ where: { id }, data });
 }
 

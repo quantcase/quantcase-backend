@@ -95,7 +95,7 @@ async function processQeJob(job) {
     console.log(`Loaded ${kpis.length} KPIs from config (industry: ${call.basic_industry})`);
     await job.updateProgress(35);
 
-    const { model, maxTokens, promptTemplate } = await loadSkillConfig('qe_extraction');
+    const { model, maxTokens, promptTemplate } = await loadSkillConfig('qe-extraction');
     const prompt = quarterlyEarningsPrompt(
       kpis,
       call.quarter     || '',

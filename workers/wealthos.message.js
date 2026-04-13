@@ -14,7 +14,7 @@ async function processMessageJob(job) {
 
   await job.updateProgress(15);
 
-  const { model, maxTokens, outputSchema, promptTemplate } = await loadSkillConfig('wealthos_message');
+  const { model, maxTokens, outputSchema, promptTemplate } = await loadSkillConfig('wealthos-message');
   const prompt = messageGenerationPrompt(client, portfolio, interactions ?? [], channel, context, promptTemplate);
 
   await job.updateProgress(30);

@@ -7,7 +7,7 @@ const prisma = require('../config/prisma');
  * Called by workers at the start of each job to get model, token limit,
  * output schema, and prompt content without hardcoding them in worker files.
  *
- * @param {string} skillName  e.g. "summarization", "ofactor_industry"
+ * @param {string} skillSlug  e.g. "summarization", "ofactor-industry"
  * @returns {{
  *   model: string,
  *   maxTokens: number,
@@ -17,10 +17,10 @@ const prisma = require('../config/prisma');
  *   defaultInstructions: string|null,
  * }}
  */
-async function loadSkillConfig(skillName) {
-  const skill = await prisma.skill.findUnique({ where: { name: skillName } });
-  if (!skill)          throw new Error(`Skill "${skillName}" not found in DB`);
-  if (!skill.isActive) throw new Error(`Skill "${skillName}" is inactive`);
+async function loadSkillConfig(skillSlug) {
+  const skill = await prisma.skill.findUnique({ where: { slug: skillSlug } });
+  if (!skill)          throw new Error(`Skill "${skillSlug}" not found in DB`);
+  if (!skill.isActive) throw new Error(`Skill "${skillSlug}" is inactive`);
   return {
     model:               skill.model,
     maxTokens:           skill.maxTokens,

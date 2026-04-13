@@ -696,6 +696,7 @@ enum PluginCategory {
 model Skill {
   id                  String        @id @default(uuid())
   name                String        @unique
+  slug                String?       @unique
   description         String?
   promptKey           String        @map("prompt_key")
   promptTemplate      String?       @map("prompt_template")        // Static instructional portion of the prompt — editable without code deploys
@@ -715,6 +716,7 @@ model Skill {
 model Plugin {
   id           String         @id @default(uuid())
   name         String         @unique
+  slug         String?        @unique
   description  String?
   category     PluginCategory
   isActive     Boolean        @default(true) @map("is_active")
