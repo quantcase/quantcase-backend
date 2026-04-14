@@ -9,6 +9,7 @@ require('./workers/deal');
 require('./workers/ofactor');
 require('./workers/wealthos.suggestion');
 require('./workers/wealthos.message');
+require('./workers/technicals');
 
 console.log('All workers started');
 

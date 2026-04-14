@@ -14,7 +14,7 @@ async function processSuggestionJob(job) {
 
   await job.updateProgress(10);
 
-  const { model, maxTokens, outputSchema, promptTemplate } = await loadSkillConfig('wealthos_suggestion');
+  const { model, maxTokens, outputSchema, promptTemplate } = await loadSkillConfig('wealthos-suggestion');
   const prompt = suggestionGenerationPrompt(clients, promptTemplate);
   console.log(`[wealthos_suggestion] Prompt length: ${prompt.length} chars`);
 

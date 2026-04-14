@@ -13,6 +13,7 @@ const { DEFAULT_INSTRUCTIONS: CUST_INSTRUCTIONS, PROMPT_TEMPLATE: CUST_TEMPLATE 
 const { PROMPT_TEMPLATE_WITH_SCHEMA: FINAL_TAKEAWAYS_TEMPLATE }                            = require('../prompts/of-prompts/final-takeaways-prompt');
 const { PROMPT_TEMPLATE: SUGGESTION_TEMPLATE }        = require('../prompts/wealthos/suggestion_generation');
 const { PROMPT_TEMPLATE: MESSAGE_TEMPLATE }           = require('../prompts/wealthos/message_generation');
+const { PROMPT_TEMPLATE: DI_TEMPLATE }                = require('../prompts/decision_intelligence');
 
 // ─── QE KPIs ──────────────────────────────────────────────────────────────────
 
@@ -123,6 +124,65 @@ async function seed() {
 
 // ─── Skills & Plugins seed ───────────────────────────────────────────────────
 
+const decisionIntelligenceSchema = {
+  type: 'json_schema',
+  json_schema: {
+    name:   'decision_intelligence',
+    strict: false,
+    schema: {
+      type: 'object',
+      properties: {
+        tag:           { type: 'string' },
+        lens:          { type: 'string', enum: ['Value', 'Growth'] },
+        idealFor:      { type: 'string', enum: ['Investment', 'Swing', 'Positional'] },
+        timeframe:     { type: 'string', enum: ['6M+', '3-6M', '0-3M'] },
+        currentRegime: {
+          type: 'object',
+          properties: {
+            label:       { type: 'string' },
+            description: { type: 'string' },
+          },
+        },
+        actionBias: { type: 'string' },
+        actionableInsight: {
+          type: 'object',
+          properties: {
+            action:               { type: 'string', enum: ['Buy', 'Sell', 'Hold', 'Avoid', 'Ignore'] },
+            firstShift:           { type: 'string' },
+            existingHolderAction: { type: 'string' },
+            reEvaluateCondition:  { type: 'string' },
+          },
+        },
+        whatCanChange:   { type: 'array', items: { type: 'string' } },
+        strategyViews: {
+          type: 'object',
+          properties: {
+            growth: { type: 'string' },
+            value:  { type: 'string' },
+          },
+        },
+        riskAlerts:     { type: 'array', items: { type: 'string' } },
+        convictionLevel: { type: 'string', enum: ['Low', 'Medium', 'High'] },
+        indicators: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name:           { type: 'string' },
+              growthWatchout: { type: 'string' },
+              valueWatchout:  { type: 'string' },
+              tag:            { type: 'string' },
+              explanation:    { type: 'string' },
+              sentiment:      { type: 'string', enum: ['positive', 'negative', 'transitional'] },
+            },
+          },
+        },
+      },
+      required: ['tag', 'lens', 'idealFor', 'timeframe', 'currentRegime', 'actionBias', 'actionableInsight', 'whatCanChange', 'strategyViews', 'riskAlerts', 'convictionLevel', 'indicators'],
+    },
+  },
+};
+
 const wealthosSuggestionSchema = {
   type: 'json_schema',
   json_schema: {
@@ -228,6 +288,13 @@ const SKILLS_SEED = [
     promptTemplate: MESSAGE_TEMPLATE,
     defaultInstructions: null,
   },
+  {
+    name: 'technical-intelligence', promptKey: 'decisionIntelligencePrompt', maxTokens: 8000,
+    description: 'Generate decision intelligence summary from technical analysis signals',
+    outputSchema: decisionIntelligenceSchema,
+    promptTemplate: DI_TEMPLATE,
+    defaultInstructions: null,
+  },
 ];
 
 const PLUGINS_SEED = [
@@ -250,6 +317,11 @@ const PLUGINS_SEED = [
     name: 'wealthos', category: 'wealthos',
     description: 'Generate client suggestions then draft outreach messages',
     skills: ['wealthos_suggestion', 'wealthos_message'],
+  },
+  {
+    name: 'technicals', category: 'technicals',
+    description: 'Generate decision intelligence from technical analysis signals',
+    skills: ['technical-intelligence'],
   },
 ];
 
