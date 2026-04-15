@@ -16,6 +16,7 @@ const SKILL_TO_QUEUE = {
   'ofactor-final-takeaways':      'ofactor_analysis',
   'wealthos-suggestion':          'wealthos_suggestion',
   'wealthos-message':             'wealthos_message',
+  'technical-intelligence':       'technicals_analysis',
 };
 
 // For ofactor skills, the `section` field tells the worker which sub-prompt to run.
@@ -88,7 +89,7 @@ async function enqueuePlugin(pluginSlug, jobDataBase, skillJobDataOverrides = {}
       : {};
 
     const job = await jobQueue.addJob(queueName, jobData, jobOptions);
-    enqueuedJobs.push({ skillName: ps.skill.name, queue: queueName, jobId: job.id });
+    enqueuedJobs.push({ skillName: skillSlug, queue: queueName, jobId: job.id });
   }
 
   return enqueuedJobs;

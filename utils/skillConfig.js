@@ -3,7 +3,7 @@
 const prisma = require('../config/prisma');
 
 /**
- * Load a skill's runtime config from the database by skill name.
+ * Load a skill's runtime config from the database by skill slug.
  * Called by workers at the start of each job to get model, token limit,
  * output schema, and prompt content without hardcoding them in worker files.
  *
