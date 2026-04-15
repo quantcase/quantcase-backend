@@ -107,7 +107,7 @@ async function addFullOpportunityAnalysis(callId) {
  * Returns { job, status } or null if not found.
  */
 async function findJob(jobId) {
-  const queues = ['summarization', 'ofactor_analysis', 'deal_analysis', 'qe_extraction'];
+  const queues = ['summarization', 'ofactor_analysis', 'deal_analysis', 'qe_extraction', 'management_analysis'];
   for (const q of queues) {
     const job = await jobQueue.getJobStatus(q, jobId);
     if (job) {

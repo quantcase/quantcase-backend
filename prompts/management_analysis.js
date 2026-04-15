@@ -442,17 +442,18 @@ function buildDataBlock(ticker, summaries, kpiValues, prowessValues) {
 // ─── Main prompt builder ──────────────────────────────────────────────────────
 
 /**
- * @param {string}   ticker
- * @param {object[]} summaries      - summary_new rows (all periods, oldest→newest)
- * @param {object[]} kpiValues      - kpi_values rows (source: transcript only)
- * @param {object[]} prowessValues  - prowess_values_new rows for this company
- * @param {string|null} template    - DB promptTemplate (falls back to PROMPT_TEMPLATE)
+ * @param {string}      ticker
+ * @param {object[]}    summaries           - summary_new rows (all periods, oldest→newest)
+ * @param {object[]}    kpiValues           - kpi_values rows (source: transcript only)
+ * @param {object[]}    prowessValues       - prowess_values_new rows for this company
+ * @param {string|null} template            - DB promptTemplate (falls back to PROMPT_TEMPLATE)
+ * @param {string|null} defaultInstructions - DB defaultInstructions (injected at {{DEFAULT_INSTRUCTIONS}})
  */
-function managementAnalysisPrompt(ticker, summaries, kpiValues, prowessValues, template) {
+function managementAnalysisPrompt(ticker, summaries, kpiValues, prowessValues, template, defaultInstructions = null) {
   const instructionBlock = template ?? PROMPT_TEMPLATE;
   const dataBlock        = buildDataBlock(ticker, summaries, kpiValues, prowessValues);
 
-  return [
+  const parts = [
     instructionBlock,
     '',
     '---',
@@ -461,7 +462,13 @@ function managementAnalysisPrompt(ticker, summaries, kpiValues, prowessValues, t
     '',
     dataBlock,
     OUTPUT_FORMAT_INSTRUCTIONS,
-  ].join('\n');
+  ];
+
+  if (defaultInstructions) {
+    parts.splice(1, 0, '', '## Additional Instructions', '', defaultInstructions);
+  }
+
+  return parts.join('\n');
 }
 
 module.exports = { managementAnalysisPrompt, buildDataBlock, PROMPT_TEMPLATE, OUTPUT_SCHEMA };

@@ -87,8 +87,8 @@ async function processManagementJob(job) {
     await job.updateProgress(40);
 
     // ── 4. Load skill config + build prompt ───────────────────────────────
-    const { model, maxTokens, promptTemplate } = await loadSkillConfig('management-analysis');
-    const prompt = managementAnalysisPrompt(ticker, summaries, kpiValues, prowessValues, promptTemplate);
+    const { model, maxTokens, promptTemplate, defaultInstructions } = await loadSkillConfig('management-analysis');
+    const prompt = managementAnalysisPrompt(ticker, summaries, kpiValues, prowessValues, promptTemplate, defaultInstructions);
     console.log(`[Management] Prompt length: ${prompt.length} chars`);
     await job.updateProgress(50);
 
