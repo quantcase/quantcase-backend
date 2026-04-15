@@ -10,6 +10,7 @@ require('./workers/ofactor');
 require('./workers/wealthos.suggestion');
 require('./workers/wealthos.message');
 require('./workers/technicals');
+require('./workers/management');
 
 console.log('All workers started');
 

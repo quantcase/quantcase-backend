@@ -18,13 +18,15 @@ router.get(
 // ─── Skills CRUD ──────────────────────────────────────────────────────────────
 
 const createSkillSchema = z.object({
-  name:         z.string().min(1),
-  promptKey:    z.string().min(1),
-  description:  z.string().optional(),
-  model:        z.string().optional(),
-  maxTokens:    z.number().int().positive().optional(),
-  outputSchema: z.record(z.unknown()).nullable().optional(),
-  isActive:     z.boolean().optional(),
+  name:                z.string().min(1),
+  promptKey:           z.string().min(1),
+  description:         z.string().optional(),
+  model:               z.string().optional(),
+  maxTokens:           z.number().int().positive().optional(),
+  outputSchema:        z.any(),
+  promptTemplate:      z.string().nullable().optional(),
+  defaultInstructions: z.string().nullable().optional(),
+  isActive:            z.boolean().optional(),
 });
 
 const updateSkillSchema = createSkillSchema.partial();

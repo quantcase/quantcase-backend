@@ -14,6 +14,7 @@ const { PROMPT_TEMPLATE_WITH_SCHEMA: FINAL_TAKEAWAYS_TEMPLATE }                 
 const { PROMPT_TEMPLATE: SUGGESTION_TEMPLATE }        = require('../prompts/wealthos/suggestion_generation');
 const { PROMPT_TEMPLATE: MESSAGE_TEMPLATE }           = require('../prompts/wealthos/message_generation');
 const { PROMPT_TEMPLATE: DI_TEMPLATE }                = require('../prompts/decision_intelligence');
+const { PROMPT_TEMPLATE: MGMT_TEMPLATE, OUTPUT_SCHEMA: MGMT_SCHEMA } = require('../prompts/management_analysis');
 
 // ─── QE KPIs ──────────────────────────────────────────────────────────────────
 
@@ -289,6 +290,13 @@ const SKILLS_SEED = [
     defaultInstructions: null,
   },
   {
+    name: 'management-analysis', promptKey: 'managementAnalysisPrompt', maxTokens: 16000,
+    description: 'Forensic management quality analysis — guidance vs actuals, red flags, MQI score, investment thesis',
+    outputSchema: MGMT_SCHEMA,
+    promptTemplate: MGMT_TEMPLATE,
+    defaultInstructions: null,
+  },
+  {
     name: 'technical-intelligence', promptKey: 'decisionIntelligencePrompt', maxTokens: 8000,
     description: 'Generate decision intelligence summary from technical analysis signals',
     outputSchema: decisionIntelligenceSchema,
@@ -301,7 +309,7 @@ const PLUGINS_SEED = [
   {
     name: 'management', category: 'management',
     description: 'Transcript summarisation followed by quarterly earnings KPI extraction',
-    skills: ['summarization', 'qe_extraction'],
+    skills: ['summarization', 'qe_extraction', 'management-analysis'],
   },
   {
     name: 'deal', category: 'deal',
@@ -342,6 +350,7 @@ async function seedSkillsAndPlugins() {
       },
       create: {
         name:                s.name,
+        slug:                s.slug ?? s.name,
         description:         s.description,
         promptKey:           s.promptKey,
         maxTokens:           s.maxTokens,
