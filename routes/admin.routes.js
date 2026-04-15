@@ -27,6 +27,7 @@ const createSkillSchema = z.object({
   promptTemplate:      z.string().nullable().optional(),
   defaultInstructions: z.string().nullable().optional(),
   isActive:            z.boolean().optional(),
+  slug:         z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slug must be kebab-case').optional(),
 });
 
 const updateSkillSchema = createSkillSchema.partial();
@@ -43,6 +44,7 @@ const PLUGIN_CATEGORIES = ['management', 'deal', 'opportunity', 'wealthos', 'tec
 
 const createPluginSchema = z.object({
   name:        z.string().min(1),
+  slug:        z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slug must be kebab-case').optional(),
   category:    z.enum(PLUGIN_CATEGORIES),
   description: z.string().optional(),
   isActive:    z.boolean().optional(),

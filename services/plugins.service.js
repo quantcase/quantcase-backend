@@ -32,9 +32,9 @@ const SKILL_TO_SECTION = {
  * Fetch a plugin by name with its ordered skill chain.
  * @param {string} pluginName
  */
-async function getPluginWithSkills(pluginName) {
+async function getPluginWithSkills(pluginSlug) {
   return prisma.plugin.findUnique({
-    where:   { name: pluginName },
+    where:   { slug: pluginSlug },
     include: {
       pluginSkills: {
         orderBy: { order: 'asc' },
@@ -52,15 +52,15 @@ async function getPluginWithSkills(pluginName) {
  * @param {object} [skillJobDataOverrides]  Per-skill overrides keyed by skill.name
  * @returns {Promise<Array<{skillName: string, queue: string, jobId: string}>>}
  */
-async function enqueuePlugin(pluginName, jobDataBase, skillJobDataOverrides = {}) {
-  const plugin = await getPluginWithSkills(pluginName);
+async function enqueuePlugin(pluginSlug, jobDataBase, skillJobDataOverrides = {}) {
+  const plugin = await getPluginWithSkills(pluginSlug);
   if (!plugin) {
-    const err = new Error(`Plugin "${pluginName}" not found`);
+    const err = new Error(`Plugin "${pluginSlug}" not found`);
     err.status = 404;
     throw err;
   }
   if (!plugin.isActive) {
-    const err = new Error(`Plugin "${pluginName}" is inactive`);
+    const err = new Error(`Plugin "${pluginSlug}" is inactive`);
     err.status = 400;
     throw err;
   }
