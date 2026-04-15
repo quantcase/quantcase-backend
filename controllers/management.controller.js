@@ -17,7 +17,7 @@ const getManagementAnalysis = asyncHandler(async (req, res) => {
   const { callId } = req.query;
   const record = await managementService.fetchManagementResult(callId);
   if (!record) return res.status(404).json({ success: false, error: 'Management analysis not yet available — trigger via POST first' });
-  res.json({ success: true, data: record.insight });
+  res.json({ success: true, data: record.insight, analyzedAt: record.updated_at });
 });
 
 module.exports = { createManagementAnalysis, getManagementAnalysis };
