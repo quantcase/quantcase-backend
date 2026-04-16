@@ -1,19 +1,5 @@
 'use strict';
 
-const { OFactorResponseSchema } = require('../../utils/constants');
-
-const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
-  • Are companies able to pass through cost increases, or is pricing under pressure?
-  • Is competitive intensity rising or consolidating?
-  • Is the subject company winning or losing market share?
-  • What are the key entry barriers and competitive moats?
-Populate with short and crisp points.
-
-Output length guidelines:
-  • text.takeaway — ONE punchy sentence, 15 words max. Comma-separated key facts with one metric in parentheses. Example: "Top quartile across all KPIs, strong moat"
-  • text.pricing_power_dynamics.current_state, .watch_outs, .future_trajectory, .shifting_dynamics — 10 words max each
-  • text.competitive_positioning.strengths, .opportunities, .areas_to_monitor — 10 words max per item`;
-
 const METRICS = [
   { name: 'Subject EPS CAGR', type: 'computed' },
   { name: 'Subject P/E CAGR', type: 'computed' },
@@ -106,40 +92,6 @@ function serializeCompetitionData(row) {
   return parts.join('\n');
 }
 
-// ─── Static template stored in DB ────────────────────────────────────────────
-
-const PROMPT_TEMPLATE = `You are a senior equity research analyst. Analyze the competitive dynamics for the subject company.
-
-{{DATA_BLOCK}}
-
-══════════════════════════════════════════════════════════
-C. ANALYSIS INSTRUCTIONS
-══════════════════════════════════════════════════════════
-
-{{DEFAULT_INSTRUCTIONS}}
-
-Populate the "final_scoring" field INSIDE the competition JSON object (same level as "metrics"). Award 1 point per check, max 10:
-  1. Porter's score ≥ 7/10 → metrics.porters_score
-  2. Pricing power is "High" → metrics.pricing_power
-  3. Entry barriers are "High" → metrics.entry_barriers
-  4. Competitive intensity is "Low" → metrics.competitive_intensity
-  5. Clear moat identified (IP / brand / switching costs / network effects) → text.competitive_positioning.strengths
-  6. No major disruption threat in the near term → text.competitive_positioning.areas_to_monitor
-  7. Subject company gaining or holding market share → based on EPS/PE CAGR vs industry
-  8. Subject EPS CAGR > Industry EPS CAGR → computed metrics above
-  9. Pricing power dynamics are stable or improving → text.pricing_power_dynamics.future_trajectory
-  10. Competitive advantages sustainable 3+ years → text.competitive_positioning.strengths
-  status: score >= 7 → "STRONG POSITION" (green), score 5–6 → "MODERATE POSITION" (yellow), score < 5 → "WEAK POSITION" (red).
-
-══════════════════════════════════════════════════════════
-D. OUTPUT FORMAT
-══════════════════════════════════════════════════════════
-
-Return ONLY valid JSON in EXACTLY the structure below.
-Replace ALL placeholder values with your actual analysis. Use null where data is unavailable.
-Do NOT include any text, explanation, or markdown fences outside the JSON object.
-
-{{OUTPUT_SCHEMA}}`;
 
 // ─── Data block builder ───────────────────────────────────────────────────────
 
@@ -194,17 +146,16 @@ Period context: Transcript data above reflects ${snapshotPeriod}. Do NOT append 
 
 // ─── Main exported prompt builder ────────────────────────────────────────────
 
-function competitionPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions, dbTemplate = null, dbInstructions = null) {
-  const schemaString = JSON.stringify({ competition: OFactorResponseSchema.competition }, null, 2);
+function competitionPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions, dbTemplate, dbInstructions) {
+  if (!dbTemplate)     throw new Error('[competitionPrompt] dbTemplate is required — configure skill "ofactor-competition" in DB');
+  if (!dbInstructions) throw new Error('[competitionPrompt] dbInstructions is required — configure skill "ofactor-competition" in DB');
 
   const dataBlock    = buildDataBlock(subjectTicker, industry, subjectData, peerData, computedMetrics);
-  const instructions = customInstructions ?? dbInstructions ?? DEFAULT_INSTRUCTIONS;
-  const template     = dbTemplate ?? PROMPT_TEMPLATE;
+  const instructions = customInstructions ?? dbInstructions;
 
-  return template
+  return dbTemplate
     .replace('{{DATA_BLOCK}}', dataBlock)
-    .replace('{{DEFAULT_INSTRUCTIONS}}', instructions)
-    .replace('{{OUTPUT_SCHEMA}}', schemaString);
+    .replace('{{DEFAULT_INSTRUCTIONS}}', instructions);
 }
 
-module.exports = { competitionPrompt, buildDataBlock, DEFAULT_INSTRUCTIONS, PROMPT_TEMPLATE, METRICS };
+module.exports = { competitionPrompt, buildDataBlock, METRICS };

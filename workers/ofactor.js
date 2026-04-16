@@ -18,12 +18,15 @@ const { nseIndustryPrompt, selectCompanies, loadCompanyData } = require('../prom
 const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction', 'final_takeaways']);
 
 const SECTION_TO_SKILL = {
-  industry:           'ofactor-industry',
   competition:        'ofactor-competition',
   financial_strength: 'ofactor-financial-strength',
   customer_traction:  'ofactor-customer-traction',
   final_takeaways:    'ofactor-final-takeaways',
 };
+
+function resolveIndustrySkill(bfsi) {
+  return bfsi ? 'ofactor-industry-bfsi' : 'ofactor-industry';
+}
 
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -289,8 +292,8 @@ async function processNseIndustryJob(job) {
   const companyData = await loadCompanyData(prisma, companies);
   await job.updateProgress(50);
 
-  const { model, maxTokens, promptTemplate, defaultInstructions } = await loadSkillConfig('nse-industry');
-  const prompt = nseIndustryPrompt(industry, companyData, bfsi, promptTemplate, defaultInstructions);
+  const { model, maxTokens, promptTemplate } = await loadSkillConfig('nse-industry');
+  const prompt = nseIndustryPrompt(industry, companyData, bfsi, promptTemplate);
   console.log(`[NseIndustry] Prompt length: ${prompt.length} chars`);
   await job.updateProgress(55);
 
@@ -355,9 +358,11 @@ async function processOFactorJob(job) {
     if (!call) throw new Error(`Earnings call ${callId} not found`);
 
     const fallbackIndustry = call.basic_industry || 'Unknown Industry';
+    const bfsiFlag         = isBFSI(call.basic_industry);
     await job.updateProgress(10);
 
-    const { model, maxTokens, promptTemplate: dbTemplate, defaultInstructions: dbInstructions } = await loadSkillConfig(SECTION_TO_SKILL[section]);
+    const skillSlug = section === 'industry' ? resolveIndustrySkill(bfsiFlag) : SECTION_TO_SKILL[section];
+    const { model, maxTokens, promptTemplate: dbTemplate, defaultInstructions: dbInstructions } = await loadSkillConfig(skillSlug);
 
     let promptText, sectionKey;
 

@@ -138,24 +138,6 @@ const OUTPUT_SCHEMA = {
   },
 };
 
-// ─── Fallback instructions (stored in DB as skill.defaultInstructions) ────────
-
-const DEFAULT_INSTRUCTIONS = `Analyze this industry using the NSE Industry Analysis Framework.
-
-Score 5 dimensions (0–2 pts each, max 10):
-  1. Growth    — Revenue growth magnitude, QoQ momentum, acceleration, market share dispersion
-  2. Demand    — Management sentiment (credibility-weighted), capex conviction, receivables trend
-  3. Supply    — Capacity utilization, inventory trend, competitive intensity
-  4. Profit    — ROCE vs WACC (use 12% baseline), margin trend, earnings quality
-  5. Global    — Import competition / regulatory moat (default by sector if no explicit data)
-
-Rules:
-  • "Majority" means >50% of companies analyzed
-  • Mark company_table metrics with ~ prefix where estimated
-  • Coherence checks: contradictions across dimensions matter more than alignments
-  • key_findings must cover 6–8 distinct themes (profitability, growth, demand, supply,
-    margins, market structure, valuation, management quality) — no duplicate data points
-  • key_takeaway: ≤ 20 words, include one metric in parentheses`;
 
 // ─── Output format instructions (appended to prompt — not enforced via response_format) ─
 
@@ -529,14 +511,14 @@ function buildDataBlock(industry, companies, bfsi = false) {
  * @param {object[]}    companies           - CompanyData[] from loadCompanyData
  * @param {boolean}     [bfsi=false]
  * @param {string|null} template            - DB skill.promptTemplate (falls back to inline template)
- * @param {string|null} defaultInstructions - DB skill.defaultInstructions (falls back to DEFAULT_INSTRUCTIONS)
  */
-function nseIndustryPrompt(industry, companies, bfsi = false, template = null, defaultInstructions = null) {
-  const instructionBlock = template ?? DEFAULT_INSTRUCTIONS;
-  const dataBlock        = buildDataBlock(industry, companies, bfsi);
+function nseIndustryPrompt(industry, companies, bfsi = false, dbTemplate = null) {
+  if (!dbTemplate) throw new Error('[nseIndustryPrompt] dbTemplate is required — configure skill "nse-industry" in DB');
+
+  const dataBlock = buildDataBlock(industry, companies, bfsi);
 
   const parts = [
-    instructionBlock,
+    dbTemplate,
     '',
     '---',
     '',
@@ -554,6 +536,5 @@ module.exports = {
   buildDataBlock,
   loadCompanyData,
   selectCompanies,
-  DEFAULT_INSTRUCTIONS,
   OUTPUT_SCHEMA,
 };
