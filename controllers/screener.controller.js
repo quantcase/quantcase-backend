@@ -149,352 +149,437 @@ async function getTechnicals(req, res, next) {
 }
 async function getTickerInfo(req, res, next) {
   try {
-    const { symbol } = req.params;
-    const ticker = symbol.toUpperCase() + '.NS';
+    const sym = req.params.symbol.toUpperCase();
 
-    // Fetch in parallel: quote, summary modules, quarterly fundamentals, annual cash flow, annual financials, annual balance sheet
-    const [quoteResult, summaryResult, quarterlyResult, cashFlowResult, annualFinancialsResult, annualBalanceSheetResult, ownershipResult] = await Promise.allSettled([
-      yahooFinance.quote(ticker),
-      yahooFinance.quoteSummary(ticker, {
-        modules: ['summaryProfile', 'financialData', 'defaultKeyStatistics'],
-      }),
-      yahooFinance.fundamentalsTimeSeries(ticker, {
-        module: 'financials',
-        type: 'quarterly',
-        period1: new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000), // last 2 years
-      }),
-      yahooFinance.fundamentalsTimeSeries(ticker, {
-        module: 'cash-flow',
-        type: 'annual',
-        period1: new Date(Date.now() - 4 * 365 * 24 * 60 * 60 * 1000), // last 4 years
-      }),
-      yahooFinance.fundamentalsTimeSeries(ticker, {
-        module: 'financials',
-        type: 'annual',
-        period1: new Date(Date.now() - 4 * 365 * 24 * 60 * 60 * 1000), // last 4 years for growth + EPS CAGR
-      }),
-      yahooFinance.fundamentalsTimeSeries(ticker, {
-        module: 'balance-sheet',
-        type: 'annual',
-        period1: new Date(Date.now() - 4 * 365 * 24 * 60 * 60 * 1000), // last 4 years for reserves/debt/ROCE
-      }),
-      yahooFinance.quoteSummary(ticker, {
-        modules: ['majorHoldersBreakdown'],
-      }),
+    // ── 1. Company identity from osc_identity.csv ──────────────────────────
+    const { rows: idRows } = loadPeerIdentity();
+    const idRow = idRows.find((r) => (r[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase() === sym);
+    const companyName    = idRow ? (idRow[ID_COL_NAME] || '').trim() : null;
+    const industryGroup  = idRow ? (idRow[ID_COL_INDUSTRY_GRP] || '').trim() : null;
+    const basicIndustry  = idRow ? (idRow[ID_COL_NSE_BASIC_IND] || '').trim() : null;
+
+    // ── 2. Price data from nse_equity ──────────────────────────────────────
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+
+    const [latestPriceRows, yearPriceRows, mktCapRows, peRows, prowessRows] = await Promise.all([
+      // Latest 2 rows to compute day change
+      prisma.$queryRaw`
+        SELECT datetime, open, high, low, close, volume
+        FROM nse_equity
+        WHERE symbol = ${sym}
+        ORDER BY datetime DESC
+        LIMIT 2
+      `,
+      // Last 1 year for 52W high/low
+      prisma.$queryRaw`
+        SELECT high, low
+        FROM nse_equity
+        WHERE symbol = ${sym} AND datetime >= ${oneYearAgo}
+      `,
+      // Latest market cap
+      prisma.$queryRaw`
+        SELECT "market_cap(Cr)" AS market_cap_cr, market_cap, date
+        FROM market_cap
+        WHERE symbol = ${sym}
+        ORDER BY date DESC
+        LIMIT 1
+      `,
+      // Latest P/E (pe_data keyed by company name)
+      companyName
+        ? prisma.$queryRaw`
+            SELECT pe, date
+            FROM pe_data
+            WHERE company = ${companyName}
+            ORDER BY date DESC
+            LIMIT 1
+          `
+        : Promise.resolve([]),
+      // KPI values from prowess_values_new (quarterly fundamentals)
+      companyName
+        ? prisma.$queryRaw`
+            SELECT kpi_abbr, value, raw_value, unit, multiplier, fiscal_year, quarter, period_type
+            FROM prowess_values_new
+            WHERE company = ${companyName}
+            ORDER BY fiscal_year DESC, quarter DESC
+          `
+        : Promise.resolve([]),
     ]);
 
-    const q = quoteResult.status === 'fulfilled' ? quoteResult.value : null;
-    if (!q) return res.status(404).json({ error: `Ticker ${ticker} not found` });
+    // ── 3. Price calculations ──────────────────────────────────────────────
+    const today    = latestPriceRows[0] ?? null;
+    const prevDay  = latestPriceRows[1] ?? null;
 
-    const summary = summaryResult.status === 'fulfilled' ? summaryResult.value : {};
-    const profile  = summary.summaryProfile      || {};
-    const fin      = summary.financialData       || {};
-    const stats    = summary.defaultKeyStatistics || {};
-
-    // ── Annual series (sorted oldest → newest) ──────────────────────────────
-    const annualFinancialsRaw    = annualFinancialsResult.status    === 'fulfilled' ? annualFinancialsResult.value    : [];
-    const annualCashFlowRaw      = cashFlowResult.status            === 'fulfilled' ? cashFlowResult.value            : [];
-    const annualBalanceSheetRaw  = annualBalanceSheetResult.status  === 'fulfilled' ? annualBalanceSheetResult.value  : [];
-
-    const annualFin = [...annualFinancialsRaw].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const annualCF  = [...annualCashFlowRaw].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const annualBS  = [...annualBalanceSheetRaw].sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    // Most recent entries
-    const latestFin = annualFin[annualFin.length - 1] ?? null;
-    const prevFin   = annualFin[annualFin.length - 2] ?? null;
-    const latestCF  = annualCF[annualCF.length - 1]   ?? null;
-    const prevCF    = annualCF[annualCF.length - 2]   ?? null;
-    const latestBS  = annualBS[annualBS.length - 1]   ?? null;
-    const prevBS    = annualBS[annualBS.length - 2]   ?? null;
-
-    // ── YoY growth helper ───────────────────────────────────────────────────
-    function yoy(curr, prev) {
-      if (curr == null || prev == null || prev === 0) return null;
-      return (curr - prev) / Math.abs(prev);
+    if (!today && !companyName) {
+      return res.status(404).json({ error: `Symbol "${sym}" not found` });
     }
 
-    // ── Key financials ──────────────────────────────────────────────────────
-    const netProfit       = latestFin?.netIncome        ?? null;
-    const netProfitPrev   = prevFin?.netIncome          ?? null;
-    const ebitda          = latestFin?.EBITDA           ?? fin.ebitda ?? null;
-    const ebitdaPrev      = prevFin?.EBITDA             ?? null;
-    const operatingCashflow = latestCF?.operatingCashFlow ?? fin.operatingCashflow ?? null;
-    const cfoP            = prevCF?.operatingCashFlow   ?? null;
-    const freeCashflow    = latestCF?.freeCashFlow      ?? fin.freeCashflow ?? null;
-    const fcfPrev         = prevCF?.freeCashFlow        ?? null;
-    const reserves        = latestBS?.stockholdersEquity ?? null;
-    const reservesPrev    = prevBS?.stockholdersEquity  ?? null;
-    const totalDebt       = latestBS?.totalDebt         ?? fin.totalDebt ?? null;
-    const totalDebtPrev   = prevBS?.totalDebt           ?? null;
-    const totalCash       = fin.totalCash               ?? null;
-    const enterpriseValue = stats.enterpriseValue       ?? null;
+    const price         = today?.close != null ? parseFloat(today.close) : null;
+    const prevClose     = prevDay?.close != null ? parseFloat(prevDay.close) : null;
+    const change        = price != null && prevClose != null ? r2(price - prevClose) : null;
+    const changePercent = price != null && prevClose != null && prevClose !== 0
+      ? r2((price - prevClose) / prevClose) : null;
 
-    // ── ROCE per year: operatingIncome / investedCapital ───────────────────
-    function roceForEntry(finEntry, bsEntry) {
-      if (!finEntry || !bsEntry) return null;
-      const oi = finEntry.operatingIncome ?? null;
-      const ic = bsEntry.investedCapital  ?? null;
-      if (oi == null || ic == null || ic === 0) return null;
-      return oi / ic;
-    }
-
-    const roceValues = annualFin.map((f) => {
-      const matchedBS = annualBS.find((b) => b.date.getFullYear() === f.date.getFullYear());
-      return roceForEntry(f, matchedBS);
-    }).filter((v) => v != null);
-
-    const roce     = roceValues[roceValues.length - 1] ?? null;
-    const roce3yAvg = roceValues.length > 0
-      ? roceValues.reduce((s, v) => s + v, 0) / roceValues.length
+    const week52High = yearPriceRows.length > 0
+      ? r2(Math.max(...yearPriceRows.map((r) => parseFloat(r.high ?? 0)).filter(Boolean)))
+      : null;
+    const week52Low = yearPriceRows.length > 0
+      ? r2(Math.min(...yearPriceRows.map((r) => parseFloat(r.low ?? Infinity)).filter((v) => v !== Infinity)))
       : null;
 
-    // ── ROE per year: netIncome / stockholdersEquity ────────────────────────
-    function roeForEntry(finEntry, bsEntry) {
-      if (!finEntry || !bsEntry) return null;
-      const ni = finEntry.netIncome        ?? null;
-      const eq = bsEntry.stockholdersEquity ?? null;
-      if (ni == null || eq == null || eq === 0) return null;
-      return ni / eq;
-    }
+    // ── 4. Market cap ──────────────────────────────────────────────────────
+    const mktCapRow = mktCapRows[0] ?? null;
+    // market_cap(Cr) column is stored as market_cap_cr in schema
+    const marketCapCr  = mktCapRow?.market_cap_cr != null ? parseFloat(mktCapRow.market_cap_cr) : null;
+    // Convert Cr → absolute (1 Cr = 10M = 1e7)
+    const marketCapAbs = marketCapCr != null ? marketCapCr * 1e7 : null;
 
-    const roeValues = annualFin.map((f) => {
-      const matchedBS = annualBS.find((b) => b.date.getFullYear() === f.date.getFullYear());
-      return roeForEntry(f, matchedBS);
-    }).filter((v) => v != null);
-
-    const roe     = roeValues[roeValues.length - 1] ?? fin.returnOnEquity ?? null;
-    const roe3yAvg = roeValues.length > 0
-      ? roeValues.reduce((s, v) => s + v, 0) / roeValues.length
-      : null;
-
-    // ── 3Y EPS CAGR ─────────────────────────────────────────────────────────
-    const epsSorted = annualFin.filter((s) => s.basicEPS != null);
-    let epsCagr3y = null;
-    if (epsSorted.length >= 2) {
-      const newest = epsSorted[epsSorted.length - 1];
-      const oldest = epsSorted[0];
-      const years = (newest.date - oldest.date) / (365.25 * 24 * 60 * 60 * 1000);
-      if (years >= 1 && oldest.basicEPS !== 0) {
-        epsCagr3y = (newest.basicEPS / oldest.basicEPS) ** (1 / years) - 1;
-      }
-    }
-
-    // ── Derived ratios ───────────────────────────────────────────────────────
-    const ebitdaEvYield = ebitda != null && enterpriseValue != null && enterpriseValue !== 0
-      ? ebitda / enterpriseValue : null;
-    const cfoEbitdaPct  = operatingCashflow != null && ebitda != null && ebitda !== 0
-      ? operatingCashflow / ebitda : null;
-    const netDebtEbitda = totalDebt != null && totalCash != null && ebitda != null && ebitda !== 0
-      ? (totalDebt - totalCash) / ebitda : null;
-
-    // PEG: trailingPE / (earningsGrowth as %)  — earningsGrowth is already a decimal
-    const trailingPE    = q.trailingPE ?? null;
-    const earningsGrowth = fin.earningsGrowth ?? null;
-    const pegRatio = trailingPE != null && earningsGrowth != null && earningsGrowth > 0
-      ? trailingPE / (earningsGrowth * 100) : null;
-
-    // Valuation label based on PE vs forward PE
-    function peLabel(pe, forwardPe) {
-      if (pe == null) return null;
-      if (forwardPe != null && pe > forwardPe * 1.2) return 'Premium';
-      if (forwardPe != null && pe < forwardPe * 0.8) return 'Discount';
-      return 'Fair';
-    }
-
-    // Market cap label (INR values; Yahoo Finance returns INR for .NS tickers)
-    function marketCapLabel(cap) {
-      if (cap == null) return null;
-      if (cap >= 200e9) return 'Large cap';   // ≥ ₹20,000 Cr
-      if (cap >= 50e9)  return 'Mid cap';     // ₹5,000–20,000 Cr
+    function marketCapLabel(capCr) {
+      if (capCr == null) return null;
+      if (capCr >= 20000) return 'Large cap';
+      if (capCr >= 5000)  return 'Mid cap';
       return 'Small cap';
     }
 
-    // EPS CAGR label
+    // ── 5. P/E ─────────────────────────────────────────────────────────────
+    const peRow     = peRows[0] ?? null;
+    // pe_data stores PE keyed by company name. Fallback: marketCap / annualised PAT.
+    let trailingPE = peRow?.pe != null ? r2(parseFloat(peRow.pe)) : null;
+
+    // ── 6. KPI helpers ─────────────────────────────────────────────────────
+    // Group prowess rows by period (fiscal_year + quarter), latest first
+    // Pick latest value for each kpi_abbr
+    const kpiMap = {};
+    for (const row of prowessRows) {
+      const abbr = row.kpi_abbr;
+      if (!kpiMap[abbr]) kpiMap[abbr] = row; // first = most recent due to ORDER BY
+    }
+
+    // Group all values for each kpi_abbr by period for trend/growth calculations
+    const kpiByPeriod = {};
+    for (const row of prowessRows) {
+      const abbr = row.kpi_abbr;
+      if (!kpiByPeriod[abbr]) kpiByPeriod[abbr] = [];
+      kpiByPeriod[abbr].push(row);
+    }
+
+    // value in DB is already absolute (raw_value_in_Cr * multiplier); do NOT re-multiply.
+    // raw_value is the Cr-denominated string; value is the absolute INR amount.
+    function kpiVal(abbr) {
+      const row = kpiMap[abbr];
+      if (!row || row.value == null) return null;
+      return parseFloat(row.value);
+    }
+
+    // kpiValCr: value in Crore (for human-readable fields where Cr is preferred)
+    function kpiValCr(abbr) {
+      const row = kpiMap[abbr];
+      if (!row) return null;
+      if (row.raw_value != null) return parseFloat(row.raw_value);
+      if (row.value != null && row.multiplier != null && row.multiplier !== 0) {
+        return parseFloat(row.value) / row.multiplier;
+      }
+      return null;
+    }
+
+    // YoY growth: compare latest vs same quarter prior year
+    function kpiYoy(abbr) {
+      const series = kpiByPeriod[abbr];
+      if (!series || series.length < 2) return null;
+      const latest = series[0];
+      const curr = latest.value != null ? parseFloat(latest.value) : null;
+      // Find entry from same quarter prior year (fiscal_year like "FY2025" → year int = 2025)
+      const latestYear = latest.fiscal_year ? parseInt(latest.fiscal_year.replace(/\D/g, '')) : null;
+      const prior = series.find(
+        (r) => r.quarter === latest.quarter &&
+               r.fiscal_year != null && latestYear != null &&
+               parseInt(r.fiscal_year.replace(/\D/g, '')) === latestYear - 1
+      ) ?? series[series.length - 1];
+      const prev = prior?.value != null ? parseFloat(prior.value) : null;
+      if (curr == null || prev == null || prev === 0) return null;
+      return r2((curr - prev) / Math.abs(prev));
+    }
+
+    // ── 7. PE fallback from market cap / PAT (if pe_data had no entry) ────
+    if (trailingPE == null && marketCapAbs != null) {
+      const patForPe = kpiVal('PAT');
+      if (patForPe != null && patForPe !== 0) {
+        trailingPE = r2(marketCapAbs / patForPe);
+      }
+    }
+
+    // ── 7b. Quarterly trend ─────────────────────────────────────────────────
+    // Collect all unique periods that have revenue or net profit
+    const TREND_ABBRS = new Set(['REV_OP', 'TOTAL_INCOME', 'PAT', 'EPS_BASIC', 'CFO']);
+    const trendPeriods = {};
+    for (const row of prowessRows) {
+      if (!TREND_ABBRS.has(row.kpi_abbr)) continue;
+      const key = `${row.fiscal_year}|${row.quarter}`;
+      if (!trendPeriods[key]) trendPeriods[key] = { fiscal_year: row.fiscal_year, quarter: row.quarter };
+      // Use value directly (already absolute); EPS_BASIC has multiplier=1, financials have multiplier=1e7
+      trendPeriods[key][row.kpi_abbr] = row.value != null ? parseFloat(row.value) : null;
+    }
+    const quarterlyTrend = Object.values(trendPeriods)
+      .sort((a, b) => {
+        if (a.fiscal_year !== b.fiscal_year) return (a.fiscal_year ?? '').localeCompare(b.fiscal_year ?? '');
+        return (a.quarter ?? '').localeCompare(b.quarter ?? '');
+      })
+      .map((p) => ({
+        period:     `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
+        revenue:    p.REV_OP ?? p.TOTAL_INCOME ?? null,
+        netIncome:  p.PAT ?? null,
+        eps:        p.EPS_BASIC ?? null,
+        cfo:        p.CFO ?? null,
+      }));
+
+    // ── 8. Derived / computed metrics ────────────────────────────────────────
+    // Shares outstanding: EQ_SHARE_CAP is paid-up capital in Cr; divide by face value (₹10 default)
+    // to get share count. But for ratios below we keep values consistent.
+    const netWorthAbs   = kpiVal('NET_WORTH');   // absolute INR
+    const patAbs        = kpiVal('PAT');
+    const totalAssetsAbs = kpiVal('TOTAL_ASSETS');
+    const eqShareCapAbs = kpiVal('EQ_SHARE_CAP'); // paid-up capital in INR (face value included)
+
+    // Shares outstanding in absolute count: paid-up capital / face value (₹10 for most Indian banks)
+    // EQ_SHARE_CAP raw_value is Cr of capital; shares = (raw_value * 1e7) / face_value
+    const eqCapCr = kpiValCr('EQ_SHARE_CAP'); // Cr
+    const FACE_VALUE = 10; // ₹10 default; adjust if needed per company
+    const sharesOutstandingCount = eqCapCr != null ? Math.round((eqCapCr * 1e7) / FACE_VALUE) : null;
+
+    // ROE = PAT / Net Worth (annualised; for quarterly PAT multiply by 4 for annual)
+    // Both from same latest period (Q4 annual for Q4 data in prowess) — use as-is
+    const roe = patAbs != null && netWorthAbs != null && netWorthAbs !== 0
+      ? r2((patAbs / netWorthAbs) * 100) : null;
+
+    // ROA = PAT / Total Assets
+    const roa = patAbs != null && totalAssetsAbs != null && totalAssetsAbs !== 0
+      ? r2((patAbs / totalAssetsAbs) * 100) : null;
+
+    // Book Value per share (₹) = Net Worth / shares outstanding
+    const bookValue = netWorthAbs != null && sharesOutstandingCount != null && sharesOutstandingCount !== 0
+      ? r2(netWorthAbs / sharesOutstandingCount) : null;
+
+    // Profit Margins = PAT / Revenue
+    const revAbsForMargin = kpiVal('REV_OP') ?? kpiVal('TOTAL_INCOME');
+    const profitMargins = patAbs != null && revAbsForMargin != null && revAbsForMargin !== 0
+      ? r2((patAbs / revAbsForMargin) * 100) : null;
+
+    // P/B ratio = price / book value per share; fallback: marketCap / netWorth
+    const pbRatio = price != null && bookValue != null && bookValue !== 0
+      ? r2(price / bookValue)
+      : (marketCapAbs != null && netWorthAbs != null && netWorthAbs !== 0
+          ? r2(marketCapAbs / netWorthAbs)
+          : null);
+
+    // EPS 3Y CAGR: compare latest EPS_BASIC vs 3 years ago (same quarter, 3 fiscal years back)
+    const epsSeries = kpiByPeriod['EPS_BASIC'];
+    let epsCagr3y = null;
+    if (epsSeries && epsSeries.length >= 2) {
+      const latestEps = epsSeries[0];
+      const latestEpsYear = latestEps.fiscal_year ? parseInt(latestEps.fiscal_year.replace(/\D/g, '')) : null;
+      const priorEps3y = epsSeries.find(
+        (r) => r.quarter === latestEps.quarter &&
+               r.fiscal_year != null && latestEpsYear != null &&
+               parseInt(r.fiscal_year.replace(/\D/g, '')) === latestEpsYear - 3
+      );
+      if (priorEps3y && latestEps.value != null && priorEps3y.value != null && parseFloat(priorEps3y.value) > 0) {
+        const curr3 = parseFloat(latestEps.value);
+        const prev3 = parseFloat(priorEps3y.value);
+        epsCagr3y = r2((Math.pow(curr3 / prev3, 1 / 3) - 1) * 100);
+      }
+    }
+
     function epsCagrLabel(cagr) {
       if (cagr == null) return null;
-      if (cagr >= 0.15)  return 'Strong growth';
-      if (cagr >= 0.05)  return 'Moderate growth';
-      if (cagr >= 0)     return 'Slow growth';
-      return 'Declining';
+      if (cagr >= 20) return 'Excellent';
+      if (cagr >= 12) return 'Good';
+      if (cagr >= 5)  return 'Moderate';
+      if (cagr >= 0)  return 'Weak';
+      return 'Negative';
+    }
+
+    // ROCE 3Y avg
+    const roceSeries = kpiByPeriod['ROCE'];
+    let roce3yAvg = null;
+    if (roceSeries && roceSeries.length >= 3) {
+      const last3 = roceSeries.slice(0, 3);
+      const vals = last3.map((r) => r.value != null ? parseFloat(r.value) : null).filter((v) => v != null);
+      if (vals.length >= 2) roce3yAvg = r2(vals.reduce((s, v) => s + v, 0) / vals.length);
+    }
+
+    // ROE 3Y avg
+    const roeSeries = kpiByPeriod['PAT'];
+    const nwSeries  = kpiByPeriod['NET_WORTH'];
+    let roe3yAvg = null;
+    if (roeSeries && nwSeries && roeSeries.length >= 3 && nwSeries.length >= 3) {
+      const roeVals = [];
+      for (let i = 0; i < Math.min(3, roeSeries.length, nwSeries.length); i++) {
+        const pat = roeSeries[i]?.value != null ? parseFloat(roeSeries[i].value) : null;
+        const nw  = nwSeries[i]?.value != null  ? parseFloat(nwSeries[i].value)  : null;
+        if (pat != null && nw != null && nw !== 0) roeVals.push((pat / nw) * 100);
+      }
+      if (roeVals.length >= 2) roe3yAvg = r2(roeVals.reduce((s, v) => s + v, 0) / roeVals.length);
+    }
+
+    // PE valuation label based on trailing PE
+    function peValuationLabel(pe) {
+      if (pe == null) return null;
+      if (pe < 10) return 'Undervalued';
+      if (pe < 20) return 'Fair value';
+      if (pe < 35) return 'Moderately valued';
+      return 'Expensive';
     }
 
     // Debt status
-    function debtStatusLabel(debtToEquity) {
-      if (debtToEquity == null) return null;
-      if (debtToEquity < 0.1) return 'Debt-free';
-      if (debtToEquity < 0.5) return 'Near debt-free';
-      if (debtToEquity < 1.0) return 'Low debt';
-      if (debtToEquity < 2.0) return 'Moderate debt';
-      return 'High debt';
+    const de = kpiVal('DE');
+    function debtStatus(d) {
+      if (d == null) return null;
+      if (d <= 0.5)  return 'Low debt';
+      if (d <= 1.0)  return 'Moderate debt';
+      if (d <= 2.0)  return 'High debt';
+      return 'Very high debt';
     }
 
-    // ── Ownership (majorHoldersBreakdown) ────────────────────────────────────
-    const ownershipSummary = ownershipResult.status === 'fulfilled' ? ownershipResult.value : {};
-    const holders = ownershipSummary.majorHoldersBreakdown || {};
-    const promoter     = holders.insidersPercentHeld      ?? null;
-    const institutions = holders.institutionsPercentHeld  ?? null;
-    // FII/DII breakdown is not available from Yahoo Finance (India-specific BSE data)
-    const publicPct = promoter != null && institutions != null
-      ? Math.max(0, 1 - promoter - institutions) : null;
-
-    function publicLabel(pct) {
-      if (pct == null) return null;
-      if (pct < 0.15) return 'Low';
-      if (pct < 0.35) return 'Moderate';
-      return 'High';
-    }
-
-    // ── Quarterly trend for revenue/EBITDA chart ─────────────────────────────
-    const quarterlyRaw = quarterlyResult.status === 'fulfilled' ? quarterlyResult.value : [];
-    const quarterlyTrend = [...quarterlyRaw]
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
-      .map((s) => ({
-        period: new Date(s.date).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
-        revenue: s.totalRevenue ?? null,
-        ebitda:  s.EBITDA ?? null,
-        grossProfit: s.grossProfit ?? null,
-        operatingIncome: s.operatingIncome ?? null,
-        netIncome: s.netIncome ?? null,
-        eps: s.basicEPS ?? null,
-      }));
-
+    // ── 9. Build response ──────────────────────────────────────────────────
     res.json({
-      symbol: symbol.toUpperCase(),
-      ticker,
+      symbol: sym,
 
       company: {
-        name:        q.longName || q.shortName || symbol,
-        exchange:    q.exchange || 'NSE',
-        sector:      profile.sector   || null,
-        industry:    profile.industry || null,
-        description: profile.longBusinessSummary || null,
-        website:     profile.website  || null,
-        employees:   profile.fullTimeEmployees || null,
-        country:     profile.country  || 'India',
+        name:        companyName || sym,
+        exchange:    'NSE',
+        sector:      industryGroup  || null,
+        industry:    basicIndustry  || null,
+        description: null,
+        website:     null,
+        employees:   null,
+        country:     'India',
       },
 
       quote: {
-        price:          q.regularMarketPrice          ?? null,
-        change:         q.regularMarketChange         ?? null,
-        changePercent:  q.regularMarketChangePercent != null ? q.regularMarketChangePercent / 100 : null,
-        open:           q.regularMarketOpen           ?? null,
-        high:           q.regularMarketDayHigh        ?? null,
-        low:            q.regularMarketDayLow         ?? null,
-        previousClose:  q.regularMarketPreviousClose  ?? null,
-        volume:         q.regularMarketVolume         ?? null,
-        avgVolume:      q.averageDailyVolume3Month     ?? null,
-        week52High:     q.fiftyTwoWeekHigh            ?? null,
-        week52Low:      q.fiftyTwoWeekLow             ?? null,
-        marketCap:      q.marketCap                   ?? null,
-        marketCapLabel: marketCapLabel(q.marketCap    ?? null),
-        currency:       q.currency || 'INR',
-        marketState:    q.marketState                 || null,
-        lastUpdated:    q.regularMarketTime           || null,
+        price,
+        change,
+        changePercent,
+        open:           today?.open != null  ? r2(parseFloat(today.open))  : null,
+        high:           today?.high != null  ? r2(parseFloat(today.high))  : null,
+        low:            today?.low != null   ? r2(parseFloat(today.low))   : null,
+        previousClose:  prevClose,
+        volume:         today?.volume != null ? Number(today.volume) : null,
+        avgVolume:      null,
+        week52High,
+        week52Low,
+        marketCap:      marketCapAbs,
+        marketCapLabel: marketCapLabel(marketCapCr),
+        currency:       'INR',
+        marketState:    null,
+        lastUpdated:    today?.datetime ?? null,
       },
 
       financialPerformance: {
-        revenue:           fin.totalRevenue      ?? null,
-        revenueGrowth:     fin.revenueGrowth     ?? null,
-        grossProfits:      fin.grossProfits      ?? null,
-        grossMargins:      fin.grossMargins      ?? null,
-        ebitda,
-        ebitdaGrowth:      yoy(ebitda, ebitdaPrev),
-        ebitdaMargins:     fin.ebitdaMargins     ?? null,
-        operatingMargins:  fin.operatingMargins  ?? null,
-        netProfit,
-        netProfitGrowth:   yoy(netProfit, netProfitPrev),
-        profitMargins:     fin.profitMargins     ?? null,
-        operatingCashflow,
-        cfoGrowth:         yoy(operatingCashflow, cfoP),
-        freeCashflow,
-        fcfGrowth:         yoy(freeCashflow, fcfPrev),
-        earningsGrowth:    fin.earningsGrowth    ?? null,
-        revenuePerShare:   fin.revenuePerShare   ?? null,
-        reserves,
-        reservesGrowth:    yoy(reserves, reservesPrev),
+        // REV_OP = operating revenue (non-fin) / operating income (fin); TOTAL_INCOME includes other income
+        revenue:          kpiVal('REV_OP') ?? kpiVal('TOTAL_INCOME'),
+        revenueGrowth:    kpiYoy('REV_OP') ?? kpiYoy('TOTAL_INCOME'),
+        grossProfits:     null,
+        grossMargins:     null,
+        ebitda:           null,
+        ebitdaGrowth:     null,
+        ebitdaMargins:    null,
+        operatingMargins: null,
+        netProfit:        kpiVal('PAT'),
+        netProfitGrowth:  kpiYoy('PAT'),
+        profitMargins,
+        operatingCashflow: kpiVal('CFO'),
+        cfoGrowth:        kpiYoy('CFO'),
+        freeCashflow:     null,
+        fcfGrowth:        null,
+        earningsGrowth:   null,
+        revenuePerShare:  null,
+        reserves:         kpiVal('NET_WORTH'),
+        reservesGrowth:   kpiYoy('NET_WORTH'),
         quarterlyTrend,
       },
 
       valuation: {
-        peRatio:            trailingPE,
-        peValuationLabel:   peLabel(trailingPE, q.forwardPE ?? null),
-        forwardPE:          q.forwardPE                        ?? null,
-        pbRatio:            stats.priceToBook                  ?? null,
-        pegRatio,
-        evToEbitda:         stats.enterpriseToEbitda           ?? null,
-        evToRevenue:        stats.enterpriseToRevenue          ?? null,
-        enterpriseValue,
-        profitMargins:      stats.profitMargins                ?? null,
-        industryPE:         null,   // not available from Yahoo Finance
-        industryPELabel:    null,
+        peRatio:          trailingPE,
+        peValuationLabel: peValuationLabel(trailingPE),
+        forwardPE:        null,
+        pbRatio,
+        pegRatio:         null,
+        evToEbitda:       null,
+        evToRevenue:      null,
+        enterpriseValue:  null,
+        profitMargins,
+        industryPE:       null,
+        industryPELabel:  null,
       },
 
       efficiency: {
-        returnOnEquity:  roe,
-        returnOnAssets:  fin.returnOnAssets  ?? null,
-        debtToEquity:    fin.debtToEquity    ?? null,
-        debtGrowth:      yoy(totalDebt, totalDebtPrev),
-        currentRatio:    fin.currentRatio    ?? null,
-        quickRatio:      fin.quickRatio      ?? null,
-        totalCash,
-        totalDebt,
-        totalCashPerShare: fin.totalCashPerShare ?? null,
+        returnOnEquity:    roe,
+        returnOnAssets:    roa,
+        debtToEquity:      kpiVal('DE'),
+        debtGrowth:        kpiYoy('DE'),
+        currentRatio:      null,
+        quickRatio:        null,
+        totalCash:         kpiVal('CASH_EQUIV'),
+        totalDebt:         kpiVal('BORR_TOTAL') ?? (
+          (kpiVal('DEBT_LT') != null || kpiVal('DEBT_ST') != null)
+            ? (kpiVal('DEBT_LT') ?? 0) + (kpiVal('DEBT_ST') ?? 0)
+            : null
+        ),
+        totalCashPerShare: null,
       },
 
       perShare: {
-        eps:           q.epsTrailingTwelveMonths ?? null,
-        epsForward:    q.epsForward              ?? null,
-        bookValue:     stats.bookValue           ?? null,
-        dividendRate:  q.dividendRate            ?? null,
-        dividendYield: q.dividendYield != null ? q.dividendYield / 100 : null,
-        payoutRatio:   stats.payoutRatio         ?? null,
+        eps:          kpiVal('EPS_BASIC') ?? kpiVal('EPS_DILUTED'),
+        epsForward:   null,
+        bookValue,
+        dividendRate: null,
+        dividendYield: null,
+        payoutRatio:  null,
       },
 
       analystRatings: {
-        targetHighPrice:           fin.targetHighPrice           ?? null,
-        targetLowPrice:            fin.targetLowPrice            ?? null,
-        targetMeanPrice:           fin.targetMeanPrice           ?? null,
-        targetMedianPrice:         fin.targetMedianPrice         ?? null,
-        recommendationKey:         fin.recommendationKey         ?? null,
-        numberOfAnalystOpinions:   fin.numberOfAnalystOpinions   ?? null,
+        targetHighPrice:         null,
+        targetLowPrice:          null,
+        targetMeanPrice:         null,
+        targetMedianPrice:       null,
+        recommendationKey:       null,
+        numberOfAnalystOpinions: null,
       },
 
       keyStats: {
-        beta:                     q.beta                          ?? null,
-        sharesOutstanding:        stats.sharesOutstanding         ?? null,
-        floatShares:              stats.floatShares               ?? null,
-        heldPercentInsiders:      stats.heldPercentInsiders       ?? null,
-        heldPercentInstitutions:  stats.heldPercentInstitutions   ?? null,
-        earningsQuarterlyGrowth:  stats.earningsQuarterlyGrowth   ?? null,
-        fiftyDayAverage:          q.fiftyDayAverage               ?? null,
-        twoHundredDayAverage:     q.twoHundredDayAverage          ?? null,
-        week52Change:             stats['52WeekChange']            ?? null,
+        beta:                    null,
+        sharesOutstanding:       sharesOutstandingCount,
+        floatShares:             null,
+        heldPercentInsiders:     null,
+        heldPercentInstitutions: null,
+        earningsQuarterlyGrowth: kpiYoy('PAT'),
+        fiftyDayAverage:         null,
+        twoHundredDayAverage:    null,
+        week52Change:            null,
       },
 
       ratios: {
-        roce,
+        roce:      kpiVal('ROCE'),
         roce3yAvg,
         roe,
         roe3yAvg,
-        debtStatus: debtStatusLabel(fin.debtToEquity ?? null),
+        debtStatus: debtStatus(kpiVal('DE')),
       },
 
       ownership: {
-        promoter,        // insiders % held (decimal)
-        institutions,    // institutions % held (decimal)
-        fii:    null,    // not available from Yahoo Finance (India BSE-specific)
-        dii:    null,    // not available from Yahoo Finance (India BSE-specific)
-        public: publicPct,
-        publicLabel: publicLabel(publicPct),
+        promoter:     null,
+        institutions: null,
+        fii:          null,
+        dii:          null,
+        public:       null,
+        publicLabel:  null,
       },
 
       financials: {
         eps_cagr_3y:       epsCagr3y,
         eps_cagr_3y_label: epsCagrLabel(epsCagr3y),
-        ebitda_ev_yield: ebitdaEvYield,
-        cfo_ebitda_pct:  cfoEbitdaPct,
-        net_debt_ebitda: netDebtEbitda,
+        ebitda_ev_yield:   null,
+        cfo_ebitda_pct:    null,
+        net_debt_ebitda:   null,
       },
     });
   } catch (err) {
