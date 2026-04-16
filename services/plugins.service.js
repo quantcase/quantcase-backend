@@ -9,6 +9,7 @@ const SKILL_TO_QUEUE = {
   'summarization':                'summarization',
   'qe-extraction':                'qe_extraction',
   'deal-analysis':                'deal_analysis',
+  'nse-industry':                 'ofactor_analysis',
   'ofactor-industry':             'ofactor_analysis',
   'ofactor-competition':          'ofactor_analysis',
   'ofactor-financial-strength':   'ofactor_analysis',
@@ -80,10 +81,15 @@ async function enqueuePlugin(pluginSlug, jobDataBase, skillJobDataOverrides = {}
       type:      skillSlug,
       skillName: skillSlug,
       ...(section && { section }),
+      // nse-industry worker reads subjectTicker; derive it from callId if not already present
+      ...(skillSlug === 'nse-industry' && !jobDataBase.subjectTicker && jobDataBase.callId
+        ? { subjectTicker: jobDataBase.callId.replace(/_FY\d+_Q\d+$/i, '') }
+        : {}),
       ...overrides,
     };
 
-    // Use a deterministic jobId for ofactor skills to avoid duplicate section jobs
+    // Deterministic jobId for ofactor section jobs only (deduplication per callId+section)
+    // nse-industry gets no fixed jobId so every trigger creates a fresh job
     const jobOptions = section
       ? { jobId: `ofactor_${jobDataBase.callId}_${section}` }
       : {};
@@ -95,4 +101,37 @@ async function enqueuePlugin(pluginSlug, jobDataBase, skillJobDataOverrides = {}
   return enqueuedJobs;
 }
 
-module.exports = { getPluginWithSkills, enqueuePlugin };
+/**
+ * Enqueue a single plugin skill as a BullMQ job.
+ * Used for sequential plugin execution: the worker calls this to chain the next skill
+ * after completing the current one.
+ *
+ * @param {string} pluginSlug   The plugin slug (e.g. "opportunity")
+ * @param {object} pluginSkill  A PluginSkill record with { order, skill: { slug, ... } }
+ * @param {object} jobDataBase  Shared job data (callId, subjectTicker, etc.)
+ * @returns {Promise<object>}   The enqueued BullMQ job
+ */
+async function enqueueSkillJob(pluginSlug, pluginSkill, jobDataBase) {
+  const { skill, order } = pluginSkill;
+  const queueName = SKILL_TO_QUEUE[skill.slug];
+  if (!queueName) throw new Error(`No queue mapping for skill slug "${skill.slug}"`);
+
+  const section = SKILL_TO_SECTION[skill.slug];
+  const jobData = {
+    ...jobDataBase,
+    type:       skill.slug,
+    skillName:  skill.slug,
+    pluginSlug,
+    skillOrder: order,
+    ...(section && { section }),
+  };
+
+  // Deterministic jobId for ofactor section jobs (deduplication); nse-industry gets no fixed jobId
+  const jobOptions = section
+    ? { jobId: `ofactor_${jobDataBase.callId}_${section}` }
+    : {};
+
+  return jobQueue.addJob(queueName, jobData, jobOptions);
+}
+
+module.exports = { getPluginWithSkills, enqueuePlugin, enqueueSkillJob };

@@ -23,24 +23,19 @@ const enqueueQeExtraction = asyncHandler(async (req, res) => {
   });
 });
 
-const enqueueOFactorAnalysis = asyncHandler(async (req, res) => {
-  const { callId } = req.params;
-  const { section } = req.body ?? {};
-  const job = await jobsService.addOFactorAnalysisJob(callId, section);
-  res.json({
-    success: true,
-    message: `OFactor "${section}" analysis job created and queued`,
-    job: { id: job.id, callId, type: 'ofactor_analysis', section, status: 'pending', createdAt: new Date(job.timestamp).toISOString() },
-  });
-});
-
 const enqueueFullOpportunityAnalysis = asyncHandler(async (req, res) => {
   const { callId } = req.params;
-  const jobs = await jobsService.addFullOpportunityAnalysis(callId);
+  const job = await jobsService.addFullOpportunityAnalysis(callId);
   res.json({
     success: true,
-    message: `Opportunity full-pipeline enqueued (${jobs.length} skills)`,
-    jobs: jobs.map(j => ({ skillName: j.skillName, queue: j.queue, jobId: j.jobId })),
+    message: 'Opportunity full-pipeline enqueued',
+    job: {
+      id:        job.id,
+      callId,
+      type:      job.name,
+      status:    'pending',
+      all_steps: job.all_steps ?? [],
+    },
   });
 });
 
@@ -51,4 +46,4 @@ const getJobStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, data: job });
 });
 
-module.exports = { enqueueSummarization, enqueueQeExtraction, enqueueOFactorAnalysis, enqueueFullOpportunityAnalysis, getJobStatus };
+module.exports = { enqueueSummarization, enqueueQeExtraction, enqueueFullOpportunityAnalysis, getJobStatus };

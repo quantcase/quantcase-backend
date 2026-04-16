@@ -5,6 +5,7 @@ const connection   = require('../config/redis');
 const prisma       = require('../config/prisma');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { upsertOFactorSection }      = require('../services/db/ofactor.db');
+const { enqueueSkillJob }           = require('../services/plugins.service');
 const { FinHelper }                 = require('../utils/finHelper');
 const { isBFSI }                    = require('../utils/industryClassifier');
 const { industryPrompt }            = require('../prompts/of-prompts/industry-prompt');
@@ -28,6 +29,68 @@ function resolveIndustrySkill(bfsi) {
   return bfsi ? 'ofactor-industry-bfsi' : 'ofactor-industry';
 }
 
+
+// ─── Plugin chaining ─────────────────────────────────────────────────────────
+
+/**
+ * Update the `all_steps` array on the root job's DB record.
+ * Marks `currentSlug` with `currentStatus`, and optionally marks the next step as 'processing'.
+ */
+async function updateAllSteps(rootJobBullmqId, currentSlug, currentStatus, nextSlug) {
+  if (!rootJobBullmqId) return;
+  try {
+    const rootJob = await prisma.job.findUnique({ where: { bullmqId: rootJobBullmqId } });
+    if (!rootJob?.result?.all_steps) return;
+
+    const all_steps = rootJob.result.all_steps.map(step => {
+      if (step.analysis_type === currentSlug) return { ...step, status: currentStatus };
+      if (nextSlug && step.analysis_type === nextSlug) return { ...step, status: 'processing' };
+      return step;
+    });
+
+    await prisma.job.update({
+      where: { bullmqId: rootJobBullmqId },
+      data:  { result: { ...rootJob.result, all_steps } },
+    });
+  } catch (err) {
+    console.error('[Chain] Failed to update all_steps:', err.message);
+  }
+}
+
+/**
+ * After a skill completes successfully, look up the next active skill in the
+ * same plugin chain (by order) and enqueue it.  No-ops when:
+ *   - the job wasn't started from a plugin chain (no pluginSlug / skillOrder)
+ *   - this was the last skill in the chain
+ */
+async function enqueueNextPluginSkill(jobData) {
+  const { pluginSlug, skillOrder, callId, subjectTicker, type: currentSlug, rootJobBullmqId, all_steps } = jobData;
+  if (!pluginSlug || skillOrder == null) return;
+
+  const nextPs = await prisma.pluginSkill.findFirst({
+    where: {
+      plugin: { slug: pluginSlug },
+      order:  { gt: skillOrder },
+      skill:  { isActive: true },
+    },
+    orderBy: { order: 'asc' },
+    include: { skill: true },
+  });
+
+  if (!nextPs) {
+    // Last skill in the chain — mark current as completed
+    await updateAllSteps(rootJobBullmqId, currentSlug, 'completed', null);
+    return;
+  }
+
+  const nextSlug = nextPs.skill.slug;
+  console.log(`[Chain] ${pluginSlug}: queuing next skill "${nextSlug}" (order=${nextPs.order})`);
+
+  // Mark current step completed, next step as processing
+  await updateAllSteps(rootJobBullmqId, currentSlug, 'completed', nextSlug);
+
+  await enqueueSkillJob(pluginSlug, nextPs, { callId, subjectTicker, rootJobBullmqId, all_steps });
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -270,7 +333,7 @@ async function processNseIndustryJob(job) {
   await prisma.job.upsert({
     where:  { bullmqId: job.id },
     update: { status: 'processing' },
-    create: { callId: subjectTicker, type: type || 'industry', status: 'processing', bullmqId: job.id },
+    create: { callId: subjectTicker, type: 'nse_industry', status: 'processing', bullmqId: job.id },
   });
   await job.updateProgress(10);
 
@@ -306,9 +369,9 @@ async function processNseIndustryJob(job) {
   await job.updateProgress(90);
 
   await prisma.aiInsight.upsert({
-    where:  { ticker_type: { ticker: subjectTicker, type: 'industry' } },
+    where:  { ticker_type: { ticker: subjectTicker, type: 'nse_industry' } },
     update: { insight: result },
-    create: { ticker: subjectTicker, type: 'industry', insight: result },
+    create: { ticker: subjectTicker, type: 'nse_industry', insight: result },
   });
   console.log(`[NseIndustry] ai_insights upserted for: ${subjectTicker}`);
 
@@ -317,6 +380,8 @@ async function processNseIndustryJob(job) {
     data:  { status: 'completed', result: { subjectTicker, industry } },
   });
   await job.updateProgress(100);
+
+  await enqueueNextPluginSkill(job.data);
   return { subjectTicker, industry, result };
 
   } catch (error) {
@@ -325,8 +390,9 @@ async function processNseIndustryJob(job) {
       await prisma.job.upsert({
         where:  { bullmqId: job.id },
         update: { status: 'failed', error: error.message },
-        create: { callId: subjectTicker, type: type || 'industry', status: 'failed', bullmqId: job.id, error: error.message },
+        create: { callId: subjectTicker, type: 'nse_industry', status: 'failed', bullmqId: job.id, error: error.message },
       });
+      await updateAllSteps(job.data.rootJobBullmqId, job.data.type, 'failed', null);
     } catch (dbErr) { console.error('[NseIndustry] Failed to update job in DB:', dbErr); }
     throw error;
   }
@@ -337,8 +403,8 @@ async function processNseIndustryJob(job) {
 async function processOFactorJob(job) {
   const { callId, subjectTicker, section, type, customInstructions, customRun } = job.data;
 
-  // Dispatch industry jobs to their own processor
-  if (type === 'industry') return processNseIndustryJob(job);
+  // Dispatch NSE industry jobs to their own processor
+  if (type === 'nse-industry' || type === 'industry') return processNseIndustryJob(job);
 
   console.log(`Processing OFactor job ${job.id} (callId: ${callId}, subject: ${subjectTicker}, section: ${section})`);
 
@@ -415,12 +481,16 @@ async function processOFactorJob(job) {
     console.log(`[OFactor] Parsing section "${section}" response...`);
     const parsed = parseJson(responseText);
 
-    // The LLM returns { <sectionKey>: <sectionData> } — extract the section data
-    if (!(sectionKey in parsed)) {
-      const topKeys = Object.keys(parsed);
-      console.warn(`[OFactor] WARNING: expected key "${sectionKey}" not found in LLM response. Top-level keys: [${topKeys.join(', ')}]. Falling back to full parsed object.`);
+    // The LLM returns { <sectionKey>: <sectionData> } — extract the section data.
+    // Some DB prompt templates instruct the LLM to return a flat object without the wrapper key;
+    // in that case we use the full parsed object directly.
+    let sectionResult;
+    if (sectionKey in parsed) {
+      sectionResult = parsed[sectionKey];
+    } else {
+      sectionResult = parsed;
+      console.log(`[OFactor] Section "${section}": LLM returned flat object (keys: [${Object.keys(parsed).join(', ')}]) — using directly as section result.`);
     }
-    const sectionResult = parsed[sectionKey] ?? parsed;
 
     if (!sectionResult || (typeof sectionResult === 'object' && Object.keys(sectionResult).length === 0)) {
       throw new Error(`[OFactor] Section "${section}" result is empty after parsing. Raw response (first 500 chars): ${responseText.slice(0, 500)}`);
@@ -445,6 +515,8 @@ async function processOFactorJob(job) {
 
     await job.updateProgress(100);
     console.log(`[OFactor] Job ${job.id} completed (section: ${section})`);
+
+    await enqueueNextPluginSkill(job.data);
     // sectionResult is in returnvalue so frontend can read it via GET /api/jobs/:jobId
     return { section, sectionKey, sectionResult, prompt: promptText };
 
@@ -456,6 +528,7 @@ async function processOFactorJob(job) {
         update: { status: 'failed', error: error.message },
         create: { callId, type: type || 'ofactor_analysis', status: 'failed', bullmqId: job.id, error: error.message }
       });
+      await updateAllSteps(job.data.rootJobBullmqId, job.data.type, 'failed', null);
     } catch (dbErr) {
       console.error(`[OFactor] Failed to update job ${job.id} in DB:`, dbErr);
     }

@@ -294,13 +294,16 @@ async function selectCompanies(prisma, subjectTicker, industry, maxCompanies = 5
 // ─── Data loading ─────────────────────────────────────────────────────────────
 
 /**
- * Fetch prowess + kpi + summaries for all companies in parallel.
+ * Fetch prowess + kpi + summaries for all companies sequentially.
+ * Sequential (not parallel) to avoid exhausting the DB connection pool when
+ * multiple companies are processed alongside other concurrent jobs.
  */
 async function loadCompanyData(prisma, companies) {
   const prowessHelper = new ProwessHelper(prisma);
   const finHelper     = new FinHelper(prisma);
+  const results       = [];
 
-  return Promise.all(companies.map(async ({ ticker, companyName, marketCapCr }) => {
+  for (const { ticker, companyName, marketCapCr } of companies) {
     const [prowessBatch, kpiBatch, summaries, prowessName] = await Promise.all([
       prowessHelper.getTimeSeriesBatch(ticker, PROWESS_ABBRS),
       finHelper.getTimeSeriesBatch(ticker, KPI_ABBRS),
@@ -312,8 +315,10 @@ async function loadCompanyData(prisma, companies) {
       }),
       prowessHelper.resolveProwessName(ticker),
     ]);
-    return { ticker, companyName, marketCapCr, prowessName: prowessName ?? null, prowess: prowessBatch, kpi: kpiBatch, summaries };
-  }));
+    results.push({ ticker, companyName, marketCapCr, prowessName: prowessName ?? null, prowess: prowessBatch, kpi: kpiBatch, summaries });
+  }
+
+  return results;
 }
 
 // ─── Per-company block ────────────────────────────────────────────────────────

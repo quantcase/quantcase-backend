@@ -108,7 +108,7 @@ async function getOFactorByQuery(callId) {
   if (!ofactorRecord) ofactorRecord = await getLatestOFactorResultByTicker(ticker);
 
   const industryInsight = await prisma.aiInsight.findUnique({
-    where: { ticker_type: { ticker, type: 'industry' } },
+    where: { ticker_type: { ticker, type: 'nse_industry' } },
   });
 
   if (!ofactorRecord && !industryInsight) return null;
