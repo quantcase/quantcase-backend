@@ -4,18 +4,18 @@ const prisma = require('../config/prisma');
 const { getOFactorResult, getLatestOFactorResultByTicker } = require('./db/ofactor.db');
 const { isBFSI } = require('../utils/industryClassifier');
 
-const { DEFAULT_INSTRUCTIONS: INDUSTRY_INSTRUCTIONS, METRICS: INDUSTRY_METRICS }                       = require('../prompts/of-prompts/industry-prompt');
-const { DEFAULT_INSTRUCTIONS: COMPETITION_INSTRUCTIONS, METRICS: COMPETITION_METRICS }                 = require('../prompts/of-prompts/competition-prompt');
-const { DEFAULT_INSTRUCTIONS_NONBFSI, DEFAULT_INSTRUCTIONS_BFSI, METRICS: FINANCIAL_STRENGTH_METRICS } = require('../prompts/of-prompts/financial-strength-prompt');
-const { DEFAULT_INSTRUCTIONS: CUSTOMER_TRACTION_INSTRUCTIONS, METRICS: CUSTOMER_TRACTION_METRICS }     = require('../prompts/of-prompts/customer-traction-prompt');
+const { METRICS: INDUSTRY_METRICS }                  = require('../prompts/of-prompts/industry-prompt');
+const { METRICS: COMPETITION_METRICS }               = require('../prompts/of-prompts/competition-prompt');
+const { METRICS: FINANCIAL_STRENGTH_METRICS }        = require('../prompts/of-prompts/financial-strength-prompt');
+const { METRICS: CUSTOMER_TRACTION_METRICS }         = require('../prompts/of-prompts/customer-traction-prompt');
 
 const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction']);
 
 const SECTION_META = {
-  industry:           { instructions: INDUSTRY_INSTRUCTIONS,     metrics: INDUSTRY_METRICS },
-  competition:        { instructions: COMPETITION_INSTRUCTIONS,  metrics: COMPETITION_METRICS },
-  financial_strength: { instructions: DEFAULT_INSTRUCTIONS_NONBFSI, instructions_bfsi: DEFAULT_INSTRUCTIONS_BFSI, metrics: FINANCIAL_STRENGTH_METRICS },
-  customer_traction:  { instructions: CUSTOMER_TRACTION_INSTRUCTIONS, metrics: CUSTOMER_TRACTION_METRICS },
+  industry:           { metrics: INDUSTRY_METRICS },
+  competition:        { metrics: COMPETITION_METRICS },
+  financial_strength: { metrics: FINANCIAL_STRENGTH_METRICS },
+  customer_traction:  { metrics: CUSTOMER_TRACTION_METRICS },
 };
 
 /**
@@ -31,11 +31,38 @@ async function resolveBfsi(callId) {
 }
 
 /**
+ * Normalize the financial_strength section from the new schema shape
+ * { core, final_scoring, extras } → flat shape { text, metrics, operating_leverage, ... }
+ * that the rest of the codebase expects. No-ops if already in flat shape.
+ */
+function normalizeFinancialStrength(fs) {
+  if (!fs || typeof fs !== 'object') return fs;
+  // Already flat (old shape) — has text/metrics at top level
+  if (fs.text || fs.metrics) return fs;
+  // New shape — flatten core + extras + final_scoring
+  const { core = {}, extras = {}, final_scoring, ...rest } = fs;
+  return {
+    ...rest,
+    ...(core.text    ? { text: core.text }       : {}),
+    ...(core.metrics ? { metrics: core.metrics }  : {}),
+    ...(extras.operating_leverage ? { operating_leverage: extras.operating_leverage } : {}),
+    ...(extras.free_cash_flow     ? { free_cash_flow:     extras.free_cash_flow }     : {}),
+    ...(extras.working_capital    ? { working_capital:    extras.working_capital }    : {}),
+    ...(extras.capital_structure  ? { capital_structure:  extras.capital_structure }  : {}),
+    ...(final_scoring             ? { final_scoring }                                 : {}),
+  };
+}
+
+/**
  * Remove cards from the OFactor result that don't apply to BFSI or non-BFSI companies.
  */
 function filterOFactorForIndustry(result, bfsi) {
   if (!result || typeof result !== 'object') return result;
   const out = { ...result };
+
+  if (out.financial_strength) {
+    out.financial_strength = normalizeFinancialStrength(out.financial_strength);
+  }
 
   if (bfsi) {
     if (out.financial_strength) {
@@ -108,15 +135,17 @@ async function getOFactorByQuery(callId) {
   if (!ofactorRecord) ofactorRecord = await getLatestOFactorResultByTicker(ticker);
 
   const industryInsight = await prisma.aiInsight.findUnique({
-    where: { ticker_type: { ticker, type: 'industry' } },
+    where: { ticker_type: { ticker, type: 'nse_industry' } },
   });
 
   if (!ofactorRecord && !industryInsight) return null;
 
   const base   = ofactorRecord ? filterOFactorForIndustry(ofactorRecord.result, isBFSI(industry)) : {};
+  // NSE industry insight is stored as { industry_analysis: { ... } } — expose it at the top level
+  const nseIndustry = industryInsight?.insight?.industry_analysis ?? industryInsight?.insight ?? null;
   const result = {
     ...base,
-    ...(industryInsight ? { industry: industryInsight.insight } : {}),
+    ...(nseIndustry ? { industry_analysis: nseIndustry } : {}),
   };
 
   return { result, total_score: computeTotalScore(result) };
@@ -129,10 +158,7 @@ function getOFactorPromptData(section, bfsi) {
     throw err;
   }
   const meta = SECTION_META[section];
-  const instructions = (section === 'financial_strength' && bfsi)
-    ? meta.instructions_bfsi
-    : meta.instructions;
-  return { section, bfsi, instructions, metrics: meta.metrics };
+  return { section, bfsi, metrics: meta.metrics };
 }
 
 // ─── Peer data helpers ────────────────────────────────────────────────────────

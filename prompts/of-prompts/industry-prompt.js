@@ -1,26 +1,5 @@
 'use strict';
 
-const { OFactorResponseSchema } = require('../../utils/constants');
-
-/**
- * DEFAULT_INSTRUCTIONS stored in the DB (skills.default_instructions for "ofactor_industry").
- * Injected at {{DEFAULT_INSTRUCTIONS}} in the template.
- * Override per-call by passing customInstructions to the prompt builder.
- */
-const DEFAULT_INSTRUCTIONS = `From ALL transcripts (subject + peer), identify:
-  • Are the majority of managements talking about volume growth?
-  • Are order books or pipelines expanding?
-  • Is management guidance on volumes and capex positive or cautious?
-  • What are the key demand/supply dynamics in this industry?
-Populate with short and crisp points.
-
-Output length guidelines:
-  • text.takeaway — ONE punchy sentence, 15 words max. Comma-separated key facts with one metric in parentheses. Example: "High growth, demand rising, no import competition"
-  • text.opm_trend.margin_drivers, text.opm_trend.key_observations — 30 words max per item
-  • text.opm_trend.forward_outlook — 30 words max
-  • text.demand_supply_dynamics.demand, .supply — 4–6 bullet points each, 20 words max per point
-  • text.demand_supply_dynamics.net_impact — short thesis narrative in 30 words max`;
-
 const METRICS = [
   { name: 'Revenue from Operations (REV_OP)', type: 'raw_kpi', trend: 'last 4 Q4s' },
   { name: 'Total Income (TOTAL_INCOME)', type: 'raw_kpi' },
@@ -85,103 +64,6 @@ function serializeIndustryAnalysis(row) {
   if (marginBlock) parts.push(marginBlock);
 
   return parts.join('\n');
-}
-
-// ─── Static template stored in DB ────────────────────────────────────────────
-// Non-BFSI default. BFSI variant is built at runtime via _buildPromptTemplate when needed.
-
-const PROMPT_TEMPLATE = `You are a senior equity research analyst. Produce an industry overview for the {{INDUSTRY}} sector.
-
-{{DATA_BLOCK}}
-
-══════════════════════════════════════════════════════════
-C. ANALYSIS INSTRUCTIONS
-══════════════════════════════════════════════════════════
-
-{{DEFAULT_INSTRUCTIONS}}
-
-For ALL metrics values: always output a SINGLE specific number or label — never a range (e.g. "₹30,000–40,000 Cr" or "12–15%") and never a division (e.g. "Elecon / Triveni"). If you are uncertain, approximate using the midpoint or mean and state your basis in the sublabel.
-
-For metrics.industry_revenue_ttm: estimate total industry revenue (TTM) for the {{INDUSTRY}} sector using subject company revenue, peer data, and your knowledge. Express in a readable format (e.g. "₹4.2L Cr", "$180B"). Add a "change" field with the date % change (e.g. "+18.2% Q3 FY26"). Use sublabel to clarify source/period.
-
-For metrics.industry_cagr (NON-BFSI only): provide three separate CAGR estimates for the industry revenue — "qoq" (quarter-on-quarter annualised), "one_year" (1Y CAGR), "three_year" (3Y CAGR). Each should be a single % string (e.g. "12.3%"). Use the revenue sparkline data and your knowledge of the sector. Set all fields to null for BFSI companies.
-
-For metrics.industry_aum (BFSI only): estimate total industry AUM — calculated as Gross Advances + Deposits for the {{INDUSTRY}} sector. Express in a readable format (e.g. "₹180L Cr"). Add a "change" field with the YoY % change (e.g. "+14%"). Set to null for non-BFSI companies.
-
-For metrics.current_opm: output a single OPM % value (e.g. "23%") and a "change" field in basis points (e.g. "+120bps" or "-40bps") +date range. Use the EBIT/revenue sparkline above to derive the change. If peer OPMs differ, use weighted average and explain in sublabel.
-
-For metrics.industry_roce: use the ROCE trend above (last 4 Q4s) to populate "value" (latest, e.g. "24.8%") and "change" (YoY change in bps, e.g. "+180bps date range"). This represents the subject company ROCE as a proxy for industry ROCE — note in sublabel if peers differ significantly.
-
-This is a non-BFSI company. Populate industry_cagr (qoq, one_year, three_year); set industry_aum to null.
-
-Populate the "final_scoring" field INSIDE the industry_overview JSON object (same level as "metrics"). Award 1 point per check, max 10:
-  1. Demand signal is "Strong" → metrics.demand_signal
-  2. Supply constraint is "Low" or "Moderate" (not High) → metrics.supply_constraint
-  3. Industry revenue TTM change is positive → metrics.industry_revenue_ttm.change
-  4. Industry CAGR 1Y > 10% → metrics.industry_cagr.one_year
-  5. Industry CAGR 3Y > 8% → metrics.industry_cagr.three_year
-  6. Operating margin ≥ 12% → metrics.current_opm.value
-  7. Operating margin YoY change is positive → metrics.current_opm.change
-  8. Industry ROCE ≥ 12% → metrics.industry_roce.value
-  9. Industry ROCE change is positive → metrics.industry_roce.change
-  10. OPM forward outlook is improving or stable → text.opm_trend.forward_outlook
-  status: score >= 7 → "FAVORABLE" (green), score 5–6 → "NEUTRAL" (yellow), score < 5 → "UNFAVORABLE" (red).
-
-══════════════════════════════════════════════════════════
-D. OUTPUT FORMAT
-══════════════════════════════════════════════════════════
-
-Return ONLY valid JSON in EXACTLY the structure below.
-Replace ALL placeholder values with your actual analysis. Use null where data is unavailable.
-Do NOT include any text, explanation, or markdown fences outside the JSON object.
-
-{{OUTPUT_SCHEMA}}`;
-
-function _buildPromptTemplate(industry, bfsi, schemaString) {
-  return `You are a senior equity research analyst. Produce an industry overview for the ${industry} sector.
-
-{{DATA_BLOCK}}
-
-══════════════════════════════════════════════════════════
-C. ANALYSIS INSTRUCTIONS
-══════════════════════════════════════════════════════════
-
-{{DEFAULT_INSTRUCTIONS}}
-
-For ALL metrics values: always output a SINGLE specific number or label — never a range (e.g. "₹30,000–40,000 Cr" or "12–15%") and never a division (e.g. "Elecon / Triveni"). If you are uncertain, approximate using the midpoint or mean and state your basis in the sublabel.
-
-For metrics.industry_revenue_ttm: estimate total industry revenue (TTM) for the ${industry} sector using subject company revenue, peer data, and your knowledge. Express in a readable format (e.g. "₹4.2L Cr", "$180B"). Add a "change" field with the date % change (e.g. "+18.2% Q3 FY26"). Use sublabel to clarify source/period.
-
-For metrics.industry_cagr (NON-BFSI only): provide three separate CAGR estimates for the industry revenue — "qoq" (quarter-on-quarter annualised), "one_year" (1Y CAGR), "three_year" (3Y CAGR). Each should be a single % string (e.g. "12.3%"). Use the revenue sparkline data and your knowledge of the sector. Set all fields to null for BFSI companies.
-
-For metrics.industry_aum (BFSI only): estimate total industry AUM — calculated as Gross Advances + Deposits for the ${industry} sector. Express in a readable format (e.g. "₹180L Cr"). Add a "change" field with the YoY % change (e.g. "+14%"). Set to null for non-BFSI companies.
-
-For metrics.current_opm: output a single OPM % value (e.g. "23%") and a "change" field in basis points (e.g. "+120bps" or "-40bps") +date range. Use the EBIT/revenue sparkline above to derive the change. If peer OPMs differ, use weighted average and explain in sublabel.
-
-For metrics.industry_roce: use the ROCE trend above (last 4 Q4s) to populate "value" (latest, e.g. "24.8%") and "change" (YoY change in bps, e.g. "+180bps date range"). This represents the subject company ROCE as a proxy for industry ROCE — note in sublabel if peers differ significantly.${bfsi ? '\n\nThis is a BFSI company. Populate industry_aum; set industry_cagr fields (qoq, one_year, three_year) to null.' : '\n\nThis is a non-BFSI company. Populate industry_cagr (qoq, one_year, three_year); set industry_aum to null.'}
-
-Populate the "final_scoring" field INSIDE the industry_overview JSON object (same level as "metrics"). Award 1 point per check, max 10:
-  1. Demand signal is "Strong" → metrics.demand_signal
-  2. Supply constraint is "Low" or "Moderate" (not High) → metrics.supply_constraint
-  3. Industry revenue TTM change is positive → metrics.industry_revenue_ttm.change
-  4. ${bfsi ? 'Industry AUM growth > 12% → metrics.industry_aum.change' : 'Industry CAGR 1Y > 10% → metrics.industry_cagr.one_year'}
-  5. ${bfsi ? 'Industry AUM 3Y growth positive → metrics.industry_aum' : 'Industry CAGR 3Y > 8% → metrics.industry_cagr.three_year'}
-  6. Operating margin ≥ 12% → metrics.current_opm.value
-  7. Operating margin YoY change is positive → metrics.current_opm.change
-  8. Industry ROCE ≥ 12% → metrics.industry_roce.value
-  9. Industry ROCE change is positive → metrics.industry_roce.change
-  10. OPM forward outlook is improving or stable → text.opm_trend.forward_outlook
-  status: score >= 7 → "FAVORABLE" (green), score 5–6 → "NEUTRAL" (yellow), score < 5 → "UNFAVORABLE" (red).
-
-══════════════════════════════════════════════════════════
-D. OUTPUT FORMAT
-══════════════════════════════════════════════════════════
-
-Return ONLY valid JSON in EXACTLY the structure below.
-Replace ALL placeholder values with your actual analysis. Use null where data is unavailable.
-Do NOT include any text, explanation, or markdown fences outside the JSON object.
-
-${schemaString}`;
 }
 
 // ─── Data block builder ───────────────────────────────────────────────────────
@@ -290,20 +172,17 @@ Period context: All snapshot values above are from ${snapshotPeriod}. Mention th
  * @param {string|null} [dbTemplate=null]   - promptTemplate from DB
  * @param {string|null} [dbInstructions=null] - defaultInstructions from DB
  */
-function industryPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions, dbTemplate = null, dbInstructions = null) {
-  const { bfsi = false } = computedMetrics;
-  const schemaString = JSON.stringify({ industry_overview: OFactorResponseSchema.industry_overview }, null, 2);
+function industryPrompt(subjectTicker, industry, subjectData, peerData, computedMetrics, customInstructions, dbTemplate, dbInstructions) {
+  if (!dbTemplate)      throw new Error('[industryPrompt] dbTemplate is required — configure skill "ofactor-industry" in DB');
+  if (!dbInstructions)  throw new Error('[industryPrompt] dbInstructions is required — configure skill "ofactor-industry" in DB');
 
   const dataBlock    = buildDataBlock(subjectTicker, industry, subjectData, peerData, computedMetrics);
-  const instructions = customInstructions ?? dbInstructions ?? DEFAULT_INSTRUCTIONS;
-  // Use DB template if provided; fall back to PROMPT_TEMPLATE (non-BFSI) or runtime-built BFSI template
-  const template     = dbTemplate ?? (bfsi ? _buildPromptTemplate(industry, bfsi, schemaString) : PROMPT_TEMPLATE);
+  const instructions = customInstructions ?? dbInstructions;
 
-  return template
+  return dbTemplate
     .replace(/\{\{INDUSTRY\}\}/g, industry)
     .replace('{{DATA_BLOCK}}', dataBlock)
-    .replace('{{DEFAULT_INSTRUCTIONS}}', instructions)
-    .replace('{{OUTPUT_SCHEMA}}', schemaString);
+    .replace('{{DEFAULT_INSTRUCTIONS}}', instructions);
 }
 
-module.exports = { industryPrompt, buildDataBlock, DEFAULT_INSTRUCTIONS, PROMPT_TEMPLATE, METRICS };
+module.exports = { industryPrompt, buildDataBlock, METRICS };

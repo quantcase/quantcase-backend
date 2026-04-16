@@ -1,31 +1,6 @@
 'use strict';
 
-const { OFactorResponseSchema } = require('../../utils/constants');
 
-const DEFAULT_INSTRUCTIONS = `From the subject company's KPIs and transcripts, identify:
-  • Is new customer acquisition accelerating or slowing?
-  • Are existing customers expanding spend (upsells, larger project scopes)?
-  • Are customers deeply embedded via long contracts or multi-product use?
-  • Has management referenced any alt data signals (web traffic, app engagement, customer hiring)?
-Populate with short and crisp points.
-
-When direct customer metrics (active customer count, NRR, churn) are unavailable, use proxies:
-  • ORD_INF (Order Inflow) trend → proxy for new customer acquisition / demand growth
-  • ORD_BOOK (Order Book / backlog) → proxy for pipeline health and revenue visibility
-  • BASE_ORD_GROWTH → proxy for organic demand expansion
-  • REV_OP trend (YoY or QoQ) → proxy for revenue retention / wallet-share growth
-  • DOM_REV_PCT / INTL_REV_PCT mix changes → proxy for geographic customer diversification
-  • Segment or division revenue splits → proxy for customer concentration (B2B industrials)
-Set proxy-based metric values as a descriptive string (e.g. "Order Inflow ₹14,320 Cr (proxy)") rather than null,
-and explain the proxy in the sublabel field.
-
-Output length guidelines:
-  • text.takeaway — ONE punchy sentence, 15 words max. Comma-separated key facts with one metric in parentheses. Example: "No concentration risk, distribution depth intact"
-  • text.key_takeaway — 10 words max
-  • text.retention.expansion_drivers, .product_stickiness — 10 words max per item
-  • text.segmentation.growth_strategy, .revenue_quality — 10 words max per item
-  • text.customer_growth.acquisition_dynamics — 10 words max per item
-  • text.alt_data_signals[].insight — 10 words max each`;
 
 const METRICS = [
   { name: 'Active Customers — latest value (CUST KPI)', type: 'computed' },
@@ -88,38 +63,6 @@ function serializeSubjectData(row) {
   return parts.join('\n');
 }
 
-// ─── Static template stored in DB ────────────────────────────────────────────
-
-const PROMPT_TEMPLATE = `{{DATA_BLOCK}}
-
-══════════════════════════════════════════════════════════
-C. ANALYSIS INSTRUCTIONS
-══════════════════════════════════════════════════════════
-
-{{DEFAULT_INSTRUCTIONS}}
-
-Populate the "final_scoring" field INSIDE the customer_traction JSON object (same level as "metrics"). Award 1 point per check, max 10:
-  1. Customer count growing YoY → text.customer_growth.metrics.current_base trend
-  2. Churn rate ≤ 5% or declining → metrics.churn_rate
-  3. Net revenue retention ≥ 100% → metrics.net_retention
-  4. New customer additions positive → text.customer_growth.metrics.new_adds
-  5. Pipeline / order book growing → text.customer_growth.acquisition_dynamics
-  6. Long-term contracts or sticky revenue model → text.retention.product_stickiness
-  7. Revenue per customer (avg contract value) increasing → metrics.avg_contract_value
-  8. Customer concentration manageable (top-10 < 30%) → metrics.top_10_concentration
-  9. Cross-sell or upsell happening → text.retention.expansion_drivers
-  10. Management provides specific customer metrics in transcripts → presence of non-null customer_growth metrics
-  status: score >= 7 → "HIGH TRACTION" (green), score 5–6 → "MODERATE TRACTION" (yellow), score < 5 → "LOW TRACTION" (red).
-
-══════════════════════════════════════════════════════════
-D. OUTPUT FORMAT
-══════════════════════════════════════════════════════════
-
-Return ONLY valid JSON in EXACTLY the structure below.
-Replace ALL placeholder values with your actual analysis. Use null where data is unavailable.
-Do NOT include any text, explanation, or markdown fences outside the JSON object.
-
-{{OUTPUT_SCHEMA}}`;
 
 // ─── Data block builder ───────────────────────────────────────────────────────
 
@@ -159,17 +102,16 @@ Period context: Data above reflects ${snapshotPeriod}. Do NOT append or repeat t
 
 // ─── Main exported prompt builder ────────────────────────────────────────────
 
-function customerTractionPrompt(subjectTicker, subjectData, computedMetrics, customInstructions, dbTemplate = null, dbInstructions = null) {
-  const schemaString = JSON.stringify({ customer_traction: OFactorResponseSchema.customer_traction }, null, 2);
+function customerTractionPrompt(subjectTicker, subjectData, computedMetrics, customInstructions, dbTemplate, dbInstructions) {
+  if (!dbTemplate)     throw new Error('[customerTractionPrompt] dbTemplate is required — configure skill "ofactor-customer-traction" in DB');
+  if (!dbInstructions) throw new Error('[customerTractionPrompt] dbInstructions is required — configure skill "ofactor-customer-traction" in DB');
 
   const dataBlock    = buildDataBlock(subjectTicker, subjectData, computedMetrics);
-  const instructions = customInstructions ?? dbInstructions ?? DEFAULT_INSTRUCTIONS;
-  const template     = dbTemplate ?? PROMPT_TEMPLATE;
+  const instructions = customInstructions ?? dbInstructions;
 
-  return template
+  return dbTemplate
     .replace('{{DATA_BLOCK}}', dataBlock)
-    .replace('{{DEFAULT_INSTRUCTIONS}}', instructions)
-    .replace('{{OUTPUT_SCHEMA}}', schemaString);
+    .replace('{{DEFAULT_INSTRUCTIONS}}', instructions);
 }
 
-module.exports = { customerTractionPrompt, buildDataBlock, DEFAULT_INSTRUCTIONS, PROMPT_TEMPLATE, METRICS };
+module.exports = { customerTractionPrompt, buildDataBlock, METRICS };
