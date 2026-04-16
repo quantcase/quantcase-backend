@@ -96,26 +96,30 @@ async function getOFactorForCall(callId) {
 }
 
 async function getOFactorByQuery(callId) {
-  let record = await getOFactorResult(callId);
-  let industry = null;
+  const call = await prisma.earnings_calls.findUnique({
+    where:  { id: callId },
+    select: { company: true, basic_industry: true },
+  });
+  const ticker   = call?.company ?? callId.replace(/_FY\d+_Q\d+$/i, '');
+  const industry = call?.basic_industry ?? null;
 
-  if (!record) {
-    const call = await prisma.earnings_calls.findUnique({ where: { id: callId }, select: { company: true, basic_industry: true } });
-    industry = call?.basic_industry ?? null;
-    const ticker = call?.company ?? callId.replace(/_FY\d+_Q\d+$/i, '');
-    record = await getLatestOFactorResultByTicker(ticker);
-  } else {
-    const call = await prisma.earnings_calls.findFirst({
-      where:   { company: record.subjectTicker },
-      select:  { basic_industry: true },
-      orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
-    });
-    industry = call?.basic_industry ?? null;
-  }
+  // Fetch industry from ai_insights + remaining sections from oFactorResult in parallel
+  let ofactorRecord = await getOFactorResult(callId);
+  if (!ofactorRecord) ofactorRecord = await getLatestOFactorResultByTicker(ticker);
 
-  if (!record) return null;
-  const filteredResult = filterOFactorForIndustry(record.result, isBFSI(industry));
-  return { result: filteredResult, total_score: computeTotalScore(filteredResult) };
+  const industryInsight = await prisma.aiInsight.findUnique({
+    where: { ticker_type: { ticker, type: 'industry' } },
+  });
+
+  if (!ofactorRecord && !industryInsight) return null;
+
+  const base   = ofactorRecord ? filterOFactorForIndustry(ofactorRecord.result, isBFSI(industry)) : {};
+  const result = {
+    ...base,
+    ...(industryInsight ? { industry: industryInsight.insight } : {}),
+  };
+
+  return { result, total_score: computeTotalScore(result) };
 }
 
 function getOFactorPromptData(section, bfsi) {

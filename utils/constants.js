@@ -519,4 +519,4 @@ const DealResponseSchema = {
 }
 
 
-module.exports = { FINCRUX_METRICS,OFactorResponseSchema,DealResponseSchema };
+module.exports = { FINCRUX_METRICS, OFactorResponseSchema, DealResponseSchema };
