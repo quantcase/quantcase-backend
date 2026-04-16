@@ -257,7 +257,7 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
     marketCap,
   };
 
-  return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'financial_strength' };
+  return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'financial_strength', metrics };
 }
 
 async function buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions) {
@@ -463,7 +463,7 @@ async function processOFactorJob(job) {
     const skillSlug = section === 'industry' ? resolveIndustrySkill(bfsiFlag) : SECTION_TO_SKILL[section];
     const { model, maxTokens, outputSchema, promptTemplate: dbTemplate, defaultInstructions: dbInstructions } = await loadSkillConfig(skillSlug);
 
-    let promptText, sectionKey;
+    let promptText, sectionKey, fsMetrics;
 
     if (section === 'final_takeaways') {
       // Reads directly from saved oFactorResult — no summaries/peers/helper needed
@@ -491,7 +491,7 @@ async function processOFactorJob(job) {
     } else if (section === 'competition') {
       ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions));
     } else if (section === 'financial_strength') {
-      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
+      ({ prompt: promptText, sectionKey, metrics: fsMetrics } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
     } else {
       ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
     }
@@ -529,6 +529,33 @@ async function processOFactorJob(job) {
     if (!sectionResult || (typeof sectionResult === 'object' && Object.keys(sectionResult).length === 0)) {
       throw new Error(`[OFactor] Section "${section}" result is empty after parsing. Raw response (first 500 chars): ${responseText.slice(0, 500)}`);
     }
+
+    // Enrich financial_strength extras with locally computed DB data (no LLM hallucination on numbers)
+    if (section === 'financial_strength' && fsMetrics) {
+      try {
+        const { computeFinancialStrengthExtras, deepMerge } = require('../utils/finExtras');
+        const localExtras = computeFinancialStrengthExtras(
+          fsMetrics.rawBatchAll, fsMetrics.derivedBatchAll, fsMetrics.bfsi, fsMetrics.marketCap
+        );
+        // Handle both nested { core, extras, final_scoring } and flat shapes from LLM
+        if (sectionResult.extras && typeof sectionResult.extras === 'object') {
+          // Nested shape: local wins on every key, LLM fills nulls
+          sectionResult.extras = deepMerge(localExtras, sectionResult.extras);
+        } else {
+          // Flat shape: merge each sub-section individually
+          sectionResult.operating_leverage = deepMerge(localExtras.operating_leverage, sectionResult.operating_leverage ?? {});
+          sectionResult.free_cash_flow     = deepMerge(localExtras.free_cash_flow,     sectionResult.free_cash_flow     ?? {});
+          if (!fsMetrics.bfsi && localExtras.working_capital) {
+            sectionResult.working_capital  = deepMerge(localExtras.working_capital,    sectionResult.working_capital    ?? {});
+          }
+          sectionResult.capital_structure  = deepMerge(localExtras.capital_structure,  sectionResult.capital_structure  ?? {});
+        }
+        console.log(`[OFactor] financial_strength extras enriched from DB data`);
+      } catch (enrichErr) {
+        console.error(`[OFactor] financial_strength extras enrichment failed (non-fatal):`, enrichErr);
+      }
+    }
+
     await job.updateProgress(90);
 
     if (customRun) {

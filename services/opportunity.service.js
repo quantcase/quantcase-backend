@@ -31,11 +31,38 @@ async function resolveBfsi(callId) {
 }
 
 /**
+ * Normalize the financial_strength section from the new schema shape
+ * { core, final_scoring, extras } → flat shape { text, metrics, operating_leverage, ... }
+ * that the rest of the codebase expects. No-ops if already in flat shape.
+ */
+function normalizeFinancialStrength(fs) {
+  if (!fs || typeof fs !== 'object') return fs;
+  // Already flat (old shape) — has text/metrics at top level
+  if (fs.text || fs.metrics) return fs;
+  // New shape — flatten core + extras + final_scoring
+  const { core = {}, extras = {}, final_scoring, ...rest } = fs;
+  return {
+    ...rest,
+    ...(core.text    ? { text: core.text }       : {}),
+    ...(core.metrics ? { metrics: core.metrics }  : {}),
+    ...(extras.operating_leverage ? { operating_leverage: extras.operating_leverage } : {}),
+    ...(extras.free_cash_flow     ? { free_cash_flow:     extras.free_cash_flow }     : {}),
+    ...(extras.working_capital    ? { working_capital:    extras.working_capital }    : {}),
+    ...(extras.capital_structure  ? { capital_structure:  extras.capital_structure }  : {}),
+    ...(final_scoring             ? { final_scoring }                                 : {}),
+  };
+}
+
+/**
  * Remove cards from the OFactor result that don't apply to BFSI or non-BFSI companies.
  */
 function filterOFactorForIndustry(result, bfsi) {
   if (!result || typeof result !== 'object') return result;
   const out = { ...result };
+
+  if (out.financial_strength) {
+    out.financial_strength = normalizeFinancialStrength(out.financial_strength);
+  }
 
   if (bfsi) {
     if (out.financial_strength) {
