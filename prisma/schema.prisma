@@ -640,6 +640,22 @@ enum WealthModelType {
   aif
 }
 
+model PortfolioModel {
+  id               String   @id @default(uuid())
+  name             String
+  riskProfile      String   @map("risk_profile")
+  capital          Float
+  assetClasses     Json     @map("asset_classes")
+  client           Json?
+  positions        Json?
+  whyThisPortfolio Json?    @map("why_this_portfolio")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([riskProfile])
+  @@map("portfolio_models")
+}
+
 model AiInsight {
   id         String   @id @default(uuid())
   ticker     String

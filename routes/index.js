@@ -15,6 +15,7 @@ const wealthosRouter      = require('./wealthos.routes');
 const screenerRouter      = require('./screener.routes');
 const basketsRouter       = require('./baskets.routes');
 const watchlistRouter     = require('./watchlist.routes');
+const modelsRouter        = require('./models.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -36,6 +37,9 @@ router.use('/api/baskets', basketsRouter);
 
 // Watchlist routes
 router.use('/api/watchlists', watchlistRouter);
+
+// Portfolio model routes
+router.use('/api/models', modelsRouter);
 
 // WealthOS routes
 router.use('/api/wealthos', wealthosRouter);
