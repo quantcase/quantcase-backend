@@ -63,8 +63,11 @@ async function updateAllSteps(rootJobBullmqId, currentSlug, currentStatus, nextS
  *   - the job wasn't started from a plugin chain (no pluginSlug / skillOrder)
  *   - this was the last skill in the chain
  */
-async function enqueueNextPluginSkill(jobData) {
-  const { pluginSlug, skillOrder, callId, subjectTicker, type: currentSlug, rootJobBullmqId, all_steps } = jobData;
+async function enqueueNextPluginSkill(jobData, selfJobId) {
+  const { pluginSlug, skillOrder, callId, subjectTicker, type: currentSlug, all_steps } = jobData;
+  // rootJobBullmqId may be null for the first job in the chain (the root job is its own root).
+  // In that case, fall back to selfJobId (the BullMQ job's own ID).
+  const rootJobBullmqId = jobData.rootJobBullmqId ?? selfJobId ?? null;
   if (!pluginSlug || skillOrder == null) return;
 
   const nextPs = await prisma.pluginSkill.findFirst({
@@ -330,12 +333,38 @@ async function processNseIndustryJob(job) {
   console.log(`[NseIndustry] Job ${job.id} (subjectTicker: ${subjectTicker})`);
 
   try {
+  // Read existing record first so we can preserve result (which holds all_steps written by addFullOpportunityAnalysis)
+  const existingNseJob = await prisma.job.findUnique({ where: { bullmqId: job.id } });
+  const preserveResult = existingNseJob?.result ? { result: existingNseJob.result } : {};
   await prisma.job.upsert({
     where:  { bullmqId: job.id },
-    update: { status: 'processing' },
+    update: { status: 'processing', ...preserveResult },
     create: { callId: subjectTicker, type: 'nse_industry', status: 'processing', bullmqId: job.id },
   });
   await job.updateProgress(10);
+
+  // Cache check — skip the heavy LLM call if nse_industry already exists for this ticker
+  const existingInsight = await prisma.aiInsight.findUnique({
+    where: { ticker_type: { ticker: subjectTicker, type: 'nse_industry' } },
+  });
+  if (existingInsight) {
+    console.log(`[NseIndustry] Cache hit — skipping LLM for ${subjectTicker}, nse_industry already exists`);
+    const cachedCall = await prisma.earnings_calls.findFirst({
+      where:  { company: subjectTicker },
+      select: { basic_industry: true },
+    });
+    const cachedIndustry = cachedCall?.basic_industry ?? 'Unknown Industry';
+    // enqueueNextPluginSkill marks current step 'completed' and next step 'processing' in all_steps — must run first
+    await enqueueNextPluginSkill(job.data, job.id);
+    // Re-fetch after enqueueNextPluginSkill so we merge on top of the updated all_steps, not the stale copy
+    const cachedRootJob = await prisma.job.findUnique({ where: { bullmqId: job.id } });
+    await prisma.job.update({
+      where: { bullmqId: job.id },
+      data:  { status: 'completed', result: { ...(cachedRootJob?.result ?? {}), subjectTicker, industry: cachedIndustry, cached: true } },
+    });
+    await job.updateProgress(100);
+    return { subjectTicker, industry: cachedIndustry, cached: true };
+  }
 
   const call = await prisma.earnings_calls.findFirst({
     where:  { company: subjectTicker },
@@ -377,7 +406,7 @@ async function processNseIndustryJob(job) {
 
   // enqueueNextPluginSkill updates all_steps (marks current completed, next processing),
   // so call it first so the all_steps update is already in DB before we merge below.
-  await enqueueNextPluginSkill(job.data);
+  await enqueueNextPluginSkill(job.data, job.id);
 
   // Merge completion fields into the existing result so all_steps (updated above) is preserved.
   const nseRootJob = await prisma.job.findUnique({ where: { bullmqId: job.id } });
@@ -521,7 +550,7 @@ async function processOFactorJob(job) {
     await job.updateProgress(100);
     console.log(`[OFactor] Job ${job.id} completed (section: ${section})`);
 
-    await enqueueNextPluginSkill(job.data);
+    await enqueueNextPluginSkill(job.data, job.id);
     // sectionResult is in returnvalue so frontend can read it via GET /api/jobs/:jobId
     return { section, sectionKey, sectionResult, prompt: promptText };
 
