@@ -375,13 +375,17 @@ async function processNseIndustryJob(job) {
   });
   console.log(`[NseIndustry] ai_insights upserted for: ${subjectTicker}`);
 
+  // enqueueNextPluginSkill updates all_steps (marks current completed, next processing),
+  // so call it first so the all_steps update is already in DB before we merge below.
+  await enqueueNextPluginSkill(job.data);
+
+  // Merge completion fields into the existing result so all_steps (updated above) is preserved.
+  const nseRootJob = await prisma.job.findUnique({ where: { bullmqId: job.id } });
   await prisma.job.update({
     where: { bullmqId: job.id },
-    data:  { status: 'completed', result: { subjectTicker, industry } },
+    data:  { status: 'completed', result: { ...(nseRootJob?.result ?? {}), subjectTicker, industry } },
   });
   await job.updateProgress(100);
-
-  await enqueueNextPluginSkill(job.data);
   return { subjectTicker, industry, result };
 
   } catch (error) {
@@ -428,7 +432,7 @@ async function processOFactorJob(job) {
     await job.updateProgress(10);
 
     const skillSlug = section === 'industry' ? resolveIndustrySkill(bfsiFlag) : SECTION_TO_SKILL[section];
-    const { model, maxTokens, promptTemplate: dbTemplate, defaultInstructions: dbInstructions } = await loadSkillConfig(skillSlug);
+    const { model, maxTokens, outputSchema, promptTemplate: dbTemplate, defaultInstructions: dbInstructions } = await loadSkillConfig(skillSlug);
 
     let promptText, sectionKey;
 
@@ -471,7 +475,8 @@ async function processOFactorJob(job) {
     const responseText = await llmStream({
       model,
       max_tokens: maxTokens,
-      messages: [{ role: 'user', content: promptText }]
+      messages: [{ role: 'user', content: promptText }],
+      ...(outputSchema && { response_format: outputSchema }),
     });
     await job.updateProgress(85);
 

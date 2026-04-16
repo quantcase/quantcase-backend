@@ -148,9 +148,11 @@ async function findJob(jobId) {
   for (const q of queues) {
     const job = await jobQueue.getJobStatus(q, jobId);
     if (job) {
-      // Fetch all_steps from the DB record (root job stores it)
-      const dbJob = await prisma.job.findUnique({ where: { bullmqId: job.id } });
-      const all_steps = dbJob?.result?.all_steps ?? null;
+      // all_steps lives on the root job's DB record.
+      // job.data.rootJobBullmqId points to the root job; for the root job itself it equals job.id.
+      const rootBullmqId = job.data?.rootJobBullmqId ?? job.id;
+      const rootDbJob = await prisma.job.findUnique({ where: { bullmqId: rootBullmqId } });
+      const all_steps = rootDbJob?.result?.all_steps ?? null;
 
       return {
         id:          job.id,
