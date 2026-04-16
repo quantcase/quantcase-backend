@@ -13,6 +13,7 @@ const { financialStrengthPrompt }   = require('../prompts/of-prompts/financial-s
 const { customerTractionPrompt }    = require('../prompts/of-prompts/customer-traction-prompt');
 const { finalTakeawaysPrompt }      = require('../prompts/of-prompts/final-takeaways-prompt');
 const { loadSkillConfig }           = require('../utils/skillConfig');
+const { nseIndustryPrompt, selectCompanies, loadCompanyData } = require('../prompts/of-prompts/nse-industry-prompt');
 
 const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction', 'final_takeaways']);
 
@@ -256,10 +257,86 @@ async function buildFinalTakeawaysSection(callId, dbTemplate) {
   return { prompt, sectionKey: 'final_takeaways' };
 }
 
+// ─── NSE Industry processor ───────────────────────────────────────────────────
+
+async function processNseIndustryJob(job) {
+  const { subjectTicker, type } = job.data;
+  console.log(`[NseIndustry] Job ${job.id} (subjectTicker: ${subjectTicker})`);
+
+  try {
+  await prisma.job.upsert({
+    where:  { bullmqId: job.id },
+    update: { status: 'processing' },
+    create: { callId: subjectTicker, type: type || 'industry', status: 'processing', bullmqId: job.id },
+  });
+  await job.updateProgress(10);
+
+  const call = await prisma.earnings_calls.findFirst({
+    where:  { company: subjectTicker },
+    select: { basic_industry: true },
+  });
+  if (!call) throw new Error(`No earnings call found for ticker ${subjectTicker}`);
+  const industry = call.basic_industry;
+  const bfsi     = false;
+  if (!industry) throw new Error(`No basic_industry mapped for ticker ${subjectTicker}`);
+  console.log(`[NseIndustry] industry: ${industry}, bfsi: ${bfsi}`);
+  await job.updateProgress(20);
+
+  const companies = await selectCompanies(prisma, subjectTicker, industry, 5);
+  console.log(`[NseIndustry] companies: ${companies.map(c => c.ticker).join(', ')}`);
+  await job.updateProgress(30);
+
+  const companyData = await loadCompanyData(prisma, companies);
+  await job.updateProgress(50);
+
+  const { model, maxTokens, promptTemplate, defaultInstructions } = await loadSkillConfig('nse-industry');
+  const prompt = nseIndustryPrompt(industry, companyData, bfsi, promptTemplate, defaultInstructions);
+  console.log(`[NseIndustry] Prompt length: ${prompt.length} chars`);
+  await job.updateProgress(55);
+
+  console.log('[NseIndustry] Calling LLM...');
+  const responseText = await llmStream({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
+  await job.updateProgress(85);
+
+  if (!responseText) throw new Error('Empty response from LLM');
+  const result = parseJson(responseText);
+  await job.updateProgress(90);
+
+  await prisma.aiInsight.upsert({
+    where:  { ticker_type: { ticker: subjectTicker, type: 'industry' } },
+    update: { insight: result },
+    create: { ticker: subjectTicker, type: 'industry', insight: result },
+  });
+  console.log(`[NseIndustry] ai_insights upserted for: ${subjectTicker}`);
+
+  await prisma.job.update({
+    where: { bullmqId: job.id },
+    data:  { status: 'completed', result: { subjectTicker, industry } },
+  });
+  await job.updateProgress(100);
+  return { subjectTicker, industry, result };
+
+  } catch (error) {
+    console.error(`[NseIndustry] Job ${job.id} failed:`, error);
+    try {
+      await prisma.job.upsert({
+        where:  { bullmqId: job.id },
+        update: { status: 'failed', error: error.message },
+        create: { callId: subjectTicker, type: type || 'industry', status: 'failed', bullmqId: job.id, error: error.message },
+      });
+    } catch (dbErr) { console.error('[NseIndustry] Failed to update job in DB:', dbErr); }
+    throw error;
+  }
+}
+
 // ─── Processor ───────────────────────────────────────────────────────────────
 
 async function processOFactorJob(job) {
   const { callId, subjectTicker, section, type, customInstructions, customRun } = job.data;
+
+  // Dispatch industry jobs to their own processor
+  if (type === 'industry') return processNseIndustryJob(job);
+
   console.log(`Processing OFactor job ${job.id} (callId: ${callId}, subject: ${subjectTicker}, section: ${section})`);
 
   try {

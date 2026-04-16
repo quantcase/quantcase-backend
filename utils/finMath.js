@@ -93,4 +93,19 @@ function quarterLabelToYear(label) {
   return parseInt(match[1]) + (parseInt(match[2]) - 0.5) * 0.25;
 }
 
-module.exports = { growth, cagr, margin, ratio, average, weightedAverage, derive, yoyGrowth, periodLabel, quarterLabelToYear };
+/**
+ * Returns a compact duration tag for a kpi_values row: [Q] quarterly (~90d),
+ * [A] annual (~365d), or [?] when start_date / end_date are absent.
+ * Used in data-block builders so LLMs know whether a figure covers a quarter or a full year.
+ *
+ * @param {{ start_date?: Date|string|null, end_date?: Date|string|null }} row
+ */
+function kpiDuration(row) {
+  if (!row?.start_date || !row?.end_date) return '[?]';
+  const days = (new Date(row.end_date) - new Date(row.start_date)) / 86400000;
+  if (days <= 100) return '[Q]';
+  if (days >= 300) return '[A]';
+  return `[${Math.round(days)}d]`;
+}
+
+module.exports = { growth, cagr, margin, ratio, average, weightedAverage, derive, yoyGrowth, periodLabel, quarterLabelToYear, kpiDuration };

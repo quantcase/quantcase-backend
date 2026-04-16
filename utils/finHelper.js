@@ -89,15 +89,19 @@ class FinHelper {
     const callIds = calls.map(c => c.id);
     const kpiRows = await this.prisma.kpiValue.findMany({
       where:  { callId: { in: callIds }, kpi_abbr: { in: abbrs } },
-      select: { callId: true, kpi_abbr: true, value: true, multiplier: true },
+      select: { callId: true, kpi_abbr: true, value: true, multiplier: true, start_date: true, end_date: true },
     });
 
-    // Build nested map: callId → abbr → display value (value / multiplier)
+    // Build nested map: callId → abbr → { displayValue, start_date, end_date }
     const kpiMap = {};
     for (const row of kpiRows) {
       if (!kpiMap[row.callId]) kpiMap[row.callId] = {};
       if (kpiMap[row.callId][row.kpi_abbr] === undefined) {
-        kpiMap[row.callId][row.kpi_abbr] = row.value / (row.multiplier || 1);
+        kpiMap[row.callId][row.kpi_abbr] = {
+          value:      row.value / (row.multiplier || 1),
+          start_date: row.start_date ?? null,
+          end_date:   row.end_date   ?? null,
+        };
       }
     }
 
@@ -110,9 +114,14 @@ class FinHelper {
         call_date:   call.call_date,
       };
       for (const abbr of abbrs) {
-        const raw   = kpiMap[call.id]?.[abbr];
+        const entry = kpiMap[call.id]?.[abbr];
+        const raw   = entry?.value;
         const value = raw != null && !isNaN(raw) ? raw : null;
-        result[abbr].push({ ...base, value, abbrUsed: value != null ? abbr : null });
+        result[abbr].push({
+          ...base, value, abbrUsed: value != null ? abbr : null,
+          start_date: entry?.start_date ?? null,
+          end_date:   entry?.end_date   ?? null,
+        });
       }
     }
 

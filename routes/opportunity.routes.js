@@ -26,4 +26,15 @@ router.get(
   opportunityController.getOFactorPrompt
 );
 
+router.post(
+  '/industry/:ticker/analyze',
+  opportunityController.createIndustryAnalysis
+);
+
+router.get(
+  '/industry/analysis',
+  validate(z.object({ ticker: z.string().min(1, 'ticker is required') })),
+  opportunityController.getIndustryAnalysis
+);
+
 module.exports = router;
