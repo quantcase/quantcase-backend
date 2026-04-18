@@ -23,8 +23,7 @@ const KPI_ABBRS = [
   'ASSET_PPE', 'ASSET_CWIP',
 ];
 
-// ─── Output schema (stored in DB as skill.outputSchema; kept here for reference) ─
-// NOT sent to LLM as response_format. Embedded in OUTPUT_FORMAT_INSTRUCTIONS instead.
+// ─── Output schema (stored in DB as skill.outputSchema) ──────────────────────
 
 const OUTPUT_SCHEMA = {
   type: 'object',
@@ -138,82 +137,6 @@ const OUTPUT_SCHEMA = {
   },
 };
 
-
-// ─── Output format instructions (appended to prompt — not enforced via response_format) ─
-
-const OUTPUT_FORMAT_INSTRUCTIONS = `
-
----
-
-## Required Output
-
-Respond with a single valid JSON object only — no markdown fences, no explanation. Structure:
-
-{
-  "industry_analysis": {
-    "score_card": {
-      "total": 0,
-      "status": "STRONG_INDUSTRY|MODERATE_INDUSTRY|WEAK_INDUSTRY",
-      "status_color": "green|yellow|red",
-      "dimensions": {
-        "growth":             { "score": 0, "max": 2, "status": "Accelerating|Stable|Decelerating" },
-        "demand":             { "score": 0, "max": 2, "status": "Strong|Mixed|Weak" },
-        "supply":             { "score": 0, "max": 2, "status": "Tight|Balanced|Excess" },
-        "profit_pool":        { "score": 0, "max": 2, "status": "Improving|Stable|Deteriorating" },
-        "global_competition": { "score": 0, "max": 2, "status": "Protected|Moderate Competition|Heavy Competition" }
-      }
-    },
-    "industry_metrics": {
-      "revenue_growth_yoy":        { "value": null, "label": "Revenue Growth YoY (wtd avg)" },
-      "revenue_cagr_3y":           { "value": null, "label": "Revenue 3Y CAGR (wtd avg)" },
-      "qoq_acceleration":          { "value": null, "direction": "accelerating|stable|decelerating", "label": "QoQ Acceleration" },
-      "bullish_sentiment":         { "count": 0, "total": 0, "label": "Bullish Sentiment (# companies)" },
-      "rising_capex_count":        { "count": 0, "total": 0, "label": "Companies with Rising Capex" },
-      "falling_receivables_count": { "count": 0, "total": 0, "label": "Companies with Falling Receivables" },
-      "avg_capacity_utilization":  { "value": null, "label": "Avg Capacity Utilization %" },
-      "high_utilization_count":    { "count": 0, "total": 0, "label": "Companies Above 85% Utilization" },
-      "inventory_trend":           { "direction": "rising|stable|falling", "count": 0, "total": 0, "label": "Inventory Trend (majority)" },
-      "industry_roce":             { "value": null, "vs_wacc_spread": null, "label": "Industry ROCE (%)" },
-      "operating_margin":          { "value": null, "trend": "expanding|stable|contracting", "label": "Operating Margin (%)" }
-    },
-    "key_takeaway": "",
-    "key_findings": [
-      { "theme": "", "color": "green|amber|blue|red", "body": "" }
-    ],
-    "coherence_checks": [
-      { "pattern": "", "type": "coherent|incoherent", "explanation": "" }
-    ],
-    "demand_drivers": {
-      "positive":               [{ "driver": "", "mentioned_by": 0, "total_companies": 0 }],
-      "negative":               [{ "concern": "", "mentioned_by": 0, "total_companies": 0 }],
-      "representative_quotes":  [""]
-    },
-    "supply_drivers": {
-      "tightness_indicators":  [{ "indicator": "", "mentioned_by": 0, "total_companies": 0 }],
-      "excess_indicators":     [{ "indicator": "", "mentioned_by": 0, "total_companies": 0 }],
-      "representative_quotes": [""]
-    },
-    "company_table": [
-      {
-        "company": "", "market_cap_cr": null, "revenue_latest_cr": null,
-        "revenue_growth_yoy": null, "revenue_cagr_3y": null, "qoq_acceleration": null,
-        "capex_trend": "rising|flat|falling|unknown",
-        "receivable_days_current": null, "receivable_days_prior": null,
-        "inventory_days_current": null,
-        "operating_margin_current": null, "operating_margin_prior": null,
-        "roce": null, "sentiment": "bullish|neutral|cautious"
-      }
-    ],
-    "investment_implications": {
-      "positive_signals": [{ "signal": "", "evidence": "" }],
-      "risks":            [{ "risk": "",   "evidence": "" }],
-      "recommended_strategy": {
-        "action": "BUY|AVOID|SELECTIVE", "segment": "", "rationale": "", "thesis": "", "timing": ""
-      },
-      "next_quarter_watchpoints": [""]
-    }
-  }
-}`;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -522,7 +445,7 @@ function nseIndustryPrompt(industry, companies, bfsi = false, dbTemplate = null)
 
   const dataBlock = buildDataBlock(industry, companies, bfsi);
 
-  const parts = [
+  return [
     dbTemplate,
     '',
     '---',
@@ -530,10 +453,7 @@ function nseIndustryPrompt(industry, companies, bfsi = false, dbTemplate = null)
     '## Data Provided for Analysis',
     '',
     dataBlock,
-    OUTPUT_FORMAT_INSTRUCTIONS,
-  ];
-
-  return parts.join('\n');
+  ].join('\n');
 }
 
 module.exports = {

@@ -1,6 +1,9 @@
 'use strict';
 
 // ─── Static skill instructions (stored in DB as promptTemplate) ───────────────
+// This entire string is seeded into Skill.promptTemplate.
+// The worker injects the data block at {{DATA_BLOCK}} and optional custom
+// instructions at {{DEFAULT_INSTRUCTIONS}}.
 
 const PROMPT_TEMPLATE = `# Management Factor Analyser — India-First
 
@@ -10,15 +13,16 @@ const PROMPT_TEMPLATE = `# Management Factor Analyser — India-First
 
 ## Output Structure (in order)
 
-1. Guidance vs Actuals Table
+1. Guidance Accuracy
 2. Promoter Activity
 3. Red Flags
 4. MQI Score
 5. Investment Thesis + Next Concall Watchlist
+6. Management Intelligence
 
 ---
 
-## 1. Guidance vs Actuals Table
+## 1. Guidance Accuracy
 
 Extract every quantitative or semi-quantitative commitment from the milestones and KPI data. Map to actuals where available.
 
@@ -56,7 +60,11 @@ Even if no promoter data is provided, note what's missing and flag it.
 **Shareholding trend (last 4–6 quarters if available):**
 Fields: quarter | promoter_pct | pledge_pct | change | signal
 
-**Signals to assess:**
+- If promoter_pct or pledge_pct data is not available from transcripts, set to null.
+- signal must always be a non-empty string. If data is absent, write: "Data not provided in transcripts"
+- Do not leave signal blank for any row.
+
+**Signals to assess (when data is available):**
 - Rising pledge alongside earnings pressure → critical
 - Promoter selling during bullish guidance → critical
 - Growing RPT as % of revenue → caution
@@ -65,6 +73,10 @@ Fields: quarter | promoter_pct | pledge_pct | change | signal
 - Promoter buying in open market → positive
 
 **Promoter quality verdict:** Strong / Adequate / Weak / Red flag + one sentence rationale.
+
+**promoter_note:** State plainly what data was and was not available. E.g. "Promoter shareholding, pledge percentage, and RPT data were not disclosed in any of the four earnings call transcripts provided. Investors should cross-check BSE/NSE disclosures independently."
+
+**mqi_rationale:** 1–2 sentence explanation of how the promoter data (or lack thereof) informed the MQI governance score.
 
 ---
 
@@ -84,25 +96,35 @@ Every flag: title → evidence (quote or data point) → implication
 ### Identify Company Stage First
 Profitable/Mature | Growth/Pre-profitability | NBFC/Bank | Capital Goods/Infra
 
-### Score three dimensions
+### Score four dimensions
 
-**Guidance Credibility (max 40):**
+**Guidance Accuracy (max 40):**
 - Hit Rate (15): >80% → 13–15 / 60–80% → 10–12 / 40–60% → 6–9 / <40% → 0–5
 - Guidance Bias (10): Conservative → 8–10 / Mixed → 5–7 / Aggressive → 0–4
 - Miss Transparency (10): Proactive → 8–10 / Partial → 5–7 / Macro blame → 2–4 / Ignores → 0–1
 - Guidance Specificity (5): Quantitative + time-bound → 4–5 / Mixed → 2–3 / Vague → 0–1
 
-**Capital Allocation (max 35):**
-- Reinvestment Quality (10): High-ROCE capex with rationale → 8–10 / Weak justification → 4–7 / Overruns → 0–3
+**Red Flags (max 25):**
+- Zero critical flags → 20–25 / One critical → 10–19 / Two+ critical → 0–9
+- Weight caution and watch flags: each caution flag deducts 3–5 pts, each watch flag deducts 1–2 pts
+- Cap deductions at 0 (score cannot go negative)
+
+**Investment Thesis (max 35):**
+- Capital Allocation Quality (10): High-ROCE capex with rationale → 8–10 / Weak justification → 4–7 / Overruns → 0–3
 - Shareholder Returns Logic (5): Consistent FCF-linked → 4–5 / Inconsistent → 2–3 / Misaligned → 0–1
 - M&A Discipline (10): Strategic fit → 8–10 / Mixed → 4–7 / Value-destructive → 0–3 / No M&A → 7
 - Capital Efficiency Trend (10): ROCE/ROE improving or >15% → 8–10 / Flat → 5–7 / Declining → 0–4
 
-**Disclosure & Honesty (max 25):**
-- Bad News Disclosure (8): Proactive → 7–8 / When pressed → 4–6 / Minimises → 1–3 / Misleading → 0
-- Narrative Consistency (7): Same story + logical evolution → 6–7 / Minor pivots → 4–5 / Rewrites → 1–3 / Contradictions → 0
-- Transparency Depth (5): Segment + geo + vol/price splits → 4–5 / Moderate → 2–3 / Aggregated → 0–1
-- Governance Signals (5): Clean audit + low RPT + low pledge → 4–5 / Minor concerns → 2–3 / High risk → 0–1
+**Promoter Activity (max 0 bonus / −25 penalty):**
+- Base: 0 (neutral — no data available or clean)
+- Promoter buying, no pledge, low RPT → +0 (captured in Investment Thesis already)
+- Promoter selling during bullish guidance → −10 to −15
+- Rising pledge during earnings pressure → −10 to −15
+- Growing RPT as % of revenue → −5 to −10
+- Big 4 → smaller auditor swap → −5
+- Unexplained interco transactions → −5 to −10
+- No data available → 0 (do not penalise absence of data)
+- Combined deductions capped at −25; total MQI floor is 0
 
 **MQI Labels:**
 - 80–100 → Elite
@@ -124,13 +146,62 @@ Profitable/Mature | Growth/Pre-profitability | NBFC/Bank | Capital Goods/Infra
 
 ## 5. Investment Thesis + Next Concall Watchlist
 
-**Bull case (management quality lens):** bullet points on what management does well
-**Bear case (management quality lens):** bullet points on what erodes conviction
+**Bull case (management quality lens):**
+- 4–6 bullet points. Each ≤8 words. Lead with a metric or observed signal.
+- Examples: "ROCE >40% — disciplined reinvestment" ✓ / "Revenue 5–14x outpacing industry growth" ✓
+- No full sentences. No filler words.
+
+**Bear case (management quality lens):**
+- 4–6 bullet points. Same rules — ≤8 words, signal-first.
+- Examples: "Greenfield SOP keeps rolling forward" ✓ / "GF losses widening, not narrowing" ✓
 
 **Next Concall Watchlist — 4–6 specific, falsifiable items:**
 Fields: number | what_to_listen_for | why_it_matters | green_signal | red_signal
 
-Good item: "Watch whether Q1 compliance cost is called one-time again" — not "watch margins".
+**Strictly enforced conciseness rules:**
+- what_to_listen_for: ≤12 words. A specific falsifiable question, not a theme.
+  ✓ "Whether Gujarat EV+ICE SOP achieves Q4 FY26 or slips again"
+  ✗ "Watch capex discipline" — too vague, rejected
+- why_it_matters: ≤20 words. One sentence. State the risk or inflection point.
+  ✓ "This SOP has slipped three times — a fourth slip confirms chronic OEM dependency risk"
+- green_signal: ≤15 words. Start with a verb. Exact phrase or number that confirms thesis.
+  ✓ "SOP confirmed with specific volume numbers and customer name; revenue run-rate disclosed"
+- red_signal: ≤15 words. Start with a verb. Exact language shift that confirms bear case.
+  ✓ "Language shifts to 'Q1 FY27' or 'customer timelines remain fluid'"
+
+---
+
+## 6. Management Intelligence
+
+Synthesise the entire management analysis into a single intelligence card for the page. This is a top-level key in the output JSON: management_intelligence.
+
+**Structure:**
+
+- key_takeaways: Array with exactly 1 string. ≤15 words. The single most important management finding.
+  E.g. "42% guidance hit rate — management credibility below sector average"
+
+- signals_breakdown: Array of signal bucket objects. One object per MQI dimension.
+  Each object: { key, label, score, max_score, sentiment, details }
+  - key: one of "guidance_accuracy" | "red_flags" | "investment_thesis" | "promoter_activity"
+  - label: human-readable dimension name
+  - score: numeric score for that dimension (copy from mqi_score.dimensions)
+  - max_score: max for that dimension (copy from mqi_score.dimensions)
+  - sentiment: "positive" | "negative" | "neutral"
+  - details: Array of 2–3 strings. Each ≤15 words. Hover-level bullet points for that dimension.
+
+- scores: Object summarising MQI score card.
+  { total, label, dimensions: { guidance_accuracy: { score, max }, red_flags: { score, max }, investment_thesis: { score, max }, promoter_activity: { score, max } } }
+  Mirror the mqi_score object — do not recalculate, just copy values.
+
+- recommended_strategy: Structured object with these fields:
+  - action: ≤12 words. The primary stance (Hold / Buy / Avoid / Watch).
+  - thesis: ≤20 words. Core reason supporting the action.
+  - timing: ≤15 words. Specific trigger or event to watch before acting. Null if none.
+  - segment: ≤12 words. Portfolio segment or allocation note. Null if not applicable.
+  - rationale: ≤20 words. Key risk or signal to monitor.
+
+- watchouts: Array of 3–5 strings. Each ≤12 words. Specific forward risks to monitor.
+  E.g. "Greenfield EBITDA loss still widening despite 'narrowing' guidance"
 
 ---
 
@@ -152,14 +223,96 @@ Good item: "Watch whether Q1 compliance cost is called one-time again" — not "
 - Range guidance ("15–25% growth") — > 10pp wide is unfalsifiable, penalise
 - Long-term deflection ("5-year story intact") — deflects from current-year miss
 - Volume vs value switch — guides revenue, reports volume when revenue misses
-- KPI redefinition — changes definition of EBITDA/GMV/active users, always flag`;
+- KPI redefinition — changes definition of EBITDA/GMV/active users, always flag
 
-// ─── Output schema (stored in DB for reference — NOT sent to LLM as response_format)
-// Not enforced via response_format to avoid "grammar too large" errors on Anthropic API.
+{{DEFAULT_INSTRUCTIONS}}
+
+---
+
+## Data Provided for Analysis
+
+{{DATA_BLOCK}}
+
+---
+
+## Required Output
+
+Respond with a single valid JSON object only — no markdown fences, no explanation. Structure:
+
+{
+  "guidance_vs_actuals": {
+    "rows": [
+      { "period": "", "metric": "", "guidance": "", "actual": "", "delta": "", "severity": "beat|met|minor|mediocre|major|rolled_forward|not_trackable|ongoing|aggressive|vague", "tag": "", "management_explanation": "" }
+    ],
+    "hit_rate": { "met_or_beat": 0, "total_trackable": 0 },
+    "misses": { "major": 0, "mediocre": 0, "minor": 0 },
+    "guidance_bias": "",
+    "pattern": ""
+  },
+  "promoter_activity": {
+    "shareholding": [
+      { "quarter": "", "promoter_pct": null, "pledge_pct": null, "change": null, "signal": "Data not provided in transcripts" }
+    ],
+    "verdict": "Strong|Adequate|Weak|Red flag",
+    "verdict_rationale": "",
+    "promoter_note": "",
+    "mqi_rationale": ""
+  },
+  "red_flags": [
+    { "title": "", "severity": "critical|caution|watch", "evidence": "", "implication": "" }
+  ],
+  "mqi_score": {
+    "total": 0,
+    "label": "Elite|High Quality|Average|Weak / Risky",
+    "investment_implication": "",
+    "dimensions": {
+      "guidance_accuracy":   { "score": 0, "max": 40, "rationale": "" },
+      "red_flags":           { "score": 0, "max": 25, "rationale": "" },
+      "investment_thesis":   { "score": 0, "max": 35, "rationale": "" },
+      "promoter_activity":   { "score": 0, "max": 0,  "penalty": 0, "rationale": "" }
+    }
+  },
+  "investment_thesis": {
+    "bull_case": [""],
+    "bear_case": [""],
+    "next_concall_watchlist": [
+      { "number": 1, "what_to_listen_for": "", "why_it_matters": "", "green_signal": "", "red_signal": "" }
+    ]
+  },
+  "management_intelligence": {
+    "key_takeaways": [""],
+    "signals_breakdown": [
+      { "key": "guidance_accuracy", "label": "Guidance Accuracy", "score": 0, "max_score": 40, "sentiment": "positive|negative|neutral", "details": [""] },
+      { "key": "red_flags", "label": "Red Flags", "score": 0, "max_score": 25, "sentiment": "positive|negative|neutral", "details": [""] },
+      { "key": "investment_thesis", "label": "Investment Thesis", "score": 0, "max_score": 35, "sentiment": "positive|negative|neutral", "details": [""] },
+      { "key": "promoter_activity", "label": "Promoter Activity", "score": 0, "max_score": 0, "sentiment": "positive|negative|neutral", "details": [""] }
+    ],
+    "scores": {
+      "total": 0,
+      "label": "",
+      "dimensions": {
+        "guidance_accuracy":  { "score": 0, "max": 40 },
+        "red_flags":          { "score": 0, "max": 25 },
+        "investment_thesis":  { "score": 0, "max": 35 },
+        "promoter_activity":  { "score": 0, "max": 0, "penalty": 0 }
+      }
+    },
+    "recommended_strategy": {
+      "action": "",
+      "thesis": "",
+      "timing": null,
+      "segment": null,
+      "rationale": ""
+    },
+    "watchouts": [""]
+  }
+}`;
+
+// ─── Output schema (stored in DB as Skill.outputSchema) ───────────────────────
 
 const OUTPUT_SCHEMA = {
   type: 'object',
-  required: ['guidance_vs_actuals', 'promoter_activity', 'red_flags', 'mqi_score', 'investment_thesis'],
+  required: ['guidance_vs_actuals', 'promoter_activity', 'red_flags', 'mqi_score', 'investment_thesis', 'management_intelligence'],
   properties: {
     guidance_vs_actuals: {
       type: 'object',
@@ -205,7 +358,7 @@ const OUTPUT_SCHEMA = {
     },
     promoter_activity: {
       type: 'object',
-      required: ['shareholding', 'verdict', 'verdict_rationale', 'promoter_note'],
+      required: ['shareholding', 'verdict', 'verdict_rationale', 'promoter_note', 'mqi_rationale'],
       properties: {
         shareholding: {
           type: 'array',
@@ -224,6 +377,7 @@ const OUTPUT_SCHEMA = {
         verdict:           { type: 'string' },
         verdict_rationale: { type: 'string' },
         promoter_note:     { type: 'string' },
+        mqi_rationale:     { type: 'string' },
       },
     },
     red_flags: {
@@ -248,9 +402,9 @@ const OUTPUT_SCHEMA = {
         investment_implication: { type: 'string' },
         dimensions: {
           type: 'object',
-          required: ['guidance_credibility', 'capital_allocation', 'disclosure_honesty'],
+          required: ['guidance_accuracy', 'red_flags', 'investment_thesis', 'promoter_activity'],
           properties: {
-            guidance_credibility: {
+            guidance_accuracy: {
               type: 'object',
               required: ['score', 'max', 'rationale'],
               properties: {
@@ -259,7 +413,7 @@ const OUTPUT_SCHEMA = {
                 rationale: { type: 'string' },
               },
             },
-            capital_allocation: {
+            red_flags: {
               type: 'object',
               required: ['score', 'max', 'rationale'],
               properties: {
@@ -268,12 +422,22 @@ const OUTPUT_SCHEMA = {
                 rationale: { type: 'string' },
               },
             },
-            disclosure_honesty: {
+            investment_thesis: {
               type: 'object',
               required: ['score', 'max', 'rationale'],
               properties: {
                 score:     { type: 'integer' },
                 max:       { type: 'integer' },
+                rationale: { type: 'string' },
+              },
+            },
+            promoter_activity: {
+              type: 'object',
+              required: ['score', 'max', 'penalty', 'rationale'],
+              properties: {
+                score:     { type: 'integer' },
+                max:       { type: 'integer' },
+                penalty:   { type: 'integer' },
                 rationale: { type: 'string' },
               },
             },
@@ -303,61 +467,82 @@ const OUTPUT_SCHEMA = {
         },
       },
     },
+    management_intelligence: {
+      type: 'object',
+      required: ['key_takeaways', 'signals_breakdown', 'scores', 'recommended_strategy', 'watchouts'],
+      properties: {
+        key_takeaways: { type: 'array', items: { type: 'string' } },
+        signals_breakdown: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['key', 'label', 'score', 'max_score', 'sentiment', 'details'],
+            properties: {
+              key:       { type: 'string' },
+              label:     { type: 'string' },
+              score:     { type: 'integer' },
+              max_score: { type: 'integer' },
+              sentiment: { type: 'string', enum: ['positive', 'negative', 'neutral'] },
+              details:   { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+        scores: {
+          type: 'object',
+          required: ['total', 'label', 'dimensions'],
+          properties: {
+            total: { type: 'integer' },
+            label: { type: 'string' },
+            dimensions: {
+              type: 'object',
+              required: ['guidance_accuracy', 'red_flags', 'investment_thesis', 'promoter_activity'],
+              properties: {
+                guidance_accuracy: {
+                  type: 'object',
+                  required: ['score', 'max'],
+                  properties: { score: { type: 'integer' }, max: { type: 'integer' } },
+                },
+                red_flags: {
+                  type: 'object',
+                  required: ['score', 'max'],
+                  properties: { score: { type: 'integer' }, max: { type: 'integer' } },
+                },
+                investment_thesis: {
+                  type: 'object',
+                  required: ['score', 'max'],
+                  properties: { score: { type: 'integer' }, max: { type: 'integer' } },
+                },
+                promoter_activity: {
+                  type: 'object',
+                  required: ['score', 'max', 'penalty'],
+                  properties: {
+                    score:   { type: 'integer' },
+                    max:     { type: 'integer' },
+                    penalty: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+        },
+        recommended_strategy: {
+          type: 'object',
+          required: ['action', 'thesis', 'rationale'],
+          properties: {
+            action:    { type: 'string' },
+            thesis:    { type: 'string' },
+            timing:    { type: ['string', 'null'] },
+            segment:   { type: ['string', 'null'] },
+            rationale: { type: 'string' },
+          },
+        },
+        watchouts: { type: 'array', items: { type: 'string' } },
+      },
+    },
   },
 };
 
-// ─── Output format instructions ───────────────────────────────────────────────
-
-const OUTPUT_FORMAT_INSTRUCTIONS = `
-
----
-
-## Required Output
-
-Respond with a single valid JSON object only — no markdown fences, no explanation. Structure:
-
-{
-  "guidance_vs_actuals": {
-    "rows": [
-      { "period": "", "metric": "", "guidance": "", "actual": "", "delta": "", "severity": "beat|met|minor|mediocre|major|rolled_forward|not_trackable|ongoing|aggressive|vague", "tag": "", "management_explanation": "" }
-    ],
-    "hit_rate": { "met_or_beat": 0, "total_trackable": 0 },
-    "misses": { "major": 0, "mediocre": 0, "minor": 0 },
-    "guidance_bias": "",
-    "pattern": ""
-  },
-  "promoter_activity": {
-    "shareholding": [
-      { "quarter": "", "promoter_pct": null, "pledge_pct": null, "change": null, "signal": "" }
-    ],
-    "verdict": "Strong|Adequate|Weak|Red flag",
-    "verdict_rationale": "",
-    "promoter_note": ""
-  },
-  "red_flags": [
-    { "title": "", "severity": "critical|caution|watch", "evidence": "", "implication": "" }
-  ],
-  "mqi_score": {
-    "total": 0,
-    "label": "Elite|High Quality|Average|Weak / Risky",
-    "investment_implication": "",
-    "dimensions": {
-      "guidance_credibility": { "score": 0, "max": 40, "rationale": "" },
-      "capital_allocation":   { "score": 0, "max": 35, "rationale": "" },
-      "disclosure_honesty":   { "score": 0, "max": 25, "rationale": "" }
-    }
-  },
-  "investment_thesis": {
-    "bull_case": [""],
-    "bear_case": [""],
-    "next_concall_watchlist": [
-      { "number": 1, "what_to_listen_for": "", "why_it_matters": "", "green_signal": "", "red_signal": "" }
-    ]
-  }
-}`;
-
 // ─── Data block builder ───────────────────────────────────────────────────────
-// Uses only structured DB fields — never raw transcript_text or ppt_text.
 
 /**
  * @param {string}   ticker
@@ -371,7 +556,6 @@ function buildDataBlock(ticker, summaries, kpiValues, prowessValues) {
   lines.push(`### Company: ${ticker}`);
   lines.push('');
 
-  // ── Structured summary data per call period ───────────────────────────────
   if (summaries.length > 0) {
     lines.push('### Earnings Call Intelligence (extracted from transcripts)');
     lines.push('');
@@ -412,7 +596,6 @@ function buildDataBlock(ticker, summaries, kpiValues, prowessValues) {
     }
   }
 
-  // ── Transcript-sourced KPI values ─────────────────────────────────────────
   if (kpiValues.length > 0) {
     lines.push('### KPI Values (source: transcript/PPT extraction)');
     lines.push('| Call ID | KPI | Value | Unit | Period Start | Period End |');
@@ -423,7 +606,6 @@ function buildDataBlock(ticker, summaries, kpiValues, prowessValues) {
     lines.push('');
   }
 
-  // ── Prowess financial KPIs (preferred) ───────────────────────────────────
   if (prowessValues.length > 0) {
     lines.push('### Financial KPIs from Prowess (audited data)');
     lines.push('> ALWAYS prefer these values over transcript/PPT values for Revenue, Capex, and Operating Margin whenever both are available.');
@@ -446,29 +628,17 @@ function buildDataBlock(ticker, summaries, kpiValues, prowessValues) {
  * @param {object[]}    summaries           - summary_new rows (all periods, oldest→newest)
  * @param {object[]}    kpiValues           - kpi_values rows (source: transcript only)
  * @param {object[]}    prowessValues       - prowess_values_new rows for this company
- * @param {string|null} template            - DB promptTemplate (falls back to PROMPT_TEMPLATE)
+ * @param {string}      template            - DB promptTemplate (required — seed with PROMPT_TEMPLATE)
  * @param {string|null} defaultInstructions - DB defaultInstructions (injected at {{DEFAULT_INSTRUCTIONS}})
  */
 function managementAnalysisPrompt(ticker, summaries, kpiValues, prowessValues, template, defaultInstructions = null) {
-  const instructionBlock = template ?? PROMPT_TEMPLATE;
-  const dataBlock        = buildDataBlock(ticker, summaries, kpiValues, prowessValues);
+  if (!template) throw new Error('[managementAnalysisPrompt] template is required — seed Skill "management-analysis" in DB');
 
-  const parts = [
-    instructionBlock,
-    '',
-    '---',
-    '',
-    '## Data Provided for Analysis',
-    '',
-    dataBlock,
-    OUTPUT_FORMAT_INSTRUCTIONS,
-  ];
+  const dataBlock = buildDataBlock(ticker, summaries, kpiValues, prowessValues);
 
-  if (defaultInstructions) {
-    parts.splice(1, 0, '', '## Additional Instructions', '', defaultInstructions);
-  }
-
-  return parts.join('\n');
+  return template
+    .replace('{{DATA_BLOCK}}', dataBlock)
+    .replace('{{DEFAULT_INSTRUCTIONS}}', defaultInstructions ?? '');
 }
 
 module.exports = { managementAnalysisPrompt, buildDataBlock, PROMPT_TEMPLATE, OUTPUT_SCHEMA };
