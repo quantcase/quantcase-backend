@@ -23,11 +23,18 @@ function parseJson(responseText) {
  * Avoids Bedrock which has different limitations (e.g. no PDF support).
  */
 async function llmStream(params) {
-  const stream = await openRouter.chat.completions.create({
-    ...params,
-    stream:   true,
-    provider: { order: ['Anthropic'], allow_fallbacks: false },
-  });
+  let stream;
+  try {
+    stream = await openRouter.chat.completions.create({
+      ...params,
+      stream:   true,
+      provider: { order: ['Anthropic'], allow_fallbacks: false },
+    });
+  } catch (err) {
+    const body = err?.error ?? err?.response?.data ?? err?.message;
+    console.error('[llmStream] API error:', JSON.stringify(body, null, 2));
+    throw err;
+  }
   let text = '';
   for await (const chunk of stream) text += chunk.choices[0]?.delta?.content ?? '';
   return text;
