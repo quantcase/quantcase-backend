@@ -127,6 +127,44 @@ function dedupeArraysInResult(obj) {
   return out;
 }
 
+// Maximum items allowed per named array key after merging across chunks.
+const ARRAY_CAPS = {
+  verdictBullets:           5,
+  finalVerdictBullets:      4,
+  convictionDrivers:        4,
+  keyRisks:                 4,
+  reRatingTriggers:         3,
+  postListingWatchlist:     3,
+  useOfProceedsBreakdown:   5,
+  useOfProceedsRedFlags:    3,
+  sellingShareholdersList:  10,
+  critical:                 5,
+  caution:                  5,
+  watch:                    5,
+  metrics:                  8,
+  keyDrivers:               4,
+  quick_verdict_flags:      5,
+};
+
+/**
+ * Recursively cap arrays at their defined limits after deduplication.
+ */
+function capArraysInResult(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (Array.isArray(v)) {
+      const cap = ARRAY_CAPS[k];
+      out[k] = cap ? v.slice(0, cap) : v;
+    } else if (typeof v === 'object' && v !== null) {
+      out[k] = capArraysInResult(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 // ─── Core analysis ────────────────────────────────────────────────────────────
 
 /**
@@ -223,9 +261,9 @@ async function analyseDrhp(fileBuffer, mimeType) {
     throw new Error('All DRHP analysis chunks failed — no result to return');
   }
 
-  // 3. Merge partials and deduplicate arrays
+  // 3. Merge partials, deduplicate arrays, then cap to defined limits
   const merged = partials.reduce((acc, partial) => mergePartials(acc, partial), {});
-  const result = dedupeArraysInResult(merged);
+  const result = capArraysInResult(dedupeArraysInResult(merged));
 
   // 3a. Synthesise flat intelligence metrics from the merged analysis
   try {
@@ -252,8 +290,9 @@ async function analyseDrhp(fileBuffer, mimeType) {
     || result?.core?.heroHeader?.companyName
     || 'UNKNOWN';
 
+  let savedInsight;
   try {
-    await prisma.aiInsight.upsert({
+    savedInsight = await prisma.aiInsight.upsert({
       where:  { ticker_type: { ticker, type: 'drhp-analysis' } },
       create: { ticker, type: 'drhp-analysis', insight: result },
       update: { insight: result },
@@ -262,7 +301,7 @@ async function analyseDrhp(fileBuffer, mimeType) {
     console.error('[drhp] Failed to save ai_insight for ticker "%s":', ticker, err.message);
   }
 
-  return result;
+  return savedInsight ?? result;
 }
 
 async function getDrhpAnalyses(id) {
