@@ -11,8 +11,7 @@
     "admin": "node lib/admin.js",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "db:studio": "prisma studio",
-    "db:seed": "node prisma/seed.js"
+    "db:studio": "prisma studio"
   },
   "keywords": [],
   "author": "",
