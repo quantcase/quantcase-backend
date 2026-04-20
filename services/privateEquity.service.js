@@ -4,6 +4,7 @@ const { llmStream, parseJson } = require('../utils/workerUtils');
 const { loadSkillConfig }      = require('../utils/skillConfig');
 const { getPromptFn }          = require('../lib/skillsRegistry');
 const { chunkPdf }             = require('../utils/pdfChunker');
+const prisma                   = require('../config/prisma');
 
 // ─── Section → skill slug mapping ────────────────────────────────────────────
 
@@ -224,7 +225,60 @@ async function analyseDrhp(fileBuffer, mimeType) {
 
   // 3. Merge partials and deduplicate arrays
   const merged = partials.reduce((acc, partial) => mergePartials(acc, partial), {});
-  return dedupeArraysInResult(merged);
+  const result = dedupeArraysInResult(merged);
+
+  // 3a. Synthesise flat intelligence metrics from the merged analysis
+  try {
+    const { model, maxTokens, promptKey, promptTemplate, defaultInstructions, outputSchema } =
+      await loadSkillConfigCached('drhp-intelligence');
+    const promptFn  = getPromptFn(promptKey);
+    const prompt    = promptFn(JSON.stringify(result), null, promptTemplate, defaultInstructions);
+    const llmParams = {
+      model,
+      max_tokens: maxTokens,
+      messages:   [{ role: 'user', content: prompt }],
+    };
+    if (outputSchema) llmParams.response_format = outputSchema;
+    const intelligenceText = await llmStream(llmParams);
+    if (intelligenceText) {
+      result.intelligence = parseJson(intelligenceText);
+    }
+  } catch (err) {
+    console.error('[drhp] intelligence synthesis failed (non-fatal):', err.message);
+  }
+
+  // 4. Persist to ai_insights — ticker extracted from company-overview heroHeader
+  const ticker = result?.core?.heroHeader?.ticker
+    || result?.core?.heroHeader?.companyName
+    || 'UNKNOWN';
+
+  try {
+    await prisma.aiInsight.upsert({
+      where:  { ticker_type: { ticker, type: 'drhp-analysis' } },
+      create: { ticker, type: 'drhp-analysis', insight: result },
+      update: { insight: result },
+    });
+  } catch (err) {
+    console.error('[drhp] Failed to save ai_insight for ticker "%s":', ticker, err.message);
+  }
+
+  return result;
 }
 
-module.exports = { analyseDrhp };
+async function getDrhpAnalyses(id) {
+  if (id) {
+    const record = await prisma.aiInsight.findUnique({ where: { id } });
+    if (!record || record.type !== 'drhp-analysis') {
+      const err = new Error(`No drhp-analysis found with id "${id}"`);
+      err.status = 404;
+      throw err;
+    }
+    return record;
+  }
+  return prisma.aiInsight.findMany({
+    where:   { type: 'drhp-analysis' },
+    orderBy: { created_at: 'desc' },
+  });
+}
+
+module.exports = { analyseDrhp, getDrhpAnalyses };

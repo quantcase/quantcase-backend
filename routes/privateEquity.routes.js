@@ -21,4 +21,6 @@ router.post(
   privateEquityController.analyseDrhp,
 );
 
+router.get('/drhp-analyses', privateEquityController.getDrhpAnalyses);
+
 module.exports = router;

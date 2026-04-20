@@ -20,4 +20,9 @@ const analyseDrhp = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result });
 });
 
-module.exports = { analyseDrhp };
+const getDrhpAnalyses = asyncHandler(async (req, res) => {
+  const data = await privateEquityService.getDrhpAnalyses(req.query.id);
+  res.json({ success: true, data });
+});
+
+module.exports = { analyseDrhp, getDrhpAnalyses };

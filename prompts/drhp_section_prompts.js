@@ -48,9 +48,23 @@ function drhpLegalOfferPrompt(sectionText, sectionTitle, template = null, defaul
   return renderTemplate(template, sectionText, sectionTitle, defaultInstructions);
 }
 
+/**
+ * Intelligence synthesis prompt — runs after all section skills have been merged.
+ * Receives the full merged analysis JSON as input (not raw PDF text).
+ *
+ * Signature differs from section prompts: mergedJson is already a string.
+ */
+function drhpIntelligencePrompt(mergedJson, _unused, template = null, defaultInstructions = '') {
+  if (!template) throw new Error('drhpIntelligencePrompt: promptTemplate not found in DB');
+  return template
+    .replace('{{DEFAULT_INSTRUCTIONS}}', defaultInstructions)
+    .replace('{{MERGED_ANALYSIS}}', mergedJson);
+}
+
 module.exports = {
   drhpGeneralRiskPrompt,
   drhpCompanyOverviewPrompt,
   drhpFinancialsPrompt,
   drhpLegalOfferPrompt,
+  drhpIntelligencePrompt,
 };
