@@ -1,10 +1,10 @@
 'use strict';
 
-const prisma             = require('../config/prisma');
-const { enqueuePlugin }  = require('./plugins.service');
-const { FinHelper }      = require('../utils/finHelper');
-const { getDealResult }  = require('./db/deal.db');
-const { mapToDealResponseSchema } = require('../utils/dealMapper');
+const prisma                        = require('../config/prisma');
+const { getPluginWithSkills, enqueueSkillJob } = require('./plugins.service');
+const { FinHelper }                 = require('../utils/finHelper');
+const { getDealResult }             = require('./db/deal.db');
+const { mapToDealResponseSchema }   = require('../utils/dealMapper');
 
 async function createDealJob(callId) {
   const call = await prisma.earnings_calls.findUnique({
@@ -31,10 +31,15 @@ async function createDealJob(callId) {
     industry ? helper.industryRevCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
   ]);
 
-  const enqueuedJobs = await enqueuePlugin('deal', {
+  const plugin  = await getPluginWithSkills('deal');
+  if (!plugin) throw Object.assign(new Error('Plugin "deal" not found'), { status: 404 });
+  const firstPs = plugin.pluginSkills[0];
+  if (!firstPs) throw new Error('No active skills in "deal" plugin');
+
+  const jobData = {
     callId,
     ticker,
-    companyName: call.company_name,
+    companyName:  call.company_name,
     industry,
     stockEps,
     stockPe,
@@ -43,10 +48,14 @@ async function createDealJob(callId) {
     stockRev,
     stockRoce,
     industryRev,
-  });
+    pluginSlug:  'deal',
+    skillOrder:  firstPs.order,
+    type:        firstPs.skill.slug,
+    skillName:   firstPs.skill.slug,
+  };
 
-  // Return the first enqueued job to match prior API contract
-  return enqueuedJobs[0];
+  const firstJob = await enqueueSkillJob('deal', firstPs, jobData);
+  return { jobId: firstJob.id };
 }
 
 async function fetchDealResult(callId) {

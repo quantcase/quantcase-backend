@@ -18,6 +18,7 @@ const SKILL_TO_QUEUE = {
   'wealthos-suggestion':          'wealthos_suggestion',
   'wealthos-message':             'wealthos_message',
   'technical-intelligence':       'technicals_analysis',
+  'deal-intelligence':            'deal_intelligence',
 };
 
 // For ofactor skills, the `section` field tells the worker which sub-prompt to run.

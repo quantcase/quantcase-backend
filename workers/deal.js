@@ -1,6 +1,4 @@
 const { Worker } = require('bullmq');
-const fs   = require('fs');
-const path = require('path');
 const connection   = require('../config/redis');
 const prisma       = require('../config/prisma');
 const { llmStream, parseJson } = require('../utils/workerUtils');
@@ -10,12 +8,11 @@ const { upsertDealResult }      = require('../services/db/deal.db');
 const { FinHelper }             = require('../utils/finHelper');
 const { isBFSI }                = require('../utils/industryClassifier');
 const { loadSkillConfig }       = require('../utils/skillConfig');
+const { enqueueSkillJob }       = require('../services/plugins.service');
 
 /** Latest non-null value from a time-series array, or null. */
 const _latest = (series) =>
   Array.isArray(series) ? series.filter(s => s.value != null).at(-1)?.value ?? null : null;
-
-const TEMP_DIR = path.join(__dirname, '..', 'tmp');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -89,10 +86,6 @@ async function processDealJob(job) {
     const prompt = dealAnalysisPrompt(ticker, companyName, industry, cmp, stockEps, stockPe, industryEps, industryPe, recentSummaries, stockRev, stockRoce, ebitMargin, roe, cashConversionPct, industryRev, promptTemplate);
     console.log(`[Deal] Prompt length: ${prompt.length} chars`);
 
-    if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
-    const safeId     = callId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const promptFile = path.join(TEMP_DIR, `deal_prompt_${safeId}.txt`);
-    fs.writeFileSync(promptFile, prompt, 'utf8');
     await job.updateProgress(45);
 
     console.log('[Deal] Calling LLM API...');
@@ -101,21 +94,44 @@ async function processDealJob(job) {
 
     if (!responseText) throw new Error('Empty response from LLM');
 
-    fs.writeFileSync(path.join(TEMP_DIR, `deal_response_${safeId}.txt`), responseText, 'utf8');
-
     const dealResult = parseJson(responseText);
     await job.updateProgress(90);
 
     await upsertDealResult(callId, ticker, dealResult, { cmp, stockEps, stockPe, industryEps, industryPe }, prisma);
     console.log(`[Deal] Result saved for callId: ${callId}`);
 
-    await prisma.job.update({
-      where: { bullmqId: job.id },
-      data:  { status: 'completed', result: { callId, scenariosGenerated: Object.keys(dealResult) } }
-    });
+    // Chain to next skill in the deal plugin (deal-intelligence)
+    const { pluginSlug, skillOrder } = job.data;
+    let chained = false;
+    if (pluginSlug && skillOrder != null) {
+      const nextPs = await prisma.pluginSkill.findFirst({
+        where:   { plugin: { slug: pluginSlug }, order: { gt: skillOrder }, skill: { isActive: true } },
+        orderBy: { order: 'asc' },
+        include: { skill: true },
+      });
+      if (nextPs) {
+        console.log(`[Deal] Chaining to next skill "${nextPs.skill.slug}" (order=${nextPs.order})`);
+        await enqueueSkillJob(pluginSlug, nextPs, {
+          ...job.data,
+          skillOrder:      nextPs.order,
+          type:            nextPs.skill.slug,
+          skillName:       nextPs.skill.slug,
+          rootJobBullmqId: job.id,
+        });
+        chained = true;
+      }
+    }
+
+    // Only mark completed if nothing is chained after this job
+    if (!chained) {
+      await prisma.job.update({
+        where: { bullmqId: job.id },
+        data:  { status: 'completed', result: { callId, scenariosGenerated: Object.keys(dealResult) } },
+      });
+    }
 
     await job.updateProgress(100);
-    console.log(`[Deal] Job ${job.id} completed`);
+    console.log(`[Deal] Job ${job.id} completed${chained ? ' — waiting for chain' : ''}`);
     return { result: dealResult, prompt };
 
   } catch (error) {

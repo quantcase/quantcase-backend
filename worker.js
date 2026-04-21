@@ -6,6 +6,7 @@ const prisma     = require('./config/prisma');
 require('./workers/summarization');
 require('./workers/qe');
 require('./workers/deal');
+require('./workers/dealIntelligence');
 require('./workers/ofactor');
 require('./workers/wealthos.suggestion');
 require('./workers/wealthos.message');
