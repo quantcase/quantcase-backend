@@ -16,6 +16,7 @@ const screenerRouter      = require('./screener.routes');
 const basketsRouter       = require('./baskets.routes');
 const watchlistRouter     = require('./watchlist.routes');
 const modelsRouter        = require('./models.routes');
+const privateEquityRouter = require('./privateEquity.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -43,6 +44,9 @@ router.use('/api/models', modelsRouter);
 
 // WealthOS routes
 router.use('/api/wealthos', wealthosRouter);
+
+// Private equity routes
+router.use('/api/private-equity', privateEquityRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);

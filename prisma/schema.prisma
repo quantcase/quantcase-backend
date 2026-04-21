@@ -707,6 +707,7 @@ enum PluginCategory {
   opportunity
   wealthos
   technicals
+  private_equity
 }
 
 model Skill {
