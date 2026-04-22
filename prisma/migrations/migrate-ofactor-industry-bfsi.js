@@ -37,29 +37,29 @@ For metrics.demand_signal and metrics.supply_constraint: sublabel must be ≤ 40
 
 Do NOT populate kpi_metrics — output it as an empty array [].
 
-Populate the "final_scoring" field INSIDE the industry_overview JSON object (same level as "metrics"). Award 1 point per check, max 10:
-  1. Demand signal is "Strong" → metrics.demand_signal
-  2. Supply constraint is "Low" or "Moderate" (not High) → metrics.supply_constraint
-  3. Industry revenue TTM change is positive → metrics.industry_revenue_ttm.change
-  4. Industry CAGR 1Y > 10% → metrics.industry_cagr.one_year
-  5. Industry CAGR 3Y > 8% → metrics.industry_cagr.three_year
-  6. Operating margin ≥ 12% → metrics.current_opm.value
-  7. Operating margin YoY change is positive → metrics.current_opm.change
-  8. Industry ROCE ≥ 12% → metrics.industry_roce.value
-  9. Industry ROCE change is positive → metrics.industry_roce.change
-  10. OPM forward outlook is improving or stable → text.opm_trend.forward_outlook
-  status: score >= 7 → "FAVORABLE" (green), score 5–6 → "NEUTRAL" (yellow), score < 5 → "UNFAVORABLE" (red).
+Populate the "final_scoring" field INSIDE the industry_overview JSON object (same level as "metrics"). Award points per check, max 25 total:
+  1. Demand signal is "Strong" → metrics.demand_signal  [3 pts]
+  2. Supply constraint is "Low" or "Moderate" (not High) → metrics.supply_constraint  [3 pts]
+  3. Industry revenue TTM change is positive → metrics.industry_revenue_ttm.change  [2 pts]
+  4. Industry CAGR 1Y > 10% → metrics.industry_cagr.one_year  [3 pts]
+  5. Industry CAGR 3Y > 8% → metrics.industry_cagr.three_year  [3 pts]
+  6. Operating margin ≥ 12% → metrics.current_opm.value  [3 pts]
+  7. Operating margin YoY change is positive → metrics.current_opm.change  [2 pts]
+  8. Industry ROCE ≥ 12% → metrics.industry_roce.value  [3 pts]
+  9. Industry ROCE change is positive → metrics.industry_roce.change  [2 pts]
+  10. OPM forward outlook is improving or stable → text.opm_trend.forward_outlook  [1 pt]
+  status: score >= 18 → "FAVORABLE" (green), score 13–17 → "NEUTRAL" (yellow), score < 13 → "UNFAVORABLE" (red).
 
-Also populate "signal_breakdown" inside final_scoring — an array of 8 objects, one per dimension. Each object: { "key", "label", "score" (0–10), "max_score": 10, "sentiment" ("positive"|"negative"|"neutral"), "details" (2–3 short bullet strings) }. Dimensions and scoring criteria:
-  • PROFITABILITY (label: "Profitability") — ROCE level and trend. score 7–10: ROCE ≥ 15% and rising; 4–6: ROCE 10–15% or flat; 0–3: ROCE < 10% or falling.
-  • MARGINS (label: "Margins") — OPM level and direction. score 7–10: OPM ≥ 15% and improving; 4–6: OPM 10–15% or stable; 0–3: OPM < 10% or declining.
-  • GROWTH (label: "Growth") — Revenue CAGR trajectory. score 7–10: 1Y CAGR > 15%; 4–6: CAGR 8–15%; 0–3: CAGR < 8%.
-  • DEMAND (label: "Demand") — Demand signal strength. score 7–10: Strong demand; 4–6: Moderate; 0–3: Weak.
-  • SUPPLY (label: "Supply") — Supply constraint severity. score 7–10: Low constraint; 4–6: Moderate; 0–3: High constraint.
-  • MARKET_STRUCTURE (label: "Market Structure") — Competitive structure, entry barriers, consolidation. score 7–10: oligopolistic, high barriers; 4–6: mixed/moderate; 0–3: fragmented, low barriers.
-  • VALUATION_EARNINGS (label: "Valuation & Earnings Quality") — Earnings consistency, revenue quality, cash conversion. score 7–10: consistent earnings, high cash conversion; 4–6: moderate; 0–3: volatile earnings or poor conversion.
-  • MANAGEMENT_QUALITY (label: "Management Quality") — Management guidance reliability, execution track record from transcripts. score 7–10: strong execution, guidance met; 4–6: mixed; 0–3: guidance misses, poor visibility.
-  sentiment: "positive" if score ≥ 7, "negative" if score ≤ 3, else "neutral".
+Also populate "signal_breakdown" inside final_scoring — an array of 8 objects, one per dimension. Each object: { "key", "label", "score" (0–25), "max_score": 25, "sentiment" ("positive"|"negative"|"neutral"), "details" (2–3 short bullet strings) }. Dimensions and scoring criteria:
+  • PROFITABILITY (label: "Profitability") — ROCE level and trend. score 18–25: ROCE ≥ 15% and rising; 10–17: ROCE 10–15% or flat; 0–9: ROCE < 10% or falling.
+  • MARGINS (label: "Margins") — OPM level and direction. score 18–25: OPM ≥ 15% and improving; 10–17: OPM 10–15% or stable; 0–9: OPM < 10% or declining.
+  • GROWTH (label: "Growth") — Revenue CAGR trajectory. score 18–25: 1Y CAGR > 15%; 10–17: CAGR 8–15%; 0–9: CAGR < 8%.
+  • DEMAND (label: "Demand") — Demand signal strength. score 18–25: Strong demand; 10–17: Moderate; 0–9: Weak.
+  • SUPPLY (label: "Supply") — Supply constraint severity. score 18–25: Low constraint; 10–17: Moderate; 0–9: High constraint.
+  • MARKET_STRUCTURE (label: "Market Structure") — Competitive structure, entry barriers, consolidation. score 18–25: oligopolistic, high barriers; 10–17: mixed/moderate; 0–9: fragmented, low barriers.
+  • VALUATION_EARNINGS (label: "Valuation & Earnings Quality") — Earnings consistency, revenue quality, cash conversion. score 18–25: consistent earnings, high cash conversion; 10–17: moderate; 0–9: volatile earnings or poor conversion.
+  • MANAGEMENT_QUALITY (label: "Management Quality") — Management guidance reliability, execution track record from transcripts. score 18–25: strong execution, guidance met; 10–17: mixed; 0–9: guidance misses, poor visibility.
+  sentiment: "positive" if score ≥ 18, "negative" if score ≤ 9, else "neutral".
   details: 2–3 concise bullet strings, each ≤ 15 words, citing specific data points from the analysis.
 
 Return ONLY valid JSON per the output schema. Use null where data is unavailable. No markdown fences.`;
@@ -205,20 +205,20 @@ Do NOT populate industry_revenue_ttm, industry_cagr, current_opm, or industry_ro
 
 For metrics.demand_signal and metrics.supply_constraint: sublabel must be ≤ 40 characters.
 
-Populate the "final_scoring" field INSIDE the industry_overview JSON object. Award 1 point per check, max 10:
-  1. demand_signal = "Strong"
-  2. supply_constraint = "Low" or "Moderate"
-  3. Credit Growth YoY > 10%
-  4. Avg GNPA < 3%
-  5. Avg Net NPA < 1%
-  6. Combined Sector Profit growth > 10%
-  7. Avg ROE > 12%
-  8. Avg NIM > 2.5%
-  9. Deposit Growth YoY > 8%
-  10. text.demand_supply_dynamics.net_impact is positive
-  status: score >= 7 → "FAVORABLE" (green), score 5–6 → "NEUTRAL" (yellow), score < 5 → "UNFAVORABLE" (red).
+Populate the "final_scoring" field INSIDE the industry_overview JSON object. Award points per check, max 25 total:
+  1. demand_signal = "Strong"  [3 pts]
+  2. supply_constraint = "Low" or "Moderate"  [3 pts]
+  3. Credit Growth YoY > 10%  [3 pts]
+  4. Avg GNPA < 3%  [3 pts]
+  5. Avg Net NPA < 1%  [3 pts]
+  6. Combined Sector Profit growth > 10%  [2 pts]
+  7. Avg ROE > 12%  [2 pts]
+  8. Avg NIM > 2.5%  [2 pts]
+  9. Deposit Growth YoY > 8%  [2 pts]
+  10. text.demand_supply_dynamics.net_impact is positive  [2 pts]
+  status: score >= 18 → "FAVORABLE" (green), score 13–17 → "NEUTRAL" (yellow), score < 13 → "UNFAVORABLE" (red).
 
-Also populate "signal_breakdown" inside final_scoring — an array of 8 objects, one per dimension. Each: { "key", "label", "score" (0–10), "max_score": 10, "sentiment" ("positive"|"negative"|"neutral"), "details" (2–3 short bullet strings ≤ 15 words) }. Dimensions:
+Also populate "signal_breakdown" inside final_scoring — an array of 8 objects, one per dimension. Each: { "key", "label", "score" (0–25), "max_score": 25, "sentiment" ("positive"|"negative"|"neutral"), "details" (2–3 short bullet strings ≤ 15 words) }. Dimensions:
   • PROFITABILITY    — ROE and ROA levels and trend
   • MARGINS         — NIM trend and compression risk
   • GROWTH          — Credit and deposit growth trajectory
@@ -227,7 +227,7 @@ Also populate "signal_breakdown" inside final_scoring — an array of 8 objects,
   • MARKET_STRUCTURE— Concentration, PSB vs PVB dynamics, RBI regulatory environment
   • VALUATION_EARNINGS — NPA trajectory, earnings consistency, provisioning
   • MANAGEMENT_QUALITY — Guidance reliability, execution track record from transcripts
-  sentiment: "positive" if score ≥ 7, "negative" if score ≤ 3, else "neutral".
+  sentiment: "positive" if score ≥ 18, "negative" if score ≤ 9, else "neutral".
 
 Return ONLY valid JSON per the output schema. Use null where data is unavailable. No markdown fences.`;
 

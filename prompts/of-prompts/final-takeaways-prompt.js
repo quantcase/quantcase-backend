@@ -19,7 +19,7 @@ INDUSTRY        : ${industry}
 SECTION SCORES & TAKEAWAYS
 ══════════════════════════════════════════════════════════
 
-1. INDUSTRY OVERVIEW  [Score: ${score(ind)}/10 | ${status(ind)}]
+1. INDUSTRY OVERVIEW  [Score: ${score(ind)}/25 | ${status(ind)}]
    Takeaway : ${takeaway(ind)}
    Demand signal    : ${fmt(ind?.metrics, 'demand_signal')}
    Supply constraint: ${fmt(ind?.metrics, 'supply_constraint')}
@@ -27,14 +27,14 @@ SECTION SCORES & TAKEAWAYS
    Industry ROCE    : ${ind?.metrics?.industry_roce?.value ?? 'N/A'}  (YoY: ${ind?.metrics?.industry_roce?.change ?? 'N/A'})
    OPM outlook      : ${ind?.text?.opm_trend?.forward_outlook ?? 'N/A'}
 
-2. COMPETITION  [Score: ${score(comp)}/10 | ${status(comp)}]
+2. COMPETITION  [Score: ${score(comp)}/25 | ${status(comp)}]
    Takeaway : ${takeaway(comp)}
    Market position       : ${comp?.metrics?.market_position ?? 'N/A'}
    Pricing power         : ${comp?.metrics?.pricing_power ?? 'N/A'}
    Competitive intensity : ${comp?.metrics?.competitive_intensity ?? 'N/A'}
    Porter's score        : ${comp?.metrics?.porters_score ?? 'N/A'}
 
-3. FINANCIAL STRENGTH  [Score: ${score(fin)}/10 | ${status(fin)}]
+3. FINANCIAL STRENGTH  [Score: ${score(fin)}/25 | ${status(fin)}]
    Takeaway : ${takeaway(fin)}
    Revenue growth  : ${fin?.metrics?.revenue?.change ?? 'N/A'}
    EBITDA margin   : ${fin?.metrics?.ebitda_margin?.value ?? 'N/A'}
@@ -44,7 +44,7 @@ SECTION SCORES & TAKEAWAYS
    FCF trajectory  : ${fin?.free_cash_flow?.growth_trajectory ?? 'N/A'}
    Balance sheet   : ${fin?.capital_structure?.debt_trajectory?.status ?? 'N/A'}
 
-4. CUSTOMER TRACTION  [Score: ${score(cust)}/10 | ${status(cust)}]
+4. CUSTOMER TRACTION  [Score: ${score(cust)}/25 | ${status(cust)}]
    Takeaway : ${takeaway(cust)}
    Net retention       : ${cust?.metrics?.net_retention ?? 'N/A'}
    Top-10 concentration: ${cust?.metrics?.top_10_concentration ?? 'N/A'}
