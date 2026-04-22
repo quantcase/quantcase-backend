@@ -3,14 +3,11 @@
 const fs = require('fs');
 const path = require('path');
 const csvParse = require('csv-parse/sync');
-const YahooFinance = require('yahoo-finance2').default;
 const technicalAnalysis = require('../lib/technicalAnalysis');
 const financials = require('../lib/financials');
 const { generateDecisionIntelligence } = require('../utils/decisionIntelligence');
 const { computeIndicatorSeries } = require('../utils/taIndicators');
 const prisma = require('../config/prisma');
-
-const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 // ── Peer comparison helpers (reuse Prowess CSV data) ────────────────────────
 
@@ -649,57 +646,88 @@ async function getPrices(req, res, next) {
 async function getCharts(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
-    const ticker = symbol + '.NS';
 
-    // ── 1. Fetch raw data in parallel ──────────────────────────────────────
-    const now = Date.now();
+    // ── 1. Resolve company name ────────────────────────────────────────────
+    const ecRow = await prisma.earnings_calls.findFirst({
+      where:  { company: symbol },
+      select: { company_name: true },
+    });
+    const companyName = ecRow?.company_name ?? null;
+
+    // ── 2. Fetch raw data in parallel ──────────────────────────────────────
+    const now        = Date.now();
     const tenYearsAgo = new Date(now - 10 * 365 * 24 * 60 * 60 * 1000);
+    const twoYearsAgo = new Date(now -  2 * 365 * 24 * 60 * 60 * 1000);
 
-    const [monthlyChartRes, quarterlyChartRes, peRowsRes, quarterlyFundamentalsRes, quarterlyIncomeRes, quarterlyBalanceSheetRes] = await Promise.allSettled([
-      yahooFinance.chart(ticker, {
-        period1: tenYearsAgo,
-        period2: new Date(now),
-        interval: '1mo',
-      }),
-      yahooFinance.chart(ticker, {
-        period1: tenYearsAgo,
-        period2: new Date(now),
-        interval: '3mo',
-      }),
-      prisma.pe_data.findMany({
-        where: { company: symbol },
-        orderBy: { date: 'asc' },
-      }),
-      yahooFinance.fundamentalsTimeSeries(ticker, {
-        module: 'financials',
-        type: 'quarterly',
-        period1: new Date(now - 2 * 365 * 24 * 60 * 60 * 1000),
-      }),
-      yahooFinance.quoteSummary(ticker, {
-        modules: ['incomeStatementHistoryQuarterly'],
-      }),
-      yahooFinance.fundamentalsTimeSeries(ticker, {
-        module: 'balance-sheet',
-        type: 'quarterly',
-        period1: new Date(now - 2 * 365 * 24 * 60 * 60 * 1000),
-      }),
+    const [monthlyPriceRows, quarterlyPriceRows, peRowsRes, prowessRows] = await Promise.all([
+      // Monthly OHLCV aggregated from nse_equity (price group)
+      prisma.$queryRaw`
+        SELECT
+          DATE_TRUNC('month', datetime) AS month,
+          AVG(close)  AS close,
+          SUM(volume) AS volume
+        FROM nse_equity
+        WHERE symbol = ${symbol} AND datetime >= ${tenYearsAgo}
+        GROUP BY DATE_TRUNC('month', datetime)
+        ORDER BY month ASC
+      `,
+
+      // Quarterly last-close for ratio chart price lookups
+      prisma.$queryRaw`
+        SELECT
+          DATE_TRUNC('quarter', datetime) AS quarter_date,
+          (ARRAY_AGG(close ORDER BY datetime DESC))[1] AS close
+        FROM nse_equity
+        WHERE symbol = ${symbol} AND datetime >= ${tenYearsAgo}
+        GROUP BY DATE_TRUNC('quarter', datetime)
+        ORDER BY quarter_date ASC
+      `,
+
+      // PE history (keyed by company name or symbol)
+      companyName
+        ? prisma.pe_data.findMany({ where: { company: companyName }, orderBy: { date: 'asc' } })
+        : prisma.pe_data.findMany({ where: { company: symbol },      orderBy: { date: 'asc' } }),
+
+      // All prowess KPIs for this company (quarterly)
+      companyName
+        ? prisma.$queryRaw`
+            SELECT kpi_abbr, value, raw_value, multiplier, fiscal_year, quarter
+            FROM prowess_values_new
+            WHERE company = ${companyName}
+            ORDER BY fiscal_year ASC, quarter ASC
+          `
+        : Promise.resolve([]),
     ]);
 
-    const monthlyChart        = monthlyChartRes.status           === 'fulfilled' ? monthlyChartRes.value           : null;
-    const quarterlyChart      = quarterlyChartRes.status         === 'fulfilled' ? quarterlyChartRes.value         : null;
-    const peRows              = peRowsRes.status                 === 'fulfilled' ? peRowsRes.value                 : [];
-    const quarterlyFundamentals = quarterlyFundamentalsRes.status === 'fulfilled' ? quarterlyFundamentalsRes.value : [];
-    // incomeStatementHistoryQuarterly: totalRevenue and netIncome are reliable; grossProfit/operatingIncome are zeroed since Nov 2024
-    const quarterlyIncome     = quarterlyIncomeRes.status === 'fulfilled'
-      ? (quarterlyIncomeRes.value?.incomeStatementHistoryQuarterly?.incomeStatementHistory ?? [])
-      : [];
-    const quarterlyBalanceSheet = quarterlyBalanceSheetRes.status === 'fulfilled' ? quarterlyBalanceSheetRes.value : [];
+    const peRows = peRowsRes;
 
-    // ── 2. Price group ─────────────────────────────────────────────────────
+    // ── 3. Organise prowess rows into quarterly periods ────────────────────
+    // Build { "FY2024|Q1": { REV_OP: X, PAT: Y, ... }, ... }
+    const prowessByPeriod = {};
+    for (const row of prowessRows) {
+      const key = `${row.fiscal_year}|${row.quarter}`;
+      if (!prowessByPeriod[key]) prowessByPeriod[key] = { fiscal_year: row.fiscal_year, quarter: row.quarter };
+      // raw_value is in Cr; value is raw_value * multiplier
+      const crVal = row.raw_value != null && row.raw_value !== ''
+        ? parseFloat(row.raw_value)
+        : (row.value != null && row.multiplier ? parseFloat(row.value) / row.multiplier : null);
+      prowessByPeriod[key][row.kpi_abbr] = crVal;
+    }
+
+    // Sorted quarterly periods oldest→newest
+    const qPeriods = Object.values(prowessByPeriod).sort((a, b) => {
+      if (a.fiscal_year !== b.fiscal_year) return (a.fiscal_year ?? '').localeCompare(b.fiscal_year ?? '');
+      return (a.quarter ?? '').localeCompare(b.quarter ?? '');
+    });
+
+    // Period label: "Q1 FY2024"
+    const fmtPeriodLabel = (p) => `${p.quarter} ${p.fiscal_year}`;
+
+    // ── 4. Price group ─────────────────────────────────────────────────────
     // Monthly bars sorted oldest→newest, labelled "Mon YYYY"
-    const monthlyQuotes = (monthlyChart?.quotes ?? [])
+    const monthlyQuotes = monthlyPriceRows
       .filter((q) => q.close != null)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+      .map((q) => ({ date: q.month, close: parseFloat(q.close), volume: q.volume ? Number(q.volume) : null }));
 
     // Compute rolling SMAs over the ordered close series
     function rollingAvg(closes, window) {
@@ -750,349 +778,193 @@ async function getCharts(req, res, next) {
       ],
     };
 
-    // ── 3–7. Shared helpers for fundamentals-based groups ─────────────────
-    // qChartQuotes: quarterly price series for priceForQuarter lookups
-    const qChartQuotes = (quarterlyChart?.quotes ?? [])
-      .filter((q) => q.close != null)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    // Sort balance sheet and financials oldest→newest
-    const bsSorted = [...quarterlyBalanceSheet].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const qfSorted = [...quarterlyFundamentals].sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    // Most recent balance sheet entry — fallback for quarters beyond last BS date
-    const latestBs = bsSorted.length > 0 ? bsSorted[bsSorted.length - 1] : null;
-
-    // Find closest entry within ±50 days
-    const MS_50D = 50 * 24 * 60 * 60 * 1000;
-    function closestByDate(arr, targetMs) {
-      let best = null, bestDiff = MS_50D;
-      for (const r of arr) {
-        const diff = Math.abs(new Date(r.date).getTime() - targetMs);
-        if (diff < bestDiff) { bestDiff = diff; best = r; }
-      }
-      return best;
+    // ── 5. Shared helpers for fundamentals-based chart groups ─────────────
+    // quarterly price lookup: match period label to quarterly close
+    const qPriceMap = {};
+    for (const q of quarterlyPriceRows) {
+      const label = fmtMonthLabel(q.quarter_date);
+      qPriceMap[label] = q.close != null ? parseFloat(q.close) : null;
     }
 
-    // Balance sheet for a quarter: closest match, or latest if target is beyond last BS date
-    function bsForQuarter(targetMs) {
-      const exact = closestByDate(bsSorted, targetMs);
-      if (exact) return exact;
-      if (latestBs && targetMs > new Date(latestBs.date).getTime()) return latestBs;
-      return null;
+    // Price for a prowess period: match closest quarterly price bar
+    function priceForPeriod(p) {
+      const label = fmtPeriodLabel(p);
+      if (qPriceMap[label] != null) return qPriceMap[label];
+      // Fallback: find nearest quarterly price entry by index
+      if (quarterlyPriceRows.length === 0) return null;
+      return parseFloat(quarterlyPriceRows[quarterlyPriceRows.length - 1].close);
     }
 
-    // Price at a given quarter-end date, matched from qChartQuotes within ±50 days
-    function priceForQuarter(targetMs) {
-      return closestByDate(qChartQuotes.map((q) => ({ date: q.date, close: q.close })), targetMs)?.close ?? null;
+    const fundLabels = qPeriods.map(fmtPeriodLabel);
+
+    // Median helper
+    function median(arr) {
+      const sorted = arr.filter((v) => v != null).sort((a, b) => a - b);
+      if (!sorted.length) return null;
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 0
+        ? Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 100) / 100
+        : Math.round(sorted[mid] * 100) / 100;
     }
 
-    // Shared x-axis labels for groups 3, 5–7 (oldest→newest, ~5 quarters)
-    const fundLabels = qfSorted.map((r) =>
-      new Date(r.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
-    );
+    // TTM sum of last 4 quarters up to index i for a given field
+    function ttmAt(i, field) {
+      const slice = qPeriods.slice(Math.max(0, i - 3), i + 1);
+      const vals  = slice.map((p) => p[field]).filter((v) => v != null);
+      if (vals.length === 0) return null;
+      return vals.reduce((s, v) => s + v, 0);
+    }
 
     // ── 3. PE Ratio group ──────────────────────────────────────────────────
-    // X-axis: qfSorted (~5 quarters, same as groups 5–7).
-    // TTM EPS = sum of basicEPS for up to 4 quarters ending at this date.
-    // PE = price / TTM EPS. Fallback: closest pe_data entry within ±45 days.
-    // Median PE: from pe_data DB if available.
+    const allPeValues = peRows.map((r) => r.pe != null ? Number(r.pe) : null).filter((v) => v != null);
+    const medianPe = median(allPeValues);
 
-    // Median PE across all pe_data rows
-    const allPeValues = peRows
-      .map((r) => (r.pe != null ? Number(r.pe) : null))
-      .filter((v) => v != null)
-      .sort((a, b) => a - b);
-    let medianPe = null;
-    if (allPeValues.length > 0) {
-      const mid = Math.floor(allPeValues.length / 2);
-      medianPe = allPeValues.length % 2 === 0
-        ? Math.round(((allPeValues[mid - 1] + allPeValues[mid]) / 2) * 100) / 100
-        : Math.round(allPeValues[mid] * 100) / 100;
-    }
-
-    const MS_45D = 45 * 24 * 60 * 60 * 1000;
-
-    // peData uses qfSorted as x-axis (same as groups 5–7)
-    const peData = qfSorted.map((r) => {
-      const qt = new Date(r.date).getTime();
-      const price = priceForQuarter(qt);
-
-      // TTM EPS: sum basicEPS across up to 4 quarters ending at this date
-      const eligible = qfSorted.filter((x) => new Date(x.date).getTime() <= qt);
-      const recent4 = eligible.slice(-4);
-      const ttmEps = recent4.length > 0 && recent4.every((x) => x.basicEPS != null)
-        ? Math.round(recent4.reduce((s, x) => s + x.basicEPS, 0) * 100) / 100
-        : null;
-
-      // Computed PE from price / ttmEps
+    const peData = qPeriods.map((p, i) => {
+      const price  = priceForPeriod(p);
+      const ttmEps = ttmAt(i, 'EPS_BASIC') ?? ttmAt(i, 'EPS_DILUTED');
       let pe = price != null && ttmEps != null && ttmEps !== 0
-        ? Math.round((price / ttmEps) * 100) / 100
-        : null;
-
-      // Fallback: closest pe_data entry within ±45 days
-      if (pe === null) {
-        let best = null, bestDiff = MS_45D;
-        for (const row of peRows) {
-          const diff = Math.abs(new Date(row.date).getTime() - qt);
-          if (diff < bestDiff) { bestDiff = diff; best = row; }
-        }
-        if (best?.pe != null) pe = Math.round(Number(best.pe) * 100) / 100;
+        ? Math.round((price / ttmEps) * 100) / 100 : null;
+      // Fallback to pe_data DB
+      if (pe == null && peRows.length > 0) {
+        pe = Math.round(Number(peRows[Math.min(i, peRows.length - 1)].pe) * 100) / 100;
       }
-
       return { ttmEps, pe };
     });
 
     const peGroup = {
       group: 'PE Ratio',
-      barSeries: [
-        {
-          dataKey: 'ttmEps',
-          name: 'TTM EPS',
-          data: fundLabels.map((x, i) => ({ x, y: peData[i].ttmEps })),
-        },
-      ],
+      barSeries: [{ dataKey: 'ttmEps', name: 'TTM EPS',
+        data: fundLabels.map((x, i) => ({ x, y: peData[i].ttmEps })) }],
       lineSeries: [
-        {
-          dataKey: 'pe',
-          name: 'PE',
-          data: fundLabels.map((x, i) => ({ x, y: peData[i].pe })),
-        },
-        {
-          dataKey: 'medianPe',
-          name: 'Median PE',
-          data: fundLabels.map((x) => ({ x, y: medianPe })),
-        },
+        { dataKey: 'pe',       name: 'PE',        data: fundLabels.map((x, i) => ({ x, y: peData[i].pe })) },
+        { dataKey: 'medianPe', name: 'Median PE', data: fundLabels.map((x) => ({ x, y: medianPe })) },
       ],
     };
 
     // ── 4. Sales & Margin group ────────────────────────────────────────────
-    // Merge quarterlyFundamentals (5 periods) + quarterlyIncome (4 periods) deduplicated,
-    // sorted oldest→newest.
+    const smRevenue = qPeriods.map((p) => p['REV_OP'] ?? p['TOTAL_INCOME'] ?? null);
+    const smCogs    = qPeriods.map((p) => p['TOTAL_COGS'] ?? null);
+    const smOpex    = qPeriods.map((p) => p['TOTAL_OPEX'] ?? null);
+    const smPat     = qPeriods.map((p) => p['PAT'] ?? null);
 
-    const smMerged = [...quarterlyFundamentals];
-    for (const r of quarterlyIncome) {
-      const rDate = new Date(r.endDate).toISOString().slice(0, 10);
-      const existing = smMerged.find(
-        (x) => new Date(x.date).toISOString().slice(0, 10) === rDate
-      );
-      if (existing) {
-        // Backfill only totalRevenue and netIncome if missing — grossProfit/operatingIncome are zeroed in this source
-        if (existing.totalRevenue == null && r.totalRevenue != null) existing.totalRevenue = r.totalRevenue;
-        if (existing.netIncome == null && r.netIncome != null) existing.netIncome = r.netIncome;
-      } else {
-        smMerged.push({ date: r.endDate, totalRevenue: r.totalRevenue, netIncome: r.netIncome });
-      }
-    }
-    smMerged.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    const smLabels = smMerged.map((r) =>
-      new Date(r.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
-    );
-
-    const smRevenue = smMerged.map((r) => {
-      const v = r.totalRevenue;
-      return v != null ? Math.round(v / 1e7 * 100) / 100 : null;
+    const smGpm = qPeriods.map((p, i) => {
+      const rev  = smRevenue[i];
+      const cogs = smCogs[i];
+      if (!rev || cogs == null) return null;
+      return Math.round(((rev - cogs) / rev) * 10000) / 100;
     });
-
-    const smOpm = smMerged.map((r) => {
-      const rev = r.totalRevenue;
-      const opInc = r.operatingIncome != null ? r.operatingIncome : (
-        r.totalRevenue != null && (r.operatingExpense ?? r.totalExpenses) != null
-          ? r.totalRevenue - (r.operatingExpense ?? r.totalExpenses)
-          : null
-      );
-      if (!rev || opInc === null) return null;
-      return Math.round((opInc / rev) * 10000) / 100;
+    const smOpm = qPeriods.map((p, i) => {
+      const rev  = smRevenue[i];
+      const opex = smOpex[i];
+      if (!rev || opex == null) return null;
+      return Math.round(((rev - opex) / rev) * 10000) / 100;
     });
-
-    const smGpm = smMerged.map((r) => {
-      const rev = r.totalRevenue;
-      const gp = r.grossProfit != null ? r.grossProfit : (
-        r.totalRevenue != null && r.costOfRevenue != null
-          ? r.totalRevenue - r.costOfRevenue
-          : null
-      );
-      if (!rev || gp === null) return null;
-      return Math.round((gp / rev) * 10000) / 100;
-    });
-
-    const smNpm = smMerged.map((r) => {
-      const rev = r.totalRevenue;
-      const np = r.netIncome;
+    const smNpm = qPeriods.map((p, i) => {
+      const rev = smRevenue[i];
+      const np  = smPat[i];
       if (!rev || np == null) return null;
       return Math.round((np / rev) * 10000) / 100;
     });
 
     const salesMarginGroup = {
       group: 'Sales & Margin',
-      barSeries: [
-        {
-          dataKey: 'quarterSales',
-          name: 'Quarter Sales',
-          data: smLabels.map((x, i) => ({ x, y: smRevenue[i] })),
-        },
-      ],
+      barSeries: [{ dataKey: 'quarterSales', name: 'Quarter Sales',
+        data: fundLabels.map((x, i) => ({ x, y: smRevenue[i] != null ? Math.round(smRevenue[i] * 100) / 100 : null })) }],
       lineSeries: [
-        {
-          dataKey: 'gpm',
-          name: 'GPM %',
-          data: smLabels.map((x, i) => ({ x, y: smGpm[i] })),
-        },
-        {
-          dataKey: 'opm',
-          name: 'OPM %',
-          data: smLabels.map((x, i) => ({ x, y: smOpm[i] })),
-        },
-        {
-          dataKey: 'npm',
-          name: 'NPM %',
-          data: smLabels.map((x, i) => ({ x, y: smNpm[i] })),
-        },
+        { dataKey: 'gpm', name: 'GPM %', data: fundLabels.map((x, i) => ({ x, y: smGpm[i] })) },
+        { dataKey: 'opm', name: 'OPM %', data: fundLabels.map((x, i) => ({ x, y: smOpm[i] })) },
+        { dataKey: 'npm', name: 'NPM %', data: fundLabels.map((x, i) => ({ x, y: smNpm[i] })) },
       ],
     };
 
     // ── 5. EV / EBITDA group ───────────────────────────────────────────────
-    // Bar: quarterly EBITDA (Cr). Line: EV/EBITDA per quarter. Median: 30.3.
+    const evEbitdaData = qPeriods.map((p, i) => {
+      const price     = priceForPeriod(p);
+      // EBITDA = PAT + FIN_COST + DEP_AMORT + TAX_EXP (derived; or use EBITDA if stored)
+      const pat    = p['PAT'];
+      const fc     = p['FIN_COST'];
+      const da     = p['DEP_AMORT'];
+      const tax    = p['TAX_EXP'];
+      const ebitdaCr = (pat != null && fc != null && da != null && tax != null)
+        ? Math.round((pat + fc + da + tax) * 100) / 100 : null;
 
-    const evEbitdaData = qfSorted.map((r) => {
-      const qt = new Date(r.date).getTime();
-      const price = priceForQuarter(qt);
-      const ebitdaCr = r.EBITDA != null ? Math.round(r.EBITDA / 1e7 * 100) / 100 : null;
+      // EV = marketCap + debt - cash
+      const eqCapCr = p['EQ_SHARE_CAP'];
+      const FACE_VALUE = 10;
+      const shares = eqCapCr != null ? (eqCapCr * 1e7) / FACE_VALUE : null;
+      const debtCr = p['BORR_TOTAL'] ?? (((p['DEBT_LT'] ?? 0) + (p['DEBT_ST'] ?? 0)) || null);
+      const cashCr = p['CASH_EQUIV'];
+      const ev = price != null && shares != null
+        ? price * shares / 1e7 + (debtCr ?? 0) - (cashCr ?? 0) : null;
 
-      const bs = bsForQuarter(qt);
-      const shares = bs?.ordinarySharesNumber ?? null;
-      const totalDebt = bs?.totalDebt ?? 0;
-      const cash = bs?.cashCashEquivalentsAndShortTermInvestments ?? bs?.cashAndCashEquivalents ?? 0;
-      const ev = price != null && shares != null ? price * shares + totalDebt - cash : null;
-
-      // TTM EBITDA: sum of up to 4 quarters ending at this date
-      const eligible = qfSorted.filter((x) => new Date(x.date).getTime() <= qt);
-      const recent4 = eligible.slice(-4);
-      const ttmEbitda = recent4.length > 0 && recent4.every((x) => x.EBITDA != null)
-        ? recent4.reduce((s, x) => s + x.EBITDA, 0)
+      const ttmEbitda = ttmAt(i, 'PAT') != null
+        ? (ttmAt(i, 'PAT') ?? 0) + (ttmAt(i, 'FIN_COST') ?? 0) + (ttmAt(i, 'DEP_AMORT') ?? 0) + (ttmAt(i, 'TAX_EXP') ?? 0)
         : null;
 
       const ratio = ev != null && ttmEbitda != null && ttmEbitda !== 0
-        ? Math.round((ev / ttmEbitda) * 100) / 100
-        : null;
+        ? Math.round((ev / ttmEbitda) * 100) / 100 : null;
 
       return { ebitdaCr, ratio };
     });
 
-    const MEDIAN_EV_EBITDA = 30.3;
+    const MEDIAN_EV_EBITDA = median(evEbitdaData.map((d) => d.ratio));
     const evEbitdaGroup = {
       group: 'EV / EBITDA',
-      barSeries: [
-        {
-          dataKey: 'ebitda',
-          name: 'EBITDA',
-          data: fundLabels.map((x, i) => ({ x, y: evEbitdaData[i].ebitdaCr })),
-        },
-      ],
+      barSeries: [{ dataKey: 'ebitda', name: 'EBITDA',
+        data: fundLabels.map((x, i) => ({ x, y: evEbitdaData[i].ebitdaCr })) }],
       lineSeries: [
-        {
-          dataKey: 'evToEbitda',
-          name: 'EV / EBITDA',
-          data: fundLabels.map((x, i) => ({ x, y: evEbitdaData[i].ratio })),
-        },
-        {
-          dataKey: 'medianEvMultiple',
-          name: `Median EV Multiple = ${MEDIAN_EV_EBITDA}`,
-          data: fundLabels.map((x) => ({ x, y: MEDIAN_EV_EBITDA })),
-        },
+        { dataKey: 'evToEbitda',     name: 'EV / EBITDA',                        data: fundLabels.map((x, i) => ({ x, y: evEbitdaData[i].ratio })) },
+        { dataKey: 'medianEvMultiple', name: `Median EV Multiple = ${MEDIAN_EV_EBITDA}`, data: fundLabels.map((x) => ({ x, y: MEDIAN_EV_EBITDA })) },
       ],
     };
 
     // ── 6. Price to Book group ─────────────────────────────────────────────
-    // Bar: Book Value per share (₹). Line: P/BV. Median: 19.6.
-
-    const pbvData = qfSorted.map((r) => {
-      const qt = new Date(r.date).getTime();
-      const price = priceForQuarter(qt);
-      const bs = bsForQuarter(qt);
-      const equity = bs?.stockholdersEquity ?? bs?.commonStockEquity ?? null;
-      const shares = bs?.ordinarySharesNumber ?? null;
-      const bvps = equity != null && shares != null && shares !== 0
-        ? Math.round((equity / shares) * 100) / 100
-        : null;
-      const pbv = price != null && bvps != null && bvps !== 0
-        ? Math.round((price / bvps) * 100) / 100
-        : null;
+    const pbvData = qPeriods.map((p) => {
+      const price   = priceForPeriod(p);
+      const nwCr    = p['NET_WORTH'];
+      const eqCapCr = p['EQ_SHARE_CAP'];
+      const FACE_VALUE = 10;
+      const shares  = eqCapCr != null ? (eqCapCr * 1e7) / FACE_VALUE : null;
+      const bvps    = nwCr != null && shares != null && shares !== 0
+        ? Math.round(((nwCr * 1e7) / shares) * 100) / 100 : null;
+      const pbv     = price != null && bvps != null && bvps !== 0
+        ? Math.round((price / bvps) * 100) / 100 : null;
       return { bvps, pbv };
     });
 
-    const MEDIAN_PBV = 19.6;
+    const MEDIAN_PBV = median(pbvData.map((d) => d.pbv));
     const priceToBookGroup = {
       group: 'Price to Book',
-      barSeries: [
-        {
-          dataKey: 'bookValue',
-          name: 'Book Value',
-          data: fundLabels.map((x, i) => ({ x, y: pbvData[i].bvps })),
-        },
-      ],
+      barSeries: [{ dataKey: 'bookValue', name: 'Book Value',
+        data: fundLabels.map((x, i) => ({ x, y: pbvData[i].bvps })) }],
       lineSeries: [
-        {
-          dataKey: 'priceToBV',
-          name: 'Price to BV',
-          data: fundLabels.map((x, i) => ({ x, y: pbvData[i].pbv })),
-        },
-        {
-          dataKey: 'medianPBV',
-          name: `Median PBV = ${MEDIAN_PBV}`,
-          data: fundLabels.map((x) => ({ x, y: MEDIAN_PBV })),
-        },
+        { dataKey: 'priceToBV', name: 'Price to BV',              data: fundLabels.map((x, i) => ({ x, y: pbvData[i].pbv })) },
+        { dataKey: 'medianPBV', name: `Median PBV = ${MEDIAN_PBV}`, data: fundLabels.map((x) => ({ x, y: MEDIAN_PBV })) },
       ],
     };
 
     // ── 7. Market Cap / Sales group ────────────────────────────────────────
-    // Bar: quarterly Sales (Cr). Line: Market Cap / TTM Sales. Median: 3.5.
-
-    const mcSalesData = qfSorted.map((r) => {
-      const qt = new Date(r.date).getTime();
-      const price = priceForQuarter(qt);
-      const bs = bsForQuarter(qt);
-      const shares = bs?.ordinarySharesNumber ?? null;
-      const marketCap = price != null && shares != null ? price * shares : null;
-
-      const quarterRevenueCr = r.totalRevenue != null ? Math.round(r.totalRevenue / 1e7 * 100) / 100 : null;
-
-      // TTM revenue: sum of up to 4 quarters ending at this date
-      const eligible = qfSorted.filter((x) => new Date(x.date).getTime() <= qt);
-      const recent4 = eligible.slice(-4);
-      const ttmRevenue = recent4.length > 0 && recent4.every((x) => x.totalRevenue != null)
-        ? recent4.reduce((s, x) => s + x.totalRevenue, 0)
-        : null;
-
-      const mcToSales = marketCap != null && ttmRevenue != null && ttmRevenue !== 0
-        ? Math.round((marketCap / ttmRevenue) * 100) / 100
-        : null;
-
-      return { quarterRevenueCr, mcToSales };
+    const mcSalesData = qPeriods.map((p, i) => {
+      const price       = priceForPeriod(p);
+      const eqCapCr     = p['EQ_SHARE_CAP'];
+      const FACE_VALUE  = 10;
+      const shares      = eqCapCr != null ? (eqCapCr * 1e7) / FACE_VALUE : null;
+      const marketCapCr = price != null && shares != null ? (price * shares) / 1e7 : null;
+      const revCr       = p['REV_OP'] ?? p['TOTAL_INCOME'];
+      const ttmRevCr    = ttmAt(i, 'REV_OP') ?? ttmAt(i, 'TOTAL_INCOME');
+      const mcToSales   = marketCapCr != null && ttmRevCr != null && ttmRevCr !== 0
+        ? Math.round((marketCapCr / ttmRevCr) * 100) / 100 : null;
+      return { quarterRevenueCr: revCr != null ? Math.round(revCr * 100) / 100 : null, mcToSales };
     });
 
-    const MEDIAN_MC_SALES = 3.5;
+    const MEDIAN_MC_SALES = median(mcSalesData.map((d) => d.mcToSales));
     const mcSalesGroup = {
       group: 'Market Cap / Sales',
-      barSeries: [
-        {
-          dataKey: 'sales',
-          name: 'Sales',
-          data: fundLabels.map((x, i) => ({ x, y: mcSalesData[i].quarterRevenueCr })),
-        },
-      ],
+      barSeries: [{ dataKey: 'sales', name: 'Sales',
+        data: fundLabels.map((x, i) => ({ x, y: mcSalesData[i].quarterRevenueCr })) }],
       lineSeries: [
-        {
-          dataKey: 'mcToSales',
-          name: 'Market Cap / Sales',
-          data: fundLabels.map((x, i) => ({ x, y: mcSalesData[i].mcToSales })),
-        },
-        {
-          dataKey: 'medianMcToSales',
-          name: `Median Market Cap to Sales = ${MEDIAN_MC_SALES}`,
-          data: fundLabels.map((x) => ({ x, y: MEDIAN_MC_SALES })),
-        },
+        { dataKey: 'mcToSales',       name: 'Market Cap / Sales',                       data: fundLabels.map((x, i) => ({ x, y: mcSalesData[i].mcToSales })) },
+        { dataKey: 'medianMcToSales', name: `Median Market Cap to Sales = ${MEDIAN_MC_SALES}`, data: fundLabels.map((x) => ({ x, y: MEDIAN_MC_SALES })) },
       ],
     };
 

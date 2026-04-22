@@ -3,7 +3,6 @@ const connection   = require('../config/redis');
 const prisma       = require('../config/prisma');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { dealAnalysisPrompt }    = require('../prompts/deal_analysis');
-const { fetchTickerFinancials } = require('../utils/fincruxHelper');
 const { upsertDealResult }      = require('../services/db/deal.db');
 const { FinHelper }             = require('../utils/finHelper');
 const { isBFSI }                = require('../utils/industryClassifier');
@@ -26,13 +25,6 @@ async function getRecentSummaries(ticker) {
   return rows.reverse();
 }
 
-function extractCmp(fincruxData) {
-  const price = fincruxData?.data?.top_ratios?.['Current Price'];
-  if (!price) return null;
-  const num = parseFloat(String(price).replace(/[₹,\s]/g, ''));
-  return isNaN(num) ? null : num;
-}
-
 // ─── Processor ───────────────────────────────────────────────────────────────
 
 async function processDealJob(job) {
@@ -47,14 +39,7 @@ async function processDealJob(job) {
     });
     await job.updateProgress(5);
 
-    let cmp = null;
-    try {
-      const fincruxResult = await fetchTickerFinancials(ticker);
-      cmp = extractCmp(fincruxResult);
-      console.log(`[Deal] CMP for ${ticker}: ₹${cmp}`);
-    } catch (err) {
-      console.warn(`[Deal] Could not fetch CMP from Fincrux for ${ticker}: ${err.message}`);
-    }
+    const cmp = null;
     await job.updateProgress(20);
 
     const recentSummaries = await getRecentSummaries(ticker);

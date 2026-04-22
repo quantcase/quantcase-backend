@@ -1,7 +1,5 @@
 'use strict';
 
-const YahooFinance = require('yahoo-finance2').default;
-
 const {
   r2,
   loadIdentityMap,
@@ -14,7 +12,7 @@ const {
   SH_PERIOD_COUNT,
 } = require('../lib/prowess');
 
-const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+const prisma = require('../config/prisma');
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 
@@ -32,7 +30,6 @@ const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 async function getCharts(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
-    const ticker = symbol + '.NS';
 
     const companyRow = findFundCompanyRow(symbol);
     if (!companyRow) {
@@ -46,24 +43,23 @@ async function getCharts(req, res, next) {
     const periods = Array.from({ length: FUND_PERIOD_COUNT }, (_, i) => fundPeriodData(companyRow, i));
     const quarterLabel = quarterLabels[FUND_PERIOD_COUNT - 1];
 
-    // ── 1. Price group — yfinance ─────────────────────────────────────────────
-    const now = Date.now();
-    const tenYearsAgo = new Date(now - 10 * 365 * 24 * 60 * 60 * 1000);
+    // ── 1. Price group — nse_equity ───────────────────────────────────────────
+    const tenYearsAgo = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000);
 
-    let monthlyChart = null;
-    try {
-      monthlyChart = await yahooFinance.chart(ticker, {
-        period1: tenYearsAgo,
-        period2: new Date(now),
-        interval: '1mo',
-      });
-    } catch (_) {
-      // non-fatal
-    }
+    const monthlyPriceRows = await prisma.$queryRaw`
+      SELECT
+        DATE_TRUNC('month', datetime) AS month,
+        AVG(close)  AS close,
+        SUM(volume) AS volume
+      FROM nse_equity
+      WHERE symbol = ${symbol} AND datetime >= ${tenYearsAgo}
+      GROUP BY DATE_TRUNC('month', datetime)
+      ORDER BY month ASC
+    `;
 
-    const monthlyQuotes = (monthlyChart?.quotes ?? [])
+    const monthlyQuotes = monthlyPriceRows
       .filter((q) => q.close != null)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+      .map((q) => ({ date: q.month, close: parseFloat(q.close), volume: q.volume ? Number(q.volume) : null }));
 
     function rollingAvg(closes, window) {
       return closes.map((_, i) => {
