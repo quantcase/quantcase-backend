@@ -6,6 +6,9 @@ const csvParse = require('csv-parse/sync');
 const technicalAnalysis = require('../lib/technicalAnalysis');
 const financials = require('../lib/financials');
 const { generateDecisionIntelligence } = require('../utils/decisionIntelligence');
+const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_intelligence');
+const { loadSkillConfig } = require('../utils/skillConfig');
+const { llmStream, parseJson } = require('../utils/workerUtils');
 const { computeIndicatorSeries } = require('../utils/taIndicators');
 const prisma = require('../config/prisma');
 
@@ -584,10 +587,42 @@ async function getTickerInfo(req, res, next) {
   }
 }
 
+async function generateFundamentalsIntelligence(symbol, finResult) {
+  try {
+    const { model, maxTokens, promptTemplate } = await loadSkillConfig('fundamentals-intelligence');
+    const prompt = fundamentalsIntelligencePrompt(symbol, finResult, promptTemplate);
+    const text = await llmStream({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
+    if (!text) return null;
+    return parseJson(text);
+  } catch (err) {
+    console.error('[fundamentalsIntelligence] LLM call failed:', err.message);
+    return null;
+  }
+}
+
 async function getFinancials(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
     const result = await financials.analyze(symbol);
+
+    const dbInsight = await prisma.aiInsight.findUnique({
+      where: { ticker_type: { ticker: symbol, type: 'fundamentals' } },
+    });
+
+    if (dbInsight?.insight) {
+      result.fundamentalsIntelligence = dbInsight.insight;
+    } else {
+      const insight = await generateFundamentalsIntelligence(symbol, result);
+      result.fundamentalsIntelligence = insight;
+      if (insight) {
+        await prisma.aiInsight.upsert({
+          where:  { ticker_type: { ticker: symbol, type: 'fundamentals' } },
+          create: { ticker: symbol, type: 'fundamentals', insight },
+          update: { insight, updated_at: new Date() },
+        });
+      }
+    }
+
     res.json(result);
   } catch (err) {
     next(err);

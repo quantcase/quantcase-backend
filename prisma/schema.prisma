@@ -741,6 +741,7 @@ enum PluginCategory {
   wealthos
   technicals
   private_equity
+  fundamentals
 }
 
 model Skill {
