@@ -699,6 +699,36 @@ model WatchlistAsset {
   @@map("watchlist_assets")
 }
 
+// ─── Mutual Funds ─────────────────────────────────────────────────────────────
+
+model MutualFundScheme {
+  amfi_code      String   @id
+  name           String
+  isin           String?
+  plan_type      String?
+  option_type    String?
+  nav            Float?
+  nav_date       String?
+  day_change     Float?
+  day_change_pct Float?
+  morningstar    Int?
+  risk_label     String?
+  expense_ratio  Float?
+  aum            Float?
+  family_name    String?
+  family_id      Int?
+  amc_name       String?
+  amc_slug       String?
+  category       String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@index([amc_slug])
+  @@index([category])
+  @@index([family_id])
+  @@map("mutual_fund_schemes")
+}
+
 // ─── Skills & Plugins ────────────────────────────────────────────────────────
 
 enum PluginCategory {
