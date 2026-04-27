@@ -42,11 +42,12 @@ async function getLatestOFactorResultByTicker(ticker, prismaClient) {
 
 // Section → result key mapping
 const SECTION_KEY_MAP = {
-  industry:           'industry_overview',
-  competition:        'competition',
-  financial_strength: 'financial_strength',
-  customer_traction:  'customer_traction',
-  final_takeaways:    'final_takeaways',
+  industry:                    'industry_overview',
+  competition:                 'competition',
+  financial_strength:          'financial_strength',
+  financial_strength_insights: 'financial_strength',  // merges extras into the same financial_strength record
+  customer_traction:           'customer_traction',
+  final_takeaways:             'final_takeaways',
 };
 
 /**

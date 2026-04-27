@@ -405,7 +405,9 @@ ${subjectText}`;
 // ─── Main exported prompt builder ────────────────────────────────────────────
 
 /**
- * Build the financial strength prompt.
+ * Build the financial strength core prompt (core metrics + final_scoring only).
+ * extras are computed locally by computeFinancialStrengthExtras and then enriched
+ * by a second lightweight LLM call (ofactor-financial-strength-insights).
  *
  * @param {string} subjectTicker
  * @param {{ callId, financialStrength }[]} subjectData
@@ -415,8 +417,8 @@ ${subjectText}`;
  * @param {string|null} [dbInstructions=null] - defaultInstructions from DB
  */
 function financialStrengthPrompt(subjectTicker, subjectData, computedMetrics, customInstructions, dbTemplate, dbInstructions) {
-  if (!dbTemplate)     throw new Error('[financialStrengthPrompt] dbTemplate is required — configure skill "ofactor-financial-strength" in DB');
-  if (!dbInstructions) throw new Error('[financialStrengthPrompt] dbInstructions is required — configure skill "ofactor-financial-strength" in DB');
+  if (!dbTemplate)     throw new Error('[financialStrengthPrompt] dbTemplate is required — configure skill "ofactor-financial-strength-core" in DB');
+  if (!dbInstructions) throw new Error('[financialStrengthPrompt] dbInstructions is required — configure skill "ofactor-financial-strength-core" in DB');
 
   const dataBlock    = buildDataBlock(subjectTicker, subjectData, computedMetrics);
   const instructions = customInstructions ?? dbInstructions;

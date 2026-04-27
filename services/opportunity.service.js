@@ -98,10 +98,10 @@ function filterOFactorForIndustry(result, bfsi) {
 function computeTotalScore(result) {
   if (!result) return null;
   const SECTIONS = [
-    { key: 'industry_overview',  path: result.industry_overview?.final_scoring,  max: 10 },
-    { key: 'competition',        path: result.competition?.final_scoring,        max: 10 },
-    { key: 'financial_strength', path: result.financial_strength?.final_scoring, max: 10 },
-    { key: 'customer_traction',  path: result.customer_traction?.final_scoring,  max: 10 },
+    { key: 'industry_overview',  path: result.industry_overview?.final_scoring,           max: 25 },
+    { key: 'competition',        path: result.competition?.final_scoring,                  max: 25 },
+    { key: 'financial_strength', path: result.financial_strength?.final_scoring,           max: 25 },
+    { key: 'customer_traction',  path: result.customer_traction?.analysis?.final_scoring,  max: 25 },
   ];
   const present = SECTIONS.filter(s => s.path?.score != null);
   if (!present.length) return null;

@@ -6,28 +6,30 @@ const jobQueue = require('../lib/jobQueue');
 // Maps skill.slug → the BullMQ queue that processes it.
 // All ofactor sub-skills share the same queue; the `section` field distinguishes them.
 const SKILL_TO_QUEUE = {
-  'summarization':                'summarization',
-  'qe-extraction':                'qe_extraction',
-  'deal-analysis':                'deal_analysis',
-  'nse-industry':                 'ofactor_analysis',
-  'ofactor-industry':             'ofactor_analysis',
-  'ofactor-competition':          'ofactor_analysis',
-  'ofactor-financial-strength':   'ofactor_analysis',
-  'ofactor-customer-traction':    'ofactor_analysis',
-  'ofactor-final-takeaways':      'ofactor_analysis',
-  'wealthos-suggestion':          'wealthos_suggestion',
-  'wealthos-message':             'wealthos_message',
-  'technical-intelligence':       'technicals_analysis',
-  'deal-intelligence':            'deal_intelligence',
+  'summarization':                        'summarization',
+  'qe-extraction':                        'qe_extraction',
+  'deal-analysis':                        'deal_analysis',
+  'nse-industry':                         'ofactor_analysis',
+  'ofactor-industry':                     'ofactor_analysis',
+  'ofactor-competition':                  'ofactor_analysis',
+  'ofactor-financial-strength-core':      'ofactor_analysis',
+  'ofactor-financial-strength-insights':  'ofactor_analysis',
+  'ofactor-customer-traction':            'ofactor_analysis',
+  'ofactor-final-takeaways':              'ofactor_analysis',
+  'wealthos-suggestion':                  'wealthos_suggestion',
+  'wealthos-message':                     'wealthos_message',
+  'technical-intelligence':               'technicals_analysis',
+  'deal-intelligence':                    'deal_intelligence',
 };
 
 // For ofactor skills, the `section` field tells the worker which sub-prompt to run.
 const SKILL_TO_SECTION = {
-  'ofactor-industry':             'industry',
-  'ofactor-competition':          'competition',
-  'ofactor-financial-strength':   'financial_strength',
-  'ofactor-customer-traction':    'customer_traction',
-  'ofactor-final-takeaways':      'final_takeaways',
+  'ofactor-industry':                     'industry',
+  'ofactor-competition':                  'competition',
+  'ofactor-financial-strength-core':      'financial_strength',
+  'ofactor-financial-strength-insights':  'financial_strength_insights',
+  'ofactor-customer-traction':            'customer_traction',
+  'ofactor-final-takeaways':              'final_takeaways',
 };
 
 /**
