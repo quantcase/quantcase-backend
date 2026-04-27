@@ -10,19 +10,21 @@ const { FinHelper }                 = require('../utils/finHelper');
 const { isBFSI }                    = require('../utils/industryClassifier');
 const { industryPrompt }            = require('../prompts/of-prompts/industry-prompt');
 const { competitionPrompt }         = require('../prompts/of-prompts/competition-prompt');
-const { financialStrengthPrompt }   = require('../prompts/of-prompts/financial-strength-prompt');
-const { customerTractionPrompt }    = require('../prompts/of-prompts/customer-traction-prompt');
+const { financialStrengthPrompt }         = require('../prompts/of-prompts/financial-strength-prompt');
+const { financialStrengthInsightsPrompt } = require('../prompts/of-prompts/financial-strength-insights-prompt');
+const { customerTractionPrompt }          = require('../prompts/of-prompts/customer-traction-prompt');
 const { finalTakeawaysPrompt }      = require('../prompts/of-prompts/final-takeaways-prompt');
 const { loadSkillConfig }           = require('../utils/skillConfig');
 const { nseIndustryPrompt, selectCompanies, loadCompanyData } = require('../prompts/of-prompts/nse-industry-prompt');
 
-const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'customer_traction', 'final_takeaways']);
+const VALID_SECTIONS = new Set(['industry', 'competition', 'financial_strength', 'financial_strength_insights', 'customer_traction', 'final_takeaways']);
 
 const SECTION_TO_SKILL = {
-  competition:        'ofactor-competition',
-  financial_strength: 'ofactor-financial-strength',
-  customer_traction:  'ofactor-customer-traction',
-  final_takeaways:    'ofactor-final-takeaways',
+  competition:                  'ofactor-competition',
+  financial_strength:           'ofactor-financial-strength-core',
+  financial_strength_insights:  'ofactor-financial-strength-insights',
+  customer_traction:            'ofactor-customer-traction',
+  final_takeaways:              'ofactor-final-takeaways',
 };
 
 function resolveIndustrySkill(bfsi) {
@@ -257,7 +259,47 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
     marketCap,
   };
 
-  return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'financial_strength', metrics };
+  return { prompt: financialStrengthPrompt(subjectTicker, subjectData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'financial_strength' };
+}
+
+async function buildFinancialStrengthInsightsSection(subjectTicker, industry, dbTemplate) {
+  const RAW_ABBRS = [
+    'REV_OP', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
+    'EMP_EXP', 'OTH_EXP', 'DEP_AMORT', 'FIN_COST',
+    'PAT', 'PBT', 'CFO',
+    'TRADE_RECV', 'TRADE_PAY', 'INVENTORY',
+    'DEBT_LT', 'DEBT_ST', 'CASH_EQUIV',
+    'EQ_SHARE_CAP', 'RES_SURPLUS',
+    'ASSET_PPE', 'ASSET_CWIP',
+    'TOTAL_ASSETS', 'CURR_LIAB', 'PROV_CONT',
+    'DIV_PAYOUT',
+  ];
+
+  const bfsi = isBFSI(industry);
+  const { computeFinancialStrengthExtras } = require('../utils/finExtras');
+
+  const [rawBatch, derivedBatch, mcRows] = await Promise.all([
+    new FinHelper(prisma).getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
+    new FinHelper(prisma).getDerivedKpiBatch(subjectTicker, bfsi),
+    prisma.$queryRaw`SELECT mc."market_cap(Cr)"::text AS market_cap FROM market_cap mc WHERE mc.symbol = ${subjectTicker} ORDER BY mc.date DESC NULLS LAST LIMIT 1`,
+  ]);
+
+  const marketCap = mcRows[0]?.market_cap != null ? parseFloat(mcRows[0].market_cap) : null;
+
+  const lastNQuarters = (batch, n = 10) => Object.fromEntries(
+    Object.entries(batch).map(([k, v]) => [k, v.slice(-n)])
+  );
+
+  const rawBatchAll     = lastNQuarters(rawBatch);
+  const derivedBatchAll = lastNQuarters(derivedBatch);
+  const localExtras     = computeFinancialStrengthExtras(rawBatchAll, derivedBatchAll, bfsi, marketCap);
+
+  return {
+    prompt:     financialStrengthInsightsPrompt(subjectTicker, localExtras, bfsi, dbTemplate),
+    sectionKey: 'financial_strength_insights',
+    localExtras,
+    bfsi,
+  };
 }
 
 async function buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions) {
@@ -463,7 +505,7 @@ async function processOFactorJob(job) {
     const skillSlug = section === 'industry' ? resolveIndustrySkill(bfsiFlag) : SECTION_TO_SKILL[section];
     const { model, maxTokens, outputSchema, promptTemplate: dbTemplate, defaultInstructions: dbInstructions } = await loadSkillConfig(skillSlug);
 
-    let promptText, sectionKey, fsMetrics;
+    let promptText, sectionKey, fsMetrics, insightsExtras, insightsBfsi;
 
     if (section === 'final_takeaways') {
       // Reads directly from saved oFactorResult — no summaries/peers/helper needed
@@ -491,7 +533,9 @@ async function processOFactorJob(job) {
     } else if (section === 'competition') {
       ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions));
     } else if (section === 'financial_strength') {
-      ({ prompt: promptText, sectionKey, metrics: fsMetrics } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
+      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
+    } else if (section === 'financial_strength_insights') {
+      ({ prompt: promptText, sectionKey, localExtras: insightsExtras, bfsi: insightsBfsi } = await buildFinancialStrengthInsightsSection(subjectTicker, industry, dbTemplate));
     } else {
       ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
     }
@@ -530,30 +574,53 @@ async function processOFactorJob(job) {
       throw new Error(`[OFactor] Section "${section}" result is empty after parsing. Raw response (first 500 chars): ${responseText.slice(0, 500)}`);
     }
 
-    // Enrich financial_strength extras with locally computed DB data (no LLM hallucination on numbers)
-    if (section === 'financial_strength' && fsMetrics) {
-      try {
-        const { computeFinancialStrengthExtras, deepMerge } = require('../utils/finExtras');
-        const localExtras = computeFinancialStrengthExtras(
-          fsMetrics.rawBatchAll, fsMetrics.derivedBatchAll, fsMetrics.bfsi, fsMetrics.marketCap
-        );
-        // Handle both nested { core, extras, final_scoring } and flat shapes from LLM
-        if (sectionResult.extras && typeof sectionResult.extras === 'object') {
-          // Nested shape: local wins on every key, LLM fills nulls
-          sectionResult.extras = deepMerge(localExtras, sectionResult.extras);
-        } else {
-          // Flat shape: merge each sub-section individually
-          sectionResult.operating_leverage = deepMerge(localExtras.operating_leverage, sectionResult.operating_leverage ?? {});
-          sectionResult.free_cash_flow     = deepMerge(localExtras.free_cash_flow,     sectionResult.free_cash_flow     ?? {});
-          if (!fsMetrics.bfsi && localExtras.working_capital) {
-            sectionResult.working_capital  = deepMerge(localExtras.working_capital,    sectionResult.working_capital    ?? {});
-          }
-          sectionResult.capital_structure  = deepMerge(localExtras.capital_structure,  sectionResult.capital_structure  ?? {});
+    // ── financial_strength_insights: patch blurbs into localExtras, then merge into saved financial_strength ──
+    if (section === 'financial_strength_insights' && insightsExtras) {
+      const { deepMerge } = require('../utils/finExtras');
+      const ins = sectionResult;
+
+      const ol = insightsExtras.operating_leverage;
+      if (ol && ins.operating_leverage) {
+        if (ol.verdict)           ol.verdict.description         = ins.operating_leverage.verdict_description    ?? null;
+        if (ol.total_fixed_costs) ol.total_fixed_costs.note      = ins.operating_leverage.total_fixed_costs_note ?? null;
+        if (ol.fixed_cost_lines && ins.operating_leverage.fixed_cost_notes) {
+          ol.fixed_cost_lines = ol.fixed_cost_lines.map((l, i) => ({ ...l, note: ins.operating_leverage.fixed_cost_notes[i] ?? null }));
         }
-        console.log(`[OFactor] financial_strength extras enriched from DB data`);
-      } catch (enrichErr) {
-        console.error(`[OFactor] financial_strength extras enrichment failed (non-fatal):`, enrichErr);
       }
+      const fcfE = insightsExtras.free_cash_flow;
+      if (fcfE && ins.free_cash_flow) {
+        if (fcfE.growth_trajectory) {
+          fcfE.growth_trajectory.insight_headline = ins.free_cash_flow.insight_headline ?? null;
+          fcfE.growth_trajectory.insight_body     = ins.free_cash_flow.insight_body     ?? null;
+        }
+        if (fcfE.ocf_to_fcf) fcfE.ocf_to_fcf.drag_description         = ins.free_cash_flow.drag_description        ?? null;
+        if (fcfE.fcf_yield)  fcfE.fcf_yield.compression_explanation    = ins.free_cash_flow.compression_explanation ?? null;
+      }
+      if (!insightsBfsi && insightsExtras.working_capital && ins.working_capital) {
+        insightsExtras.working_capital.insight = ins.working_capital.insight ?? null;
+      }
+      const csE = insightsExtras.capital_structure;
+      if (csE && ins.capital_structure) {
+        if (csE.balance_sheet)     csE.balance_sheet.insight                = ins.capital_structure.balance_sheet_insight   ?? null;
+        if (csE.debt_trajectory)   csE.debt_trajectory.insight              = ins.capital_structure.debt_trajectory_insight ?? null;
+        if (csE.equity_allocation) {
+          csE.equity_allocation.roe_sublabel    = ins.capital_structure.equity_roe_sublabel    ?? null;
+          csE.equity_allocation.payout_sublabel = ins.capital_structure.equity_payout_sublabel ?? null;
+          csE.equity_allocation.insight         = ins.capital_structure.equity_insight         ?? null;
+        }
+        if (csE.capex_intensity) {
+          if (ins.capital_structure.capex_notes) {
+            csE.capex_intensity.metrics = csE.capex_intensity.metrics.map((m, i) => ({ ...m, note: ins.capital_structure.capex_notes[i] ?? null }));
+          }
+          csE.capex_intensity.note = ins.capital_structure.capex_note ?? null;
+        }
+      }
+
+      // Merge enriched extras into the existing saved financial_strength record
+      const existing = await prisma.oFactorResult.findUnique({ where: { callId } });
+      const existingFs = existing?.result?.financial_strength ?? {};
+      sectionResult = { ...existingFs, extras: insightsExtras };
+      console.log(`[OFactor] financial_strength_insights: extras patched and merged into financial_strength`);
     }
 
     await job.updateProgress(90);

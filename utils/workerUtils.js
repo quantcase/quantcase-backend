@@ -36,7 +36,13 @@ async function llmStream(params) {
     throw err;
   }
   let text = '';
-  for await (const chunk of stream) text += chunk.choices[0]?.delta?.content ?? '';
+  try {
+    for await (const chunk of stream) text += chunk.choices[0]?.delta?.content ?? '';
+  } catch (err) {
+    const body = err?.error ?? err?.response?.data ?? err?.message;
+    console.error('[llmStream] stream error:', JSON.stringify(body, null, 2));
+    throw err;
+  }
   return text;
 }
 

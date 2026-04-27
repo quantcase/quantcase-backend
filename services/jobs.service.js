@@ -61,8 +61,9 @@ const SKILL_LABELS = {
   'nse-industry':               'Analyzing NSE Industry',
   'ofactor-industry':           'Analyzing Industry Overview',
   'ofactor-competition':        'Analyzing Competition',
-  'ofactor-financial-strength': 'Analyzing Financial Strength',
-  'ofactor-customer-traction':  'Analyzing Customer Traction',
+  'ofactor-financial-strength-core':     'Analyzing Financial Strength',
+  'ofactor-financial-strength-insights': 'Enriching Financial Insights',
+  'ofactor-customer-traction':           'Analyzing Customer Traction',
   'ofactor-final-takeaways':    'Generating Final Takeaways',
 };
 
