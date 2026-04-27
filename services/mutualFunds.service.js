@@ -23,29 +23,94 @@ function settled(result) {
   return result.status === 'fulfilled' ? result.value?.data ?? null : null;
 }
 
-async function listSchemes({ page, size, category, amc_slug, plan_type } = {}) {
+const ALLOWED_SORT = new Set(['aum', 'expense_ratio', 'morningstar', 'name', 'nav']);
+
+async function listSchemes({ page, size, q, category, risk, rating, amc_slug, plan_type, sort, order } = {}) {
   const where = {};
-  if (category)  where.category  = category;
+
+  if (q) {
+    where.name = { contains: q, mode: 'insensitive' };
+  }
+
+  // category and risk support comma-separated multi-values
+  if (category) {
+    const cats = category.split(',').map(s => s.trim()).filter(Boolean);
+    where.category = cats.length === 1 ? cats[0] : { in: cats };
+  }
+
+  if (risk) {
+    const risks = risk.split(',').map(s => s.trim()).filter(Boolean);
+    where.risk_label = risks.length === 1 ? risks[0] : { in: risks };
+  }
+
+  if (rating) {
+    where.morningstar = { gte: Number(rating) };
+  }
+
   if (amc_slug)  where.amc_slug  = amc_slug;
   if (plan_type) where.plan_type = plan_type;
 
-  const paginated = size !== undefined;
-  const limit     = paginated ? Math.min(Number(size) || 50, 200) : undefined;
-  const offset    = paginated ? (Math.max(Number(page) || 1, 1) - 1) * limit : undefined;
+  const sortField = ALLOWED_SORT.has(sort) ? sort : 'aum';
+  const sortOrder = order === 'asc' ? 'asc' : 'desc';
+
+  const limit  = Math.min(Number(size) || 50, 200);
+  const pageNo = Math.max(Number(page) || 1, 1);
+  const offset = (pageNo - 1) * limit;
 
   const [total, schemes] = await Promise.all([
     prisma.mutualFundScheme.count({ where }),
     prisma.mutualFundScheme.findMany({
       where,
-      orderBy: { aum: 'desc' },
-      ...(paginated ? { skip: offset, take: limit } : {}),
+      orderBy: { [sortField]: sortOrder },
+      skip: offset,
+      take: limit,
     }),
   ]);
 
+  return { total, page: pageNo, size: limit, schemes };
+}
+
+async function getFilterOptions() {
+  const [categories, risks, amcs, planTypes] = await Promise.all([
+    prisma.mutualFundScheme.findMany({
+      where:    { category: { not: null } },
+      select:   { category: true },
+      distinct: ['category'],
+      orderBy:  { category: 'asc' },
+    }),
+    prisma.mutualFundScheme.findMany({
+      where:    { risk_label: { not: null } },
+      select:   { risk_label: true },
+      distinct: ['risk_label'],
+    }),
+    prisma.mutualFundScheme.findMany({
+      where:    { amc_slug: { not: null }, amc_name: { not: null } },
+      select:   { amc_slug: true, amc_name: true },
+      distinct: ['amc_slug'],
+      orderBy:  { amc_name: 'asc' },
+    }),
+    prisma.mutualFundScheme.findMany({
+      where:    { plan_type: { not: null } },
+      select:   { plan_type: true },
+      distinct: ['plan_type'],
+    }),
+  ]);
+
+  // Sort risk labels by severity
+  const riskOrder = ['Low Risk', 'Low to Moderate Risk', 'Moderate Risk', 'Moderately High risk', 'High Risk', 'Very High Risk'];
+  const sortedRisks = risks
+    .map(r => r.risk_label)
+    .sort((a, b) => {
+      const ai = riskOrder.indexOf(a);
+      const bi = riskOrder.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+
   return {
-    total,
-    ...(paginated ? { page: Math.max(Number(page) || 1, 1), size: limit } : {}),
-    schemes,
+    categories: categories.map(c => c.category),
+    risks:      sortedRisks,
+    amcs:       amcs.map(a => ({ slug: a.amc_slug, name: a.amc_name })),
+    plan_types: planTypes.map(p => p.plan_type),
   };
 }
 
@@ -100,6 +165,11 @@ async function getSchemeDetails(amfi_code) {
     risk_label:     detail?.risk_label     ?? scheme.risk_label,
     morningstar:    detail?.morningstar    ?? scheme.morningstar,
 
+    // Returns from DB
+    returns_1y:     scheme.returns_1y,
+    returns_3y:     scheme.returns_3y,
+    returns_5y:     scheme.returns_5y,
+
     // Costs & investment minimums
     min_sip:        detail?.min_sip        ?? null,
     min_lumpsum:    detail?.min_lumpsum    ?? null,
@@ -115,13 +185,13 @@ async function getSchemeDetails(amfi_code) {
     returns:           detail?.returns          ?? null,
     ratios:            detail?.ratios           ?? null,
 
-    // Sibling plan variants (direct/regular, growth/idcw) with their expense ratios
+    // Sibling plan variants
     related_variants:  detail?.related_variants ?? [],
 
-    // Portfolio holdings (current month, from families endpoint)
+    // Portfolio holdings (current month)
     holdings: settled(holdings),
 
-    // Sector allocation — array of { sector, total_weight, stock_count, total_market_value }
+    // Sector allocation
     sectors: settled(sectors),
 
     // Month-over-month AUM / allocation history
@@ -130,15 +200,15 @@ async function getSchemeDetails(amfi_code) {
     // Fund managers & team
     people: settled(people),
 
-    // Calendar-year annual returns & growth of ₹10K
+    // Calendar-year annual returns
     performance: settled(performance),
 
     // Risk: capture ratios, drawdown, analyst ratings
     risk_detail: settled(riskDetail),
 
-    // NAV history (5Y monthly) for rolling return chart — { summary, data: [{period, open, high, low, close}] }
+    // NAV history (5Y monthly) for charts
     nav_history: settled(navHistory),
   };
 }
 
-module.exports = { listSchemes, getSchemeDetails };
+module.exports = { listSchemes, getFilterOptions, getSchemeDetails };

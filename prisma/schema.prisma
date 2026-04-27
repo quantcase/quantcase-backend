@@ -720,6 +720,9 @@ model MutualFundScheme {
   amc_name       String?
   amc_slug       String?
   category       String?
+  returns_1y     Float?
+  returns_3y     Float?
+  returns_5y     Float?
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 

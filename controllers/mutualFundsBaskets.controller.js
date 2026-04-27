@@ -17,6 +17,7 @@ const BASKETS = [
     searchIntent: 'Safe capital parking with stable short-term returns',
     conditions: 'Category: Liquid / Overnight / Short Duration / Money Market; Risk Label: Low / Low to Moderate; AUM > ₹1,000 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'nav', 'morningstar'],
+    filter_params: 'category=Liquid,Overnight,Short+Duration,Money+Market,Ultra+Short+Duration,Low+Duration&risk=Low+Risk,Low+to+Moderate+Risk',
   },
   {
     id: 'balanced-hybrid',
@@ -26,6 +27,7 @@ const BASKETS = [
     searchIntent: 'Growth with downside cushion via equity-debt mix',
     conditions: 'Category: Aggressive Hybrid / Balanced Advantage / Balanced Hybrid; Risk Label: Moderately High; AUM > ₹500 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'nav', 'morningstar'],
+    filter_params: 'category=Dynamic+Asset+Allocation,Equity+Savings,Multi+Asset+Allocation,Aggressive+Allocation,Balanced+Allocation,Conservative+Allocation',
   },
   {
     id: 'high-risk-equity',
@@ -35,6 +37,7 @@ const BASKETS = [
     searchIntent: 'Aggressive equity exposure for long-term wealth creation',
     conditions: 'Category: Small Cap / Mid Cap / Sectoral / Thematic; Risk Label: Very High; AUM > ₹100 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'nav', 'morningstar'],
+    filter_params: 'category=Small-Cap,Mid-Cap,Sector+-+Energy,Sector+-+Financial+Services,Sector+-+Healthcare,Sector+-+Technology,Equity+-+Other,Contra,Value&risk=Very+High+Risk,High+Risk',
   },
 
   // ── Performance & Consistency ─────────────────────────────────────────────
@@ -46,6 +49,7 @@ const BASKETS = [
     searchIntent: 'Proven large cap performers with top peer ranking',
     conditions: 'Category: Large Cap; Morningstar Rating ≥ 4; Plan Type: Direct; AUM > ₹1,000 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'morningstar', 'nav'],
+    filter_params: 'category=Large-Cap&rating=4&plan_type=direct',
   },
   {
     id: 'top-rated-flexi-cap',
@@ -55,6 +59,7 @@ const BASKETS = [
     searchIntent: 'Flexible mandate with top quartile consistency across cycles',
     conditions: 'Category: Flexi Cap / Multi Cap; Morningstar Rating ≥ 4; Plan Type: Direct; AUM > ₹500 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'morningstar', 'nav'],
+    filter_params: 'category=Flexi+Cap,Multi-Cap&rating=4&plan_type=direct',
   },
   {
     id: 'consistent-midcap',
@@ -64,6 +69,7 @@ const BASKETS = [
     searchIntent: 'Mid cap funds with proven consistency and peer rank stability',
     conditions: 'Category: Mid Cap; Morningstar Rating ≥ 3; AUM > ₹500 Cr; Risk Label: Very High',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'morningstar', 'nav'],
+    filter_params: 'category=Mid-Cap&rating=3',
   },
 
   // ── Risk & Risk-Adjusted Returns ──────────────────────────────────────────
@@ -75,6 +81,7 @@ const BASKETS = [
     searchIntent: 'Market returns at the lowest possible cost via passive funds',
     conditions: 'Category: Index Fund / ETF; Expense Ratio < 0.3%; Plan Type: Direct; AUM > ₹500 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'nav', 'morningstar'],
+    filter_params: 'category=Index+Funds&plan_type=direct',
   },
   {
     id: 'low-expense-active',
@@ -84,6 +91,7 @@ const BASKETS = [
     searchIntent: 'Active management with minimal expense ratio drag',
     conditions: 'Plan Type: Direct; Expense Ratio < 0.8%; Category excludes Index / ETF / Liquid; AUM > ₹200 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'nav', 'morningstar'],
+    filter_params: 'plan_type=direct',
   },
 
   // ── Portfolio Construction ─────────────────────────────────────────────────
@@ -95,6 +103,7 @@ const BASKETS = [
     searchIntent: 'High-conviction, large-scale funds with institutional backing',
     conditions: 'AUM > ₹5,000 Cr; Plan Type: Direct; Category: Equity or Hybrid; AUM > ₹5,000 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'morningstar', 'nav'],
+    filter_params: 'category=Large-Cap,Mid-Cap,Small-Cap,Flexi+Cap,Multi-Cap,Dynamic+Asset+Allocation,Equity+Savings,Multi+Asset+Allocation&plan_type=direct',
   },
   {
     id: 'direct-plan-advantage',
@@ -104,6 +113,7 @@ const BASKETS = [
     searchIntent: 'Switch from regular to direct to save commission drag',
     conditions: 'Plan Type: Direct; All categories; Morningstar Rating ≥ 3; AUM > ₹100 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'morningstar', 'nav'],
+    filter_params: 'plan_type=direct&rating=3',
   },
 
   // ── Track Record & External Validation ───────────────────────────────────
@@ -115,6 +125,7 @@ const BASKETS = [
     searchIntent: 'Best-in-class rated funds across all categories',
     conditions: 'Morningstar Rating = 5; All categories; AUM > ₹100 Cr',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'morningstar', 'nav'],
+    filter_params: 'rating=5',
   },
   {
     id: 'established-debt-funds',
@@ -124,19 +135,22 @@ const BASKETS = [
     searchIntent: 'Trusted debt funds with proven credit and duration management',
     conditions: 'Category: Medium Duration / Corporate Bond / Gilt / Banking and PSU; Morningstar Rating ≥ 3; AUM > ₹500 Cr; Risk Label: Moderate or Low to Moderate',
     columns: ['name', 'category', 'amc_name', 'risk_label', 'expense_ratio', 'aum', 'morningstar', 'nav'],
+    filter_params: 'category=Medium+Duration,Corporate+Bond,Government+Bond,Banking+%26+PSU,Long+Duration,Medium+to+Long+Duration,Dynamic+Bond&risk=Moderate+Risk,Low+to+Moderate+Risk&rating=3',
   },
 ];
 
 // ── Category keyword maps ─────────────────────────────────────────────────────
 
-const DEBT_SHORT_CATEGORIES = ['Liquid', 'Overnight', 'Short Duration', 'Money Market', 'Ultra Short Duration', 'Low Duration'];
-const HYBRID_CATEGORIES     = ['Aggressive Hybrid', 'Balanced Advantage', 'Balanced Hybrid', 'Dynamic Asset Allocation', 'Equity Savings', 'Multi Asset Allocation'];
-const HIGH_RISK_CATEGORIES  = ['Small Cap', 'Mid Cap', 'Sectoral', 'Thematic', 'Small and Mid Cap'];
-const FLEXI_CATEGORIES      = ['Flexi Cap', 'Multi Cap'];
-const INDEX_CATEGORIES      = ['Index Fund', 'ETF', 'Index Funds', 'Exchange Traded Fund'];
-const DEBT_MEDIUM_CATEGORIES = ['Medium Duration', 'Corporate Bond', 'Gilt', 'Banking and PSU', 'Long Duration', 'Medium to Long Duration'];
-const RISK_LOW              = ['Low', 'Low to Moderate'];
-const RISK_MODERATE_HIGH    = ['Moderate', 'Low to Moderate'];
+// Category values as they actually appear in the DB
+const DEBT_SHORT_CATEGORIES  = ['Liquid', 'Overnight', 'Short Duration', 'Money Market', 'Ultra Short Duration', 'Low Duration'];
+const HYBRID_CATEGORIES      = ['Dynamic Asset Allocation', 'Equity Savings', 'Multi Asset Allocation', 'Aggressive Allocation', 'Balanced Allocation', 'Conservative Allocation'];
+const HIGH_RISK_CATEGORIES   = ['Small-Cap', 'Mid-Cap', 'Sector -', 'Equity -', 'Contra', 'Value', 'Dividend Yield', 'Focused Fund'];
+const FLEXI_CATEGORIES       = ['Flexi Cap', 'Multi-Cap'];
+const INDEX_CATEGORIES       = ['Index Funds'];
+const DEBT_MEDIUM_CATEGORIES = ['Medium Duration', 'Corporate Bond', 'Government Bond', 'Banking & PSU', 'Long Duration', 'Medium to Long Duration', 'Dynamic Bond'];
+// Risk label values as they actually appear in the DB
+const RISK_LOW               = ['Low Risk', 'Low to Moderate Risk'];
+const RISK_MODERATE_HIGH     = ['Moderate Risk', 'Low to Moderate Risk'];
 
 function categoryIn(category, keywords) {
   if (!category) return false;
@@ -150,91 +164,90 @@ function riskIn(riskLabel, labels) {
 
 // ── Screeners per basket ──────────────────────────────────────────────────────
 
+// AUM is stored in raw rupees; convert crore thresholds accordingly
+const CR = 1e7; // 1 crore = 10,000,000
+
 const SCREENERS = {
   'conservative-debt': {
-    where: () => ({
-      aum: { gt: 1000 },
-    }),
+    where: () => ({ aum: { gt: 1000 * CR } }),
     filter: s => categoryIn(s.category, DEBT_SHORT_CATEGORIES) && riskIn(s.risk_label, RISK_LOW),
   },
   'balanced-hybrid': {
-    where: () => ({
-      aum: { gt: 500 },
-    }),
+    where: () => ({ aum: { gt: 500 * CR } }),
     filter: s => categoryIn(s.category, HYBRID_CATEGORIES),
   },
   'high-risk-equity': {
     where: () => ({
-      aum: { gt: 100 },
-      risk_label: { in: ['Very High', 'High'] },
+      aum:        { gt: 100 * CR },
+      risk_label: { in: ['Very High Risk', 'High Risk'] },
     }),
     filter: s => categoryIn(s.category, HIGH_RISK_CATEGORIES),
   },
   'top-rated-large-cap': {
     where: () => ({
       morningstar: { gte: 4 },
-      plan_type:   'Direct',
-      aum:         { gt: 1000 },
+      plan_type:   'direct',
+      aum:         { gt: 1000 * CR },
     }),
-    filter: s => categoryIn(s.category, ['Large Cap']),
+    filter: s => categoryIn(s.category, ['Large-Cap']),
   },
   'top-rated-flexi-cap': {
     where: () => ({
       morningstar: { gte: 4 },
-      plan_type:   'Direct',
-      aum:         { gt: 500 },
+      plan_type:   'direct',
+      aum:         { gt: 500 * CR },
     }),
     filter: s => categoryIn(s.category, FLEXI_CATEGORIES),
   },
   'consistent-midcap': {
     where: () => ({
       morningstar: { gte: 3 },
-      aum:         { gt: 500 },
+      aum:         { gt: 500 * CR },
     }),
-    filter: s => categoryIn(s.category, ['Mid Cap']),
+    filter: s => categoryIn(s.category, ['Mid-Cap']),
   },
   'low-cost-index': {
     where: () => ({
       expense_ratio: { lt: 0.3 },
-      plan_type:     'Direct',
-      aum:           { gt: 500 },
+      plan_type:     'direct',
+      aum:           { gt: 500 * CR },
     }),
     filter: s => categoryIn(s.category, INDEX_CATEGORIES),
   },
   'low-expense-active': {
     where: () => ({
       expense_ratio: { lt: 0.8 },
-      plan_type:     'Direct',
-      aum:           { gt: 200 },
+      plan_type:     'direct',
+      aum:           { gt: 200 * CR },
     }),
     filter: s => !categoryIn(s.category, [...INDEX_CATEGORIES, ...DEBT_SHORT_CATEGORIES]),
   },
   'large-aum-institutional': {
     where: () => ({
-      aum:       { gt: 5000 },
-      plan_type: 'Direct',
+      aum:       { gt: 5000 * CR },
+      plan_type: 'direct',
     }),
-    filter: s => categoryIn(s.category, [...['Large Cap', 'Mid Cap', 'Small Cap', 'Flexi Cap', 'Multi Cap'], ...HYBRID_CATEGORIES]),
+    filter: s => categoryIn(s.category, ['Large-Cap', 'Mid-Cap', 'Small-Cap', 'Flexi Cap', 'Multi-Cap', ...HYBRID_CATEGORIES]),
   },
   'direct-plan-advantage': {
     where: () => ({
-      plan_type:   'Direct',
+      plan_type:   'direct',
       morningstar: { gte: 3 },
-      aum:         { gt: 100 },
+      aum:         { gt: 100 * CR },
     }),
     filter: () => true,
   },
   'five-star-all': {
     where: () => ({
       morningstar: 5,
-      aum:         { gt: 100 },
+      aum:         { gt: 100 * CR },
     }),
     filter: () => true,
   },
   'established-debt-funds': {
     where: () => ({
       morningstar: { gte: 3 },
-      aum:         { gt: 500 },
+      aum:         { gt: 500 * CR },
     }),
     filter: s => categoryIn(s.category, DEBT_MEDIUM_CATEGORIES) && riskIn(s.risk_label, RISK_MODERATE_HIGH),
   },
@@ -262,13 +275,14 @@ function getMFBaskets(req, res) {
 
   res.json({
     baskets: BASKETS.map(b => ({
-      id:          b.id,
-      category:    b.category,
-      title:       b.title,
-      description: b.description,
+      id:           b.id,
+      category:     b.category,
+      title:        b.title,
+      description:  b.description,
       searchIntent: b.searchIntent,
-      conditions:  b.conditions,
-      columns:     b.columns,
+      conditions:   b.conditions,
+      columns:      b.columns,
+      filter_params: b.filter_params,
     })),
     grouped,
   });

@@ -4,8 +4,13 @@ const asyncHandler       = require('../middleware/asyncHandler');
 const mutualFundsService = require('../services/mutualFunds.service');
 
 const listSchemes = asyncHandler(async (req, res) => {
-  const { page, size, category, amc_slug, plan_type } = req.query;
-  const data = await mutualFundsService.listSchemes({ page, size, category, amc_slug, plan_type });
+  const { page, size, q, category, risk, rating, amc_slug, plan_type, sort, order } = req.query;
+  const data = await mutualFundsService.listSchemes({ page, size, q, category, risk, rating, amc_slug, plan_type, sort, order });
+  res.json({ success: true, ...data });
+});
+
+const getFilterOptions = asyncHandler(async (req, res) => {
+  const data = await mutualFundsService.getFilterOptions();
   res.json({ success: true, ...data });
 });
 
@@ -18,4 +23,4 @@ const getSchemeDetails = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
-module.exports = { listSchemes, getSchemeDetails };
+module.exports = { listSchemes, getFilterOptions, getSchemeDetails };
