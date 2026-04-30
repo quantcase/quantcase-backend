@@ -572,6 +572,77 @@ model prowess_kpi_values {
   @@index([kpi_abbr, period_type], map: "idx_pkv_kpi_period")
 }
 
+// ─── IIT (Industry Intelligence Tracker) ─────────────────────────────────────
+
+model IitWeeklyStockScore {
+  id                  String   @id @default(uuid())
+  week_date           DateTime @db.Date                 // Friday of the scoring week
+  ticker              String
+  basic_industry      String
+  economic_model      String                            // Capex | Consumption | Financial | Hybrid
+  regime              String   @default("Neutral")      // Risk-On | Neutral | Risk-Off
+
+  // Factor scores (0-100 percentile rank within universe; null = data unavailable)
+  momentum_score      Float?
+  growth_score        Float?
+  profitability_score Float?
+  balance_sheet_score Float?
+  breadth_score       Float?   // stock-level: 1 if above 20w MA, 0 if not (cluster breadth in IitClusterScore)
+  sentiment_score     Float?   // null until analyst data is available
+  valuation_score     Float?
+
+  composite_score     Float?                            // weighted sum of factor scores
+  factor_weights      Json?                             // regime-adjusted weights used for this row
+  data_flags          Json?                             // e.g. { sentiment: "missing", valuation: "low_confidence" }
+
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  @@unique([week_date, ticker])
+  @@index([week_date])
+  @@index([ticker])
+  @@index([basic_industry])
+  @@index([week_date, basic_industry])
+  @@map("iit_weekly_stock_scores")
+}
+
+model IitClusterScore {
+  id                  String   @id @default(uuid())
+  week_date           DateTime @db.Date                 // Friday of the scoring week
+  basic_industry      String
+
+  // Layer 2 inputs
+  median_score        Float?                            // median of constituent composite scores
+  breadth_pct         Float?                            // % of cluster stocks above 20-week MA
+  composite_score     Float?                            // 0.65 × median_score + 0.35 × breadth_pct
+
+  // Rank fields
+  rank                Int?                              // 1 = strongest cluster
+  rank_prev           Int?                              // rank from prior week
+  wow_delta           Int?                              // rank_prev - rank (positive = moved up)
+  velocity_3w         Int?                              // rank change over trailing 3 weekly updates
+  rank_trend          String?                           // e.g. "↑ ↑ →" — direction over last 3 updates
+  quartile            String?                           // Q1 | Q2 | Q3 | Q4
+
+  // Score change
+  score_wow_delta     Float?                            // composite_score minus prior week's composite_score
+
+  // Metadata
+  stock_count         Int?                              // total stocks in cluster with basic_industry set
+  scored_stock_count  Int?                              // stocks that contributed to the score
+  regime              String   @default("Neutral")
+  low_confidence      Boolean  @default(false)          // true if >50% factor metrics missing or <3 stocks
+
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  @@unique([week_date, basic_industry])
+  @@index([week_date])
+  @@index([basic_industry])
+  @@index([week_date, rank])
+  @@map("iit_cluster_scores")
+}
+
 enum DenominationType {
   rupee
   percentage
