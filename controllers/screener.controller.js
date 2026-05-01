@@ -36,11 +36,15 @@ const MOD_OFF = {
   BORROWINGS:  36, // "Borrowings"
 };
 
-let _peerIdentityRows  = null; // raw parsed rows (array of arrays)
-let _peerIdentityHeader = null;
-let _peerFundMap       = null; // { companyName: row[] }
-let _peerFundQtrs      = null; // string[]
-let _modMap            = null; // { companyName: row[] } from osc_mod_qtr_v1.csv
+let _peerIdentityRows    = null; // raw parsed rows (array of arrays)
+let _peerIdentityHeader  = null;
+let _peerFundMap         = null; // { companyName: row[] }
+let _peerFundQtrs        = null; // string[]
+let _modMap              = null; // { companyName: row[] } from osc_mod_qtr_v1.csv
+let _shareholdingMap     = null; // { companyName: row[] } from osc_shareholding_qtr_v1.csv
+let _shareholdingPeriods = null; // number of periods in shareholding CSV
+const SH_COLS_PER_PERIOD = 35;
+const SH_OFF = { PROMOTER: 1, NON_PROMOTER: 15, MF_DII: 17, FII: 22, PUBLIC_NON_INST: 27 };
 
 function loadPeerIdentity() {
   if (_peerIdentityRows) return { rows: _peerIdentityRows, header: _peerIdentityHeader };
@@ -82,6 +86,21 @@ function loadModData() {
     if (name) _modMap[name] = row;
   }
   return _modMap;
+}
+
+function loadShareholding() {
+  if (_shareholdingMap) return { shMap: _shareholdingMap, periods: _shareholdingPeriods };
+  const raw = fs.readFileSync(path.join(__dirname, '../lib/osc_shareholding_qtr_v1.csv'), 'utf-8');
+  const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const all = csvParse.parse(content, { relax_column_count: true });
+  const maxCols = Math.max(...all.slice(6, 16).map((r) => r.length));
+  _shareholdingPeriods = Math.floor((maxCols - 1) / SH_COLS_PER_PERIOD);
+  _shareholdingMap = {};
+  for (const row of all.slice(6)) {
+    const name = (row[0] || '').trim();
+    if (name) _shareholdingMap[name] = row;
+  }
+  return { shMap: _shareholdingMap, periods: _shareholdingPeriods };
 }
 
 function peerToFloat(val) {
@@ -154,14 +173,45 @@ async function getTickerInfo(req, res, next) {
     // ── 1. Company identity from osc_identity.csv ──────────────────────────
     const { rows: idRows } = loadPeerIdentity();
     const idRow = idRows.find((r) => (r[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase() === sym);
-    const companyName    = idRow ? (idRow[ID_COL_NAME] || '').trim() : null;
-    const industryGroup  = idRow ? (idRow[ID_COL_INDUSTRY_GRP] || '').trim() : null;
-    const basicIndustry  = idRow ? (idRow[ID_COL_NSE_BASIC_IND] || '').trim() : null;
+    const companyName       = idRow ? (idRow[ID_COL_NAME] || '').trim() : null;
+    const industryGroup     = idRow ? (idRow[ID_COL_INDUSTRY_GRP] || '').trim() : null;
+    const basicIndustry     = idRow ? (idRow[ID_COL_NSE_BASIC_IND] || '').trim() : null;
+    const description       = idRow ? (idRow[8]  || '').trim() || null : null;
+    const website           = idRow ? (idRow[50] || '').trim() || null : null;
+    const isin              = idRow ? (idRow[21] || '').trim() || null : null;
+    const cin               = idRow ? (idRow[4]  || '').trim() || null : null;
+    const incorporationYear = idRow ? (idRow[6]  || '').trim() || null : null;
+    const ownershipGroup    = idRow ? (idRow[17] || '').trim() || null : null;
+    const mainProduct       = idRow ? (idRow[12] || '').trim() || null : null;
+    const listingDate       = idRow ? (idRow[26] || '').trim() || null : null;
+    const email             = idRow ? (idRow[44] || '').trim() || null : null;
+    const bseCode           = idRow ? (idRow[33] || '').trim() || null : null;
+
+    // ── 1b. Prowess fund CSV — dividend yield & adj EPS (latest period) ────
+    let dividendYield = null;
+    let epsForward    = null;
+    if (companyName) {
+      const { fundMap } = loadPeerFundamentals();
+      const fundRow = fundMap[companyName];
+      if (fundRow) {
+        // Period 0 is most recent; scan forward to first period with a non-empty yield
+        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
+          const y = peerPeriodVal(fundRow, i, PEER_OFF.YIELD);
+          if (y != null) { dividendYield = r2(y); break; }
+        }
+        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
+          const e = peerPeriodVal(fundRow, i, PEER_OFF.ADJ_EPS);
+          if (e != null) { epsForward = r2(e); break; }
+        }
+      }
+    }
 
     // ── 2. Price data from nse_equity ──────────────────────────────────────
-    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const oneYearAgo   = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const fiftyDaysAgo = new Date(Date.now() -  50 * 24 * 60 * 60 * 1000);
+    const twohundDaysAgo = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
 
-    const [latestPriceRows, yearPriceRows, mktCapRows, peRows, prowessRows] = await Promise.all([
+    const [latestPriceRows, yearPriceRows, mktCapRows, peRows, prowessRows, priceAvgRows, priceYearAgoRows] = await Promise.all([
       // Latest 2 rows to compute day change
       prisma.$queryRaw`
         SELECT datetime, open, high, low, close, volume
@@ -203,6 +253,19 @@ async function getTickerInfo(req, res, next) {
             ORDER BY fiscal_year DESC, quarter DESC
           `
         : Promise.resolve([]),
+      // 50d and 200d averages
+      prisma.$queryRaw`
+        SELECT
+          AVG(close::numeric) FILTER (WHERE datetime >= ${fiftyDaysAgo})    AS avg50,
+          AVG(close::numeric) FILTER (WHERE datetime >= ${twohundDaysAgo})  AS avg200
+        FROM nse_equity WHERE symbol = ${sym}
+      `,
+      // Price ~1 year ago for 52W change
+      prisma.$queryRaw`
+        SELECT close FROM nse_equity
+        WHERE symbol = ${sym} AND datetime <= ${oneYearAgo}
+        ORDER BY datetime DESC LIMIT 1
+      `,
     ]);
 
     // ── 3. Price calculations ──────────────────────────────────────────────
@@ -224,6 +287,15 @@ async function getTickerInfo(req, res, next) {
       : null;
     const week52Low = yearPriceRows.length > 0
       ? r2(Math.min(...yearPriceRows.map((r) => parseFloat(r.low ?? Infinity)).filter((v) => v !== Infinity)))
+      : null;
+
+    const avgRow = priceAvgRows[0] ?? null;
+    const fiftyDayAverage      = avgRow?.avg50  != null ? r2(parseFloat(avgRow.avg50))  : null;
+    const twoHundredDayAverage = avgRow?.avg200 != null ? r2(parseFloat(avgRow.avg200)) : null;
+
+    const priceYearAgoVal = priceYearAgoRows[0]?.close != null ? parseFloat(priceYearAgoRows[0].close) : null;
+    const week52Change = price != null && priceYearAgoVal != null && priceYearAgoVal !== 0
+      ? r2((price - priceYearAgoVal) / Math.abs(priceYearAgoVal))
       : null;
 
     // ── 4. Market cap ──────────────────────────────────────────────────────
@@ -331,6 +403,48 @@ async function getTickerInfo(req, res, next) {
         cfo:        p.CFO ?? null,
       }));
 
+    // ── 7c. Fund CSV — EV and EBITDA ────────────────────────────────────────
+    let enterpriseValue = null;
+    let evToEbitda      = null;
+    let ebitda          = null;
+    if (companyName) {
+      const { fundMap } = loadPeerFundamentals();
+      const fundRow = fundMap[companyName];
+      if (fundRow) {
+        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
+          const ev       = peerPeriodVal(fundRow, i, PEER_OFF.EV); // Cr
+          const evPbdita = peerPeriodVal(fundRow, i, 11);           // EV/PBDITA ratio
+          if (ev != null && evPbdita != null && evPbdita !== 0) {
+            enterpriseValue = r2(ev * 1e7);              // convert Cr → INR
+            ebitda          = r2((ev / evPbdita) * 1e7); // PBDITA in INR
+            evToEbitda      = r2(evPbdita);
+            break;
+          }
+        }
+      }
+    }
+
+    // ── 7d. Shareholding from osc_shareholding_qtr_v1.csv ───────────────────
+    let shPromoter = null, shFii = null, shDii = null, shPublic = null, shInstitutions = null;
+    if (companyName) {
+      const { shMap, periods } = loadShareholding();
+      const shRow = shMap[companyName];
+      if (shRow) {
+        for (let i = periods - 1; i >= 0; i--) {
+          const base = 1 + i * SH_COLS_PER_PERIOD;
+          const promoter = peerToFloat(shRow[base + SH_OFF.PROMOTER]);
+          if (promoter != null) {
+            shPromoter     = r2(promoter);
+            shDii          = r2(peerToFloat(shRow[base + SH_OFF.MF_DII]));
+            shFii          = r2(peerToFloat(shRow[base + SH_OFF.FII]));
+            shPublic       = r2(peerToFloat(shRow[base + SH_OFF.PUBLIC_NON_INST]));
+            shInstitutions = r2(peerToFloat(shRow[base + SH_OFF.NON_PROMOTER]));
+            break;
+          }
+        }
+      }
+    }
+
     // ── 8. Derived / computed metrics ────────────────────────────────────────
     // Shares outstanding: EQ_SHARE_CAP is paid-up capital in Cr; divide by face value (₹10 default)
     // to get share count. But for ratios below we keep values consistent.
@@ -362,6 +476,75 @@ async function getTickerInfo(req, res, next) {
     const revAbsForMargin = kpiVal('REV_OP') ?? kpiVal('TOTAL_INCOME');
     const profitMargins = patAbs != null && revAbsForMargin != null && revAbsForMargin !== 0
       ? r2((patAbs / revAbsForMargin) * 100) : null;
+
+    // Gross Profits = TOTAL_INCOME - TOTAL_COGS
+    const totalCogsAbs    = kpiVal('TOTAL_COGS');
+    const totalIncomeAbs  = kpiVal('TOTAL_INCOME');
+    const grossProfits    = totalIncomeAbs != null && totalCogsAbs != null
+      ? totalIncomeAbs - totalCogsAbs : null;
+    const grossMargins    = grossProfits != null && revAbsForMargin != null && revAbsForMargin !== 0
+      ? r2((grossProfits / revAbsForMargin) * 100) : null;
+
+    // EBITDA margins (uses ebitda from fund CSV)
+    const ebitdaMargins = ebitda != null && revAbsForMargin != null && revAbsForMargin !== 0
+      ? r2((ebitda / revAbsForMargin) * 100) : null;
+    const ebitdaGrowth  = kpiYoy('PBT'); // PBT tracks EBITDA directionally when fin_cost is low
+
+    // Operating Margins = (REV_OP - TOTAL_OPEX) / REV_OP
+    const totalOpexAbs     = kpiVal('TOTAL_OPEX');
+    const operatingMargins = revAbsForMargin != null && totalOpexAbs != null && revAbsForMargin !== 0
+      ? r2(((revAbsForMargin - totalOpexAbs) / revAbsForMargin) * 100) : null;
+
+    // Free Cash Flow = CFO + CFI (CFI is typically negative for capex)
+    const cfoAbs = kpiVal('CFO');
+    const cfiAbs = kpiVal('CFI');
+    const freeCashflow = cfoAbs != null && cfiAbs != null ? cfoAbs + cfiAbs : null;
+    const fcfGrowth    = kpiYoy('CFO'); // directional proxy
+
+    // Revenue per share
+    const revenuePerShare = revAbsForMargin != null && sharesOutstandingCount != null && sharesOutstandingCount !== 0
+      ? r2(revAbsForMargin / sharesOutstandingCount) : null;
+
+    // Total cash per share
+    const cashEquivAbs    = kpiVal('CASH_EQUIV');
+    const totalCashPerShare = cashEquivAbs != null && sharesOutstandingCount != null && sharesOutstandingCount !== 0
+      ? r2(cashEquivAbs / sharesOutstandingCount) : null;
+
+    // Current & quick ratios
+    const currAssetsAbs = kpiVal('CURR_ASSETS');
+    const currLiabAbs   = kpiVal('CURR_LIAB');
+    const inventoryAbs  = kpiVal('INVENTORY');
+    const currentRatio  = currAssetsAbs != null && currLiabAbs != null && currLiabAbs !== 0
+      ? r2(currAssetsAbs / currLiabAbs) : null;
+    const quickRatio    = currAssetsAbs != null && inventoryAbs != null && currLiabAbs != null && currLiabAbs !== 0
+      ? r2((currAssetsAbs - inventoryAbs) / currLiabAbs) : null;
+
+    // EV to Revenue
+    const totalDebtAbs = kpiVal('BORR_TOTAL') ?? ((kpiVal('DEBT_LT') ?? 0) + (kpiVal('DEBT_ST') ?? 0));
+    const evToRevenue  = enterpriseValue != null && revAbsForMargin != null && revAbsForMargin !== 0
+      ? r2(enterpriseValue / revAbsForMargin) : null;
+
+    // Forward PE: annualise latest quarterly adj EPS × 4
+    const forwardPE = price != null && epsForward != null && epsForward !== 0
+      ? r2(price / (epsForward * 4)) : null;
+
+    // Dividend rate (₹ per share) from yield and price
+    const dividendRate = dividendYield != null && price != null
+      ? r2((dividendYield / 100) * price) : null;
+
+    // Payout ratio = dividend per share / EPS
+    const epsBasic     = kpiVal('EPS_BASIC') ?? kpiVal('EPS_DILUTED');
+    const payoutRatio  = dividendRate != null && epsBasic != null && epsBasic !== 0
+      ? r2((dividendRate / epsBasic) * 100) : null;
+
+    // CFO / EBITDA %
+    const cfoEbitdaPct = cfoAbs != null && ebitda != null && ebitda !== 0
+      ? r2((cfoAbs / ebitda) * 100) : null;
+
+    // Net Debt / EBITDA
+    const netDebt       = totalDebtAbs != null && cashEquivAbs != null ? totalDebtAbs - cashEquivAbs : null;
+    const netDebtEbitda = netDebt != null && ebitda != null && ebitda !== 0
+      ? r2(netDebt / ebitda) : null;
 
     // P/B ratio = price / book value per share; fallback: marketCap / netWorth
     const pbRatio = price != null && bookValue != null && bookValue !== 0
@@ -444,14 +627,22 @@ async function getTickerInfo(req, res, next) {
       symbol: sym,
 
       company: {
-        name:        companyName || sym,
-        exchange:    'NSE',
-        sector:      industryGroup  || null,
-        industry:    basicIndustry  || null,
-        description: null,
-        website:     null,
-        employees:   null,
-        country:     'India',
+        name:            companyName || sym,
+        exchange:        'NSE',
+        sector:          industryGroup  || null,
+        industry:        basicIndustry  || null,
+        mainProduct:     mainProduct,
+        description,
+        website,
+        email,
+        isin,
+        cin,
+        bseCode,
+        incorporationYear,
+        listingDate,
+        ownershipGroup,
+        employees:       null,
+        country:         'India',
       },
 
       quote: {
@@ -477,21 +668,21 @@ async function getTickerInfo(req, res, next) {
         // REV_OP = operating revenue (non-fin) / operating income (fin); TOTAL_INCOME includes other income
         revenue:          kpiVal('REV_OP') ?? kpiVal('TOTAL_INCOME'),
         revenueGrowth:    kpiYoy('REV_OP') ?? kpiYoy('TOTAL_INCOME'),
-        grossProfits:     null,
-        grossMargins:     null,
-        ebitda:           null,
-        ebitdaGrowth:     null,
-        ebitdaMargins:    null,
-        operatingMargins: null,
+        grossProfits,
+        grossMargins,
+        ebitda,
+        ebitdaGrowth,
+        ebitdaMargins,
+        operatingMargins,
         netProfit:        kpiVal('PAT'),
         netProfitGrowth:  kpiYoy('PAT'),
         profitMargins,
         operatingCashflow: kpiVal('CFO'),
         cfoGrowth:        kpiYoy('CFO'),
-        freeCashflow:     null,
-        fcfGrowth:        null,
-        earningsGrowth:   null,
-        revenuePerShare:  null,
+        freeCashflow,
+        fcfGrowth,
+        earningsGrowth:   kpiYoy('EPS_BASIC'),
+        revenuePerShare,
         reserves:         kpiVal('NET_WORTH'),
         reservesGrowth:   kpiYoy('NET_WORTH'),
         quarterlyTrend,
@@ -500,12 +691,12 @@ async function getTickerInfo(req, res, next) {
       valuation: {
         peRatio:          trailingPE,
         peValuationLabel: peValuationLabel(trailingPE),
-        forwardPE:        null,
+        forwardPE,
         pbRatio,
         pegRatio:         null,
-        evToEbitda:       null,
-        evToRevenue:      null,
-        enterpriseValue:  null,
+        evToEbitda,
+        evToRevenue,
+        enterpriseValue,
         profitMargins,
         industryPE:       null,
         industryPELabel:  null,
@@ -516,24 +707,24 @@ async function getTickerInfo(req, res, next) {
         returnOnAssets:    roa,
         debtToEquity:      kpiVal('DE'),
         debtGrowth:        kpiYoy('DE'),
-        currentRatio:      null,
-        quickRatio:        null,
+        currentRatio,
+        quickRatio,
         totalCash:         kpiVal('CASH_EQUIV'),
         totalDebt:         kpiVal('BORR_TOTAL') ?? (
           (kpiVal('DEBT_LT') != null || kpiVal('DEBT_ST') != null)
             ? (kpiVal('DEBT_LT') ?? 0) + (kpiVal('DEBT_ST') ?? 0)
             : null
         ),
-        totalCashPerShare: null,
+        totalCashPerShare,
       },
 
       perShare: {
         eps:          kpiVal('EPS_BASIC') ?? kpiVal('EPS_DILUTED'),
-        epsForward:   null,
+        epsForward,
         bookValue,
         dividendRate: null,
-        dividendYield: null,
-        payoutRatio:  null,
+        dividendYield,
+        payoutRatio,
       },
 
       analystRatings: {
@@ -549,12 +740,12 @@ async function getTickerInfo(req, res, next) {
         beta:                    null,
         sharesOutstanding:       sharesOutstandingCount,
         floatShares:             null,
-        heldPercentInsiders:     null,
-        heldPercentInstitutions: null,
+        heldPercentInsiders:     shPromoter,
+        heldPercentInstitutions: shInstitutions,
         earningsQuarterlyGrowth: kpiYoy('PAT'),
-        fiftyDayAverage:         null,
-        twoHundredDayAverage:    null,
-        week52Change:            null,
+        fiftyDayAverage,
+        twoHundredDayAverage,
+        week52Change,
       },
 
       ratios: {
@@ -566,20 +757,21 @@ async function getTickerInfo(req, res, next) {
       },
 
       ownership: {
-        promoter:     null,
-        institutions: null,
-        fii:          null,
-        dii:          null,
-        public:       null,
-        publicLabel:  null,
+        promoter:     shPromoter,
+        institutions: shInstitutions,
+        fii:          shFii,
+        dii:          shDii,
+        public:       shPublic,
+        publicLabel:  shPublic != null ? (shPublic > 25 ? 'High retail' : shPublic > 10 ? 'Moderate retail' : 'Low retail') : null,
       },
 
       financials: {
         eps_cagr_3y:       epsCagr3y,
         eps_cagr_3y_label: epsCagrLabel(epsCagr3y),
-        ebitda_ev_yield:   null,
-        cfo_ebitda_pct:    null,
-        net_debt_ebitda:   null,
+        ebitda_ev_yield:   ebitda != null && enterpriseValue != null && enterpriseValue !== 0
+          ? r2((ebitda / enterpriseValue) * 100) : null,
+        cfo_ebitda_pct:    cfoEbitdaPct,
+        net_debt_ebitda:   netDebtEbitda,
       },
     });
   } catch (err) {
