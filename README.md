@@ -69,3 +69,6 @@ node scripts/fetch-concalls.js 2>&1 | tee scripts/fetch-concalls.log | awk '
   /Done\./        { print "\nFinished. Errors: " errors }
   BEGIN           { total=2960; processed=0; pending=2960; errors=0 }
 '
+#### How many symbols done so far
+tail -f scripts/fetch-concalls.log | grep "Saved"
+

@@ -18,6 +18,7 @@ const watchlistRouter     = require('./watchlist.routes');
 const modelsRouter        = require('./models.routes');
 const privateEquityRouter = require('./privateEquity.routes');
 const mutualFundsRouter   = require('./mutualFunds.routes');
+const authRouter          = require('./auth.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -51,6 +52,9 @@ router.use('/api/private-equity', privateEquityRouter);
 
 // Mutual funds routes
 router.use('/api/mutual-funds', mutualFundsRouter);
+
+// Auth routes
+router.use('/api/auth', authRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);
