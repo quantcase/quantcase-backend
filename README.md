@@ -59,3 +59,13 @@ CALLS = ["CANFINHOME_FY2026_Q3", "TCS_FY2026_Q3"]
 ```
 
 
+
+### Fetch all concalls
+node scripts/fetch-concalls.js 2>&1 | tee scripts/fetch-concalls.log | awk '
+  /Fetching/      { pending--; processed++ }
+  /Skipping.*already/ { pending-- }
+  /Saved/         { printf "\r[%d/%d done] %s", processed, total, $0; fflush() }
+  /ERROR/         { errors++; print }
+  /Done\./        { print "\nFinished. Errors: " errors }
+  BEGIN           { total=2960; processed=0; pending=2960; errors=0 }
+'
