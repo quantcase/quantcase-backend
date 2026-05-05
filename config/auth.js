@@ -11,8 +11,16 @@ module.exports = {
     {
       id: '1',
       email: 'hello@quantcase.ai',
+      accountType: 'manager',
       // bcrypt hash of 'helloqc'
       passwordHash: '$2b$10$4QOc6eVHV.Y2vfun3zKtu.k0FcHS83M/ZeJmIh.DueWPnjld9zoDu',
+    },
+    {
+      id: '2',
+      email: 'raj@quantcase.ai',
+      accountType: 'investor',
+      // bcrypt hash of 'helloqc'
+      passwordHash: '$2b$10$frzEL3OPYmGGiWyXleNW2OZaL79dFRD5Q6fQGuuwZ.d7f5TNkClim',
     },
   ],
 };

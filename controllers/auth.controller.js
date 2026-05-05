@@ -21,7 +21,7 @@ const signin = async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  const payload = { sub: user.id, email: user.email };
+  const payload = { sub: user.id, email: user.email, accountType: user.accountType };
 
   const accessToken = jwt.sign(payload, jwtSecret, { expiresIn: jwtExpiresIn });
   const refreshToken = jwt.sign(payload, jwtRefreshSecret, { expiresIn: jwtRefreshExpiresIn });
@@ -30,8 +30,8 @@ const signin = async (req, res) => {
 };
 
 const getMe = (req, res) => {
-  const { id, email } = req.user;
-  return res.json({ id, email });
+  const { id, email, accountType } = req.user;
+  return res.json({ id, email, accountType });
 };
 
 module.exports = { signin, getMe };

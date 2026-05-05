@@ -57,11 +57,15 @@ async function listSchemes({ page, size, q, category, risk, rating, amc_slug, pl
   const pageNo = Math.max(Number(page) || 1, 1);
   const offset = (pageNo - 1) * limit;
 
+  const orderBy = sortField === 'morningstar'
+    ? { morningstar: { sort: sortOrder, nulls: sortOrder === 'asc' ? 'first' : 'last' } }
+    : { [sortField]: sortOrder };
+
   const [total, schemes] = await Promise.all([
     prisma.mutualFundScheme.count({ where }),
     prisma.mutualFundScheme.findMany({
       where,
-      orderBy: { [sortField]: sortOrder },
+      orderBy,
       skip: offset,
       take: limit,
     }),
