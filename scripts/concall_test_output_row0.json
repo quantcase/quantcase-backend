@@ -1,0 +1,633 @@
+{
+  "entities": {
+    "people": [
+      {
+        "name": "Atil Parekh",
+        "role": "Chief Executive Officer and Managing Director"
+      },
+      {
+        "name": "Nihad Baluch",
+        "role": "Group Chief Finance Officer"
+      },
+      {
+        "name": "Pranit Shah",
+        "role": "Finance Controller"
+      },
+      {
+        "name": "Muthukumar",
+        "role": "Host, Wisdomsmith Advisors"
+      },
+      {
+        "name": "Adarsh Jain",
+        "role": "Investor / Analyst (Q&A participant)"
+      },
+      {
+        "name": "Disha Chordia",
+        "role": "Investor / Analyst (Q&A participant)"
+      }
+    ],
+    "business_segments": [
+      "Paint",
+      "Plastics / Polymers",
+      "Rubber",
+      "Paper",
+      "Ceramics",
+      "Construction Chemicals (B2C)",
+      "Mineral Fertilizer (B2C)",
+      "Nano Division (20 Microns Nano)",
+      "Exports",
+      "Malaysian Mining / Calcium Carbonate",
+      "Coloured Quartz (Silcol / Doffner JV)",
+      "Thai Adhesives (SIBO 20 Microns)"
+    ],
+    "geographies": [
+      "India",
+      "Malaysia",
+      "Poland",
+      "Latin America",
+      "Middle East",
+      "South Africa",
+      "Western Europe"
+    ]
+  },
+  "milestones": {
+    "future_goals": {
+      "financial_targets": [
+        {
+          "statement": "Management expects to achieve 13% revenue growth for the full year FY2026 despite Q2 softness.",
+          "kpi_abbr": "REV_OP",
+          "current_value": null,
+          "targeted_value": null,
+          "multiplier": 10000000,
+          "currency": "INR",
+          "initial_time": "2025-04-01",
+          "target_time": "2026-03-31",
+          "cumulative_period": 12
+        },
+        {
+          "statement": "EBITDA margin expected to remain in the 13–14% range by end of FY2026.",
+          "kpi_abbr": "EBITDA_MARGIN",
+          "current_value": 13.8,
+          "targeted_value": 13.5,
+          "multiplier": 1,
+          "currency": "percentage",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-03-31",
+          "cumulative_period": null
+        },
+        {
+          "statement": "Steady state EBITDA margins expected to remain in the 13–15% range in coming years.",
+          "kpi_abbr": "EBITDA_MARGIN",
+          "current_value": 13.8,
+          "targeted_value": 14,
+          "multiplier": 1,
+          "currency": "percentage",
+          "initial_time": "2025-11-11",
+          "target_time": "2028-03-31",
+          "cumulative_period": null
+        },
+        {
+          "statement": "Malaysian subsidiary calcium carbonate expansion CapEx plan on track; funds to be infused.",
+          "kpi_abbr": "CAPEX",
+          "current_value": null,
+          "targeted_value": null,
+          "multiplier": 10000000,
+          "currency": "INR",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-09-30",
+          "cumulative_period": 12
+        },
+        {
+          "statement": "100 crore CapEx plan to be revised and announced; remaining CapEx outflows deferred to Q4 FY2026 onwards.",
+          "kpi_abbr": "CAPEX",
+          "current_value": null,
+          "targeted_value": 1000000000,
+          "multiplier": 1,
+          "currency": "INR",
+          "initial_time": "2025-11-11",
+          "target_time": "2028-03-31",
+          "cumulative_period": 36
+        }
+      ],
+      "conceptual_targets": [
+        {
+          "statement": "New products (organic thickeners, pacifiers, flame retardants, zinc oxide partial replacement) to see significant growth in upcoming quarters.",
+          "concept": "Product growth",
+          "current_state": "Products slowly being accepted in domestic and international markets",
+          "targeted_state": "Significant growth in new products in domestic and international markets",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-03-31"
+        },
+        {
+          "statement": "New product launches planned for exhibitions in February, March and April 2026 for plastics, rubber and paints.",
+          "concept": "Product launch",
+          "current_state": "Products in pipeline, not yet launched",
+          "targeted_state": "New products showcased and launched at exhibitions",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-04-30"
+        },
+        {
+          "statement": "Export revenue expected to climb in coming quarters following recent industry exhibitions and new client enquiries.",
+          "concept": "Export market expansion",
+          "current_state": "Export presence in Poland, Latin America, Middle East, South Africa; Western European markets plateauing",
+          "targeted_state": "Growing export revenue from new geographies and clients",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-03-31"
+        },
+        {
+          "statement": "Deferred CapEx to be executed smoothly from Q4 FY2026 onwards.",
+          "concept": "CapEx execution",
+          "current_state": "CapEx slightly deferred due to demand slowdown",
+          "targeted_state": "CapEx outflows resume from Q4 FY2026",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-03-31"
+        },
+        {
+          "statement": "CFO to issue a press release with revised CapEx plan based on 100 crore announced plan.",
+          "concept": "CapEx plan announcement",
+          "current_state": "CapEx plan under revision",
+          "targeted_state": "New formal CapEx plan announced via press release",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-05-11"
+        },
+        {
+          "statement": "Malaysian mine to reach optimal operational level in coming months; cost savings / margin improvement to be guided at beginning of next financial year.",
+          "concept": "Mining operations ramp-up",
+          "current_state": "Malaysian mine recently operational, grades being segregated",
+          "targeted_state": "Optimal utilisation with clear guidance on cost and margin improvement",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-04-01"
+        },
+        {
+          "statement": "Other mines to be opened sequentially after core drilling operations establish quality data.",
+          "concept": "Mine development",
+          "current_state": "Core drilling underway for multiple mines",
+          "targeted_state": "Sequential mine openings based on drilling data",
+          "initial_time": "2025-11-11",
+          "target_time": "2027-03-31"
+        },
+        {
+          "statement": "SIBO 20 Microns (Thai adhesives JV) to scale with more figures available next quarter.",
+          "concept": "JV scale-up",
+          "current_state": "Production just started; product introduced to market recently",
+          "targeted_state": "Revenue figures and growth metrics available from Q3 FY2026",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-01-31"
+        },
+        {
+          "statement": "Exploring rare earth minerals opportunity in India contingent on government policy clarity.",
+          "concept": "Rare earth minerals exploration",
+          "current_state": "Very early-stage exploration; limited government clarity",
+          "targeted_state": "Assessment of feasibility for rare earth mineral operations",
+          "initial_time": "2025-11-11",
+          "target_time": null
+        },
+        {
+          "statement": "B2C portfolio in construction chemicals and mineral fertilizer to gain traction in Tier 2 and Tier 3 markets via expanding distribution.",
+          "concept": "B2C market penetration",
+          "current_state": "Gaining traction from smaller base",
+          "targeted_state": "Incremental growth through wider distribution in underserved markets",
+          "initial_time": "2025-11-11",
+          "target_time": "2026-09-30"
+        }
+      ]
+    },
+    "failure_disclosures": {
+      "financial_targets": [
+        {
+          "statement": "Nano division revenue showed no significant growth in H1 FY2026 versus H1 FY2025; at same levels as last year.",
+          "kpi_abbr": "SEG_NANO_REV",
+          "current_value": null,
+          "targeted_value": null,
+          "multiplier": 10000000,
+          "currency": "INR",
+          "initial_time": "2025-04-01",
+          "target_time": "2025-09-30",
+          "cumulative_period": 6
+        },
+        {
+          "statement": "Q2 FY2026 consolidated revenue from operations declined 3.9% YoY and 6.6% sequentially, missing growth expectations.",
+          "kpi_abbr": "REV_OP",
+          "current_value": 2307800000,
+          "targeted_value": null,
+          "multiplier": 1,
+          "currency": "INR",
+          "initial_time": "2025-07-01",
+          "target_time": "2025-09-30",
+          "cumulative_period": 3
+        }
+      ],
+      "conceptual_targets": [
+        {
+          "statement": "Planned CapEx has been slightly deferred due to current demand slowdown.",
+          "concept": "CapEx execution timeline",
+          "current_state": "CapEx outflows delayed vs original plan",
+          "targeted_state": "CapEx was expected to be executed on original schedule",
+          "initial_time": "2025-04-01",
+          "target_time": "2025-09-30"
+        },
+        {
+          "statement": "Nano division scaling to 250–300 crore revenue target is behind schedule due to sluggish demand in paint and export segments.",
+          "concept": "Nano division revenue scale-up",
+          "current_state": "Revenue flat YoY in H1 FY2026",
+          "targeted_state": "250–300 crore revenue for Nano division",
+          "initial_time": "2025-04-01",
+          "target_time": "2026-03-31"
+        }
+      ]
+    },
+    "success_disclosures": {
+      "financial_targets": [
+        {
+          "statement": "EBITDA margins expanded to 13.8% in Q2 FY2026, a ~100bps improvement YoY and sequentially, within guided 13–15% range.",
+          "kpi_abbr": "EBITDA_MARGIN",
+          "current_value": 13.8,
+          "targeted_value": 13,
+          "multiplier": 1,
+          "currency": "percentage",
+          "initial_time": "2025-04-01",
+          "target_time": "2025-09-30",
+          "cumulative_period": null
+        },
+        {
+          "statement": "PAT grew to Rs 173.5 million in Q2 FY2026, up 5.5% YoY with PAT margin at 7.5%.",
+          "kpi_abbr": "PAT",
+          "current_value": 173500000,
+          "targeted_value": null,
+          "multiplier": 1,
+          "currency": "INR",
+          "initial_time": "2025-07-01",
+          "target_time": "2025-09-30",
+          "cumulative_period": 3
+        },
+        {
+          "statement": "EPS increased from Rs 4.65 in Q2 FY2025 to Rs 4.92 in Q2 FY2026.",
+          "kpi_abbr": "EPS_BASIC",
+          "current_value": 4.92,
+          "targeted_value": null,
+          "multiplier": 1,
+          "currency": "INR",
+          "initial_time": "2025-07-01",
+          "target_time": "2025-09-30",
+          "cumulative_period": 3
+        },
+        {
+          "statement": "Silcol (Doffner JV for coloured quartz) nearly doubled turnover in H1 FY2026 vs H1 FY2025.",
+          "kpi_abbr": "SEG_SILCOL_REV",
+          "current_value": null,
+          "targeted_value": null,
+          "multiplier": 10000000,
+          "currency": "INR",
+          "initial_time": "2025-04-01",
+          "target_time": "2025-09-30",
+          "cumulative_period": 6
+        },
+        {
+          "statement": "Nano division significantly decreased raw material cost in FY2026, leading to improved PAT and PAT margins.",
+          "kpi_abbr": "SEG_NANO_PAT_MARGIN",
+          "current_value": null,
+          "targeted_value": null,
+          "multiplier": 1,
+          "currency": "percentage",
+          "initial_time": "2025-04-01",
+          "target_time": "2025-09-30",
+          "cumulative_period": null
+        }
+      ],
+      "conceptual_targets": [
+        {
+          "statement": "20 Microns strengthened market share with paint manufacturers during Q2 demand downturn by being a reliable and diversified supplier.",
+          "concept": "Market share retention",
+          "current_state": "Paint segment contributing 48% of revenue; demand temporarily subdued",
+          "targeted_state": "Maintained and strengthened position as preferred alternative supplier",
+          "initial_time": "2025-07-01",
+          "target_time": "2025-09-30"
+        },
+        {
+          "statement": "Company received EcoVadis Gold certification, validating its sustainability commitments.",
+          "concept": "ESG certification",
+          "current_state": "Eco Vadis Gold certified",
+          "targeted_state": "Recognised as a sustainability leader among rated companies",
+          "initial_time": "2025-04-01",
+          "target_time": "2025-09-30"
+        },
+        {
+          "statement": "Polymers and rubber segments delivered good growth in H1 FY2026.",
+          "concept": "Segment revenue growth",
+          "current_state": "Plastics 25%, Rubber 9% of revenue; growing",
+          "targeted_state": "Continued revenue and margin growth in plastic and rubber segments",
+          "initial_time": "2025-04-01",
+          "target_time": "2025-09-30"
+        },
+        {
+          "statement": "SIBO 20 Microns (Thai adhesives JV) commenced production and launched product; participated successfully in Mumbai construction chemicals exhibition.",
+          "concept": "JV production commencement",
+          "current_state": "Production started; product in market",
+          "targeted_state": "Successfully launched and generating market traction",
+          "initial_time": "2025-07-01",
+          "target_time": "2025-09-30"
+        },
+        {
+          "statement": "Malaysian mine became operational, enabling in-house raw material sourcing for calcium carbonate.",
+          "concept": "Mine operationalisation",
+          "current_state": "Mine recently operational; grade segregation underway",
+          "targeted_state": "Operational mine delivering raw materials",
+          "initial_time": "2025-07-01",
+          "target_time": "2025-09-30"
+        }
+      ]
+    }
+  },
+  "disclosures": [
+    {
+      "disclosure_type": "bad_news",
+      "disclosure_title": "Q2 revenue declined 3.9% YoY and 6.6% QoQ",
+      "disclosure_timing": "proactive",
+      "mitigation_strategy": "Cost discipline and operating efficiency maintained margins despite revenue decline",
+      "severity": "medium"
+    },
+    {
+      "disclosure_type": "risk",
+      "disclosure_title": "Paint industry demand slowdown — extended monsoon, delayed festive season",
+      "disclosure_timing": "proactive",
+      "mitigation_strategy": "Diversified customer and product mix; selective product offerings to protect margins",
+      "severity": "medium"
+    },
+    {
+      "disclosure_type": "risk",
+      "disclosure_title": "Paint manufacturers squeezing raw material supplier margins",
+      "disclosure_timing": "proactive",
+      "mitigation_strategy": "Selective product approach; focus on specialty and value-added segments with higher margins",
+      "severity": "medium"
+    },
+    {
+      "disclosure_type": "bad_news",
+      "disclosure_title": "Nano division revenue flat YoY in H1 FY2026",
+      "disclosure_timing": "reactive",
+      "mitigation_strategy": "Focused on raw material cost reduction; growth expected from polymers and rubber segments",
+      "severity": "medium"
+    },
+    {
+      "disclosure_type": "risk",
+      "disclosure_title": "CapEx execution deferred due to demand weakness",
+      "disclosure_timing": "proactive",
+      "mitigation_strategy": "CapEx to resume from Q4 FY2026; Malaysian subsidiary expansion on track",
+      "severity": "low"
+    },
+    {
+      "disclosure_type": "risk",
+      "disclosure_title": "Global raw material volatility impacting polymers and rubber division",
+      "disclosure_timing": "proactive",
+      "mitigation_strategy": "Alternative sourcing and stable freight cost management",
+      "severity": "low"
+    },
+    {
+      "disclosure_type": "risk",
+      "disclosure_title": "Geopolitical tensions and inflationary headwinds pose revenue risk",
+      "disclosure_timing": "proactive",
+      "mitigation_strategy": "Operational rigour and stable margin focus; limited direct US tariff exposure",
+      "severity": "low"
+    },
+    {
+      "disclosure_type": "risk",
+      "disclosure_title": "Western European export markets plateauing",
+      "disclosure_timing": "proactive",
+      "mitigation_strategy": "Expansion into Poland, Latin America, Middle East, South Africa to offset plateau",
+      "severity": "low"
+    },
+    {
+      "disclosure_type": "risk",
+      "disclosure_title": "Malaysian mine grade segregation and optimal utilisation uncertain near-term",
+      "disclosure_timing": "proactive",
+      "mitigation_strategy": "Grade segregation underway; margin improvement guidance deferred to Q1 FY2027",
+      "severity": "low"
+    }
+  ],
+  "governance_signals": {
+    "transparent": true,
+    "defensive_language": false,
+    "capital_allocation_clarity": true
+  },
+  "tone": "confident",
+  "industry_analysis": {
+    "demand": {
+      "kpis": [
+        {
+          "kpi_abbr": "SEG_PAINT_REV_SHARE",
+          "value": 48,
+          "statement": "Paint contributed 48% of our revenue followed by plastic at 25% and rubber by 9%.",
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "multiplier": 1
+        },
+        {
+          "kpi_abbr": "SEG_PLASTIC_REV_SHARE",
+          "value": 25,
+          "statement": "Paint contributed 48% of our revenue followed by plastic at 25% and rubber by 9%.",
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "multiplier": 1
+        },
+        {
+          "kpi_abbr": "SEG_RUBBER_REV_SHARE",
+          "value": 9,
+          "statement": "Paint contributed 48% of our revenue followed by plastic at 25% and rubber by 9%.",
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "multiplier": 1
+        }
+      ],
+      "factors_affecting": [
+        "Extended monsoon season delayed paint industry demand in Q2 FY2026",
+        "Delayed festive season and subdued customer movement reduced paint consumption",
+        "Early indicators from October and November suggest improving activity levels",
+        "Festive and wedding season expected to drive demand recovery in H2 FY2026",
+        "Infrastructure upgradation activities expected to support construction chemicals demand",
+        "International enquiries picked up after recent industry exhibitions",
+        "Demand in polymers and rubber segments stable and growing despite macro headwinds"
+      ]
+    },
+    "supply": {
+      "kpis": [],
+      "factors_affecting": [
+        "Malaysian calcium carbonate mine recently became operational, providing in-house raw material source",
+        "Push mine fully operational; other mines undergoing core drilling to assess viability",
+        "Mines to be opened sequentially based on drilling data and cost structure assessment",
+        "CapEx for capacity enhancement and modernisation underway; deferred to Q4 FY2026 onwards",
+        "Malaysian subsidiary calcium carbonate expansion being funded post acquisition",
+        "Global supply chain disruptions caused indirectly by US tariff changes"
+      ]
+    },
+    "operating_margins": {
+      "kpis": [
+        {
+          "kpi_abbr": "EBITDA_MARGIN",
+          "value": 13.8,
+          "statement": "EBITDA margins expanded to 13.8% and strong hundred basis point improvement over the same quarter last year and nearly the same over quarter one.",
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "multiplier": 1
+        },
+        {
+          "kpi_abbr": "PAT_MARGIN",
+          "value": 7.5,
+          "statement": "Our PAT margins improved by 7.5%.",
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "multiplier": 1
+        },
+        {
+          "kpi_abbr": "EBITDA_ABS",
+          "value": 318000000,
+          "statement": "Our EBITDA grew to rupees 318 millions showing a 3.4% improvement year on year.",
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "multiplier": 1
+        }
+      ],
+      "factors_affecting": [
+        "Paint manufacturers applying pricing pressure on raw material suppliers, squeezing margins",
+        "Operating expenses declined 7.7% sequentially and 5% YoY due to cost discipline",
+        "Alternative sourcing and efficient procurement reducing material costs",
+        "Stable freight costs contributing to margin maintenance",
+        "Depreciation increased due to capacity enhancement and modernisation investments",
+        "Product mix shift toward higher-margin plastics, rubber and specialty chemicals improving margins",
+        "Export distribution cost advantages partially offsetting domestic revenue softness",
+        "Raw material cost reduction in Nano division improving Nano PAT margins",
+        "Structural margin focus delivering results even in low-demand environment"
+      ]
+    }
+  },
+  "financial_strength": {
+    "revenue_growth": {
+      "factors_affecting": [
+        "Q2 FY2026 revenue declined 3.9% YoY and 6.6% QoQ due to paint industry slowdown",
+        "Extended monsoon, delayed festive season, and pricing pressure from paint manufacturers impacted top line",
+        "Diversified segment mix (plastics, rubber, exports) partially cushioned paint segment headwind",
+        "Management reaffirmed 13% full-year revenue growth guidance for FY2026",
+        "H2 FY2026 expected to see recovery driven by festive, wedding season and improving demand indicators",
+        "Export revenue expected to increase as new geographies (Poland, Latin America, Middle East, South Africa) ramp",
+        "Silcol (coloured quartz JV) revenue nearly doubled YoY in H1"
+      ]
+    },
+    "profitability_and_margin_expansion": {
+      "factors_affecting": [
+        "EBITDA margin expanded ~100bps YoY to 13.8%, within guided 13–15% range",
+        "PAT grew 5.5% YoY to Rs 173.5 million despite revenue decline",
+        "Cost discipline and alternative sourcing drove margin improvement",
+        "Paint manufacturers' competitive pricing puts structural pressure on supplier margins",
+        "Product portfolio shift to higher-margin plastics, rubber and specialty chemicals supports margin trajectory",
+        "Raw material cost reduction in Nano division improving subsidiary profitability",
+        "Steady state margin guidance of 13–15% reiterated for medium term"
+      ]
+    },
+    "cash_flow_generation_and_quality": {
+      "factors_affecting": [
+        "Operating expenses tightly controlled with 7.7% sequential decline supporting cash generation",
+        "Depreciation increased due to ongoing capacity investments, reducing near-term free cash flow",
+        "Working capital discipline maintained with stable financial costs",
+        "CapEx deferred to Q4 FY2026, providing near-term cash flow relief",
+        "No specific cash flow figures disclosed in the transcript"
+      ]
+    },
+    "balance_sheet_strength_and_leverage": {
+      "factors_affecting": [
+        "100 crore CapEx plan under revision; new plan to be communicated via press release",
+        "Malaysian subsidiary to receive capital infusion for calcium carbonate expansion",
+        "Stable financial costs and discipline highlighted by CFO",
+        "No specific debt or leverage metrics disclosed in transcript",
+        "EcoVadis Gold certification and sustainability audits indicate governance discipline",
+        "Sequenced mine development approach suggests capital allocation prudence"
+      ]
+    }
+  },
+  "client_traction": {
+    "customer_growth": {
+      "kpis": [],
+      "factors_affecting": [
+        "Paint manufacturers increasingly prefer reliable and diversified suppliers like 20 Microns",
+        "Company positioned as strong alternative to traditional suppliers",
+        "New client enquiries from international exhibitions picking up",
+        "Participation in Mumbai construction chemicals exhibition generated traction for SIBO JV brand",
+        "New products (organic thickeners, pacifiers, flame retardants, zinc oxide replacement) gaining acceptance domestically and internationally",
+        "Upcoming exhibitions in February, March and April 2026 for plastics, rubber and paints to drive new client acquisition"
+      ]
+    },
+    "revenue_streams": {
+      "kpis": [
+        {
+          "kpi_abbr": "REV_OP",
+          "value": 2307800000,
+          "statement": "Revenue from the operation stood at rupees 2307.8 million.",
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "multiplier": 1
+        },
+        {
+          "kpi_abbr": "EPS_BASIC",
+          "value": 4.92,
+          "statement": "Our EPS increased from 4.65 last year to 4.92 this quarter.",
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "multiplier": 1
+        },
+        {
+          "kpi_abbr": "PAT",
+          "value": 173500000,
+          "statement": "Our PAD grew to 173.5 million, up by 5.5% year on year.",
+          "start_date": "2025-07-01",
+          "end_date": "2025-09-30",
+          "multiplier": 1
+        }
+      ],
+      "factors_affecting": [
+        "Paint segment (48% of revenue) impacted by seasonal and demand headwinds in Q2",
+        "Plastics (25%) and rubber (9%) segments stable and growing, with better margins than paint",
+        "Export revenue providing incremental growth as new geographies come online",
+        "B2C construction chemicals and mineral fertilizer gaining traction from smaller base in Tier 2 and Tier 3 markets",
+        "Silcol (coloured quartz JV with Doffner) nearly doubled revenues in H1 FY2026",
+        "SIBO 20 Microns (Thai adhesives JV) just commenced revenue generation; figures expected in Q3",
+        "Value-added and specialty chemicals product lines expected to improve revenue quality and margins"
+      ]
+    }
+  },
+  "new_kpis": [
+    {
+      "abbr": "SEG_PAINT_REV_SHARE",
+      "full_form": "Paint Segment Revenue as Percentage of Total Revenue",
+      "kpi_type": "industry_specific",
+      "denomination": "percentage"
+    },
+    {
+      "abbr": "SEG_PLASTIC_REV_SHARE",
+      "full_form": "Plastics / Polymers Segment Revenue as Percentage of Total Revenue",
+      "kpi_type": "industry_specific",
+      "denomination": "percentage"
+    },
+    {
+      "abbr": "SEG_RUBBER_REV_SHARE",
+      "full_form": "Rubber Segment Revenue as Percentage of Total Revenue",
+      "kpi_type": "industry_specific",
+      "denomination": "percentage"
+    },
+    {
+      "abbr": "SEG_NANO_REV",
+      "full_form": "20 Microns Nano Division Revenue",
+      "kpi_type": "industry_specific",
+      "denomination": "rupee"
+    },
+    {
+      "abbr": "SEG_NANO_PAT_MARGIN",
+      "full_form": "20 Microns Nano Division Profit After Tax Margin",
+      "kpi_type": "industry_specific",
+      "denomination": "percentage"
+    },
+    {
+      "abbr": "SEG_SILCOL_REV",
+      "full_form": "Silcol (Doffner JV - Coloured Quartz) Revenue",
+      "kpi_type": "industry_specific",
+      "denomination": "rupee"
+    }
+  ],
+  "confidence": "high"
+}

@@ -1,0 +1,1219 @@
+{
+  "meta": {
+    "regime": "Risk-On",
+    "regime_previous": "Neutral",
+    "regime_changed_weeks_ago": 2,
+    "as_of_date": "2025-04-11",
+    "week_ending_label": "Week ending 11 Apr 2025 · Friday close",
+    "version": "1.1"
+  },
+
+  "dashboard": {
+    "summary_tiles": {
+      "market_regime": {
+        "value": "Risk-On",
+        "change": "▲ from Neutral",
+        "since_label": "2 weeks ago"
+      },
+      "top_cluster": {
+        "name": "Info Tech",
+        "score": 88,
+        "quartile": "Q1",
+        "rank": 1
+      },
+      "biggest_mover": {
+        "name": "Industrials",
+        "rank_change": "+7",
+        "label": "+7 ranks this week"
+      },
+      "news_this_week": {
+        "count": 12,
+        "clusters_affected": 5
+      }
+    },
+    "top_5_industries": [
+      {
+        "rank": 1,
+        "name": "Info Technology",
+        "composite_score": 88,
+        "wow": "+2",
+        "quartile": "Q1",
+        "news_tag": "Demand",
+        "news_direction": "up"
+      },
+      {
+        "rank": 2,
+        "name": "Energy",
+        "composite_score": 83,
+        "wow": "+5",
+        "quartile": "Q1",
+        "news_tag": "Macro",
+        "news_direction": "up"
+      },
+      {
+        "rank": 3,
+        "name": "Financials",
+        "composite_score": 79,
+        "wow": "—",
+        "quartile": "Q1",
+        "news_tag": "Macro",
+        "news_direction": "neutral"
+      },
+      {
+        "rank": 4,
+        "name": "Industrials",
+        "composite_score": 76,
+        "wow": "+7",
+        "quartile": "Q1",
+        "news_tag": "Policy",
+        "news_direction": "up"
+      },
+      {
+        "rank": 5,
+        "name": "Materials",
+        "composite_score": 72,
+        "wow": "+3",
+        "quartile": "Q2",
+        "news_tag": null,
+        "news_direction": null
+      }
+    ],
+    "bottom_3_industries": [
+      {
+        "rank": 22,
+        "name": "Real Estate",
+        "composite_score": 24,
+        "wow": "−4",
+        "quartile": "Q4",
+        "signal": "Rotation exit"
+      },
+      {
+        "rank": 23,
+        "name": "Comm. Services",
+        "composite_score": 19,
+        "wow": "−2",
+        "quartile": "Q4",
+        "signal": null
+      },
+      {
+        "rank": 24,
+        "name": "Consumer Staples",
+        "composite_score": 14,
+        "wow": "—",
+        "quartile": "Q4",
+        "signal": null
+      }
+    ],
+    "portfolio_holdings": [
+      {
+        "ticker": "TCS",
+        "cluster": "IT Services",
+        "cluster_rank": "#1",
+        "quartile": "Q1",
+        "wow": "+2"
+      },
+      {
+        "ticker": "HDFCBANK",
+        "cluster": "Bank - Private",
+        "cluster_rank": "#3",
+        "quartile": "Q1",
+        "wow": "—"
+      },
+      {
+        "ticker": "RELIANCE",
+        "cluster": "Oil & Gas - R&M",
+        "cluster_rank": "#2",
+        "quartile": "Q1",
+        "wow": "+5"
+      },
+      {
+        "ticker": "DLF",
+        "cluster": "Real Estate",
+        "cluster_rank": "#22",
+        "quartile": "Q4",
+        "wow": "−4"
+      },
+      {
+        "ticker": "TATASTEEL",
+        "cluster": "Steel",
+        "cluster_rank": "#16",
+        "quartile": "Q3",
+        "wow": "−4"
+      }
+    ],
+    "rotation_signals": [
+      {
+        "type": "ROTATION ENTRY",
+        "industry_name": "IT",
+        "detail": "Rank +7 in 3w · Breadth 68% · Revisions +12",
+        "direction": "up"
+      },
+      {
+        "type": "ROTATION ENTRY",
+        "industry_name": "Energy",
+        "detail": "Rank +5 in 4w · Commodity tailwinds",
+        "direction": "up"
+      },
+      {
+        "type": "ROTATION EXIT",
+        "industry_name": "Real Estate",
+        "detail": "Rank −4 · Breadth 21% · Revisions −8",
+        "direction": "down"
+      },
+      {
+        "type": "TRAP ALERT",
+        "industry_name": "Utilities",
+        "detail": "Price +6% but breadth only 28%",
+        "direction": "warn"
+      }
+    ],
+    "top_news": [
+      {
+        "category": "POLICY",
+        "category_style": "blue",
+        "extra_badge": null,
+        "headline": "Ministry of Defence confirms 18% YoY capex increase. Direct benefit to BEL, HAL, L&T Defense. Confirms Industrials rotation entry.",
+        "sentiment": "Positive",
+        "sentiment_direction": "up",
+        "source": "PIB",
+        "industry_tags": ["Aerospace & Defense", "Capital Goods"],
+        "has_cta": true
+      },
+      {
+        "category": "RAW MATERIAL",
+        "category_style": "warn",
+        "extra_badge": null,
+        "headline": "Crude spike risks margin compression across paint, tyre, aviation sectors.",
+        "sentiment": "Negative",
+        "sentiment_direction": "down",
+        "source": "ET · Mon",
+        "industry_tags": ["Paint", "Tyre", "Aviation"],
+        "has_cta": false
+      },
+      {
+        "category": "MACRO",
+        "category_style": "accent",
+        "extra_badge": "Regime flag",
+        "headline": "RBI holds rates — mixed signal for financials and rate-sensitive sectors.",
+        "sentiment": "Mixed",
+        "sentiment_direction": "neutral",
+        "source": "RBI",
+        "industry_tags": ["Bank - Private", "Real Estate"],
+        "has_cta": false
+      }
+    ]
+  },
+
+  "industry_ranking": {
+    "as_of_date": "2025-04-11",
+    "total_industries": 24,
+    "industries": [
+      {
+        "rank": 1,
+        "name": "Info Technology",
+        "composite_score": 88,
+        "wow": "+2",
+        "momentum": 91,
+        "breadth_pct": 84,
+        "revisions": 78,
+        "valuation": 62,
+        "quartile": "Q1",
+        "news_tag": "Demand",
+        "news_direction": "up",
+        "rank_history": [
+          { "week": "W-11", "rank": 4 },
+          { "week": "W-10", "rank": 3 },
+          { "week": "W-9",  "rank": 3 },
+          { "week": "W-8",  "rank": 2 },
+          { "week": "W-7",  "rank": 3 },
+          { "week": "W-6",  "rank": 3 },
+          { "week": "W-5",  "rank": 2 },
+          { "week": "W-4",  "rank": 2 },
+          { "week": "W-3",  "rank": 2 },
+          { "week": "W-2",  "rank": 1 },
+          { "week": "W-1",  "rank": 1 },
+          { "week": "Now",  "rank": 1 }
+        ]
+      },
+      {
+        "rank": 2,
+        "name": "Energy",
+        "composite_score": 83,
+        "wow": "+5",
+        "momentum": 79,
+        "breadth_pct": 72,
+        "revisions": 81,
+        "valuation": 71,
+        "quartile": "Q1",
+        "news_tag": "Macro",
+        "news_direction": "up",
+        "rank_history": [
+          { "week": "W-11", "rank": 6 },
+          { "week": "W-10", "rank": 5 },
+          { "week": "W-9",  "rank": 5 },
+          { "week": "W-8",  "rank": 4 },
+          { "week": "W-7",  "rank": 4 },
+          { "week": "W-6",  "rank": 5 },
+          { "week": "W-5",  "rank": 4 },
+          { "week": "W-4",  "rank": 3 },
+          { "week": "W-3",  "rank": 3 },
+          { "week": "W-2",  "rank": 3 },
+          { "week": "W-1",  "rank": 2 },
+          { "week": "Now",  "rank": 2 }
+        ]
+      },
+      {
+        "rank": 3,
+        "name": "Financials",
+        "composite_score": 79,
+        "wow": "—",
+        "momentum": 74,
+        "breadth_pct": 69,
+        "revisions": 71,
+        "valuation": 58,
+        "quartile": "Q1",
+        "news_tag": "Macro",
+        "news_direction": "neutral",
+        "rank_history": [
+          { "week": "W-11", "rank": 3 },
+          { "week": "W-10", "rank": 3 },
+          { "week": "W-9",  "rank": 3 },
+          { "week": "W-8",  "rank": 3 },
+          { "week": "W-7",  "rank": 3 },
+          { "week": "W-6",  "rank": 3 },
+          { "week": "W-5",  "rank": 3 },
+          { "week": "W-4",  "rank": 3 },
+          { "week": "W-3",  "rank": 3 },
+          { "week": "W-2",  "rank": 3 },
+          { "week": "W-1",  "rank": 3 },
+          { "week": "Now",  "rank": 3 }
+        ]
+      },
+      {
+        "rank": 4,
+        "name": "Industrials",
+        "composite_score": 76,
+        "wow": "+7",
+        "momentum": 88,
+        "breadth_pct": 68,
+        "revisions": 72,
+        "valuation": 54,
+        "quartile": "Q1",
+        "news_tag": "Policy",
+        "news_direction": "up",
+        "rank_history": [
+          { "week": "W-11", "rank": 12 },
+          { "week": "W-10", "rank": 11 },
+          { "week": "W-9",  "rank": 10 },
+          { "week": "W-8",  "rank": 11 },
+          { "week": "W-7",  "rank": 10 },
+          { "week": "W-6",  "rank": 9  },
+          { "week": "W-5",  "rank": 8  },
+          { "week": "W-4",  "rank": 7  },
+          { "week": "W-3",  "rank": 6  },
+          { "week": "W-2",  "rank": 5  },
+          { "week": "W-1",  "rank": 5  },
+          { "week": "Now",  "rank": 4  }
+        ]
+      },
+      {
+        "rank": 5,
+        "name": "Materials",
+        "composite_score": 72,
+        "wow": "+3",
+        "momentum": 68,
+        "breadth_pct": 61,
+        "revisions": 65,
+        "valuation": 77,
+        "quartile": "Q2",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 8 },
+          { "week": "W-10", "rank": 8 },
+          { "week": "W-9",  "rank": 7 },
+          { "week": "W-8",  "rank": 7 },
+          { "week": "W-7",  "rank": 7 },
+          { "week": "W-6",  "rank": 6 },
+          { "week": "W-5",  "rank": 6 },
+          { "week": "W-4",  "rank": 6 },
+          { "week": "W-3",  "rank": 6 },
+          { "week": "W-2",  "rank": 5 },
+          { "week": "W-1",  "rank": 5 },
+          { "week": "Now",  "rank": 5 }
+        ]
+      },
+      {
+        "rank": 6,
+        "name": "Healthcare",
+        "composite_score": 68,
+        "wow": "+1",
+        "momentum": 63,
+        "breadth_pct": 58,
+        "revisions": 61,
+        "valuation": 66,
+        "quartile": "Q2",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 7 },
+          { "week": "W-10", "rank": 7 },
+          { "week": "W-9",  "rank": 7 },
+          { "week": "W-8",  "rank": 6 },
+          { "week": "W-7",  "rank": 6 },
+          { "week": "W-6",  "rank": 7 },
+          { "week": "W-5",  "rank": 7 },
+          { "week": "W-4",  "rank": 7 },
+          { "week": "W-3",  "rank": 7 },
+          { "week": "W-2",  "rank": 6 },
+          { "week": "W-1",  "rank": 6 },
+          { "week": "Now",  "rank": 6 }
+        ]
+      },
+      {
+        "rank": 7,
+        "name": "Auto",
+        "composite_score": 64,
+        "wow": "−1",
+        "momentum": 61,
+        "breadth_pct": 54,
+        "revisions": 58,
+        "valuation": 72,
+        "quartile": "Q2",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 6 },
+          { "week": "W-10", "rank": 6 },
+          { "week": "W-9",  "rank": 6 },
+          { "week": "W-8",  "rank": 7 },
+          { "week": "W-7",  "rank": 7 },
+          { "week": "W-6",  "rank": 6 },
+          { "week": "W-5",  "rank": 5 },
+          { "week": "W-4",  "rank": 6 },
+          { "week": "W-3",  "rank": 6 },
+          { "week": "W-2",  "rank": 7 },
+          { "week": "W-1",  "rank": 7 },
+          { "week": "Now",  "rank": 7 }
+        ]
+      },
+      {
+        "rank": 8,
+        "name": "FMCG",
+        "composite_score": 61,
+        "wow": "—",
+        "momentum": 55,
+        "breadth_pct": 51,
+        "revisions": 54,
+        "valuation": 48,
+        "quartile": "Q2",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 8 },
+          { "week": "W-10", "rank": 8 },
+          { "week": "W-9",  "rank": 8 },
+          { "week": "W-8",  "rank": 8 },
+          { "week": "W-7",  "rank": 8 },
+          { "week": "W-6",  "rank": 8 },
+          { "week": "W-5",  "rank": 8 },
+          { "week": "W-4",  "rank": 8 },
+          { "week": "W-3",  "rank": 8 },
+          { "week": "W-2",  "rank": 8 },
+          { "week": "W-1",  "rank": 8 },
+          { "week": "Now",  "rank": 8 }
+        ]
+      },
+      {
+        "rank": 9,
+        "name": "Chemicals",
+        "composite_score": 58,
+        "wow": "+2",
+        "momentum": 52,
+        "breadth_pct": 48,
+        "revisions": 51,
+        "valuation": 69,
+        "quartile": "Q2",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 11 },
+          { "week": "W-10", "rank": 11 },
+          { "week": "W-9",  "rank": 10 },
+          { "week": "W-8",  "rank": 10 },
+          { "week": "W-7",  "rank": 10 },
+          { "week": "W-6",  "rank": 10 },
+          { "week": "W-5",  "rank": 10 },
+          { "week": "W-4",  "rank": 10 },
+          { "week": "W-3",  "rank": 10 },
+          { "week": "W-2",  "rank": 10 },
+          { "week": "W-1",  "rank": 9  },
+          { "week": "Now",  "rank": 9  }
+        ]
+      },
+      {
+        "rank": 10,
+        "name": "Telecom",
+        "composite_score": 55,
+        "wow": "+1",
+        "momentum": 49,
+        "breadth_pct": 45,
+        "revisions": 48,
+        "valuation": 61,
+        "quartile": "Q2",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 11 },
+          { "week": "W-10", "rank": 11 },
+          { "week": "W-9",  "rank": 11 },
+          { "week": "W-8",  "rank": 11 },
+          { "week": "W-7",  "rank": 11 },
+          { "week": "W-6",  "rank": 11 },
+          { "week": "W-5",  "rank": 11 },
+          { "week": "W-4",  "rank": 11 },
+          { "week": "W-3",  "rank": 11 },
+          { "week": "W-2",  "rank": 11 },
+          { "week": "W-1",  "rank": 10 },
+          { "week": "Now",  "rank": 10 }
+        ]
+      },
+      {
+        "rank": 11,
+        "name": "Insurance",
+        "composite_score": 51,
+        "wow": "−1",
+        "momentum": 46,
+        "breadth_pct": 42,
+        "revisions": 44,
+        "valuation": 55,
+        "quartile": "Q3",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 10 },
+          { "week": "W-10", "rank": 10 },
+          { "week": "W-9",  "rank": 10 },
+          { "week": "W-8",  "rank": 10 },
+          { "week": "W-7",  "rank": 10 },
+          { "week": "W-6",  "rank": 10 },
+          { "week": "W-5",  "rank": 9  },
+          { "week": "W-4",  "rank": 9  },
+          { "week": "W-3",  "rank": 9  },
+          { "week": "W-2",  "rank": 9  },
+          { "week": "W-1",  "rank": 11 },
+          { "week": "Now",  "rank": 11 }
+        ]
+      },
+      {
+        "rank": 12,
+        "name": "Capital Goods",
+        "composite_score": 48,
+        "wow": "—",
+        "momentum": 44,
+        "breadth_pct": 39,
+        "revisions": 41,
+        "valuation": 52,
+        "quartile": "Q3",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 12 },
+          { "week": "W-10", "rank": 12 },
+          { "week": "W-9",  "rank": 12 },
+          { "week": "W-8",  "rank": 12 },
+          { "week": "W-7",  "rank": 12 },
+          { "week": "W-6",  "rank": 12 },
+          { "week": "W-5",  "rank": 12 },
+          { "week": "W-4",  "rank": 12 },
+          { "week": "W-3",  "rank": 12 },
+          { "week": "W-2",  "rank": 12 },
+          { "week": "W-1",  "rank": 12 },
+          { "week": "Now",  "rank": 12 }
+        ]
+      },
+      {
+        "rank": 13,
+        "name": "Retail",
+        "composite_score": 44,
+        "wow": "—",
+        "momentum": 41,
+        "breadth_pct": 36,
+        "revisions": 38,
+        "valuation": 49,
+        "quartile": "Q3",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 13 },
+          { "week": "W-10", "rank": 13 },
+          { "week": "W-9",  "rank": 13 },
+          { "week": "W-8",  "rank": 13 },
+          { "week": "W-7",  "rank": 13 },
+          { "week": "W-6",  "rank": 13 },
+          { "week": "W-5",  "rank": 13 },
+          { "week": "W-4",  "rank": 13 },
+          { "week": "W-3",  "rank": 13 },
+          { "week": "W-2",  "rank": 13 },
+          { "week": "W-1",  "rank": 13 },
+          { "week": "Now",  "rank": 13 }
+        ]
+      },
+      {
+        "rank": 14,
+        "name": "Logistics",
+        "composite_score": 41,
+        "wow": "+2",
+        "momentum": 38,
+        "breadth_pct": 33,
+        "revisions": 35,
+        "valuation": 46,
+        "quartile": "Q3",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 16 },
+          { "week": "W-10", "rank": 16 },
+          { "week": "W-9",  "rank": 15 },
+          { "week": "W-8",  "rank": 15 },
+          { "week": "W-7",  "rank": 15 },
+          { "week": "W-6",  "rank": 15 },
+          { "week": "W-5",  "rank": 15 },
+          { "week": "W-4",  "rank": 15 },
+          { "week": "W-3",  "rank": 15 },
+          { "week": "W-2",  "rank": 15 },
+          { "week": "W-1",  "rank": 14 },
+          { "week": "Now",  "rank": 14 }
+        ]
+      },
+      {
+        "rank": 15,
+        "name": "Media",
+        "composite_score": 38,
+        "wow": "—",
+        "momentum": 35,
+        "breadth_pct": 30,
+        "revisions": 32,
+        "valuation": 43,
+        "quartile": "Q3",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 15 },
+          { "week": "W-10", "rank": 15 },
+          { "week": "W-9",  "rank": 15 },
+          { "week": "W-8",  "rank": 15 },
+          { "week": "W-7",  "rank": 15 },
+          { "week": "W-6",  "rank": 15 },
+          { "week": "W-5",  "rank": 15 },
+          { "week": "W-4",  "rank": 15 },
+          { "week": "W-3",  "rank": 15 },
+          { "week": "W-2",  "rank": 15 },
+          { "week": "W-1",  "rank": 15 },
+          { "week": "Now",  "rank": 15 }
+        ]
+      },
+      {
+        "rank": 16,
+        "name": "Metals",
+        "composite_score": 35,
+        "wow": "−2",
+        "momentum": 32,
+        "breadth_pct": 27,
+        "revisions": 29,
+        "valuation": 41,
+        "quartile": "Q3",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 14 },
+          { "week": "W-10", "rank": 14 },
+          { "week": "W-9",  "rank": 14 },
+          { "week": "W-8",  "rank": 14 },
+          { "week": "W-7",  "rank": 14 },
+          { "week": "W-6",  "rank": 14 },
+          { "week": "W-5",  "rank": 14 },
+          { "week": "W-4",  "rank": 14 },
+          { "week": "W-3",  "rank": 14 },
+          { "week": "W-2",  "rank": 14 },
+          { "week": "W-1",  "rank": 16 },
+          { "week": "Now",  "rank": 16 }
+        ]
+      },
+      {
+        "rank": 17,
+        "name": "Textiles",
+        "composite_score": 32,
+        "wow": "—",
+        "momentum": 29,
+        "breadth_pct": 24,
+        "revisions": 26,
+        "valuation": 38,
+        "quartile": "Q3",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 17 },
+          { "week": "W-10", "rank": 17 },
+          { "week": "W-9",  "rank": 17 },
+          { "week": "W-8",  "rank": 17 },
+          { "week": "W-7",  "rank": 17 },
+          { "week": "W-6",  "rank": 17 },
+          { "week": "W-5",  "rank": 17 },
+          { "week": "W-4",  "rank": 17 },
+          { "week": "W-3",  "rank": 17 },
+          { "week": "W-2",  "rank": 17 },
+          { "week": "W-1",  "rank": 17 },
+          { "week": "Now",  "rank": 17 }
+        ]
+      },
+      {
+        "rank": 18,
+        "name": "Agri",
+        "composite_score": 29,
+        "wow": "+1",
+        "momentum": 26,
+        "breadth_pct": 21,
+        "revisions": 23,
+        "valuation": 35,
+        "quartile": "Q4",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 19 },
+          { "week": "W-10", "rank": 19 },
+          { "week": "W-9",  "rank": 19 },
+          { "week": "W-8",  "rank": 19 },
+          { "week": "W-7",  "rank": 19 },
+          { "week": "W-6",  "rank": 19 },
+          { "week": "W-5",  "rank": 19 },
+          { "week": "W-4",  "rank": 19 },
+          { "week": "W-3",  "rank": 19 },
+          { "week": "W-2",  "rank": 18 },
+          { "week": "W-1",  "rank": 18 },
+          { "week": "Now",  "rank": 18 }
+        ]
+      },
+      {
+        "rank": 19,
+        "name": "Utilities",
+        "composite_score": 27,
+        "wow": "+1",
+        "momentum": 38,
+        "breadth_pct": 28,
+        "revisions": 19,
+        "valuation": 44,
+        "quartile": "Q4",
+        "news_tag": "Trap",
+        "news_direction": "warn",
+        "rank_history": [
+          { "week": "W-11", "rank": 18 },
+          { "week": "W-10", "rank": 18 },
+          { "week": "W-9",  "rank": 18 },
+          { "week": "W-8",  "rank": 18 },
+          { "week": "W-7",  "rank": 18 },
+          { "week": "W-6",  "rank": 18 },
+          { "week": "W-5",  "rank": 18 },
+          { "week": "W-4",  "rank": 18 },
+          { "week": "W-3",  "rank": 18 },
+          { "week": "W-2",  "rank": 19 },
+          { "week": "W-1",  "rank": 19 },
+          { "week": "Now",  "rank": 19 }
+        ]
+      },
+      {
+        "rank": 20,
+        "name": "Power",
+        "composite_score": 25,
+        "wow": "—",
+        "momentum": 22,
+        "breadth_pct": 18,
+        "revisions": 17,
+        "valuation": 31,
+        "quartile": "Q4",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 20 },
+          { "week": "W-10", "rank": 20 },
+          { "week": "W-9",  "rank": 20 },
+          { "week": "W-8",  "rank": 20 },
+          { "week": "W-7",  "rank": 20 },
+          { "week": "W-6",  "rank": 20 },
+          { "week": "W-5",  "rank": 20 },
+          { "week": "W-4",  "rank": 20 },
+          { "week": "W-3",  "rank": 20 },
+          { "week": "W-2",  "rank": 20 },
+          { "week": "W-1",  "rank": 20 },
+          { "week": "Now",  "rank": 20 }
+        ]
+      },
+      {
+        "rank": 21,
+        "name": "Infrastructure",
+        "composite_score": 27,
+        "wow": "−1",
+        "momentum": 23,
+        "breadth_pct": 20,
+        "revisions": 20,
+        "valuation": 33,
+        "quartile": "Q4",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 21 },
+          { "week": "W-10", "rank": 21 },
+          { "week": "W-9",  "rank": 21 },
+          { "week": "W-8",  "rank": 21 },
+          { "week": "W-7",  "rank": 21 },
+          { "week": "W-6",  "rank": 21 },
+          { "week": "W-5",  "rank": 21 },
+          { "week": "W-4",  "rank": 21 },
+          { "week": "W-3",  "rank": 21 },
+          { "week": "W-2",  "rank": 21 },
+          { "week": "W-1",  "rank": 21 },
+          { "week": "Now",  "rank": 21 }
+        ]
+      },
+      {
+        "rank": 22,
+        "name": "Real Estate",
+        "composite_score": 24,
+        "wow": "−4",
+        "momentum": 31,
+        "breadth_pct": 21,
+        "revisions": 14,
+        "valuation": 28,
+        "quartile": "Q4",
+        "news_tag": "Macro",
+        "news_direction": "down",
+        "rank_history": [
+          { "week": "W-11", "rank": 18 },
+          { "week": "W-10", "rank": 18 },
+          { "week": "W-9",  "rank": 19 },
+          { "week": "W-8",  "rank": 19 },
+          { "week": "W-7",  "rank": 19 },
+          { "week": "W-6",  "rank": 19 },
+          { "week": "W-5",  "rank": 20 },
+          { "week": "W-4",  "rank": 20 },
+          { "week": "W-3",  "rank": 20 },
+          { "week": "W-2",  "rank": 20 },
+          { "week": "W-1",  "rank": 21 },
+          { "week": "Now",  "rank": 22 }
+        ]
+      },
+      {
+        "rank": 23,
+        "name": "Comm. Services",
+        "composite_score": 19,
+        "wow": "−2",
+        "momentum": 17,
+        "breadth_pct": 14,
+        "revisions": 12,
+        "valuation": 22,
+        "quartile": "Q4",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 21 },
+          { "week": "W-10", "rank": 21 },
+          { "week": "W-9",  "rank": 22 },
+          { "week": "W-8",  "rank": 22 },
+          { "week": "W-7",  "rank": 22 },
+          { "week": "W-6",  "rank": 22 },
+          { "week": "W-5",  "rank": 22 },
+          { "week": "W-4",  "rank": 22 },
+          { "week": "W-3",  "rank": 22 },
+          { "week": "W-2",  "rank": 22 },
+          { "week": "W-1",  "rank": 22 },
+          { "week": "Now",  "rank": 23 }
+        ]
+      },
+      {
+        "rank": 24,
+        "name": "Consumer Staples",
+        "composite_score": 14,
+        "wow": "—",
+        "momentum": 12,
+        "breadth_pct": 11,
+        "revisions": 9,
+        "valuation": 18,
+        "quartile": "Q4",
+        "news_tag": null,
+        "news_direction": null,
+        "rank_history": [
+          { "week": "W-11", "rank": 24 },
+          { "week": "W-10", "rank": 24 },
+          { "week": "W-9",  "rank": 24 },
+          { "week": "W-8",  "rank": 24 },
+          { "week": "W-7",  "rank": 24 },
+          { "week": "W-6",  "rank": 24 },
+          { "week": "W-5",  "rank": 24 },
+          { "week": "W-4",  "rank": 24 },
+          { "week": "W-3",  "rank": 24 },
+          { "week": "W-2",  "rank": 24 },
+          { "week": "W-1",  "rank": 24 },
+          { "week": "Now",  "rank": 24 }
+        ]
+      }
+    ]
+  },
+
+  "deep_dive": {
+    "available_industries": [
+      "Information Technology",
+      "Energy",
+      "Financials",
+      "Industrials",
+      "Healthcare",
+      "Materials",
+      "Auto",
+      "FMCG",
+      "Telecom"
+    ],
+    "selected_industry": {
+      "name": "Information Technology",
+      "breadcrumb": ["Industry ranking", "Information Technology"],
+      "metrics": {
+        "cluster_rank": 1,
+        "rank_stability": "Stable",
+        "rank_change_wow": 0,
+        "rank_label": "#1",
+        "rank_change_label": "→ Stable · 0 WoW",
+        "composite_score": 88,
+        "score_change_wow": "+2",
+        "score_change_label": "+2 this week",
+        "breadth_pct": 84,
+        "breadth_context": "84% above 20w MA",
+        "economic_model": "Capex + Consumption",
+        "economic_model_detail": "Core overweight"
+      },
+      "factor_scores": {
+        "fundamentals": 85,
+        "momentum": 91,
+        "breadth": 84,
+        "revisions": 78,
+        "sentiment": 76,
+        "valuation": 62
+      },
+      "rank_history": [
+        { "week": "W-7", "rank": 3 },
+        { "week": "W-6", "rank": 3 },
+        { "week": "W-5", "rank": 2 },
+        { "week": "W-4", "rank": 2 },
+        { "week": "W-3", "rank": 2 },
+        { "week": "W-2", "rank": 1 },
+        { "week": "W-1", "rank": 1 },
+        { "week": "Now", "rank": 1 }
+      ],
+      "factor_news_impacts": [
+        {
+          "factor": "Growth",
+          "news_categories": ["DEMAND", "CORPORATE"],
+          "direction": "positive"
+        },
+        {
+          "factor": "Profitability",
+          "news_categories": ["MACRO"],
+          "direction": "positive"
+        },
+        {
+          "factor": "Sentiment",
+          "news_categories": ["DEMAND", "CORPORATE"],
+          "direction": "positive"
+        },
+        {
+          "factor": "Valuation",
+          "news_categories": ["NO NEWS"],
+          "direction": "negative"
+        }
+      ],
+      "overview_text": "Information Technology holds the #1 rank for the third consecutive week. The sector benefits from strong AI-driven order flows, robust export earnings with a stable rupee, and broad-based earnings upgrades. Breadth is at a multi-month high with 84% of constituent stocks above their 20-week moving average.",
+      "drivers": [
+        {
+          "label": "AI capex cycle",
+          "text": "Hyperscaler spending upgrades driving large deal wins. TCS and Infosys EPS revised up 4–7% this week."
+        },
+        {
+          "label": "Rupee stability",
+          "text": "USD/INR at 83–84 supporting revenue realisation."
+        },
+        {
+          "label": "Breadth expansion",
+          "text": "Mid-cap IT — HCL, Mphasis, Persistent — all above key moving averages."
+        }
+      ],
+      "news": [
+        {
+          "category": "DEMAND SIGNAL",
+          "category_type": "demand",
+          "headline": "US hyperscaler capex raised $40Bn — IT deal pipeline expanding",
+          "direction": "positive",
+          "source": "Bloomberg",
+          "published_day": "Mon",
+          "factor_tags": ["Growth", "Sentiment"]
+        },
+        {
+          "category": "MACRO",
+          "category_type": "macro",
+          "headline": "INR holds at 83.6 — export revenue visibility intact",
+          "direction": "positive",
+          "source": "RBI",
+          "published_day": "Fri",
+          "factor_tags": ["Growth", "Profitability"]
+        },
+        {
+          "category": "CORPORATE",
+          "category_type": "corporate",
+          "headline": "TCS wins $500M deal — largest in FY25",
+          "direction": "positive",
+          "source": "TCS filing",
+          "published_day": "Thu",
+          "factor_tags": ["Growth", "Sentiment"]
+        }
+      ],
+      "risks": "28x forward P/E at top decile historically. US macro slowdown could compress multiples. INR appreciation risk.",
+      "catalysts": "Q1 FY26 earnings (Jul), large deal announcements, US tech spend data."
+    }
+  },
+
+  "stock_ranking": {
+    "available_clusters": [
+      "Bank - Private",
+      "Bank - Public",
+      "NBFC - Large",
+      "Insurance",
+      "Asset Management"
+    ],
+    "selected_cluster": {
+      "name": "Bank - Private",
+      "breadcrumb": ["Industry ranking", "Financial Services", "Banking", "Bank - Private"],
+      "stocks": [
+        {
+          "rank": 1,
+          "symbol": "ICICIBANK",
+          "company_name": "ICICI Bank",
+          "rs_vs_cluster_pct": "+9%",
+          "revision_label": "Strong",
+          "revision_direction": "up",
+          "quality_score": 91,
+          "valuation_label": "Fair"
+        },
+        {
+          "rank": 2,
+          "symbol": "HDFCBANK",
+          "company_name": "HDFC Bank",
+          "rs_vs_cluster_pct": "+7%",
+          "revision_label": "Strong",
+          "revision_direction": "up",
+          "quality_score": 93,
+          "valuation_label": "Fair"
+        },
+        {
+          "rank": 3,
+          "symbol": "AXISBANK",
+          "company_name": "Axis Bank",
+          "rs_vs_cluster_pct": "+5%",
+          "revision_label": "Improving",
+          "revision_direction": "up",
+          "quality_score": 79,
+          "valuation_label": "Fair"
+        },
+        {
+          "rank": 4,
+          "symbol": "KOTAKBANK",
+          "company_name": "Kotak Mahindra Bank",
+          "rs_vs_cluster_pct": "+3%",
+          "revision_label": "Stable",
+          "revision_direction": "flat",
+          "quality_score": 86,
+          "valuation_label": "Expensive"
+        },
+        {
+          "rank": 5,
+          "symbol": "FEDERALBNK",
+          "company_name": "Federal Bank",
+          "rs_vs_cluster_pct": "+2%",
+          "revision_label": "Improving",
+          "revision_direction": "up",
+          "quality_score": 74,
+          "valuation_label": "Fair"
+        },
+        {
+          "rank": 6,
+          "symbol": "AUBANK",
+          "company_name": "AU Small Finance Bank",
+          "rs_vs_cluster_pct": "+1%",
+          "revision_label": "Stable",
+          "revision_direction": "flat",
+          "quality_score": 71,
+          "valuation_label": "Fair"
+        },
+        {
+          "rank": 7,
+          "symbol": "IDFCFIRSTB",
+          "company_name": "IDFC FIRST Bank",
+          "rs_vs_cluster_pct": "0%",
+          "revision_label": "Stable",
+          "revision_direction": "flat",
+          "quality_score": 66,
+          "valuation_label": "Fair"
+        },
+        {
+          "rank": 8,
+          "symbol": "CUB",
+          "company_name": "City Union Bank",
+          "rs_vs_cluster_pct": "-1%",
+          "revision_label": "Stable",
+          "revision_direction": "flat",
+          "quality_score": 63,
+          "valuation_label": "Fair"
+        },
+        {
+          "rank": 9,
+          "symbol": "KTKBANK",
+          "company_name": "Karnataka Bank",
+          "rs_vs_cluster_pct": "-2%",
+          "revision_label": "Declining",
+          "revision_direction": "down",
+          "quality_score": 58,
+          "valuation_label": "Fair"
+        },
+        {
+          "rank": 10,
+          "symbol": "DCBBANK",
+          "company_name": "DCB Bank",
+          "rs_vs_cluster_pct": "-3%",
+          "revision_label": "Declining",
+          "revision_direction": "down",
+          "quality_score": 52,
+          "valuation_label": "Fair"
+        }
+      ],
+      "cluster_signals": [
+        {
+          "variant": "hold",
+          "title": "Core Hold",
+          "subtitle": "Bank - Private #3",
+          "detail": "Rank stable at #3 for 7 of last 8 weeks. NIM resilience and credit growth confirm structural strength."
+        },
+        {
+          "variant": "watch",
+          "title": "Watch — MFI Risk",
+          "subtitle": null,
+          "detail": "IndusInd and RBL showing MFI slippage. Monitor GNPA in Q4 results."
+        }
+      ],
+      "cluster_news": [
+        {
+          "category": "MACRO",
+          "category_type": "macro",
+          "headline": "RBI holds rates — NIM outlook stable",
+          "sentiment": "Mixed",
+          "sentiment_direction": "mixed",
+          "source": "RBI",
+          "published_day": "Wed",
+          "factor_tags": ["NIM & Spread", "Valuation"]
+        }
+      ]
+    }
+  },
+
+  "rotation_alerts": {
+    "signal_counts": {
+      "entry_count": 2,
+      "entry_industries": ["Industrials", "Energy"],
+      "exit_count": 1,
+      "exit_industries": ["Real Estate"],
+      "trap_count": 1,
+      "trap_industries": ["Utilities"],
+      "news_confirmed_count": 2,
+      "news_confirmed_detail": "News supports 2 of 3"
+    },
+    "active_signals": {
+      "entry": {
+        "industry": "Industrials",
+        "detail": "Rank +7 in 3 weeks · Breadth 68% · Revisions +12 · Momentum top decile",
+        "confirming_news": {
+          "category": "POLICY",
+          "headline": "Rs 1.2L cr defence capex — Confirms entry",
+          "sentiment_direction": "positive",
+          "factor_tags": ["Growth", "Sentiment"]
+        }
+      },
+      "exit": {
+        "industry": "Real Estate",
+        "detail": "Rank −4 in 3 weeks · Breadth 21% · Revisions −8",
+        "confirming_news": {
+          "category": "MACRO",
+          "headline": "RBI rate hold — Real Estate bonds cleared",
+          "sentiment_direction": "negative",
+          "factor_tags": ["Valuation", "Sentiment"]
+        }
+      },
+      "trap": {
+        "industry": "Utilities",
+        "detail": "Price +6% in 4w but breadth only 28% and revisions −5"
+      },
+      "emerging": {
+        "industry": "Materials",
+        "detail": "Score +18 in 2w · Watch for breadth confirmation"
+      }
+    },
+    "high_conviction_pick": {
+      "ticker": "TCS",
+      "cluster_label": "IT Services #1",
+      "context": "Top stock · Top cluster",
+      "rs_vs_market_pct": "+14%",
+      "revisions": "+9",
+      "quality_score": 91
+    },
+    "regime_weights": [
+      {
+        "label": "Momentum weight",
+        "value_pct": "30%",
+        "delta": "+5pp",
+        "delta_direction": "positive",
+        "note": "Growth & momentum rewarded"
+      },
+      {
+        "label": "Fundamentals",
+        "value_pct": "28%",
+        "delta": null,
+        "delta_direction": null,
+        "note": "Slightly reduced from 30% base"
+      },
+      {
+        "label": "Valuation weight",
+        "value_pct": "7%",
+        "delta": "−3pp",
+        "delta_direction": "negative",
+        "note": "Discipline relaxed in risk-on"
+      }
+    ]
+  },
+
+  "universe_browser": {
+    "stats": {
+      "total_stocks": 2275,
+      "total_macro_sectors": 12,
+      "hierarchy_levels": 4
+    },
+    "macro_sectors": [
+      { "code": "CD", "name": "Consumer Discretionary",    "stock_count": 614 },
+      { "code": "FS", "name": "Financial Services",         "stock_count": 255 },
+      { "code": "IN", "name": "Industrials",                "stock_count": 435 },
+      { "code": "HC", "name": "Healthcare",                 "stock_count": 156 },
+      { "code": "CM", "name": "Commodities",                "stock_count": 271 },
+      { "code": "FG", "name": "Fast Moving Consumer Goods", "stock_count": 155 },
+      { "code": "IT", "name": "Information Technology",     "stock_count": 126 },
+      { "code": "SV", "name": "Services",                   "stock_count": 126 },
+      { "code": "EN", "name": "Energy",                     "stock_count": 41  },
+      { "code": "UT", "name": "Utilities",                  "stock_count": 41  },
+      { "code": "TL", "name": "Telecommunication",          "stock_count": 28  },
+      { "code": "DV", "name": "Diversified",                "stock_count": 7   }
+    ]
+  },
+
+  "news_intelligence": null
+}
