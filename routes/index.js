@@ -17,8 +17,9 @@ const basketsRouter       = require('./baskets.routes');
 const watchlistRouter     = require('./watchlist.routes');
 const modelsRouter        = require('./models.routes');
 const privateEquityRouter = require('./privateEquity.routes');
-const mutualFundsRouter          = require('./mutualFunds.routes');
 const industryIntelligenceRouter = require('./industryIntelligence.routes');
+const mutualFundsRouter   = require('./mutualFunds.routes');
+const authRouter          = require('./auth.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -55,6 +56,8 @@ router.use('/api/mutual-funds', mutualFundsRouter);
 
 // Industry Intelligence Tracker
 router.use('/api/industry-intelligence', industryIntelligenceRouter);
+// Auth routes
+router.use('/api/auth', authRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);
