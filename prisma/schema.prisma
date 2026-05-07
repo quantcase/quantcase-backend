@@ -201,6 +201,7 @@ model Kpi {
   industry     String[]          @default([])
   source       KpiSource
   kpi_type     KpiTypeCategory?
+  prowessValues ProwessValueNew[]
 
   @@index([abbr])
   @@index([source])
@@ -303,6 +304,7 @@ model ProwessValueNew {
   quarter     String?
   call_date   String?
   kpi_abbr    String
+  kpi         Kpi      @relation(fields: [kpi_abbr], references: [abbr], onDelete: Cascade)
   value       Float?
   raw_value   String?   @map("raw_value")
   unit        String?
@@ -315,6 +317,7 @@ model ProwessValueNew {
   end_date    String?   @map("end_date")
   start_date  String?   @map("start_date")
   period_type String?   @map("period_type")
+  source_type String    @default("C") @map("source_type")
 
   @@unique([callId, kpi_abbr], map: "pnv_call_kpi_unique")
   @@index([callId], map: "idx_pnv_call_id")
@@ -322,6 +325,7 @@ model ProwessValueNew {
   @@index([company, kpi_abbr], map: "idx_pnv_company_kpi")
   @@index([kpi_abbr], map: "idx_pnv_kpi")
   @@index([kpi_abbr, period_type], map: "idx_pnv_kpi_period")
+  @@index([company, source_type], map: "idx_pnv_company_srctype")
   @@map("prowess_values_new")
 }
 

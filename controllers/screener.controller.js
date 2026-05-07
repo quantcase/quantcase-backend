@@ -187,31 +187,16 @@ async function getTickerInfo(req, res, next) {
     const email             = idRow ? (idRow[44] || '').trim() || null : null;
     const bseCode           = idRow ? (idRow[33] || '').trim() || null : null;
 
-    // ── 1b. Prowess fund CSV — dividend yield & adj EPS (latest period) ────
-    let dividendYield = null;
-    let epsForward    = null;
-    if (companyName) {
-      const { fundMap } = loadPeerFundamentals();
-      const fundRow = fundMap[companyName];
-      if (fundRow) {
-        // Period 0 is most recent; scan forward to first period with a non-empty yield
-        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
-          const y = peerPeriodVal(fundRow, i, PEER_OFF.YIELD);
-          if (y != null) { dividendYield = r2(y); break; }
-        }
-        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
-          const e = peerPeriodVal(fundRow, i, PEER_OFF.ADJ_EPS);
-          if (e != null) { epsForward = r2(e); break; }
-        }
-      }
-    }
+    // dividendYield and epsForward are not yet in DB; defaulting to null
+    const dividendYield = null;
+    const epsForward    = null;
 
     // ── 2. Price data from nse_equity ──────────────────────────────────────
     const oneYearAgo   = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
     const fiftyDaysAgo = new Date(Date.now() -  50 * 24 * 60 * 60 * 1000);
     const twohundDaysAgo = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
 
-    const [latestPriceRows, yearPriceRows, mktCapRows, peRows, prowessRows, priceAvgRows, priceYearAgoRows] = await Promise.all([
+    const [latestPriceRows, yearPriceRows, mktCapRows, peRows, annualRows, quarterlyRows, priceAvgRows, priceYearAgoRows] = await Promise.all([
       // Latest 2 rows to compute day change
       prisma.$queryRaw`
         SELECT datetime, open, high, low, close, volume
@@ -244,13 +229,25 @@ async function getTickerInfo(req, res, next) {
             LIMIT 1
           `
         : Promise.resolve([]),
-      // KPI values from prowess_values_new (quarterly fundamentals)
+      // Annual KPI values — audited full-year figures for ratios, YoY, balance sheet
       companyName
         ? prisma.$queryRaw`
             SELECT kpi_abbr, value, raw_value, unit, multiplier, fiscal_year, quarter, period_type
             FROM prowess_values_new
             WHERE company = ${companyName}
-            ORDER BY fiscal_year DESC, quarter DESC
+              AND call_id LIKE 'prowess_new_%'
+            ORDER BY fiscal_year DESC, quarter DESC, source_type ASC
+          `
+        : Promise.resolve([]),
+      // Quarterly KPI values — standalone quarterly P&L for trend chart
+      companyName
+        ? prisma.$queryRaw`
+            SELECT kpi_abbr, value, raw_value, unit, multiplier, fiscal_year, quarter
+            FROM prowess_values_new
+            WHERE company = ${companyName}
+              AND call_id LIKE 'prowess_qtr_%'
+              AND period_type = 'quarterly'
+            ORDER BY fiscal_year ASC, quarter ASC
           `
         : Promise.resolve([]),
       // 50d and 200d averages
@@ -317,18 +314,17 @@ async function getTickerInfo(req, res, next) {
     // pe_data stores PE keyed by company name. Fallback: marketCap / annualised PAT.
     let trailingPE = peRow?.pe != null ? r2(parseFloat(peRow.pe)) : null;
 
-    // ── 6. KPI helpers ─────────────────────────────────────────────────────
-    // Group prowess rows by period (fiscal_year + quarter), latest first
-    // Pick latest value for each kpi_abbr
+    // ── 6. KPI helpers — built from annual (audited) rows only ─────────────
+    // Pick latest consolidated value per abbr (ORDER BY ensures C before S for same period)
     const kpiMap = {};
-    for (const row of prowessRows) {
+    for (const row of annualRows) {
       const abbr = row.kpi_abbr;
-      if (!kpiMap[abbr]) kpiMap[abbr] = row; // first = most recent due to ORDER BY
+      if (!kpiMap[abbr]) kpiMap[abbr] = row;
     }
 
-    // Group all values for each kpi_abbr by period for trend/growth calculations
+    // All annual values per abbr for YoY and multi-year calculations
     const kpiByPeriod = {};
-    for (const row of prowessRows) {
+    for (const row of annualRows) {
       const abbr = row.kpi_abbr;
       if (!kpiByPeriod[abbr]) kpiByPeriod[abbr] = [];
       kpiByPeriod[abbr].push(row);
@@ -379,15 +375,13 @@ async function getTickerInfo(req, res, next) {
       }
     }
 
-    // ── 7b. Quarterly trend ─────────────────────────────────────────────────
-    // Collect all unique periods that have revenue or net profit
+    // ── 7b. Quarterly trend — built from standalone quarterly rows ──────────
     const TREND_ABBRS = new Set(['REV_OP', 'TOTAL_INCOME', 'PAT', 'EPS_BASIC', 'CFO']);
     const trendPeriods = {};
-    for (const row of prowessRows) {
+    for (const row of quarterlyRows) {
       if (!TREND_ABBRS.has(row.kpi_abbr)) continue;
       const key = `${row.fiscal_year}|${row.quarter}`;
       if (!trendPeriods[key]) trendPeriods[key] = { fiscal_year: row.fiscal_year, quarter: row.quarter };
-      // Use value directly (already absolute); EPS_BASIC has multiplier=1, financials have multiplier=1e7
       trendPeriods[key][row.kpi_abbr] = row.value != null ? parseFloat(row.value) : null;
     }
     const quarterlyTrend = Object.values(trendPeriods)
@@ -396,33 +390,31 @@ async function getTickerInfo(req, res, next) {
         return (a.quarter ?? '').localeCompare(b.quarter ?? '');
       })
       .map((p) => ({
-        period:     `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
-        revenue:    p.REV_OP ?? p.TOTAL_INCOME ?? null,
-        netIncome:  p.PAT ?? null,
-        eps:        p.EPS_BASIC ?? null,
-        cfo:        p.CFO ?? null,
+        period:    `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
+        revenue:   p.REV_OP ?? p.TOTAL_INCOME ?? null,
+        netIncome: p.PAT ?? null,
+        eps:       p.EPS_BASIC ?? null,
+        cfo:       p.CFO ?? null,
       }));
 
-    // ── 7c. Fund CSV — EV and EBITDA ────────────────────────────────────────
-    let enterpriseValue = null;
-    let evToEbitda      = null;
-    let ebitda          = null;
-    if (companyName) {
-      const { fundMap } = loadPeerFundamentals();
-      const fundRow = fundMap[companyName];
-      if (fundRow) {
-        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
-          const ev       = peerPeriodVal(fundRow, i, PEER_OFF.EV); // Cr
-          const evPbdita = peerPeriodVal(fundRow, i, 11);           // EV/PBDITA ratio
-          if (ev != null && evPbdita != null && evPbdita !== 0) {
-            enterpriseValue = r2(ev * 1e7);              // convert Cr → INR
-            ebitda          = r2((ev / evPbdita) * 1e7); // PBDITA in INR
-            evToEbitda      = r2(evPbdita);
-            break;
-          }
-        }
-      }
-    }
+    // ── 7c. EBITDA and EV from DB (annual KPIs) ─────────────────────────────
+    // EBITDA = PBT + FIN_COST + DEP_AMORT
+    const pbtAbs      = kpiVal('PBT');
+    const finCostAbs  = kpiVal('FIN_COST');
+    const depAmortAbs = kpiVal('DEP_AMORT');
+    const ebitda = pbtAbs != null && finCostAbs != null && depAmortAbs != null
+      ? r2(pbtAbs + finCostAbs + depAmortAbs)
+      : null;
+
+    // EV = marketCap + totalDebt - cash (all in INR absolute)
+    const totalDebtForEv  = kpiVal('BORR_TOTAL') ?? ((kpiVal('DEBT_LT') ?? 0) + (kpiVal('DEBT_ST') ?? 0));
+    const cashEquivForEv  = kpiVal('CASH_EQUIV') ?? 0;
+    const enterpriseValue = marketCapAbs != null
+      ? r2(marketCapAbs + (totalDebtForEv ?? 0) - cashEquivForEv)
+      : null;
+    const evToEbitda = enterpriseValue != null && ebitda != null && ebitda !== 0
+      ? r2(enterpriseValue / ebitda)
+      : null;
 
     // ── 7d. Shareholding from osc_shareholding_qtr_v1.csv ───────────────────
     let shPromoter = null, shFii = null, shDii = null, shPublic = null, shInstitutions = null;
@@ -485,7 +477,7 @@ async function getTickerInfo(req, res, next) {
     const grossMargins    = grossProfits != null && revAbsForMargin != null && revAbsForMargin !== 0
       ? r2((grossProfits / revAbsForMargin) * 100) : null;
 
-    // EBITDA margins (uses ebitda from fund CSV)
+    // EBITDA margins
     const ebitdaMargins = ebitda != null && revAbsForMargin != null && revAbsForMargin !== 0
       ? r2((ebitda / revAbsForMargin) * 100) : null;
     const ebitdaGrowth  = kpiYoy('PBT'); // PBT tracks EBITDA directionally when fin_cost is low
@@ -683,7 +675,9 @@ async function getTickerInfo(req, res, next) {
         fcfGrowth,
         earningsGrowth:   kpiYoy('EPS_BASIC'),
         revenuePerShare,
-        reserves:         kpiVal('NET_WORTH'),
+        reserves:         kpiVal('NET_WORTH') != null && kpiVal('EQ_SHARE_CAP') != null
+          ? r2(kpiVal('NET_WORTH') - kpiVal('EQ_SHARE_CAP'))
+          : kpiVal('NET_WORTH'),
         reservesGrowth:   kpiYoy('NET_WORTH'),
         quarterlyTrend,
       },
@@ -915,12 +909,13 @@ async function getCharts(req, res, next) {
         ? prisma.pe_data.findMany({ where: { company: companyName }, orderBy: { date: 'asc' } })
         : prisma.pe_data.findMany({ where: { company: symbol },      orderBy: { date: 'asc' } }),
 
-      // All prowess KPIs for this company (quarterly)
+      // Quarterly prowess KPIs — standalone quarterly P&L + balance sheet for charts
       companyName
         ? prisma.$queryRaw`
             SELECT kpi_abbr, value, raw_value, multiplier, fiscal_year, quarter
             FROM prowess_values_new
             WHERE company = ${companyName}
+              AND call_id LIKE 'prowess_qtr_%'
             ORDER BY fiscal_year ASC, quarter ASC
           `
         : Promise.resolve([]),

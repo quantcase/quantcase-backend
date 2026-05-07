@@ -76,7 +76,7 @@ const SNAPSHOT_ABBRS = new Set([
   'TOTAL_LIAB',   'NONCURR_LIAB',   'DEBT_LT',       'DTL',          'PROV_LT',
   'CURR_LIAB',    'DEBT_ST',        'TRADE_PAY',      'OTH_LIAB_CURR','PROV_ST',
   // Equity
-  'EQ_SHARE_CAP', 'NET_WORTH',
+  'EQ_SHARE_CAP', 'NET_WORTH', 'RES_SURPLUS',
   // BFSI intangibles / other
   'ASSET_GW',     'ASSET_INTANG',
   // BFSI balance sheet
@@ -98,7 +98,7 @@ const STATEMENT_MAP = {
   NONCURR_LIAB:  'balance_sheet', DEBT_LT:         'balance_sheet', DTL:           'balance_sheet',
   PROV_LT:       'balance_sheet', CURR_LIAB:       'balance_sheet', DEBT_ST:       'balance_sheet',
   TRADE_PAY:     'balance_sheet', OTH_LIAB_CURR:   'balance_sheet', PROV_ST:       'balance_sheet',
-  EQ_SHARE_CAP:  'balance_sheet', NET_WORTH:       'balance_sheet', ASSET_GW:      'balance_sheet',
+  EQ_SHARE_CAP:  'balance_sheet', NET_WORTH:       'balance_sheet', RES_SURPLUS:   'balance_sheet', ASSET_GW: 'balance_sheet',
   ASSET_INTANG:  'balance_sheet', DEP_TOTAL:       'balance_sheet', BORR_TOTAL:    'balance_sheet',
   LOAN_ADV_TOTAL:'balance_sheet', INV_BV_TOTAL:    'balance_sheet', WORKING_FUNDS: 'balance_sheet',
   CFO:              'cashflow',    CFI:               'cashflow',    CFF:              'cashflow',
@@ -134,7 +134,6 @@ const BASE_COL_MAP = {
   'Total expenses':                                                                           'TOTAL_OPEX',
   'Compensation to employees':                                                                'EMP_EXP',
   'Financial services expenses':                                                              'FIN_COST',
-  'Amortisation':                                                                             'DEP_AMORT',
   'Expenses other than Depreciation, Interest, Taxes, Provisions and Amortizations':         'OTH_EXP',
   // P&L — Profit lines
   'Net profit before tax and extra ordinary items':                                           'PBT_PRE_EXC',
@@ -178,25 +177,32 @@ const BASE_COL_MAP = {
   // Balance Sheet — Equity
   'Paid up equity capital (net of forfeited equity capital)':                                 'EQ_SHARE_CAP',
   'Net worth':                                                                                'NET_WORTH',
+  'Reserves and funds':                                                                       'RES_SURPLUS',
   // Cashflow
-  'Net cash flow from operating activities':                                                  'CFO',
-  'Net cash inflow or (outflow) from investing activities':                                   'CFI',
-  'Net cash inflow or (outflow) from financing activities':                                   'CFF',
-  'Net cash inflow or (outflow) due to net increase or (decrease) in cash and cash equivalents': 'NET_CASH_CHANGE',
-  // BFSI balance sheet
-  'Working funds':           'WORKING_FUNDS',
-  'Deposits: Total':         'DEP_TOTAL',
-  'Borrowings: Total':       'BORR_TOTAL',      // first occurrence (col 86); col 89 auto-skipped
-  'Loan advances: Total':    'LOAN_ADV_TOTAL',  // first occurrence (col 87); col 90 auto-skipped
-  'Investment at BV: Total': 'INV_BV_TOTAL',    // first occurrence (col 88); col 91 auto-skipped
+  'Net cash flow from operating activities':          'CFO',
+  'Net cash inflow or (outflow) from investing activities': 'CFI',
+  'Net cash inflow or (outflow) from financing activities': 'CFF',
+  // BFSI balance sheet — Working funds present in consolidated; others standalone-only
+  'Working funds': 'WORKING_FUNDS',
 };
 
 /**
- * Optional columns — present in newer Prowess exports but not required.
- * Skipped silently if the column is absent from the CSV.
+ * Optional columns — present in some sections/exports but not required.
+ * Skipped silently if the column is absent from the section being processed.
  */
 const OPTIONAL_COL_MAP = {
+  // Cashflow — NET_CASH_CHANGE removed from 2026 consolidated; keep as optional fallback
+  'Net cash inflow or (outflow) due to net increase or (decrease) in cash and cash equivalents': 'NET_CASH_CHANGE',
+  // BFSI balance sheet — standalone-only in 2026 CSV
+  'Deposits: Total':         'DEP_TOTAL',
+  'Borrowings: Total':       'BORR_TOTAL',
+  'Loan advances: Total':    'LOAN_ADV_TOTAL',
+  'Investment at BV: Total': 'INV_BV_TOTAL',
+  // Ratios and other optional columns
   'Return (cash) on capital employed':                          'ROCE',
+  'Return on net worth (Return on Equity)':                     'ROE',
+  'Current ratio (times)':                                      'CR',
+  'Interest cover (times)':                                     'IC',
   'Capital employed':                                           'CAP_EMP',
   'Debt to equity ratio (times)':                               'DE',
   // PPE breakdown — Mar2025_annual.csv onwards (cols 96–107)
@@ -253,6 +259,21 @@ function startOfPeriod(endIso) {
 }
 
 /**
+ * Parse "Mar 2026" (from 2026+ dual-section CSV year-label row) into
+ * { endDate: '2026-03-31', fiscalYear: 'FY2026' }.
+ */
+function parseYearLabel(label) {
+  const MON = { Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',
+                Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12' };
+  const [mon, yr] = (label || '').trim().split(' ');
+  const mm = MON[mon];
+  if (!mm || !yr) return null;
+  const lastDay = new Date(parseInt(yr), parseInt(mm), 0).getDate();
+  const endDate  = `${yr}-${mm}-${String(lastDay).padStart(2, '0')}`;
+  return { endDate, fiscalYear: `FY${yr}` };
+}
+
+/**
  * Build colName → absolute column index.
  * First occurrence wins when the same name appears multiple times (e.g. duplicate BFSI cols).
  */
@@ -263,6 +284,34 @@ function buildColMap(headers) {
     if (h && !(h in map)) map[h] = i;
   }
   return map;
+}
+
+/**
+ * For dual-section CSVs (2026+): split headers into two section-specific maps.
+ * consMap covers cols from 1 up to (not including) stanStart.
+ * stanMap covers cols from stanStart to end.
+ * effectiveMap(preferred) = preferred section + any col only in the other section.
+ */
+function buildSectionColMaps(headers, sectionRow) {
+  let stanStart = null;
+  for (let i = 1; i < sectionRow.length; i++) {
+    if ((sectionRow[i] || '').includes('Standalone')) { stanStart = i; break; }
+  }
+  const consMap = {}, stanMap = {};
+  for (let i = 1; i < headers.length; i++) {
+    const h = (headers[i] || '').trim();
+    if (!h) continue;
+    if (stanStart && i >= stanStart) { if (!(h in stanMap)) stanMap[h] = i; }
+    else                             { if (!(h in consMap)) consMap[h] = i; }
+  }
+  return { consMap, stanMap, stanStart };
+}
+
+/** Merge two column maps: base wins, fallback fills any missing keys. */
+function mergeColMaps(base, fallback) {
+  const out = { ...base };
+  for (const [k, v] of Object.entries(fallback)) if (!(k in out)) out[k] = v;
+  return out;
 }
 
 // ─── Table creation ───────────────────────────────────────────────────────────
@@ -277,11 +326,16 @@ async function ensureTable() {
       END IF;
     END $$
   `);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_call_id      ON ${TABLE_NAME} (call_id)`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_company_fy_q ON ${TABLE_NAME} (company, fiscal_year, quarter)`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_company_kpi  ON ${TABLE_NAME} (company, kpi_abbr)`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_kpi          ON ${TABLE_NAME} (kpi_abbr)`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_kpi_period   ON ${TABLE_NAME} (kpi_abbr, period_type)`);
+  // Add source_type column if migrating an existing table (new tables get it via schema)
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE ${TABLE_NAME} ADD COLUMN IF NOT EXISTS source_type VARCHAR(1) NOT NULL DEFAULT 'C'
+  `);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_call_id         ON ${TABLE_NAME} (call_id)`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_company_fy_q    ON ${TABLE_NAME} (company, fiscal_year, quarter)`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_company_kpi     ON ${TABLE_NAME} (company, kpi_abbr)`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_kpi             ON ${TABLE_NAME} (kpi_abbr)`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_kpi_period      ON ${TABLE_NAME} (kpi_abbr, period_type)`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_pnv_company_srctype ON ${TABLE_NAME} (company, source_type)`);
 }
 
 // ─── Batch insert ─────────────────────────────────────────────────────────────
@@ -294,17 +348,18 @@ async function batchInsert(rows, batchSize = 500) {
     const batch = rows.slice(i, i + batchSize);
     const params = [];
     const placeholders = batch.map((row, j) => {
-      const b = j * 16;
+      const b = j * 17;
       params.push(
         row.callId,      row.company,     row.fiscal_year, row.quarter,
         row.call_date,   row.kpi_abbr,    row.value,       row.raw_value,
         row.unit,        row.multiplier,  row.start_date,  row.end_date,
         row.period_type, row.source,      row.source_path, row.statement,
+        row.source_type,
       );
       return (
         `(gen_random_uuid(),` +
         `$${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},` +
-        `$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14}::"KpiSource",$${b+15},$${b+16},NOW(),NOW())`
+        `$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14}::"KpiSource",$${b+15},$${b+16},NOW(),NOW(),$${b+17})`
       );
     });
     await prisma.$executeRawUnsafe(
@@ -312,7 +367,7 @@ async function batchInsert(rows, batchSize = 500) {
          id, call_id, company, fiscal_year, quarter, call_date,
          kpi_abbr, value, raw_value, unit, multiplier,
          start_date, end_date, period_type, source, source_path,
-         statement, created_at, updated_at
+         statement, created_at, updated_at, source_type
        ) VALUES ${placeholders.join(',\n')}
        ON CONFLICT ON CONSTRAINT pnv_call_kpi_unique DO NOTHING`,
       ...params
@@ -355,130 +410,145 @@ async function seedPpeKpis() {
   console.log(`✓ KPI seed: ${created} created, ${skipped} already existed`);
 }
 
+// ─── DEP_AMORT priority chain (first non-empty wins per section) ──────────────
+// 2026 CSV uses a new primary column; older names are fallbacks.
+const DEP_AMORT_COLS = [
+  'Depreciation / Amortisation (net of transfer from revaluation reserves)',
+  'Amortisation',
+  'Non-cash charges',
+];
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`=== importProwessNew → ${TABLE_NAME} ===`);
+  console.log(`=== importProwessNew → ${TABLE_NAME} (2026 dual-section format) ===`);
   console.log(DO_INSERT ? '[INSERT MODE]\n' : '[VERIFY MODE — re-run with --insert to write to DB]\n');
 
   // ── 1. Parse CSV ──────────────────────────────────────────────────────────────
   console.log('Parsing CSV…');
-  const records  = parse(fs.readFileSync(CSV_PATH), { bom: true, relax_column_count: true });
-  const headers  = records[5];          // row 6 = column names
-  const unitRow  = records[3];          // row 4 = unit strings
-  const dataRows = records.slice(6).filter(r => (r[0] || '').trim());
-
-  // Auto-detect consolidated vs standalone from row 3
-  const typeLabel  = (records[2][1] || '').trim();
-  const isConsolidated = typeLabel.toLowerCase().includes('consolidated');
-  const CALL_SUFFIX    = isConsolidated ? 'C' : 'S';
-  console.log(`  Type      : ${isConsolidated ? 'Consolidated' : 'Standalone'} (suffix=${CALL_SUFFIX})`);
+  const records    = parse(fs.readFileSync(CSV_PATH), { bom: true, relax_column_count: true });
+  const sectionRow = records[2]; // "Standardised Annual Finance Consolidated" / "Standalone"
+  const unitRow    = records[3]; // unit strings per column
+  const yearRow    = records[4]; // "Mar 2026" per column
+  const headers    = records[5]; // column header names
+  const dataRows   = records.slice(6).filter(r => (r[0] || '').trim());
 
   console.log(`  Companies : ${dataRows.length}`);
   console.log(`  Columns   : ${headers.length}`);
 
-  // ── 2. Build name→index map ──────────────────────────────────────────────────
-  const colMap = buildColMap(headers);
+  // ── 2. Build per-section column maps (name → absolute index) ─────────────────
+  const { consMap, stanMap, stanStart } = buildSectionColMaps(headers, sectionRow);
+  console.log(`  Consolidated cols : ${Object.keys(consMap).length}  (cols 1–${stanStart - 1})`);
+  console.log(`  Standalone cols   : ${Object.keys(stanMap).length}  (cols ${stanStart}–${headers.length - 1})`);
 
-  // ── 3. Validate ALL mapped columns exist — fail loudly if any are missing ────
-  const requiredCols = [
-    ...Object.keys(BASE_COL_MAP),
-    REV_OP_COL_NON_FIN, REV_OP_COL_FIN,
-    COMPANY_COL, YEAR_COL, MONTHS_COL,
-  ];
-  const missingCols = requiredCols.filter(name => !(name in colMap));
-  if (missingCols.length) {
+  // ── 3. Parse year for each section from the year-label row ───────────────────
+  const consFirstIdx = Object.values(consMap)[0];
+  const consYearInfo = parseYearLabel((yearRow[consFirstIdx] || '').trim());
+  const stanYearInfo = stanStart ? parseYearLabel((yearRow[stanStart] || '').trim()) : null;
+
+  if (!consYearInfo) throw new Error(`Could not parse consolidated year label from row 5: "${yearRow[consFirstIdx]}"`);
+  console.log(`  Consolidated year : ${consYearInfo.fiscalYear} (end ${consYearInfo.endDate})`);
+  if (stanYearInfo) console.log(`  Standalone year   : ${stanYearInfo.fiscalYear} (end ${stanYearInfo.endDate})`);
+
+  // ── 4. Validate required columns exist in each section ────────────────────────
+  const requiredCols = [...Object.keys(BASE_COL_MAP), REV_OP_COL_NON_FIN, REV_OP_COL_FIN, COMPANY_COL];
+  const consMissing  = requiredCols.filter(n => n !== COMPANY_COL && !(n in consMap));
+  if (consMissing.length) {
     throw new Error(
-      `CSV is missing ${missingCols.length} expected column(s):\n` +
-      missingCols.map(c => `  ✗ "${c}"`).join('\n') +
-      '\n\nUpdate BASE_COL_MAP if Prowess renamed these columns.'
+      `Consolidated section missing ${consMissing.length} column(s):\n` +
+      consMissing.map(c => `  ✗ "${c}"`).join('\n')
     );
   }
-  console.log(`\n✓ All ${requiredCols.length} expected column names found in CSV.\n`);
+  console.log(`\n✓ All ${requiredCols.length - 1} expected columns found in consolidated section.\n`);
 
-  // ── 4. Build name→unit map (derived from the CSV units row, by column name) ──
-  // This way units are always tied to the column name, never to a position.
-  const colUnitByName = {};
-  for (const [name, idx] of Object.entries(colMap)) {
-    const raw = (unitRow[idx] || '').trim();
-    colUnitByName[name] = CSV_UNIT_MAP[raw] ?? null;
+  // ── 5. Build per-column unit lookup by absolute column index ─────────────────
+  const colUnitByIdx = {};
+  for (let i = 0; i < headers.length; i++) {
+    const raw = (unitRow[i] || '').trim();
+    colUnitByIdx[i] = CSV_UNIT_MAP[raw] ?? null;
   }
 
-  // ── 5. Build all rows ─────────────────────────────────────────────────────────
+  // ── 6. Build all rows ─────────────────────────────────────────────────────────
   console.log('Building rows…');
   const allRows = [];
 
-  for (const dataRow of dataRows) {
-    const company = (dataRow[colMap[COMPANY_COL]] || '').trim();
-    if (!company) continue;
-
-    const yearRaw = (dataRow[colMap[YEAR_COL]]   || '').trim();
-    const months  = (dataRow[colMap[MONTHS_COL]] || '').trim();
-
-    if (!yearRaw) continue;
-    if (months && months !== '12') continue;  // skip partial-year entries
-
-    const endDate    = toIso(yearRaw);
-    const fiscalYear = deriveFiscalYear(yearRaw);
-    if (!endDate || !fiscalYear) continue;
-
-    const startDate   = startOfPeriod(endDate);
-    const callId      = `prowess_new_${normalizeName(company)}_${fiscalYear}_${CALL_SUFFIX}`;
+  /**
+   * Extract KPI rows from one section of a data row.
+   * sectionColMap: { colName → absoluteColIndex } for this section.
+   * yearInfo: { endDate, fiscalYear }.
+   * sourceType: 'C' or 'S'.
+   */
+  function processSection(dataRow, company, sectionColMap, yearInfo, sourceType) {
+    const { endDate, fiscalYear } = yearInfo;
+    const startDate = startOfPeriod(endDate);
+    const callId    = `prowess_new_${normalizeName(company)}_${fiscalYear}_${sourceType}`;
 
     function pushRow(colName, abbr) {
-      const idx = colMap[colName];
+      const idx = sectionColMap[colName];
+      if (idx == null) return;
       const raw = (dataRow[idx] || '').trim();
       if (!raw) return;
-
-      const num  = parseFloat(raw);
+      const num = parseFloat(raw);
       if (isNaN(num)) return;
 
-      const unit   = colUnitByName[colName] ?? 'Cr';
-      const mult   = UNIT_MULTIPLIER[unit]  ?? 1;
+      const unit   = colUnitByIdx[idx] ?? 'Cr';
+      const mult   = UNIT_MULTIPLIER[unit] ?? 1;
       const isSnap = SNAPSHOT_ABBRS.has(abbr);
 
       allRows.push({
-        callId,
-        company,
-        fiscal_year:  fiscalYear,
-        quarter:      'Q4',
-        call_date:    endDate,
-        kpi_abbr:     abbr,
-        value:        parseFloat((num * mult).toFixed(4)),
-        raw_value:    raw,
-        unit,
-        multiplier:   mult,
-        start_date:   isSnap ? null : startDate,
-        end_date:     endDate,
-        period_type:  isSnap ? 'snapshot' : 'annual',
-        source:       'QE',
-        source_path:  `prowess/${path.basename(CSV_PATH)}`,
-        statement:    STATEMENT_MAP[abbr] ?? null,
+        callId, company, source_type: sourceType,
+        fiscal_year: fiscalYear, quarter: 'Q4', call_date: endDate,
+        kpi_abbr:    abbr,
+        value:       parseFloat((num * mult).toFixed(4)),
+        raw_value:   raw, unit, multiplier: mult,
+        start_date:  isSnap ? null : startDate,
+        end_date:    endDate,
+        period_type: isSnap ? 'snapshot' : 'annual',
+        source:      'QE',
+        source_path: `prowess/${path.basename(CSV_PATH)}`,
+        statement:   STATEMENT_MAP[abbr] ?? null,
       });
     }
 
-    // Required columns
+    // REV_OP: first non-empty of the two mutually-exclusive operating income columns
+    const nonFinRaw = (dataRow[sectionColMap[REV_OP_COL_NON_FIN]] || '').trim();
+    const finRaw    = (dataRow[sectionColMap[REV_OP_COL_FIN]]     || '').trim();
+    if (nonFinRaw || finRaw) {
+      pushRow(nonFinRaw ? REV_OP_COL_NON_FIN : REV_OP_COL_FIN, 'REV_OP');
+    }
+
+    // Required columns (all except REV_OP, which is handled above)
     for (const [colName, abbr] of Object.entries(BASE_COL_MAP)) {
       pushRow(colName, abbr);
     }
 
-    // Optional columns — only pushed when present in this CSV
+    // Optional columns — silently skipped if absent from this section
     for (const [colName, abbr] of Object.entries(OPTIONAL_COL_MAP)) {
-      if (colName in colMap) pushRow(colName, abbr);
+      if (colName in sectionColMap) pushRow(colName, abbr);
     }
 
-    // REV_OP: first non-empty of the two mutually-exclusive columns
-    const revRaw =
-      (dataRow[colMap[REV_OP_COL_NON_FIN]] || '').trim() ||
-      (dataRow[colMap[REV_OP_COL_FIN]]     || '').trim() || null;
-    if (revRaw) {
-      const colName = (dataRow[colMap[REV_OP_COL_NON_FIN]] || '').trim()
-        ? REV_OP_COL_NON_FIN : REV_OP_COL_FIN;
-      pushRow(colName, 'REV_OP');
+    // DEP_AMORT: first non-empty column in priority chain wins
+    for (const colName of DEP_AMORT_COLS) {
+      const idx = sectionColMap[colName];
+      if (idx != null && (dataRow[idx] || '').trim()) {
+        pushRow(colName, 'DEP_AMORT');
+        break;
+      }
     }
   }
 
-  // ── 6. Deduplicate (callId, kpi_abbr) — keep first occurrence ─────────────────
+  for (const dataRow of dataRows) {
+    const company = (dataRow[0] || '').trim();
+    if (!company) continue;
+
+    processSection(dataRow, company, consMap, consYearInfo, 'C');
+    if (stanYearInfo && stanStart) {
+      processSection(dataRow, company, stanMap, stanYearInfo, 'S');
+    }
+  }
+
+  // ── 7. Deduplicate (callId, kpi_abbr) — keep first occurrence ─────────────────
+  // callId already encodes source_type (_C / _S), so C and S never collide here.
   const seen      = new Set();
   const finalRows = [];
   for (const row of allRows) {
@@ -486,33 +556,36 @@ async function main() {
     if (!seen.has(key)) { seen.add(key); finalRows.push(row); }
   }
 
-  // ── 7. Verification stats ─────────────────────────────────────────────────────
+  // ── 8. Verification stats ─────────────────────────────────────────────────────
   console.log(`\n${'─'.repeat(60)}`);
   console.log('VERIFICATION');
   console.log('─'.repeat(60));
-  console.log(`Total rows built : ${finalRows.length}`);
+  const cRows = finalRows.filter(r => r.source_type === 'C');
+  const sRows = finalRows.filter(r => r.source_type === 'S');
+  console.log(`Total rows built : ${finalRows.length}  (C=${cRows.length}, S=${sRows.length})`);
 
   const countByAbbr = {};
   for (const r of finalRows) countByAbbr[r.kpi_abbr] = (countByAbbr[r.kpi_abbr] || 0) + 1;
   const sorted = Object.entries(countByAbbr).sort((a, b) => b[1] - a[1]);
-  console.log(`\nRows per KPI (${sorted.length} distinct KPIs):`);
+  console.log(`\nRows per KPI (${sorted.length} distinct, C+S combined):`);
   for (const [abbr, cnt] of sorted) console.log(`  ${abbr.padEnd(18)} : ${cnt}`);
 
-  // ── 8. Spot-check: sample rows for a known company ────────────────────────────
-  const targets = ['Samvardhana Motherson Intl. Ltd.', 'Reliance Industries Ltd.', 'Infosys Ltd.'];
+  // ── 9. Spot-check: sample rows for a known company ────────────────────────────
+  // Pick any company that has data — names are CSV-exact; fall through until one is found
+  const targets = ['A B B India Ltd.', 'Varun Beverages Ltd.', 'Schaeffler India Ltd.', 'Reliance Industries Ltd.', 'Infosys Ltd.'];
   for (const target of targets) {
-    const rows = finalRows.filter(r => r.company === target);
+    const rows = finalRows.filter(r => r.company === target && r.source_type === 'C');
     if (!rows.length) continue;
 
     console.log(`\n${'─'.repeat(60)}`);
-    console.log(`Spot-check: ${target}  (${rows.length} KPI rows)`);
+    console.log(`Spot-check (C): ${target}  (${rows.length} KPI rows)`);
     console.log('─'.repeat(60));
 
-    for (const abbr of ['REV_OP','PAT','EPS_BASIC','ASSET_PPE','DEBT_LT','CURR_LIAB','NET_WORTH','EMP_EXP','CFO','TRADE_RECV']) {
+    for (const abbr of ['REV_OP','PAT','EPS_BASIC','ASSET_PPE','DEBT_LT','CURR_LIAB','NET_WORTH','RES_SURPLUS','EMP_EXP','CFO','DEP_AMORT','ROE','CR','IC']) {
       const r = rows.find(x => x.kpi_abbr === abbr);
       if (r) {
         const display = (r.value / r.multiplier).toFixed(2);
-        console.log(`  ${abbr.padEnd(14)} raw=${String(r.raw_value).padStart(14)} ${r.unit.padEnd(3)}  display=${display} Cr  period=${r.period_type}  stmt=${r.statement}`);
+        console.log(`  ${abbr.padEnd(14)} raw=${String(r.raw_value).padStart(14)} ${r.unit.padEnd(3)}  display=${display} Cr`);
       } else {
         console.log(`  ${abbr.padEnd(14)} — not found`);
       }
@@ -520,26 +593,26 @@ async function main() {
     break;
   }
 
-  // ── 9. EPS sanity check (must NOT be multiplied by 10M) ─────────────────────
+  // ── 10. EPS sanity check (must NOT be multiplied by 10M) ─────────────────────
   console.log('\n─── EPS sanity check (unit=Rs, mult=1 expected) ───');
-  const epsSample = finalRows.filter(r => r.kpi_abbr === 'EPS_BASIC' && r.value > 0).slice(0, 5);
+  const epsSample = finalRows.filter(r => r.kpi_abbr === 'EPS_BASIC' && r.value > 0 && r.source_type === 'C').slice(0, 5);
   if (epsSample.length) {
     for (const r of epsSample) {
       const ok = r.multiplier === 1 && r.unit === 'Rs';
-      console.log(`  ${(ok ? '✓' : '✗')} ${r.company.slice(0, 35).padEnd(36)} EPS=${r.raw_value} Rs  stored=${r.value}  mult=${r.multiplier}  unit=${r.unit}`);
+      console.log(`  ${(ok ? '✓' : '✗')} ${r.company.slice(0, 35).padEnd(36)} EPS=${r.raw_value} Rs  stored=${r.value}  mult=${r.multiplier}`);
     }
   } else {
     console.log('  (no EPS rows found)');
   }
 
-  // ── 10. Insert or stop ────────────────────────────────────────────────────────
+  // ── 11. Insert or stop ────────────────────────────────────────────────────────
   if (!DO_INSERT) {
     console.log('\n[VERIFY ONLY] No DB writes. Re-run with --insert to load into DB.\n');
     await prisma.$disconnect();
     return;
   }
 
-  console.log(`\nCreating table ${TABLE_NAME}…`);
+  console.log(`\nEnsuring table ${TABLE_NAME}…`);
   await ensureTable();
   console.log('done.\n');
 
@@ -555,14 +628,19 @@ async function main() {
   console.log(`Inserting ${finalRows.length} rows…`);
   await batchInsert(finalRows);
 
-  // ── 11. Post-insert count from DB ────────────────────────────────────────────
-  console.log('\nPost-insert row counts:');
+  // ── 12. Post-insert count from DB ────────────────────────────────────────────
+  console.log('\nPost-insert row counts by source_type:');
   const dbCounts = await prisma.$queryRawUnsafe(
-    `SELECT kpi_abbr, COUNT(*)::int AS cnt FROM ${TABLE_NAME} GROUP BY kpi_abbr ORDER BY cnt DESC`
+    `SELECT source_type, kpi_abbr, COUNT(*)::int AS cnt FROM ${TABLE_NAME} GROUP BY source_type, kpi_abbr ORDER BY source_type, cnt DESC`
   );
   let total = 0;
-  for (const r of dbCounts) { console.log(`  ${r.kpi_abbr.padEnd(18)} : ${r.cnt}`); total += r.cnt; }
-  console.log(`  ${'TOTAL'.padEnd(18)} : ${total}`);
+  let lastType = null;
+  for (const r of dbCounts) {
+    if (r.source_type !== lastType) { console.log(`\n  [${r.source_type}]`); lastType = r.source_type; }
+    console.log(`    ${r.kpi_abbr.padEnd(18)} : ${r.cnt}`);
+    total += r.cnt;
+  }
+  console.log(`\n  TOTAL : ${total}`);
 
   await prisma.$disconnect();
 }
