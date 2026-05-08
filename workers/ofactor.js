@@ -7,6 +7,7 @@ const { llmStream, parseJson } = require('../utils/workerUtils');
 const { upsertOFactorSection }      = require('../services/db/ofactor.db');
 const { enqueueSkillJob }           = require('../services/plugins.service');
 const { FinHelper }                 = require('../utils/finHelper');
+const { ProwessHelper }             = require('../utils/prowessHelper');
 const { isBFSI }                    = require('../utils/industryClassifier');
 const { industryPrompt }            = require('../prompts/of-prompts/industry-prompt');
 const { competitionPrompt }         = require('../prompts/of-prompts/competition-prompt');
@@ -152,7 +153,7 @@ async function getAutoPeerSummaries(subjectTicker, industry) {
 
 // ─── Section-Specific Prompt Builders ────────────────────────────────────────
 
-async function buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions) {
+async function buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, prowessHelper, customInstructions, dbTemplate, dbInstructions) {
   const RAW_ABBRS = [
     'REV_OP', 'TOTAL_INCOME', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
     'EMP_EXP', 'OTH_EXP', 'FIN_COST', 'DEP_AMORT',
@@ -161,8 +162,8 @@ async function buildIndustrySection(subjectTicker, industry, subjectSummaries, p
 
   const bfsi = isBFSI(industry);
   const [rawBatch, derivedBatch] = await Promise.all([
-    helper.getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
-    helper.getDerivedKpiBatch(subjectTicker, bfsi),
+    prowessHelper.getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
+    prowessHelper.getDerivedKpiBatch(subjectTicker, bfsi),
   ]);
 
   const q4Only = batch => Object.fromEntries(
@@ -176,14 +177,14 @@ async function buildIndustrySection(subjectTicker, industry, subjectSummaries, p
   return { prompt: industryPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'industry_overview' };
 }
 
-async function buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions) {
+async function buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, prowessHelper, finHelper, customInstructions, dbTemplate, dbInstructions) {
   const allCallIds = [...subjectSummaries, ...peerSummaries].map(s => s.callId);
 
   const [stockEps, stockPe, industryEps, industryPe, kpiRows] = await Promise.all([
-    helper.stockEpsCagr(subjectTicker),
-    helper.stockPeCagr(subjectTicker),
-    industry !== 'Unknown Industry' ? helper.industryEpsCagr(industry) : Promise.resolve(null),
-    industry !== 'Unknown Industry' ? helper.industryPeCagr(industry)  : Promise.resolve(null),
+    prowessHelper.stockEpsCagr(subjectTicker),
+    finHelper.stockPeCagr(subjectTicker),
+    industry !== 'Unknown Industry' ? prowessHelper.industryKpiCagr(industry, 'EPS_BASIC') : Promise.resolve(null),
+    industry !== 'Unknown Industry' ? finHelper.industryPeCagr(industry) : Promise.resolve(null),
     prisma.kpiValue.findMany({
       where:  { callId: { in: allCallIds } },
       select: { callId: true, kpi_abbr: true, value: true, multiplier: true },
@@ -214,7 +215,7 @@ async function buildCompetitionSection(subjectTicker, industry, subjectSummaries
   return { prompt: competitionPrompt(subjectTicker, industry, subjectData, peerData, metrics, customInstructions, dbTemplate, dbInstructions), sectionKey: 'competition' };
 }
 
-async function buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions) {
+async function buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, prowessHelper, customInstructions, dbTemplate, dbInstructions) {
   const RAW_ABBRS = [
     'REV_OP', 'COST_MAT', 'PURCH_STOCK', 'INV_CHG',
     'EMP_EXP', 'OTH_EXP', 'DEP_AMORT', 'FIN_COST',
@@ -232,8 +233,8 @@ async function buildFinancialStrengthSection(subjectTicker, industry, subjectSum
   console.log(`[OFactor] financial_strength — industry="${industry}", bfsi=${bfsi}`);
 
   const [rawBatch, derivedBatch, mcRows] = await Promise.all([
-    helper.getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
-    helper.getDerivedKpiBatch(subjectTicker, bfsi),
+    prowessHelper.getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
+    prowessHelper.getDerivedKpiBatch(subjectTicker, bfsi),
     prisma.$queryRaw`SELECT mc."market_cap(Cr)"::text AS market_cap FROM market_cap mc WHERE mc.symbol = ${subjectTicker} ORDER BY mc.date DESC NULLS LAST LIMIT 1`,
   ]);
 
@@ -278,9 +279,10 @@ async function buildFinancialStrengthInsightsSection(subjectTicker, industry, db
   const bfsi = isBFSI(industry);
   const { computeFinancialStrengthExtras } = require('../utils/finExtras');
 
+  const prowessHelperIns = new ProwessHelper(prisma);
   const [rawBatch, derivedBatch, mcRows] = await Promise.all([
-    new FinHelper(prisma).getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
-    new FinHelper(prisma).getDerivedKpiBatch(subjectTicker, bfsi),
+    prowessHelperIns.getTimeSeriesBatch(subjectTicker, RAW_ABBRS),
+    prowessHelperIns.getDerivedKpiBatch(subjectTicker, bfsi),
     prisma.$queryRaw`SELECT mc."market_cap(Cr)"::text AS market_cap FROM market_cap mc WHERE mc.symbol = ${subjectTicker} ORDER BY mc.date DESC NULLS LAST LIMIT 1`,
   ]);
 
@@ -525,19 +527,22 @@ async function processOFactorJob(job) {
     console.log(`Subject summaries: ${subjectSummaries.length}, Peer summaries: ${peerSummaries.length}`);
     await job.updateProgress(30);
 
-    // Build section-specific prompt + pre-computed metrics
-    const helper = new FinHelper(prisma);
+    // Build section-specific prompt + pre-computed metrics.
+    // prowessHelper reads from prowess_values_new (registry-enforced formulas).
+    // finHelper kept for PE data (pe_data table) and customer traction (kpiValue CUST).
+    const prowessHelper = new ProwessHelper(prisma);
+    const finHelper     = new FinHelper(prisma);
 
     if (section === 'industry') {
-      ({ prompt: promptText, sectionKey } = await buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions));
+      ({ prompt: promptText, sectionKey } = await buildIndustrySection(subjectTicker, industry, subjectSummaries, peerSummaries, prowessHelper, customInstructions, dbTemplate, dbInstructions));
     } else if (section === 'competition') {
-      ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, helper, customInstructions, dbTemplate, dbInstructions));
+      ({ prompt: promptText, sectionKey } = await buildCompetitionSection(subjectTicker, industry, subjectSummaries, peerSummaries, prowessHelper, finHelper, customInstructions, dbTemplate, dbInstructions));
     } else if (section === 'financial_strength') {
-      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
+      ({ prompt: promptText, sectionKey } = await buildFinancialStrengthSection(subjectTicker, industry, subjectSummaries, prowessHelper, customInstructions, dbTemplate, dbInstructions));
     } else if (section === 'financial_strength_insights') {
       ({ prompt: promptText, sectionKey, localExtras: insightsExtras, bfsi: insightsBfsi } = await buildFinancialStrengthInsightsSection(subjectTicker, industry, dbTemplate));
     } else {
-      ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, helper, customInstructions, dbTemplate, dbInstructions));
+      ({ prompt: promptText, sectionKey } = await buildCustomerTractionSection(subjectTicker, subjectSummaries, finHelper, customInstructions, dbTemplate, dbInstructions));
     }
     } // end else (non-final_takeaways sections)
 

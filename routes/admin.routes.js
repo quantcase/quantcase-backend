@@ -15,6 +15,14 @@ router.get(
   adminController.getOpportunityStats
 );
 
+// ─── Formula registry / indicator provenance ──────────────────────────────────
+
+// Catalogue of all computed metrics — used to populate search bar on admin page.
+router.get('/indicators', adminController.listIndicators);
+
+// Full provenance for one metric + ticker: formula, inputs, actual values used.
+router.get('/indicators/:ticker/:metricId', adminController.getIndicatorProvenance);
+
 // ─── Skills CRUD ──────────────────────────────────────────────────────────────
 
 const createSkillSchema = z.object({

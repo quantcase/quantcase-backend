@@ -1,7 +1,16 @@
 'use strict';
 
 const { cagr, average, weightedAverage } = require('./finMath');
-const { SOURCE_ABBRS, computeDerivedKpis } = require('./finDerivedKpis');
+const { SOURCE_ABBRS, computeRegistryDerivedSeries } = require('./finDerivedKpis');
+const { loadIdentityMap } = require('../lib/prowess');
+
+// Module-level cache: all distinct Prowess company names loaded once from identity CSV
+let _prowessNameList = null;
+function getProwessNameList() {
+  if (_prowessNameList) return _prowessNameList;
+  _prowessNameList = Object.values(loadIdentityMap()); // symbol → companyName, take values
+  return _prowessNameList;
+}
 
 // ─── Name normalization ───────────────────────────────────────────────────────
 
@@ -15,6 +24,24 @@ function normName(s) {
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Return distinct (fiscal_year, quarter) pairs from a row array, sorted oldest→newest.
+ * Replaces `distinct` + `orderBy` in Prisma queries that we now do in JS.
+ */
+function _distinctPeriods(rows) {
+  const seen = new Map();
+  for (const r of rows) {
+    const key = `${r.fiscal_year}|${r.quarter}`;
+    if (!seen.has(key)) seen.set(key, { fiscal_year: r.fiscal_year, quarter: r.quarter });
+  }
+  return [...seen.values()].sort((a, b) => {
+    if (a.fiscal_year !== b.fiscal_year) return a.fiscal_year < b.fiscal_year ? -1 : 1;
+    return a.quarter < b.quarter ? -1 : 1;
+  });
 }
 
 // ─── ProwessHelper ────────────────────────────────────────────────────────────
@@ -64,7 +91,7 @@ class ProwessHelper {
     });
 
     const prowessName = ec?.company_name
-      ? await this._matchProwessName(ec.company_name)
+      ? this._matchProwessName(ec.company_name)
       : null;
 
     this._nameCache.set(ticker, prowessName);
@@ -78,26 +105,21 @@ class ProwessHelper {
    * @param {string} companyName  e.g. "Motherson Sumi Wiring India Limited"
    * @returns {Promise<string|null>}
    */
-  async _matchProwessName(companyName) {
+  _matchProwessName(companyName) {
     const normTarget = normName(companyName);
     const words      = normTarget.split(' ').filter(w => w.length > 2);
     if (!words.length) return null;
 
-    // Candidate search: find prowess names containing the first distinctive word
-    const candidates = await this.prisma.prowessValueNew.findMany({
-      where:    { company: { contains: words[0], mode: 'insensitive' } },
-      select:   { company: true },
-      distinct: ['company'],
-    });
-
+    const names = getProwessNameList();
     let best = null, bestScore = 0;
-    for (const c of candidates) {
-      const normC      = normName(c.company);
+    for (const name of names) {
+      const normC = normName(name);
+      if (!normC.includes(words[0])) continue; // fast pre-filter on first word
       const matchCount = words.filter(w => normC.includes(w)).length;
       const score      = matchCount / words.length;
       if (score > bestScore && score >= 0.5) {
         bestScore = score;
-        best      = c.company;
+        best      = name;
       }
     }
     return best;
@@ -222,37 +244,28 @@ class ProwessHelper {
     const result      = Object.fromEntries(abbrs.map(a => [a, []]));
     if (!prowessName) return result;
 
-    const annualPrefix = { startsWith: 'prowess_new_' };
+    // Fetch all rows for this company+source_type using idx_pnv_company_srctype —
+    // ~350 rows per company. Filter call_id prefix in JS to avoid a LIKE in SQL
+    // which the planner may not combine well with the company filter.
+    let rows = await this.prisma.prowessValueNew.findMany({
+      where:  { company: prowessName, source_type: 'C' },
+      select: { callId: true, fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
+    });
+    let annualRows = rows.filter(r => r.callId.startsWith('prowess_new_'));
 
-    let [allPeriods, kpiRows] = await Promise.all([
-      this.prisma.prowessValueNew.findMany({
-        where:    { company: prowessName, callId: annualPrefix, source_type: 'C' },
-        select:   { fiscal_year: true, quarter: true },
-        distinct: ['fiscal_year', 'quarter'],
-        orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
-      }),
-      this.prisma.prowessValueNew.findMany({
-        where:   { company: prowessName, callId: annualPrefix, kpi_abbr: { in: abbrs }, source_type: 'C' },
-        select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
-      }),
-    ]);
-
-    if (!allPeriods.length) {
-      [allPeriods, kpiRows] = await Promise.all([
-        this.prisma.prowessValueNew.findMany({
-          where:    { company: prowessName, callId: annualPrefix, source_type: 'S' },
-          select:   { fiscal_year: true, quarter: true },
-          distinct: ['fiscal_year', 'quarter'],
-          orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
-        }),
-        this.prisma.prowessValueNew.findMany({
-          where:   { company: prowessName, callId: annualPrefix, kpi_abbr: { in: abbrs }, source_type: 'S' },
-          select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
-        }),
-      ]);
+    // Fallback to standalone if no consolidated data
+    if (!annualRows.length) {
+      rows = await this.prisma.prowessValueNew.findMany({
+        where:  { company: prowessName, source_type: 'S' },
+        select: { callId: true, fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
+      });
+      annualRows = rows.filter(r => r.callId.startsWith('prowess_new_'));
     }
 
-    return this._buildResult(abbrs, allPeriods, kpiRows);
+    const abbrsSet = new Set(abbrs);
+    const kpiRows  = annualRows.filter(r => abbrsSet.has(r.kpi_abbr));
+    const periods  = _distinctPeriods(annualRows);
+    return this._buildResult(abbrs, periods, kpiRows);
   }
 
   /**
@@ -264,19 +277,18 @@ class ProwessHelper {
     const result      = Object.fromEntries(abbrs.map(a => [a, []]));
     if (!prowessName) return result;
 
-    const [allPeriods, kpiRows] = await Promise.all([
-      this.prisma.prowessValueNew.findMany({
-        where:    { company: prowessName, callId: { startsWith: 'prowess_qtr_' }, period_type: 'quarterly' },
-        select:   { fiscal_year: true, quarter: true },
-        distinct: ['fiscal_year', 'quarter'],
-        orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
-      }),
-      this.prisma.prowessValueNew.findMany({
-        where:   { company: prowessName, callId: { startsWith: 'prowess_qtr_' }, period_type: 'quarterly', kpi_abbr: { in: abbrs } },
-        select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
-      }),
-    ]);
+    // source_type='S' + period_type='quarterly' uniquely identifies quarterly P&L rows.
+    // For kpiRows we also need snapshot balance-sheet rows (period_type='snapshot' with
+    // prowess_qtr_ prefix) — fetch all S rows and filter call_id prefix in JS.
+    const rows = await this.prisma.prowessValueNew.findMany({
+      where:  { company: prowessName, source_type: 'S' },
+      select: { callId: true, fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true, period_type: true },
+    });
+    const qtrRows = rows.filter(r => r.callId.startsWith('prowess_qtr_'));
 
+    const abbrsSet  = new Set(abbrs);
+    const kpiRows   = qtrRows.filter(r => abbrsSet.has(r.kpi_abbr));
+    const allPeriods = _distinctPeriods(qtrRows.filter(r => r.period_type === 'quarterly'));
     return this._buildResult(abbrs, allPeriods, kpiRows);
   }
 
@@ -320,7 +332,7 @@ class ProwessHelper {
    */
   async getDerivedKpiBatch(ticker, bfsi = false) {
     const raw = await this.getTimeSeriesBatch(ticker, SOURCE_ABBRS);
-    return computeDerivedKpis(raw, bfsi);
+    return computeRegistryDerivedSeries(raw, bfsi);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

@@ -17,17 +17,21 @@ async function createDealJob(callId) {
     throw err;
   }
 
-  const ticker   = call.company;
-  const industry = call.basic_industry;
-  const helper   = new FinHelper(prisma);
+  const ticker      = call.company;
+  const industry    = call.basic_industry;
+  const companyName = call.company_name;
+  const helper      = new FinHelper(prisma);
 
+  // Stock-level KPIs read from prowess_values_new (annual) for data consistency
+  // with screener and opportunity pages.  Industry-level averages still use
+  // kpiValue until those flows are migrated.
   const [stockEps, stockPe, industryEps, industryPe, stockRev, stockRoce, industryRev] = await Promise.all([
-    helper.stockEpsCagr(ticker),
-    helper.stockPeCagr(ticker),
+    helper.prowessKpiCagr(companyName, 'EPS_BASIC'),
+    helper.stockPeCagr(ticker),                                    // pe_data table — no prowess equivalent
     industry ? helper.industryEpsCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
     industry ? helper.industryPeCagr(industry)   : Promise.resolve({ value: null, type: 'no_industry' }),
-    helper.stockRevCagr(ticker),
-    helper.stockRoceLatest(ticker),
+    helper.prowessKpiCagr(companyName, 'REV_OP'),
+    helper.prowessKpiLatest(companyName, 'ROCE'),                  // stored in prowess or computed via registry
     industry ? helper.industryRevCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
   ]);
 

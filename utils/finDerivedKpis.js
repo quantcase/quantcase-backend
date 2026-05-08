@@ -1,6 +1,7 @@
 'use strict';
 
 const { derive } = require('./finMath');
+const { resolveMetric } = require('./formulaRegistry');
 
 /**
  * Source KPI abbrs needed to compute all derived KPIs.
@@ -178,4 +179,82 @@ function computeDerivedKpis(raw, bfsi = false) {
   return { EBIT: ebit, EBIT_MARGIN: ebitMargin, ROCE: roce, ROA: roa, ROE: roe, CAPEX: capex, FCF: fcf };
 }
 
-module.exports = { SOURCE_ABBRS, computeDerivedKpis };
+/**
+ * Registry-enforced version of computeDerivedKpis for prowess time-series data.
+ *
+ * All derived metrics route through resolveMetric() — the single enforcement point —
+ * so admin view matches screener cards exactly.
+ *
+ * The registry is fully context-aware: callers pass { kpiMap, prevKpiMap, bfsi } and
+ * the registry handles all variants internally — BFSI formula selection, CAPEX delta
+ * resolution (auto-resolved as an input dependency for FCF), etc.  No pre-injection needed.
+ *
+ * Return shape is identical to computeDerivedKpis so all callers are compatible.
+ *
+ * @param {Record<string, Array<{ value: number|null, ... }>>} raw
+ * @param {boolean} [bfsi=false]
+ */
+function computeRegistryDerivedSeries(raw, bfsi = false) {
+  const anchor = raw['REV_OP'];
+  if (!anchor || !anchor.length) {
+    return { EBIT: [], EBIT_MARGIN: [], ROCE: [], ROA: [], ROE: [], CAPEX: [], FCF: [] };
+  }
+
+  const ebit = [], ebitMargin = [], roce = [], roa = [], roe = [], capex = [], fcf = [];
+
+  for (let i = 0; i < anchor.length; i++) {
+    const base = {
+      callId:      anchor[i].callId,
+      period:      anchor[i].period,
+      fiscal_year: anchor[i].fiscal_year,
+      quarter:     anchor[i].quarter,
+      call_date:   anchor[i].call_date,
+    };
+    const v = abbr => raw[abbr]?.[i]?.value ?? null;
+
+    // Build per-period kpiMap
+    const kpiMap = {};
+    for (const abbr of Object.keys(raw)) {
+      const val = v(abbr);
+      if (val != null) kpiMap[abbr] = val;
+    }
+    if (kpiMap['BORR_TOTAL'] == null && (kpiMap['DEBT_LT'] != null || kpiMap['DEBT_ST'] != null)) {
+      kpiMap['BORR_TOTAL'] = (kpiMap['DEBT_LT'] ?? 0) + (kpiMap['DEBT_ST'] ?? 0);
+    }
+
+    // Build prevKpiMap for CAPEX delta resolution (null for i=0)
+    let prevKpiMap = null;
+    if (i > 0) {
+      prevKpiMap = {};
+      for (const abbr of Object.keys(raw)) {
+        const val = raw[abbr]?.[i - 1]?.value ?? null;
+        if (val != null) prevKpiMap[abbr] = val;
+      }
+    }
+
+    // Single context object — registry handles all variants internally (bfsi formulas,
+    // delta-input auto-resolution, etc.) with no pre-injection needed from callers.
+    const ctx = { kpiMap, prevKpiMap, bfsi };
+
+    // ── Registry-enforced via resolveMetric ───────────────────────────────────
+    const roceRes      = bfsi ? { value: null } : resolveMetric('ROCE',       ctx);
+    const roaRes       = resolveMetric('ROA',        ctx);
+    const roeRes       = resolveMetric('ROE',        ctx);
+    const capexRes     = resolveMetric('CAPEX',      ctx);
+    const ebitRes      = resolveMetric('EBIT',       ctx);
+    const ebitMarginRes = resolveMetric('EBIT_MARGIN', ctx);
+    const fcfRes       = resolveMetric('FCF',        ctx);
+
+    roce.push({ ...base, value: roceRes.value,       abbrUsed: 'ROCE' });
+    roa.push ({ ...base, value: roaRes.value,        abbrUsed: 'ROA' });
+    roe.push ({ ...base, value: roeRes.value,        abbrUsed: 'ROE' });
+    capex.push({ ...base, value: capexRes.value,     abbrUsed: 'CAPEX' });
+    ebit.push ({ ...base, value: ebitRes.value,      abbrUsed: bfsi ? 'PPOP' : 'EBIT' });
+    ebitMargin.push({ ...base, value: ebitMarginRes.value, abbrUsed: 'EBIT_MARGIN' });
+    fcf.push  ({ ...base, value: fcfRes.value,       abbrUsed: 'FCF' });
+  }
+
+  return { EBIT: ebit, EBIT_MARGIN: ebitMargin, ROCE: roce, ROA: roa, ROE: roe, CAPEX: capex, FCF: fcf };
+}
+
+module.exports = { SOURCE_ABBRS, computeDerivedKpis, computeRegistryDerivedSeries };

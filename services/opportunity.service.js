@@ -3,6 +3,7 @@
 const prisma = require('../config/prisma');
 const { getOFactorResult, getLatestOFactorResultByTicker } = require('./db/ofactor.db');
 const { isBFSI } = require('../utils/industryClassifier');
+const { FinHelper } = require('../utils/finHelper');
 
 const { METRICS: INDUSTRY_METRICS }                  = require('../prompts/of-prompts/industry-prompt');
 const { METRICS: COMPETITION_METRICS }               = require('../prompts/of-prompts/competition-prompt');
@@ -188,70 +189,42 @@ function formatKpiValue(val, denomination, callDate) {
   return str;
 }
 
-async function getQ4Stats(ticker) {
-  const q4Calls = await prisma.earnings_calls.findMany({
-    where:   { company: ticker, quarter: 'Q4' },
-    select:  { id: true, fiscal_year: true },
-    orderBy: { fiscal_year: 'desc' },
-  });
-  if (!q4Calls.length) return null;
+// companyName is the prowess_values_new.company key (same as earnings_calls.company_name)
+async function getQ4Stats(ticker, companyName) {
+  const helper = new FinHelper(prisma);
 
-  const latestQ4 = q4Calls[0];
-  const prevQ4   = q4Calls[1] ?? null;
+  // Revenue + YoY growth come from prowess annual time-series so they are
+  // consistent with the same data source used for all other metrics.
+  const [{ current: kpiMap, prev: prevKpiMap }, revSeries] = await Promise.all([
+    helper.getProwessKpiMaps(companyName),
+    helper.getProwessTimeSeries(companyName, 'REV_OP'),
+  ]);
 
-  const kpiRows = await prisma.kpiValue.findMany({
-    where:  { callId: latestQ4.id },
-    select: { kpi_abbr: true, value: true, multiplier: true },
-  });
-  if (!kpiRows.length) return null;
+  if (!Object.keys(kpiMap).length) return null;
 
-  const kpiMap = new Map(kpiRows.map(k => [k.kpi_abbr, k.value / (k.multiplier || 1)]));
-  const get = (abbr) => { const val = kpiMap.get(abbr); return val != null && !isNaN(val) ? val : null; };
-
-  const revOp      = get('REV_OP');
-  const pbt        = get('PBT');
-  const finCost    = get('FIN_COST')    ?? 0;
-  const depAmort   = get('DEP_AMORT')   ?? 0;
-  const othInc     = get('OTH_INC')     ?? 0;
-  const totalAssets= get('TOTAL_ASSETS');
-  const currLiab   = get('CURR_LIAB');
-  const eqShareCap = get('EQ_SHARE_CAP');
-  const resSurplus = get('RES_SURPLUS');
-  const debtLt     = get('DEBT_LT')     ?? 0;
-  const debtSt     = get('DEBT_ST')     ?? 0;
-
-  let opm = null;
-  if (pbt != null && revOp) {
-    opm = parseFloat(((pbt + finCost + depAmort - othInc) / revOp * 100).toFixed(2));
+  const _formulaUsed = {}; // provenance for admin endpoint — not in public response
+  function rk(field, abbr) {
+    const res = FinHelper.resolveMetric(abbr, { kpiMap, prevKpiMap });
+    if (res.source !== 'stored') _formulaUsed[field] = { source: res.source, formula: res.formula, inputs: res.inputs, inputValues: res.inputValues };
+    return res.value != null ? parseFloat(res.value.toFixed(2)) : null;
   }
 
-  let roce = null;
-  if (pbt != null && totalAssets != null && currLiab != null) {
-    const ce = totalAssets - currLiab;
-    if (ce > 0) roce = parseFloat(((pbt + finCost) / ce * 100).toFixed(2));
-  }
+  const opm        = rk('opm', 'EBITDA_MARGIN');
+  const roce       = rk('roce', 'ROCE');
+  const debtEquity = rk('debtEquity', 'DE');
 
-  let debtEquity = null;
-  if (eqShareCap != null && resSurplus != null) {
-    const equity = eqShareCap + resSurplus;
-    if (equity > 0) debtEquity = parseFloat(((debtLt + debtSt) / equity).toFixed(2));
-  }
+  // Revenue from prowess time-series (latest non-null value)
+  const withRev = revSeries.filter(s => s.value != null);
+  const revenue = withRev.length ? withRev.at(-1).value : null;
 
   let revenueGrowth = null;
-  if (prevQ4 && revOp != null) {
-    const prevRow = await prisma.kpiValue.findFirst({
-      where:  { callId: prevQ4.id, kpi_abbr: 'REV_OP' },
-      select: { value: true, multiplier: true },
-    });
-    if (prevRow?.value != null) {
-      const prevRev = prevRow.value / (prevRow.multiplier || 1);
-      if (!isNaN(prevRev) && prevRev > 0) {
-        revenueGrowth = parseFloat(((revOp - prevRev) / prevRev * 100).toFixed(2));
-      }
-    }
+  if (withRev.length >= 2) {
+    const curr = withRev.at(-1).value;
+    const prev = withRev.at(-2).value;
+    if (prev && prev !== 0) revenueGrowth = parseFloat(((curr - prev) / Math.abs(prev) * 100).toFixed(2));
   }
 
-  return { revenue: revOp, revenueGrowth, opm, roce, debtEquity };
+  return { revenue, revenueGrowth, opm, roce, debtEquity, _formulaUsed };
 }
 
 async function getPeerIndustryKpiTimeseries(peerTickers) {
@@ -395,14 +368,19 @@ async function getPeerDataForCall(callId) {
 
   const allTickers = [subjectTicker, ...peerTickers];
 
-  const [nameRows, statsResults, industryTimeseries, rawPeerKpiTimeseries] = await Promise.all([
-    prisma.earnings_calls.findMany({ where: { company: { in: allTickers } }, select: { company: true, company_name: true }, distinct: ['company'] }),
-    Promise.allSettled(allTickers.map(getQ4Stats)),
+  // Fetch company names first — getQ4Stats now needs companyName for prowess lookup
+  const nameRows = await prisma.earnings_calls.findMany({
+    where:    { company: { in: allTickers } },
+    select:   { company: true, company_name: true },
+    distinct: ['company'],
+  });
+  const nameMap = Object.fromEntries(nameRows.map(r => [r.company, r.company_name]));
+
+  const [statsResults, industryTimeseries, rawPeerKpiTimeseries] = await Promise.all([
+    Promise.allSettled(allTickers.map(t => getQ4Stats(t, nameMap[t]))),
     getIndustryKpiTimeseries(subjectTicker),
     getPeerIndustryKpiTimeseries(peerTickers),
   ]);
-
-  const nameMap = Object.fromEntries(nameRows.map(r => [r.company, r.company_name]));
 
   const peerKpiAbbrSet = new Set();
   rawPeerKpiTimeseries.forEach(p => p.timeseries.forEach(k => peerKpiAbbrSet.add(k.kpi_abbr)));
@@ -415,12 +393,17 @@ async function getPeerDataForCall(callId) {
     ...rawPeerKpiTimeseries.map(p => ({ ticker: p.ticker, company_name: nameMap[p.ticker] ?? p.ticker, timeseries: p.timeseries.filter(k => sharedAbbrs.has(k.kpi_abbr)) })),
   ];
 
-  const rows = statsResults.map((r, i) => ({
-    ticker: allTickers[i],
-    ...(r.status === 'fulfilled' && r.value
-      ? r.value
-      : { revenue: null, revenueGrowth: null, opm: null, roce: null, debtEquity: null }),
-  }));
+  const rows = statsResults.map((r, i) => {
+    const stats = r.status === 'fulfilled' && r.value ? r.value : null;
+    return {
+      ticker:        allTickers[i],
+      revenue:       stats?.revenue       ?? null,
+      revenueGrowth: stats?.revenueGrowth ?? null,
+      opm:           stats?.opm           ?? null,
+      roce:          stats?.roce          ?? null,
+      debtEquity:    stats?.debtEquity    ?? null,
+    };
+  });
 
   const totalRevenue = rows.reduce((s, r) => s + (r.revenue ?? 0), 0);
   const rawShares = rows.map(r =>
