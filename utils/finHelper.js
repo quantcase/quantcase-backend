@@ -555,6 +555,58 @@ class FinHelper {
   }
 
   /**
+   * Returns an array of kpiMaps for the top N distinct periods, plus one extra period
+   * (used as prevKpiMap for the last result entry in delta-type calculations).
+   *
+   * @param {string} companyName
+   * @param {'annual'|'quarterly'} [source='annual']
+   * @param {number} [n=1]
+   * @returns {Array<{ fiscal_year: string, quarter: string, kpiMap: object }>}
+   */
+  async getProwessKpiMapsMulti(companyName, source = 'annual', n = 1) {
+    const callIdLike = source === 'quarterly' ? 'prowess_qtr_%' : 'prowess_new_%';
+    const rows = await this.prisma.$queryRaw`
+      SELECT kpi_abbr, value, fiscal_year, quarter, source_type
+      FROM   prowess_values_new
+      WHERE  company  = ${companyName}
+        AND  call_id LIKE ${callIdLike}
+      ORDER  BY fiscal_year DESC, quarter DESC, source_type ASC
+    `;
+
+    const periods = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const key = `${row.fiscal_year}|${row.quarter}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        periods.push({ key, fiscal_year: row.fiscal_year, quarter: row.quarter, kpiMap: {} });
+        if (periods.length === n + 1) break;
+      }
+    }
+
+    if (!periods.length) return [];
+
+    const byKey = Object.fromEntries(periods.map(p => [p.key, p.kpiMap]));
+    for (const row of rows) {
+      const key = `${row.fiscal_year}|${row.quarter}`;
+      const km  = byKey[key];
+      if (!km) continue;
+      const v = row.value != null ? parseFloat(row.value) : null;
+      if (v == null || km[row.kpi_abbr] !== undefined) continue;
+      km[row.kpi_abbr] = v;
+    }
+
+    for (const p of periods) {
+      const m = p.kpiMap;
+      if (m['BORR_TOTAL'] == null && (m['DEBT_LT'] != null || m['DEBT_ST'] != null)) {
+        m['BORR_TOTAL'] = (m['DEBT_LT'] ?? 0) + (m['DEBT_ST'] ?? 0);
+      }
+    }
+
+    return periods.map(({ fiscal_year, quarter, kpiMap }) => ({ fiscal_year, quarter, kpiMap }));
+  }
+
+  /**
    * Annual time-series for a single KPI abbr from prowess_values_new.
    * Returns rows ordered oldest → newest, same shape as getTimeSeries().
    */
