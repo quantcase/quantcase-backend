@@ -182,6 +182,73 @@ def('ROA', {
   },
 });
 
+// ── Balance sheet — formula (stored, with fallback computation) ───────────────
+
+def('NET_WORTH', {
+  computationType: 'formula',
+  name:    'Net Worth / Shareholders Equity',
+  desc:    'Stored directly, or derived as EQ_SHARE_CAP + RES_SURPLUS',
+  unit:    'Cr',
+  formula: 'EQ_SHARE_CAP + RES_SURPLUS',
+  inputs:  ['EQ_SHARE_CAP', 'RES_SURPLUS'],
+  compute(m) {
+    if (m.NET_WORTH != null) return m.NET_WORTH;
+    if (m.EQ_SHARE_CAP != null && m.RES_SURPLUS != null) return m.EQ_SHARE_CAP + m.RES_SURPLUS;
+    return null;
+  },
+});
+
+def('BORR_TOTAL', {
+  computationType: 'formula',
+  name:    'Total Borrowings',
+  desc:    'Stored directly, or derived as DEBT_LT + DEBT_ST',
+  unit:    'Cr',
+  formula: 'DEBT_LT + DEBT_ST',
+  inputs:  ['DEBT_LT', 'DEBT_ST'],
+  compute(m) {
+    if (m.BORR_TOTAL != null) return m.BORR_TOTAL;
+    if (m.DEBT_LT != null || m.DEBT_ST != null) return (m.DEBT_LT ?? 0) + (m.DEBT_ST ?? 0);
+    return null;
+  },
+});
+
+// ── Balance sheet — raw stored KPIs ──────────────────────────────────────────
+
+def('EQ_SHARE_CAP',  { computationType: 'raw', name: 'Equity Share Capital',    unit: 'Cr' });
+def('RES_SURPLUS',   { computationType: 'raw', name: 'Reserves & Surplus',       unit: 'Cr' });
+def('TOTAL_LIAB',    { computationType: 'raw', name: 'Total Liabilities',        unit: 'Cr' });
+def('CURR_LIAB',     { computationType: 'raw', name: 'Current Liabilities',      unit: 'Cr' });
+def('CURR_ASSETS',   { computationType: 'raw', name: 'Current Assets',           unit: 'Cr' });
+def('INVENTORY',     { computationType: 'raw', name: 'Inventory',                unit: 'Cr' });
+def('CASH_EQUIV',    { computationType: 'raw', name: 'Cash & Cash Equivalents',  unit: 'Cr' });
+def('ASSET_PPE',     { computationType: 'raw', name: 'Fixed Assets (PPE)',       unit: 'Cr' });
+def('ASSET_CWIP',    { computationType: 'raw', name: 'Capital Work-in-Progress', unit: 'Cr' });
+def('INV_NONCURR',   { computationType: 'raw', name: 'Non-current Investments',  unit: 'Cr' });
+def('TOTAL_ASSETS',  { computationType: 'raw', name: 'Total Assets',             unit: 'Cr' });
+def('DEBT_LT',       { computationType: 'raw', name: 'Long-term Debt',           unit: 'Cr' });
+def('DEBT_ST',       { computationType: 'raw', name: 'Short-term Debt',          unit: 'Cr' });
+
+// ── Income statement — raw stored KPIs ───────────────────────────────────────
+
+def('REV_OP',      { computationType: 'raw', name: 'Revenue from Operations', unit: 'Cr' });
+def('TOTAL_INCOME',{ computationType: 'raw', name: 'Total Income',            unit: 'Cr' });
+def('TOTAL_OPEX',  { computationType: 'raw', name: 'Total Operating Expenses',unit: 'Cr' });
+def('TOTAL_COGS',  { computationType: 'raw', name: 'Cost of Goods Sold',      unit: 'Cr' });
+def('OTH_INC',     { computationType: 'raw', name: 'Other Income',            unit: 'Cr' });
+def('FIN_COST',    { computationType: 'raw', name: 'Finance Costs (Interest)',unit: 'Cr' });
+def('DEP_AMORT',   { computationType: 'raw', name: 'Depreciation & Amortisation', unit: 'Cr' });
+def('TAX_EXP',     { computationType: 'raw', name: 'Tax Expense',             unit: 'Cr' });
+def('PBT',         { computationType: 'raw', name: 'Profit Before Tax',       unit: 'Cr' });
+def('PAT',         { computationType: 'raw', name: 'Profit After Tax',        unit: 'Cr' });
+def('EPS_BASIC',   { computationType: 'raw', name: 'Basic EPS',               unit: '₹'  });
+def('EPS_DILUTED', { computationType: 'raw', name: 'Diluted EPS',             unit: '₹'  });
+
+// ── Cash flow — raw stored KPIs ───────────────────────────────────────────────
+
+def('CFO', { computationType: 'raw', name: 'Cash from Operations', unit: 'Cr' });
+def('CFI', { computationType: 'raw', name: 'Cash from Investing',  unit: 'Cr' });
+def('CFF', { computationType: 'raw', name: 'Cash from Financing',  unit: 'Cr' });
+
 // ── Leverage — formula ────────────────────────────────────────────────────────
 
 def('DE', {
@@ -316,6 +383,54 @@ def('FCF', {
   },
 });
 
+// ── Gross profit — formula ────────────────────────────────────────────────────
+
+def('GROSS_PROFIT', {
+  computationType: 'formula',
+  name:    'Gross Profit',
+  desc:    'Absolute gross profit (TOTAL_INCOME − TOTAL_COGS)',
+  unit:    'Cr',
+  formula: 'TOTAL_INCOME − TOTAL_COGS',
+  inputs:  ['TOTAL_INCOME', 'TOTAL_COGS'],
+  compute(m) {
+    if (m.TOTAL_INCOME == null || m.TOTAL_COGS == null) return null;
+    return m.TOTAL_INCOME - m.TOTAL_COGS;
+  },
+});
+
+// ── Cash quality — formula ────────────────────────────────────────────────────
+
+def('CFO_EBITDA_PCT', {
+  computationType: 'formula',
+  name:    'CFO / EBITDA %',
+  desc:    'Cash conversion quality — what fraction of EBITDA becomes operating cash flow',
+  unit:    '%',
+  formula: 'CFO / EBITDA × 100',
+  inputs:  ['CFO', 'EBITDA'],
+  compute(m) {
+    const ebitda = m.EBITDA ?? REGISTRY.EBITDA.compute(m);
+    if (m.CFO == null || ebitda == null || ebitda === 0) return null;
+    return (m.CFO / ebitda) * 100;
+  },
+});
+
+def('CASH_CONVERSION', {
+  computationType: 'formula',
+  name:    'Cash Conversion',
+  desc:    'FCF as a percentage of PAT — measures how much reported profit converts to free cash',
+  unit:    '%',
+  formula: 'FCF / PAT × 100',
+  inputs:  ['FCF', 'PAT'],
+  compute(m, context = {}) {
+    // FCF is itself a formula metric whose CAPEX input is delta-resolved via prevKpiMap.
+    // If FCF was pre-injected into m (e.g. by the caller), use it directly; otherwise
+    // fall back to _resolveFormula which will auto-resolve the CAPEX delta internally.
+    const fcf = m.FCF != null ? m.FCF : _resolveFormula(REGISTRY.FCF, m, context).value;
+    if (fcf == null || m.PAT == null || m.PAT === 0) return null;
+    return (fcf / m.PAT) * 100;
+  },
+});
+
 // ── Growth — cagr ─────────────────────────────────────────────────────────────
 
 def('EPS_CAGR', {
@@ -326,6 +441,15 @@ def('EPS_CAGR', {
   inputs:  ['EPS_BASIC'],
 });
 
+def('EPS_CAGR_3Y', {
+  computationType: 'cagr',
+  name:          'EPS 3-year CAGR',
+  unit:          '%',
+  formula:       'CAGR(EPS_BASIC, last 3 annual periods)',
+  inputs:        ['EPS_BASIC'],
+  defaultWindow: 3,
+});
+
 def('REV_CAGR', {
   computationType: 'cagr',
   name:    'Revenue CAGR',
@@ -334,12 +458,57 @@ def('REV_CAGR', {
   inputs:  ['REV_OP'],
 });
 
+def('REV_CAGR_3Y', {
+  computationType: 'cagr',
+  name:          'Revenue 3-year CAGR',
+  unit:          '%',
+  formula:       'CAGR(REV_OP, last 3 annual periods)',
+  inputs:        ['REV_OP'],
+  defaultWindow: 3,
+});
+
+def('REV_CAGR_5Y', {
+  computationType: 'cagr',
+  name:          'Revenue 5-year CAGR',
+  unit:          '%',
+  formula:       'CAGR(REV_OP, last 5 annual periods)',
+  inputs:        ['REV_OP'],
+  defaultWindow: 5,
+});
+
+def('REV_CAGR_10Y', {
+  computationType: 'cagr',
+  name:          'Revenue 10-year CAGR',
+  unit:          '%',
+  formula:       'CAGR(REV_OP, last 10 annual periods)',
+  inputs:        ['REV_OP'],
+  defaultWindow: 10,
+});
+
 def('PAT_CAGR', {
   computationType: 'cagr',
   name:    'PAT CAGR',
   unit:    '%',
   formula: 'CAGR(PAT, first → last annual period)',
   inputs:  ['PAT'],
+});
+
+def('PAT_CAGR_3Y', {
+  computationType: 'cagr',
+  name:          'PAT 3-year CAGR',
+  unit:          '%',
+  formula:       'CAGR(PAT, last 3 annual periods)',
+  inputs:        ['PAT'],
+  defaultWindow: 3,
+});
+
+def('PAT_CAGR_10Y', {
+  computationType: 'cagr',
+  name:          'PAT 10-year CAGR',
+  unit:          '%',
+  formula:       'CAGR(PAT, last 10 annual periods)',
+  inputs:        ['PAT'],
+  defaultWindow: 10,
 });
 
 // ── Multi-period averages — average ───────────────────────────────────────────
@@ -362,7 +531,34 @@ def('ROE_3Y_AVG', {
   defaultWindow: 3,
 });
 
+def('ROE_5Y_AVG', {
+  computationType: 'average',
+  name:          'ROE 5-year Average',
+  unit:          '%',
+  formula:       'avg(ROE, last 5 annual periods)',
+  inputs:        ['ROE'],
+  defaultWindow: 5,
+});
+
+def('ROE_10Y_AVG', {
+  computationType: 'average',
+  name:          'ROE 10-year Average',
+  unit:          '%',
+  formula:       'avg(ROE, last 10 annual periods)',
+  inputs:        ['ROE'],
+  defaultWindow: 10,
+});
+
 // ── Resolution internals ──────────────────────────────────────────────────────
+
+function _resolveRaw(entry, kpiMap) {
+  const val = kpiMap[entry.id] ?? null;
+  return {
+    value:  val,
+    source: val != null ? 'stored' : 'no_data',
+    name:   entry.name,
+  };
+}
 
 function _resolveFormula(entry, kpiMap, context = {}) {
   const { bfsi = false, prevKpiMap = null } = context;
@@ -404,23 +600,29 @@ function _resolveFormula(entry, kpiMap, context = {}) {
   };
 }
 
-function _resolveCagr(entry, series) {
+function _resolveCagr(entry, series, windowSize) {
   const base = { formula: entry.formula, inputs: entry.inputs, name: entry.name };
   if (!series || !series.length) return { value: null, source: 'no_data', ...base };
 
-  const pts = series.filter(s => s.value != null);
-  if (!pts.length) return { value: null, source: 'computed_null', ...base };
+  const allPts = series.filter(s => s.value != null);
+  if (!allPts.length) return { value: null, source: 'computed_null', ...base };
+
+  // For a W-year windowed CAGR we need W+1 data points (base year + W annual periods).
+  const w   = windowSize ?? entry.defaultWindow ?? null;
+  const pts = w != null ? allPts.slice(-(w + 1)) : allPts;
 
   const first = pts[0], last = pts.at(-1);
   const spanYears = pts.length - 1;
 
   if (pts.length === 1) {
     return { value: last.value, source: 'computed', ...base,
-             seriesUsed: pts, spanYears: 0, note: 'Only one period — returning latest' };
+             seriesUsed: pts, spanYears: 0, window: w,
+             note: 'Only one period — returning latest' };
   }
   if (first.value == null || first.value <= 0) {
     return { value: last.value, source: 'computed', ...base,
-             seriesUsed: [first, last], spanYears, note: 'Non-positive base — returning latest' };
+             seriesUsed: [first, last], spanYears, window: w,
+             note: 'Non-positive base — returning latest' };
   }
 
   const cagrVal = (Math.pow(Math.abs(last.value) / first.value, 1 / spanYears) - 1)
@@ -432,6 +634,7 @@ function _resolveCagr(entry, series) {
     seriesUsed: [first, last],
     allPeriods: pts,
     spanYears,
+    window:     w,
   };
 }
 
@@ -497,8 +700,9 @@ function resolveMetric(id, context = {}) {
   if (!entry) return { value: null, source: 'no_data' };
 
   switch (entry.computationType) {
+    case 'raw':     return _resolveRaw(entry, kpiMap);
     case 'formula': return _resolveFormula(entry, kpiMap, context);
-    case 'cagr':    return _resolveCagr(entry, series);
+    case 'cagr':    return _resolveCagr(entry, series, windowSize);
     case 'average': return _resolveAverage(entry, series, windowSize);
     case 'delta':   return _resolveDelta(entry, kpiMap, prevKpiMap);
     default:        return { value: null, source: 'no_data' };

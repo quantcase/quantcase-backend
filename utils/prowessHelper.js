@@ -85,14 +85,21 @@ class ProwessHelper {
   async resolveProwessName(ticker) {
     if (this._nameCache.has(ticker)) return this._nameCache.get(ticker);
 
+    // Primary: earnings_calls.company_name (has call context)
     const ec = await this.prisma.earnings_calls.findFirst({
       where:  { company: ticker },
       select: { company_name: true },
     });
-
-    const prowessName = ec?.company_name
+    let prowessName = ec?.company_name
       ? this._matchProwessName(ec.company_name)
       : null;
+
+    // Fallback: Prowess identity CSV (catches tickers with no processed earnings calls)
+    // loadIdentityMap() returns { [NSE_symbol]: prowessCompanyName } so no fuzzy match needed.
+    if (!prowessName) {
+      const identityMap = loadIdentityMap();
+      prowessName = identityMap[ticker] ?? null;
+    }
 
     this._nameCache.set(ticker, prowessName);
     return prowessName;

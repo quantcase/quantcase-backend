@@ -505,13 +505,19 @@ class FinHelper {
    * Returns { current, prev } kpiMaps from prowess_values_new in a single query.
    * prev is the period immediately before the latest; null if only one period exists.
    * Used by resolvers that need prevKpiMap for delta-type inputs (e.g. CAPEX → FCF).
+   *
+   * @param {string} companyName
+   * @param {'annual'|'quarterly'} [source='annual']
+   *   'annual'    → prowess_new_% (Q4 full-year audited figures, default)
+   *   'quarterly' → prowess_qtr_% (standalone quarterly figures)
    */
-  async getProwessKpiMaps(companyName) {
+  async getProwessKpiMaps(companyName, source = 'annual') {
+    const callIdLike = source === 'quarterly' ? 'prowess_qtr_%' : 'prowess_new_%';
     const rows = await this.prisma.$queryRaw`
       SELECT kpi_abbr, value, fiscal_year, quarter, source_type
       FROM   prowess_values_new
       WHERE  company  = ${companyName}
-        AND  call_id LIKE 'prowess_new_%'
+        AND  call_id LIKE ${callIdLike}
       ORDER  BY fiscal_year DESC, quarter DESC, source_type ASC
     `;
 
@@ -540,7 +546,12 @@ class FinHelper {
       }
     }
 
-    return { current, prev: prevFy ? prev : null };
+    return {
+      current,
+      prev:          prevFy ? prev : null,
+      currentPeriod: latestFy ? { fiscal_year: latestFy, quarter: latestQtr } : null,
+      prevPeriod:    prevFy   ? { fiscal_year: prevFy,   quarter: prevQtr   } : null,
+    };
   }
 
   /**

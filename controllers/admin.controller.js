@@ -28,9 +28,7 @@ function listIndicators(_req, res) {
     formula: typeof e.formula === 'object' && !Array.isArray(e.formula)
       ? e.formula
       : (e.formula ?? null),
-    inputs: Array.isArray(e.inputs)
-      ? e.inputs
-      : e.inputs,
+    inputs: e.inputs == null ? null : (Array.isArray(e.inputs) ? e.inputs : e.inputs),
   }));
   res.json({ success: true, count: indicators.length, indicators });
 }
@@ -44,10 +42,20 @@ function listIndicators(_req, res) {
 //
 // Optional query params:
 //   bfsi=1   — force BFSI formula variant (EBIT→PPOP, FCF−PROV_CONT, etc.)
+// ── GET /admin/indicators/:ticker/:metricId ────────────────────────────────────
+// Full provenance for one metric for a given ticker.
+//
+// Optional query params:
+//   bfsi=1           — force BFSI formula variant
+//   granularity=quarterly  — use prowess_qtr_% (standalone quarterly) instead of
+//                            prowess_new_% (annual audited).  Only applies to
+//                            raw / formula / delta types; cagr and average always
+//                            use the annual series.
 const getIndicatorProvenance = asyncHandler(async (req, res) => {
-  const ticker   = req.params.ticker.toUpperCase();
-  const metricId = req.params.metricId.toUpperCase();
-  const bfsi     = req.query.bfsi === '1' || req.query.bfsi === 'true';
+  const ticker      = req.params.ticker.toUpperCase();
+  const metricId    = req.params.metricId.toUpperCase();
+  const bfsi        = req.query.bfsi === '1' || req.query.bfsi === 'true';
+  const granularity = req.query.granularity === 'quarterly' ? 'quarterly' : 'annual';
 
   const entry = REGISTRY[metricId];
   if (!entry) {
@@ -70,19 +78,24 @@ const getIndicatorProvenance = asyncHandler(async (req, res) => {
 
   let result;
 
-  if (entry.computationType === 'formula' || entry.computationType === 'delta') {
-    // Need latest two annual periods — prevKpiMap enables CAPEX delta auto-resolution
-    const { current: kpiMap, prev: prevKpiMap } = await finHelper.getProwessKpiMaps(companyName);
-    result = resolveMetric(metricId, { kpiMap, prevKpiMap, bfsi });
+  if (entry.computationType === 'raw' ||
+      entry.computationType === 'formula' ||
+      entry.computationType === 'delta') {
+    // Single-period computation: raw lookup / formula / delta.
+    // granularity controls which prowess source is used (annual Q4 vs quarterly).
+    const { current: kpiMap, prev: prevKpiMap, currentPeriod, prevPeriod } =
+      await finHelper.getProwessKpiMaps(companyName, granularity);
+    result = { ...resolveMetric(metricId, { kpiMap, prevKpiMap, bfsi }), currentPeriod, prevPeriod };
 
   } else if (entry.computationType === 'cagr') {
-    // All CAGR inputs (EPS_BASIC, REV_OP, PAT) are raw KPIs in prowess_values_new
+    // Time-series metric — always uses annual prowess data (granularity ignored).
+    // defaultWindow (if set) is applied inside _resolveCagr automatically.
     const inputAbbr = entry.inputs[0];
     const series    = await prowessHelper.getTimeSeries(ticker, inputAbbr);
     result = resolveMetric(metricId, { series, bfsi });
 
   } else if (entry.computationType === 'average') {
-    // ROCE_3Y_AVG, ROE_3Y_AVG — inputs are derived metrics, not stored raw
+    // Average over derived series — always annual (granularity ignored).
     const inputAbbr = entry.inputs[0];
     const raw       = await prowessHelper.getTimeSeriesBatch(ticker, SOURCE_ABBRS);
     const derived   = computeRegistryDerivedSeries(raw, bfsi);
@@ -91,13 +104,14 @@ const getIndicatorProvenance = asyncHandler(async (req, res) => {
   }
 
   res.json({
-    success:  true,
+    success:     true,
     ticker,
-    company:  companyName,
+    company:     companyName,
     metricId,
-    name:     entry.name,
-    unit:     entry.unit ?? null,
+    name:        entry.name,
+    unit:        entry.unit ?? null,
     bfsi,
+    granularity: ['raw', 'formula', 'delta'].includes(entry.computationType) ? granularity : 'annual',
     ...result,
   });
 });
