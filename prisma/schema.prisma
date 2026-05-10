@@ -238,34 +238,6 @@ model SubstituteKpi {
   @@map("substitute_kpis")
 }
 
-model OFactorResult {
-  id            String   @id @default(uuid())
-  callId        String   @unique @map("call_id")
-  subjectTicker String   @map("subject_ticker")
-  peerTickers   String[] @map("peer_tickers")
-  result        Json
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  @@index([callId])
-  @@index([subjectTicker])
-  @@map("ofactor_results")
-}
-
-model DealResult {
-  id        String   @id @default(uuid())
-  callId    String   @unique @map("call_id")
-  ticker    String
-  result    Json
-  inputs    Json
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@index([callId])
-  @@index([ticker])
-  @@map("deal_results")
-}
-
 model KpiValue {
   id          String    @id @default(uuid())
   callId      String    @map("call_id")

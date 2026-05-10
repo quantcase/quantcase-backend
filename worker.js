@@ -5,13 +5,10 @@ const prisma     = require('./config/prisma');
 // Start all workers
 require('./workers/summarization');
 require('./workers/qe');
-require('./workers/deal');
 require('./workers/dealIntelligence');
-require('./workers/ofactor');
 require('./workers/wealthos.suggestion');
 require('./workers/wealthos.message');
 require('./workers/technicals');
-require('./workers/management');
 require('./workers/aiInsightSynthesis');
 
 console.log('All workers started');

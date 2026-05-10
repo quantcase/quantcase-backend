@@ -23,22 +23,6 @@ const enqueueQeExtraction = asyncHandler(async (req, res) => {
   });
 });
 
-const enqueueFullOpportunityAnalysis = asyncHandler(async (req, res) => {
-  const { callId } = req.params;
-  const job = await jobsService.addFullOpportunityAnalysis(callId);
-  res.json({
-    success: true,
-    message: 'Opportunity full-pipeline enqueued',
-    job: {
-      id:        job.id,
-      callId,
-      type:      job.name,
-      status:    'pending',
-      all_steps: job.all_steps ?? [],
-    },
-  });
-});
-
 const getJobStatus = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
   const job = await jobsService.findJob(jobId);
@@ -46,4 +30,4 @@ const getJobStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, data: job });
 });
 
-module.exports = { enqueueSummarization, enqueueQeExtraction, enqueueFullOpportunityAnalysis, getJobStatus };
+module.exports = { enqueueSummarization, enqueueQeExtraction, getJobStatus };
