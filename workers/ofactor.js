@@ -1,13 +1,18 @@
 'use strict';
 
-const { Worker } = require('bullmq');
-const connection   = require('../config/redis');
-const prisma       = require('../config/prisma');
+const { Worker }     = require('bullmq');
+const { randomUUID } = require('crypto');
+const connection     = require('../config/redis');
+const prisma         = require('../config/prisma');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { upsertOFactorSection } = require('../services/db/ofactor.db');
 const { isBFSI }               = require('../utils/industryClassifier');
 const { loadSkillConfig }      = require('../utils/skillConfig');
 const { deepMerge }            = require('../utils/finExtras');
+const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash');
+const { writeSignals }         = require('../services/db/signals.db');
+
+const ENABLE_SIGNAL_STORE = process.env.ENABLE_SIGNAL_STORE === 'true';
 const { nseIndustryPrompt, selectCompanies, loadCompanyData } = require('../prompts/of-prompts/nse-industry-prompt');
 
 const {
@@ -257,6 +262,55 @@ async function processOFactorJob(job) {
       });
     } else {
       await upsertOFactorSection(callId, subjectTicker, section, sectionResult, prisma);
+
+      // ── Write ofactor section score to Signal Store (L1 output) ─────────
+      if (ENABLE_SIGNAL_STORE) {
+        const scoringSections = ['industry', 'competition', 'financial_strength', 'customer_traction'];
+        if (scoringSections.includes(section)) {
+          const score = sectionResult?.final_scoring?.score;
+          if (score != null && !isNaN(parseFloat(score))) {
+            const metricMap = {
+              industry:          'industry_overview_score',
+              competition:       'competition_score',
+              financial_strength:'financial_strength_score',
+              customer_traction: 'customer_traction_score',
+            };
+            const call = await prisma.earnings_calls.findUnique({
+              where:  { id: callId },
+              select: { company: true, fiscal_year: true, quarter: true, call_date: true },
+            });
+            const lineageId  = randomUUID();
+            const sourceHash = computeSourceHash(promptText);
+            const promptV    = computePromptVersion(skillSlug, (await loadSkillConfig(skillSlug)).updatedAt);
+            const signals = [
+              {
+                call_id:         callId,
+                ticker:          subjectTicker,
+                company:         call?.company ?? subjectTicker,
+                fiscal_year:     call?.fiscal_year ?? null,
+                quarter:         call?.quarter     ?? null,
+                call_date:       call?.call_date   ?? null,
+                source_type:     'ofactor',
+                signal_type:     'ofactor_section',
+                metric:          metricMap[section],
+                value:           parseFloat(score),
+                raw_value:       String(score),
+                metric_family:   'ofactor',
+                source_hash:     sourceHash,
+                prompt_v:        promptV,
+                schema_v:        '1.0.0',
+                extractor_model: model,
+                w:               0.25,
+                b:               0.0,
+                confidence:      null,
+              },
+            ];
+            const written = await writeSignals(lineageId, signals);
+            console.log(`[signal-store] Wrote ${written} ofactor signal for ${callId} section=${section}`);
+          }
+        }
+      }
+
       await prisma.job.update({
         where: { bullmqId: job.id },
         data:  { status: 'completed', result: { callId, section, sectionKey, sectionResult } },

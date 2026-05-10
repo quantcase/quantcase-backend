@@ -29,15 +29,12 @@ async function addSummarizationJob(callId) {
     throw err;
   }
 
-  const enqueuedJobs = await enqueuePlugin('management', {
+  return jobQueue.addJob('summarization', {
     callId,
-    companyName:    call.company_name || call.company,
     transcriptText: call.transcript_text,
     pptText:        call.ppt_text,
+    type:           'summarization',
   });
-
-  // Return the first job (summarization) as the primary job reference, matching prior API contract
-  return enqueuedJobs[0];
 }
 
 async function addQeExtractionJob(callId) {

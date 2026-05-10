@@ -21,6 +21,8 @@ const SKILL_TO_QUEUE = {
   'technical-intelligence':               'technicals_analysis',
   'deal-intelligence':                    'deal_intelligence',
   'fundamentals-intelligence':            'fundamentals_analysis',
+  'ai-insight-synthesis':                 'ai_insight_synthesis',
+  'management-analysis':                  'management_analysis',
 };
 
 // For ofactor skills, the `section` field tells the worker which sub-prompt to run.

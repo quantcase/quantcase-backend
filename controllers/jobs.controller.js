@@ -8,8 +8,8 @@ const enqueueSummarization = asyncHandler(async (req, res) => {
   const job = await jobsService.addSummarizationJob(callId);
   res.json({
     success: true,
-    message: 'Management plugin enqueued (summarization + qe_extraction)',
-    job: { id: job.jobId, callId, type: job.skillName, status: 'pending' },
+    message: 'Summarization job enqueued',
+    job: { id: job.id, callId, type: 'summarization', status: 'pending' },
   });
 });
 

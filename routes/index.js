@@ -20,6 +20,9 @@ const privateEquityRouter = require('./privateEquity.routes');
 const industryIntelligenceRouter = require('./industryIntelligence.routes');
 const mutualFundsRouter   = require('./mutualFunds.routes');
 const authRouter          = require('./auth.routes');
+const signalsRouter       = require('./signals.routes');
+const lensesRouter        = require('./lenses.routes');
+const analysisRouter      = require('./analysis.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -58,6 +61,11 @@ router.use('/api/mutual-funds', mutualFundsRouter);
 router.use('/api/industry-intelligence', industryIntelligenceRouter);
 // Auth routes
 router.use('/api/auth', authRouter);
+
+// 3-Layer pipeline routes
+router.use('/api/signals',  signalsRouter);
+router.use('/api/lenses',   lensesRouter);
+router.use('/api/analysis', analysisRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);

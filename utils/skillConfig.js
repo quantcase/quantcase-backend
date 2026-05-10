@@ -15,6 +15,7 @@ const prisma = require('../config/prisma');
  *   promptKey: string,
  *   promptTemplate: string|null,
  *   defaultInstructions: string|null,
+ *   updatedAt: Date,
  * }}
  */
 async function loadSkillConfig(skillSlug) {
@@ -28,6 +29,7 @@ async function loadSkillConfig(skillSlug) {
     promptKey:           skill.promptKey,
     promptTemplate:      skill.promptTemplate      ?? null,
     defaultInstructions: skill.defaultInstructions ?? null,
+    updatedAt:           skill.updatedAt,
   };
 }
 

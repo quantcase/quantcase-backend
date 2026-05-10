@@ -1,11 +1,16 @@
 'use strict';
 
-const { Worker }   = require('bullmq');
-const connection   = require('../config/redis');
-const prisma       = require('../config/prisma');
+const { Worker }     = require('bullmq');
+const { randomUUID } = require('crypto');
+const connection     = require('../config/redis');
+const prisma         = require('../config/prisma');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { managementAnalysisPrompt } = require('../prompts/management_analysis');
 const { loadSkillConfig }          = require('../utils/skillConfig');
+const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash');
+const { writeSignals }             = require('../services/db/signals.db');
+
+const ENABLE_SIGNAL_STORE = process.env.ENABLE_SIGNAL_STORE === 'true';
 
 // KPI abbreviations from prowess_values_new relevant to management analysis
 // (Revenue, Capex, Operating Margin and supporting metrics)
@@ -71,7 +76,7 @@ async function processManagementJob(job) {
     // ── 3. prowess_values_new for this company (revenue, capex, op margin) ─
     const call = await prisma.earnings_calls.findUnique({
       where:  { id: callId },
-      select: { company: true },
+      select: { company: true, fiscal_year: true, quarter: true, call_date: true },
     });
     if (!call) throw new Error(`Earnings call ${callId} not found`);
 
@@ -113,6 +118,51 @@ async function processManagementJob(job) {
       create: { ticker, type: 'management', insight: result },
     });
     console.log(`[Management] ai_insights upserted for ticker: ${ticker}`);
+
+    // ── 7. Write management scores to Signal Store (L1 output) ───────────
+    if (ENABLE_SIGNAL_STORE && result && typeof result === 'object') {
+      const lineageId  = randomUUID();
+      const sourceHash = computeSourceHash(prompt);
+      const { updatedAt } = await loadSkillConfig('management-analysis');
+      const promptV    = computePromptVersion('management-analysis', updatedAt);
+
+      // Management scores live at result.mqi_score.dimensions.{name}.score
+      const dimensions = result?.mqi_score?.dimensions ?? {};
+      const sigBase = {
+        call_id:         callId,
+        ticker,
+        company:         call.company,
+        fiscal_year:     call.fiscal_year ?? null,
+        quarter:         call.quarter     ?? null,
+        call_date:       call.call_date   ?? null,
+        source_type:     'management',
+        signal_type:     'management_score',
+        metric_family:   'management',
+        source_hash:     sourceHash,
+        prompt_v:        promptV,
+        schema_v:        '1.0.0',
+        extractor_model: model,
+        w:               1.0,
+        b:               0.0,
+      };
+
+      const signals = Object.entries(dimensions)
+        .filter(([, dim]) => dim?.score != null && !isNaN(parseFloat(dim.score)))
+        .map(([dimName, dim]) => ({
+          ...sigBase,
+          metric:    dimName,
+          value:     parseFloat(dim.score),
+          raw_value: String(dim.score),
+          statement: dim.rationale ?? null,
+        }));
+
+      if (signals.length > 0) {
+        const written = await writeSignals(lineageId, signals);
+        console.log(`[signal-store] Wrote ${written} management signals for ${ticker} (dimensions: ${Object.keys(dimensions).join(', ')})`);
+      } else {
+        console.warn(`[signal-store] No management dimension scores found for ${ticker} — check result.mqi_score.dimensions`);
+      }
+    }
 
     await prisma.job.update({
       where: { bullmqId: job.id },
