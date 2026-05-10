@@ -4,12 +4,9 @@ const {
   r2,
   loadIdentityMap,
   loadFundamentalData,
-  loadShareholdingData,
   fundPeriodData,
-  shPeriodData,
   findFundCompanyRow,
   FUND_PERIOD_COUNT,
-  SH_PERIOD_COUNT,
 } = require('../lib/prowess');
 
 const prisma = require('../config/prisma');
@@ -351,26 +348,29 @@ async function getShareholding(req, res, next) {
     const symbol = req.params.symbol.toUpperCase();
 
     const identityMap = loadIdentityMap();
-    const { quarterLabels, companyMap } = loadShareholdingData();
-
     const companyName = identityMap[symbol];
     if (!companyName) {
       return res.status(404).json({
         error: `Symbol "${symbol}" not found in Prowess identity mapping.`,
       });
     }
-    const row = companyMap[companyName];
-    if (!row) {
+
+    const dbRows = await prisma.shareholding_pattern.findMany({
+      where:   { company: companyName },
+      orderBy: [{ fiscal_year: 'asc' }, { quarter_code: 'asc' }],
+    });
+
+    if (!dbRows.length) {
       return res.status(404).json({
         error: `No shareholding data found for "${companyName}".`,
       });
     }
 
-    const periods = Array.from({ length: SH_PERIOD_COUNT }, (_, i) => shPeriodData(row, i));
+    const quarters = dbRows.map(r => r.quarter_label);
 
-    // Build [{quarter, value}] series for a given field key
-    const series = (key) =>
-      periods.map((p, i) => ({ quarter: quarterLabels[i], value: r2(p[key]) }));
+    // Build [{quarter, value}] series for a given DB field name
+    const series = (field) =>
+      dbRows.map(r => ({ quarter: r.quarter_label, value: r2(r[field]) }));
 
     const sections = [
       {
@@ -386,45 +386,45 @@ async function getShareholding(req, res, next) {
         isExpandable: true,
         data: series('promoters'),
         children: [
-          { id: 'indianPromoters',        label: 'Indian Promoters',              data: series('indianPromoters') },
-          { id: 'indianPromoterIndvHuf',  label: 'Individuals & HUF',             data: series('indianPromoterIndvHuf') },
-          { id: 'indianCentralStateGovt', label: 'Central & State Govt.',          data: series('indianCentralStateGovt') },
-          { id: 'indianPromoterCorp',     label: 'Corporate Bodies',               data: series('indianPromoterCorp') },
-          { id: 'indianPromoterFiBanks',  label: 'FIs & Banks',                    data: series('indianPromoterFiBanks') },
-          { id: 'otherIndianPromoters',   label: 'Other Indian Promoters',         data: series('otherIndianPromoters') },
-          { id: 'foreignPromoters',       label: 'Foreign Promoters',              data: series('foreignPromoters') },
-          { id: 'foreignIndvNri',         label: 'Foreign Individuals (NRIs)',      data: series('foreignIndvNri') },
-          { id: 'foreignPromoterCorp',    label: 'Foreign Corporate Bodies',       data: series('foreignPromoterCorp') },
-          { id: 'foreignPromoterInst',    label: 'Foreign Institutions',           data: series('foreignPromoterInst') },
-          { id: 'promoterQfi',            label: 'Qualified Foreign Investor',     data: series('promoterQfi') },
-          { id: 'otherForeignPromoters',  label: 'Other Foreign Promoters',        data: series('otherForeignPromoters') },
-          { id: 'personsActingInConcert', label: 'Persons Acting in Concert',      data: series('personsActingInConcert') },
+          { id: 'indianPromoters',        label: 'Indian Promoters',              data: series('indian_promoters') },
+          { id: 'indianPromoterIndvHuf',  label: 'Individuals & HUF',             data: series('indian_promoter_indv_huf') },
+          { id: 'indianCentralStateGovt', label: 'Central & State Govt.',          data: series('indian_central_state_govt') },
+          { id: 'indianPromoterCorp',     label: 'Corporate Bodies',               data: series('indian_promoter_corp') },
+          { id: 'indianPromoterFiBanks',  label: 'FIs & Banks',                    data: series('indian_promoter_fi_banks') },
+          { id: 'otherIndianPromoters',   label: 'Other Indian Promoters',         data: series('other_indian_promoters') },
+          { id: 'foreignPromoters',       label: 'Foreign Promoters',              data: series('foreign_promoters') },
+          { id: 'foreignIndvNri',         label: 'Foreign Individuals (NRIs)',      data: series('foreign_indv_nri') },
+          { id: 'foreignPromoterCorp',    label: 'Foreign Corporate Bodies',       data: series('foreign_promoter_corp') },
+          { id: 'foreignPromoterInst',    label: 'Foreign Institutions',           data: series('foreign_promoter_inst') },
+          { id: 'promoterQfi',            label: 'Qualified Foreign Investor',     data: series('promoter_qfi') },
+          { id: 'otherForeignPromoters',  label: 'Other Foreign Promoters',        data: series('other_foreign_promoters') },
+          { id: 'personsActingInConcert', label: 'Persons Acting in Concert',      data: series('persons_acting_in_concert') },
         ],
       },
       {
         id: 'nonPromoters',
         label: 'Non-Promoters',
         isExpandable: true,
-        data: series('nonPromoters'),
+        data: series('non_promoters'),
         children: [
-          { id: 'nonPromoterInst',   label: 'Institutions',                       data: series('nonPromoterInst') },
-          { id: 'npMutualFunds',     label: 'Mutual Funds / UTI',                 data: series('npMutualFunds') },
-          { id: 'npBanksFiIns',      label: 'Banks, FIs, Insurance',              data: series('npBanksFiIns') },
-          { id: 'npInsurance',       label: 'Insurance Companies',                data: series('npInsurance') },
-          { id: 'npFiBanks',         label: 'Financial Institutions & Banks',     data: series('npFiBanks') },
-          { id: 'npCentralStateGovt',label: 'Central & State Govt.',              data: series('npCentralStateGovt') },
-          { id: 'npFiis',            label: 'FIIs',                               data: series('npFiis') },
-          { id: 'npVentureCapital',  label: 'Venture Capital Funds',              data: series('npVentureCapital') },
-          { id: 'npForeignVenture',  label: 'Foreign Venture Capital',            data: series('npForeignVenture') },
-          { id: 'npQfiInst',         label: 'Qualified Foreign Investor (Inst)',  data: series('npQfiInst') },
-          { id: 'otherInstNp',       label: 'Other Institutional',                data: series('otherInstNp') },
-          { id: 'npNonInst',         label: 'Non-Institutions',                   data: series('npNonInst') },
-          { id: 'npCorpBodies',      label: 'Corporate Bodies',                   data: series('npCorpBodies') },
-          { id: 'npIndividuals',     label: 'Individuals',                        data: series('npIndividuals') },
-          { id: 'npIndvUpto1L',      label: 'Individuals (up to ₹1 lakh)',        data: series('npIndvUpto1L') },
-          { id: 'npIndvOver1L',      label: 'Individuals (over ₹1 lakh)',         data: series('npIndvOver1L') },
-          { id: 'npQfi',             label: 'Qualified Foreign Investor',         data: series('npQfi') },
-          { id: 'otherNonInstNp',    label: 'Other Non-Institutional',            data: series('otherNonInstNp') },
+          { id: 'nonPromoterInst',    label: 'Institutions',                      data: series('non_promoter_inst') },
+          { id: 'npMutualFunds',      label: 'Mutual Funds / UTI',                data: series('np_mutual_funds') },
+          { id: 'npBanksFiIns',       label: 'Banks, FIs, Insurance',             data: series('np_banks_fi_ins') },
+          { id: 'npInsurance',        label: 'Insurance Companies',               data: series('np_insurance') },
+          { id: 'npFiBanks',          label: 'Financial Institutions & Banks',    data: series('np_fi_banks') },
+          { id: 'npCentralStateGovt', label: 'Central & State Govt.',             data: series('np_central_state_govt') },
+          { id: 'npFiis',             label: 'FIIs',                              data: series('np_fiis') },
+          { id: 'npVentureCapital',   label: 'Venture Capital Funds',             data: series('np_venture_capital') },
+          { id: 'npForeignVenture',   label: 'Foreign Venture Capital',           data: series('np_foreign_venture') },
+          { id: 'npQfiInst',          label: 'Qualified Foreign Investor (Inst)', data: series('np_qfi_inst') },
+          { id: 'otherInstNp',        label: 'Other Institutional',               data: series('other_inst_np') },
+          { id: 'npNonInst',          label: 'Non-Institutions',                  data: series('np_non_inst') },
+          { id: 'npCorpBodies',       label: 'Corporate Bodies',                  data: series('np_corp_bodies') },
+          { id: 'npIndividuals',      label: 'Individuals',                       data: series('np_individuals') },
+          { id: 'npIndvUpto1L',       label: 'Individuals (up to ₹1 lakh)',       data: series('np_indv_upto_1l') },
+          { id: 'npIndvOver1L',       label: 'Individuals (over ₹1 lakh)',        data: series('np_indv_over_1l') },
+          { id: 'npQfi',              label: 'Qualified Foreign Investor',        data: series('np_qfi') },
+          { id: 'otherNonInstNp',     label: 'Other Non-Institutional',           data: series('other_non_inst_np') },
         ],
       },
       {
@@ -439,7 +439,7 @@ async function getShareholding(req, res, next) {
     res.json({
       company: companyName,
       symbol,
-      quarters: quarterLabels,
+      quarters,
       sections,
     });
   } catch (err) {

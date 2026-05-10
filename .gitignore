@@ -3,5 +3,5 @@ node_modules
 .env
 pdf-extractor
 tmp
-
+scripts
 kpi_coverage_report_v2.md

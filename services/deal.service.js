@@ -2,7 +2,7 @@
 
 const prisma                        = require('../config/prisma');
 const { getPluginWithSkills, enqueueSkillJob } = require('./plugins.service');
-const { FinHelper }                 = require('../utils/finHelper');
+const { fetchStockCagr, fetchStockLatest, fetchStockPeCagr, fetchIndustryCagr, fetchIndustryPeCagr } = require('../utils/formulaRegistry');
 const { getDealResult }             = require('./db/deal.db');
 const { mapToDealResponseSchema }   = require('../utils/dealMapper');
 
@@ -17,18 +17,17 @@ async function createDealJob(callId) {
     throw err;
   }
 
-  const ticker   = call.company;
-  const industry = call.basic_industry;
-  const helper   = new FinHelper(prisma);
+  const ticker      = call.company;
+  const industry    = call.basic_industry;
 
   const [stockEps, stockPe, industryEps, industryPe, stockRev, stockRoce, industryRev] = await Promise.all([
-    helper.stockEpsCagr(ticker),
-    helper.stockPeCagr(ticker),
-    industry ? helper.industryEpsCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
-    industry ? helper.industryPeCagr(industry)   : Promise.resolve({ value: null, type: 'no_industry' }),
-    helper.stockRevCagr(ticker),
-    helper.stockRoceLatest(ticker),
-    industry ? helper.industryRevCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
+    fetchStockCagr(prisma, ticker, 'EPS_BASIC'),
+    fetchStockPeCagr(prisma, ticker),
+    industry ? fetchIndustryCagr(prisma, industry, 'EPS_BASIC') : Promise.resolve({ value: null, type: 'no_industry' }),
+    industry ? fetchIndustryPeCagr(prisma, industry)            : Promise.resolve({ value: null, type: 'no_industry' }),
+    fetchStockCagr(prisma, ticker, 'REV_OP'),
+    fetchStockLatest(prisma, ticker, 'ROCE'),
+    industry ? fetchIndustryCagr(prisma, industry, 'REV_OP')    : Promise.resolve({ value: null, type: 'no_industry' }),
   ]);
 
   const plugin  = await getPluginWithSkills('deal');

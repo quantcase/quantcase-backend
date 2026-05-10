@@ -9,7 +9,7 @@ const { generateDecisionIntelligence } = require('../utils/decisionIntelligence'
 const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_intelligence');
 const { loadSkillConfig } = require('../utils/skillConfig');
 const { llmStream, parseJson } = require('../utils/workerUtils');
-const { computeIndicatorSeries } = require('../utils/taIndicators');
+const { resolveMetric, resolveIndicatorSeries } = require('../utils/formulaRegistry/index');
 const prisma = require('../config/prisma');
 
 // ── Peer comparison helpers (reuse Prowess CSV data) ────────────────────────
@@ -187,31 +187,16 @@ async function getTickerInfo(req, res, next) {
     const email             = idRow ? (idRow[44] || '').trim() || null : null;
     const bseCode           = idRow ? (idRow[33] || '').trim() || null : null;
 
-    // ── 1b. Prowess fund CSV — dividend yield & adj EPS (latest period) ────
-    let dividendYield = null;
-    let epsForward    = null;
-    if (companyName) {
-      const { fundMap } = loadPeerFundamentals();
-      const fundRow = fundMap[companyName];
-      if (fundRow) {
-        // Period 0 is most recent; scan forward to first period with a non-empty yield
-        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
-          const y = peerPeriodVal(fundRow, i, PEER_OFF.YIELD);
-          if (y != null) { dividendYield = r2(y); break; }
-        }
-        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
-          const e = peerPeriodVal(fundRow, i, PEER_OFF.ADJ_EPS);
-          if (e != null) { epsForward = r2(e); break; }
-        }
-      }
-    }
+    // dividendYield and epsForward are not yet in DB; defaulting to null
+    const dividendYield = null;
+    const epsForward    = null;
 
     // ── 2. Price data from nse_equity ──────────────────────────────────────
     const oneYearAgo   = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
     const fiftyDaysAgo = new Date(Date.now() -  50 * 24 * 60 * 60 * 1000);
     const twohundDaysAgo = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
 
-    const [latestPriceRows, yearPriceRows, mktCapRows, peRows, prowessRows, priceAvgRows, priceYearAgoRows] = await Promise.all([
+    const [latestPriceRows, yearPriceRows, mktCapRows, peRows, annualRows, quarterlyRows, priceAvgRows, priceYearAgoRows] = await Promise.all([
       // Latest 2 rows to compute day change
       prisma.$queryRaw`
         SELECT datetime, open, high, low, close, volume
@@ -244,13 +229,25 @@ async function getTickerInfo(req, res, next) {
             LIMIT 1
           `
         : Promise.resolve([]),
-      // KPI values from prowess_values_new (quarterly fundamentals)
+      // Annual KPI values — audited full-year figures for ratios, YoY, balance sheet
       companyName
         ? prisma.$queryRaw`
             SELECT kpi_abbr, value, raw_value, unit, multiplier, fiscal_year, quarter, period_type
             FROM prowess_values_new
             WHERE company = ${companyName}
-            ORDER BY fiscal_year DESC, quarter DESC
+              AND call_id LIKE 'prowess_new_%'
+            ORDER BY fiscal_year DESC, quarter DESC, source_type ASC
+          `
+        : Promise.resolve([]),
+      // Quarterly KPI values — standalone quarterly P&L for trend chart
+      companyName
+        ? prisma.$queryRaw`
+            SELECT kpi_abbr, value, raw_value, unit, multiplier, fiscal_year, quarter
+            FROM prowess_values_new
+            WHERE company = ${companyName}
+              AND call_id LIKE 'prowess_qtr_%'
+              AND period_type = 'quarterly'
+            ORDER BY fiscal_year ASC, quarter ASC
           `
         : Promise.resolve([]),
       // 50d and 200d averages
@@ -317,18 +314,17 @@ async function getTickerInfo(req, res, next) {
     // pe_data stores PE keyed by company name. Fallback: marketCap / annualised PAT.
     let trailingPE = peRow?.pe != null ? r2(parseFloat(peRow.pe)) : null;
 
-    // ── 6. KPI helpers ─────────────────────────────────────────────────────
-    // Group prowess rows by period (fiscal_year + quarter), latest first
-    // Pick latest value for each kpi_abbr
+    // ── 6. KPI helpers — built from annual (audited) rows only ─────────────
+    // Pick latest consolidated value per abbr (ORDER BY ensures C before S for same period)
     const kpiMap = {};
-    for (const row of prowessRows) {
+    for (const row of annualRows) {
       const abbr = row.kpi_abbr;
-      if (!kpiMap[abbr]) kpiMap[abbr] = row; // first = most recent due to ORDER BY
+      if (!kpiMap[abbr]) kpiMap[abbr] = row;
     }
 
-    // Group all values for each kpi_abbr by period for trend/growth calculations
+    // All annual values per abbr for YoY and multi-year calculations
     const kpiByPeriod = {};
-    for (const row of prowessRows) {
+    for (const row of annualRows) {
       const abbr = row.kpi_abbr;
       if (!kpiByPeriod[abbr]) kpiByPeriod[abbr] = [];
       kpiByPeriod[abbr].push(row);
@@ -379,15 +375,13 @@ async function getTickerInfo(req, res, next) {
       }
     }
 
-    // ── 7b. Quarterly trend ─────────────────────────────────────────────────
-    // Collect all unique periods that have revenue or net profit
+    // ── 7b. Quarterly trend — built from standalone quarterly rows ──────────
     const TREND_ABBRS = new Set(['REV_OP', 'TOTAL_INCOME', 'PAT', 'EPS_BASIC', 'CFO']);
     const trendPeriods = {};
-    for (const row of prowessRows) {
+    for (const row of quarterlyRows) {
       if (!TREND_ABBRS.has(row.kpi_abbr)) continue;
       const key = `${row.fiscal_year}|${row.quarter}`;
       if (!trendPeriods[key]) trendPeriods[key] = { fiscal_year: row.fiscal_year, quarter: row.quarter };
-      // Use value directly (already absolute); EPS_BASIC has multiplier=1, financials have multiplier=1e7
       trendPeriods[key][row.kpi_abbr] = row.value != null ? parseFloat(row.value) : null;
     }
     const quarterlyTrend = Object.values(trendPeriods)
@@ -396,33 +390,98 @@ async function getTickerInfo(req, res, next) {
         return (a.quarter ?? '').localeCompare(b.quarter ?? '');
       })
       .map((p) => ({
-        period:     `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
-        revenue:    p.REV_OP ?? p.TOTAL_INCOME ?? null,
-        netIncome:  p.PAT ?? null,
-        eps:        p.EPS_BASIC ?? null,
-        cfo:        p.CFO ?? null,
+        period:    `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
+        revenue:   p.REV_OP ?? p.TOTAL_INCOME ?? null,
+        netIncome: p.PAT ?? null,
+        eps:       p.EPS_BASIC ?? null,
+        cfo:       p.CFO ?? null,
       }));
 
-    // ── 7c. Fund CSV — EV and EBITDA ────────────────────────────────────────
-    let enterpriseValue = null;
-    let evToEbitda      = null;
-    let ebitda          = null;
-    if (companyName) {
-      const { fundMap } = loadPeerFundamentals();
-      const fundRow = fundMap[companyName];
-      if (fundRow) {
-        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
-          const ev       = peerPeriodVal(fundRow, i, PEER_OFF.EV); // Cr
-          const evPbdita = peerPeriodVal(fundRow, i, 11);           // EV/PBDITA ratio
-          if (ev != null && evPbdita != null && evPbdita !== 0) {
-            enterpriseValue = r2(ev * 1e7);              // convert Cr → INR
-            ebitda          = r2((ev / evPbdita) * 1e7); // PBDITA in INR
-            evToEbitda      = r2(evPbdita);
-            break;
-          }
-        }
+    // ── 7c. Registry-driven derived metrics ─────────────────────────────────
+    // Build a flat numeric map from the latest period (prowess_values_new).
+    const flatKpiMap = {};
+    for (const [abbr, row] of Object.entries(kpiMap)) {
+      if (row.value != null) flatKpiMap[abbr] = parseFloat(row.value);
+    }
+    if (flatKpiMap['BORR_TOTAL'] == null && (flatKpiMap['DEBT_LT'] != null || flatKpiMap['DEBT_ST'] != null)) {
+      flatKpiMap['BORR_TOTAL'] = (flatKpiMap['DEBT_LT'] ?? 0) + (flatKpiMap['DEBT_ST'] ?? 0);
+    }
+
+    // Build prevKpiMap from the period immediately before the latest — needed for CAPEX
+    // delta resolution (CAPEX = Δ gross PPE).  annualRows is ordered DESC so we just find
+    // the first row whose fiscal_year+quarter differs from the latest.
+    const latestFy  = annualRows[0]?.fiscal_year;
+    const latestQtr = annualRows[0]?.quarter;
+    let prevFy = null, prevQtr = null;
+    for (const row of annualRows) {
+      if (row.fiscal_year !== latestFy || row.quarter !== latestQtr) {
+        prevFy = row.fiscal_year; prevQtr = row.quarter;
+        break;
       }
     }
+    const flatPrevKpiMap = {};
+    if (prevFy != null) {
+      const prevRawMap = {};
+      for (const row of annualRows) {
+        if (row.fiscal_year === prevFy && row.quarter === prevQtr && !prevRawMap[row.kpi_abbr]) {
+          prevRawMap[row.kpi_abbr] = row; // first = consolidated (ORDER BY source_type ASC)
+        }
+      }
+      for (const [abbr, row] of Object.entries(prevRawMap)) {
+        if (row.value != null) flatPrevKpiMap[abbr] = parseFloat(row.value);
+      }
+      if (flatPrevKpiMap['BORR_TOTAL'] == null && (flatPrevKpiMap['DEBT_LT'] != null || flatPrevKpiMap['DEBT_ST'] != null)) {
+        flatPrevKpiMap['BORR_TOTAL'] = (flatPrevKpiMap['DEBT_LT'] ?? 0) + (flatPrevKpiMap['DEBT_ST'] ?? 0);
+      }
+    }
+
+    const _formulaUsed = {}; // provenance for admin endpoint — not in public response
+    function rk(field, abbr, extra = {}) {
+      const res = resolveMetric(abbr, { kpiMap: { ...flatKpiMap, ...extra }, prevKpiMap: flatPrevKpiMap });
+      if (res.source !== 'stored') {
+        _formulaUsed[field] = { source: res.source, formula: res.formula, inputs: res.inputs, inputValues: res.inputValues };
+      }
+      return res.value; // raw unrounded; callers apply r2()
+    }
+
+    const ebitdaRaw        = rk('ebitda',          'EBITDA');
+    const roeRaw           = rk('returnOnEquity',   'ROE');
+    const roaRaw           = rk('returnOnAssets',   'ROA');
+    const roceRaw          = rk('roce',             'ROCE');
+    const ebitdaMrgRaw     = rk('ebitdaMargins',    'EBITDA_MARGIN',  { EBITDA: ebitdaRaw });
+    const profMrgRaw       = rk('profitMargins',    'PROFIT_MARGIN');
+    const grossMrgRaw      = rk('grossMargins',     'GROSS_MARGIN');
+    const opMrgRaw         = rk('operatingMargins', 'OP_MARGIN');
+    const fcfRaw           = rk('freeCashflow',     'FCF');
+    const currRatRaw       = rk('currentRatio',     'CURRENT_RATIO');
+    const quickRatRaw      = rk('quickRatio',       'QUICK_RATIO');
+    const netDebtRaw       = rk('netDebt',          'NET_DEBT');
+    const netDebtEbRaw     = rk('netDebtEbitda',    'NET_DEBT_EBITDA', { NET_DEBT: netDebtRaw, EBITDA: ebitdaRaw });
+    const deRaw            = rk('debtToEquity',     'DE');
+
+    const ebitda           = r2(ebitdaRaw);
+    const roe              = r2(roeRaw);
+    const roa              = r2(roaRaw);
+    const roce             = r2(roceRaw);
+    const ebitdaMargins    = r2(ebitdaMrgRaw);
+    const profitMargins    = r2(profMrgRaw);
+    const grossMargins     = r2(grossMrgRaw);
+    const operatingMargins = r2(opMrgRaw);
+    const freeCashflow     = r2(fcfRaw);
+    const currentRatio     = r2(currRatRaw);
+    const quickRatio       = r2(quickRatRaw);
+    const netDebt          = r2(netDebtRaw);
+    const netDebtEbitda    = r2(netDebtEbRaw);
+
+    // EV = marketCap + totalDebt - cash (requires market data — not in registry)
+    const totalDebtAbs    = flatKpiMap['BORR_TOTAL'] ?? null;
+    const cashEquivAbs    = flatKpiMap['CASH_EQUIV']  ?? null;
+    const enterpriseValue = marketCapAbs != null
+      ? r2(marketCapAbs + (totalDebtAbs ?? 0) - (cashEquivAbs ?? 0))
+      : null;
+    const evToEbitda = enterpriseValue != null && ebitda != null && ebitda !== 0
+      ? r2(enterpriseValue / ebitda)
+      : null;
 
     // ── 7d. Shareholding from osc_shareholding_qtr_v1.csv ───────────────────
     let shPromoter = null, shFii = null, shDii = null, shPublic = null, shInstitutions = null;
@@ -445,131 +504,54 @@ async function getTickerInfo(req, res, next) {
       }
     }
 
-    // ── 8. Derived / computed metrics ────────────────────────────────────────
-    // Shares outstanding: EQ_SHARE_CAP is paid-up capital in Cr; divide by face value (₹10 default)
-    // to get share count. But for ratios below we keep values consistent.
-    const netWorthAbs   = kpiVal('NET_WORTH');   // absolute INR
-    const patAbs        = kpiVal('PAT');
-    const totalAssetsAbs = kpiVal('TOTAL_ASSETS');
-    const eqShareCapAbs = kpiVal('EQ_SHARE_CAP'); // paid-up capital in INR (face value included)
-
-    // Shares outstanding in absolute count: paid-up capital / face value (₹10 for most Indian banks)
-    // EQ_SHARE_CAP raw_value is Cr of capital; shares = (raw_value * 1e7) / face_value
-    const eqCapCr = kpiValCr('EQ_SHARE_CAP'); // Cr
-    const FACE_VALUE = 10; // ₹10 default; adjust if needed per company
+    // ── 8. Market-data and per-share metrics (not in registry — need price/shares) ──
+    const eqCapCr           = kpiValCr('EQ_SHARE_CAP'); // Cr
+    const FACE_VALUE        = 10;
     const sharesOutstandingCount = eqCapCr != null ? Math.round((eqCapCr * 1e7) / FACE_VALUE) : null;
 
-    // ROE = PAT / Net Worth (annualised; for quarterly PAT multiply by 4 for annual)
-    // Both from same latest period (Q4 annual for Q4 data in prowess) — use as-is
-    const roe = patAbs != null && netWorthAbs != null && netWorthAbs !== 0
-      ? r2((patAbs / netWorthAbs) * 100) : null;
+    const netWorthAbs    = kpiVal('NET_WORTH');
+    const revAbsForMargin = kpiVal('REV_OP') ?? kpiVal('TOTAL_INCOME');
+    const cfoAbs         = kpiVal('CFO');
+    const epsBasic       = kpiVal('EPS_BASIC') ?? kpiVal('EPS_DILUTED');
 
-    // ROA = PAT / Total Assets
-    const roa = patAbs != null && totalAssetsAbs != null && totalAssetsAbs !== 0
-      ? r2((patAbs / totalAssetsAbs) * 100) : null;
+    // gross profits absolute (used in response; margins already via registry)
+    const grossProfits = flatKpiMap['TOTAL_INCOME'] != null && flatKpiMap['TOTAL_COGS'] != null
+      ? r2(flatKpiMap['TOTAL_INCOME'] - flatKpiMap['TOTAL_COGS']) : null;
 
-    // Book Value per share (₹) = Net Worth / shares outstanding
     const bookValue = netWorthAbs != null && sharesOutstandingCount != null && sharesOutstandingCount !== 0
       ? r2(netWorthAbs / sharesOutstandingCount) : null;
 
-    // Profit Margins = PAT / Revenue
-    const revAbsForMargin = kpiVal('REV_OP') ?? kpiVal('TOTAL_INCOME');
-    const profitMargins = patAbs != null && revAbsForMargin != null && revAbsForMargin !== 0
-      ? r2((patAbs / revAbsForMargin) * 100) : null;
+    const evToRevenue = enterpriseValue != null && revAbsForMargin != null && revAbsForMargin !== 0
+      ? r2(enterpriseValue / revAbsForMargin) : null;
 
-    // Gross Profits = TOTAL_INCOME - TOTAL_COGS
-    const totalCogsAbs    = kpiVal('TOTAL_COGS');
-    const totalIncomeAbs  = kpiVal('TOTAL_INCOME');
-    const grossProfits    = totalIncomeAbs != null && totalCogsAbs != null
-      ? totalIncomeAbs - totalCogsAbs : null;
-    const grossMargins    = grossProfits != null && revAbsForMargin != null && revAbsForMargin !== 0
-      ? r2((grossProfits / revAbsForMargin) * 100) : null;
-
-    // EBITDA margins (uses ebitda from fund CSV)
-    const ebitdaMargins = ebitda != null && revAbsForMargin != null && revAbsForMargin !== 0
-      ? r2((ebitda / revAbsForMargin) * 100) : null;
-    const ebitdaGrowth  = kpiYoy('PBT'); // PBT tracks EBITDA directionally when fin_cost is low
-
-    // Operating Margins = (REV_OP - TOTAL_OPEX) / REV_OP
-    const totalOpexAbs     = kpiVal('TOTAL_OPEX');
-    const operatingMargins = revAbsForMargin != null && totalOpexAbs != null && revAbsForMargin !== 0
-      ? r2(((revAbsForMargin - totalOpexAbs) / revAbsForMargin) * 100) : null;
-
-    // Free Cash Flow = CFO + CFI (CFI is typically negative for capex)
-    const cfoAbs = kpiVal('CFO');
-    const cfiAbs = kpiVal('CFI');
-    const freeCashflow = cfoAbs != null && cfiAbs != null ? cfoAbs + cfiAbs : null;
-    const fcfGrowth    = kpiYoy('CFO'); // directional proxy
-
-    // Revenue per share
     const revenuePerShare = revAbsForMargin != null && sharesOutstandingCount != null && sharesOutstandingCount !== 0
       ? r2(revAbsForMargin / sharesOutstandingCount) : null;
 
-    // Total cash per share
-    const cashEquivAbs    = kpiVal('CASH_EQUIV');
     const totalCashPerShare = cashEquivAbs != null && sharesOutstandingCount != null && sharesOutstandingCount !== 0
       ? r2(cashEquivAbs / sharesOutstandingCount) : null;
 
-    // Current & quick ratios
-    const currAssetsAbs = kpiVal('CURR_ASSETS');
-    const currLiabAbs   = kpiVal('CURR_LIAB');
-    const inventoryAbs  = kpiVal('INVENTORY');
-    const currentRatio  = currAssetsAbs != null && currLiabAbs != null && currLiabAbs !== 0
-      ? r2(currAssetsAbs / currLiabAbs) : null;
-    const quickRatio    = currAssetsAbs != null && inventoryAbs != null && currLiabAbs != null && currLiabAbs !== 0
-      ? r2((currAssetsAbs - inventoryAbs) / currLiabAbs) : null;
-
-    // EV to Revenue
-    const totalDebtAbs = kpiVal('BORR_TOTAL') ?? ((kpiVal('DEBT_LT') ?? 0) + (kpiVal('DEBT_ST') ?? 0));
-    const evToRevenue  = enterpriseValue != null && revAbsForMargin != null && revAbsForMargin !== 0
-      ? r2(enterpriseValue / revAbsForMargin) : null;
-
-    // Forward PE: annualise latest quarterly adj EPS × 4
-    const forwardPE = price != null && epsForward != null && epsForward !== 0
-      ? r2(price / (epsForward * 4)) : null;
-
-    // Dividend rate (₹ per share) from yield and price
-    const dividendRate = dividendYield != null && price != null
-      ? r2((dividendYield / 100) * price) : null;
-
-    // Payout ratio = dividend per share / EPS
-    const epsBasic     = kpiVal('EPS_BASIC') ?? kpiVal('EPS_DILUTED');
-    const payoutRatio  = dividendRate != null && epsBasic != null && epsBasic !== 0
-      ? r2((dividendRate / epsBasic) * 100) : null;
-
-    // CFO / EBITDA %
     const cfoEbitdaPct = cfoAbs != null && ebitda != null && ebitda !== 0
       ? r2((cfoAbs / ebitda) * 100) : null;
 
-    // Net Debt / EBITDA
-    const netDebt       = totalDebtAbs != null && cashEquivAbs != null ? totalDebtAbs - cashEquivAbs : null;
-    const netDebtEbitda = netDebt != null && ebitda != null && ebitda !== 0
-      ? r2(netDebt / ebitda) : null;
+    const forwardPE   = price != null && epsForward != null && epsForward !== 0
+      ? r2(price / (epsForward * 4)) : null;
+    const dividendRate = dividendYield != null && price != null
+      ? r2((dividendYield / 100) * price) : null;
+    const payoutRatio  = dividendRate != null && epsBasic != null && epsBasic !== 0
+      ? r2((dividendRate / epsBasic) * 100) : null;
 
-    // P/B ratio = price / book value per share; fallback: marketCap / netWorth
     const pbRatio = price != null && bookValue != null && bookValue !== 0
       ? r2(price / bookValue)
       : (marketCapAbs != null && netWorthAbs != null && netWorthAbs !== 0
-          ? r2(marketCapAbs / netWorthAbs)
-          : null);
+          ? r2(marketCapAbs / netWorthAbs) : null);
 
-    // EPS 3Y CAGR: compare latest EPS_BASIC vs 3 years ago (same quarter, 3 fiscal years back)
-    const epsSeries = kpiByPeriod['EPS_BASIC'];
-    let epsCagr3y = null;
-    if (epsSeries && epsSeries.length >= 2) {
-      const latestEps = epsSeries[0];
-      const latestEpsYear = latestEps.fiscal_year ? parseInt(latestEps.fiscal_year.replace(/\D/g, '')) : null;
-      const priorEps3y = epsSeries.find(
-        (r) => r.quarter === latestEps.quarter &&
-               r.fiscal_year != null && latestEpsYear != null &&
-               parseInt(r.fiscal_year.replace(/\D/g, '')) === latestEpsYear - 3
-      );
-      if (priorEps3y && latestEps.value != null && priorEps3y.value != null && parseFloat(priorEps3y.value) > 0) {
-        const curr3 = parseFloat(latestEps.value);
-        const prev3 = parseFloat(priorEps3y.value);
-        epsCagr3y = r2((Math.pow(curr3 / prev3, 1 / 3) - 1) * 100);
-      }
-    }
+    const ebitdaGrowth = kpiYoy('PBT');
+    const fcfGrowth    = kpiYoy('CFO');
+
+    // EPS 3Y CAGR — route through registry (EPS_CAGR_3Y, window=3, annual ASC series)
+    const epsSeriesAsc = [...(kpiByPeriod['EPS_BASIC'] ?? [])].reverse()
+      .map((r) => ({ value: r.value != null ? parseFloat(r.value) : null, fiscal_year: r.fiscal_year, period: r.quarter }));
+    const epsCagr3y = r2(resolveMetric('EPS_CAGR_3Y', { series: epsSeriesAsc }).value);
 
     function epsCagrLabel(cagr) {
       if (cagr == null) return null;
@@ -580,28 +562,27 @@ async function getTickerInfo(req, res, next) {
       return 'Negative';
     }
 
-    // ROCE 3Y avg
-    const roceSeries = kpiByPeriod['ROCE'];
-    let roce3yAvg = null;
-    if (roceSeries && roceSeries.length >= 3) {
-      const last3 = roceSeries.slice(0, 3);
-      const vals = last3.map((r) => r.value != null ? parseFloat(r.value) : null).filter((v) => v != null);
-      if (vals.length >= 2) roce3yAvg = r2(vals.reduce((s, v) => s + v, 0) / vals.length);
-    }
+    // ROCE 3Y avg — route through registry (ROCE_3Y_AVG, window=3, annual ASC series)
+    const roceSeriesAsc = [...(kpiByPeriod['ROCE'] ?? [])].reverse()
+      .map((r) => ({ value: r.value != null ? parseFloat(r.value) : null }));
+    const roce3yAvg = r2(resolveMetric('ROCE_3Y_AVG', { series: roceSeriesAsc }).value);
 
-    // ROE 3Y avg
-    const roeSeries = kpiByPeriod['PAT'];
-    const nwSeries  = kpiByPeriod['NET_WORTH'];
-    let roe3yAvg = null;
-    if (roeSeries && nwSeries && roeSeries.length >= 3 && nwSeries.length >= 3) {
-      const roeVals = [];
-      for (let i = 0; i < Math.min(3, roeSeries.length, nwSeries.length); i++) {
-        const pat = roeSeries[i]?.value != null ? parseFloat(roeSeries[i].value) : null;
-        const nw  = nwSeries[i]?.value != null  ? parseFloat(nwSeries[i].value)  : null;
-        if (pat != null && nw != null && nw !== 0) roeVals.push((pat / nw) * 100);
-      }
-      if (roeVals.length >= 2) roe3yAvg = r2(roeVals.reduce((s, v) => s + v, 0) / roeVals.length);
+    // ROE 3Y avg — build per-period ROE series (PAT/NET_WORTH), then route through registry
+    const patPeriodMap = {}, nwPeriodMap = {};
+    for (const r of (kpiByPeriod['PAT'] ?? [])) {
+      const k = `${r.fiscal_year}|${r.quarter}`;
+      if (!patPeriodMap[k]) patPeriodMap[k] = r.value != null ? parseFloat(r.value) : null;
     }
+    for (const r of (kpiByPeriod['NET_WORTH'] ?? [])) {
+      const k = `${r.fiscal_year}|${r.quarter}`;
+      if (!nwPeriodMap[k]) nwPeriodMap[k] = r.value != null ? parseFloat(r.value) : null;
+    }
+    const roeSeriesAsc = Object.keys(patPeriodMap).filter((k) => k in nwPeriodMap).sort()
+      .map((k) => {
+        const pat = patPeriodMap[k], nw = nwPeriodMap[k];
+        return { value: (pat != null && nw != null && nw !== 0) ? (pat / nw) * 100 : null };
+      });
+    const roe3yAvg = r2(resolveMetric('ROE_3Y_AVG', { series: roeSeriesAsc }).value);
 
     // PE valuation label based on trailing PE
     function peValuationLabel(pe) {
@@ -612,8 +593,8 @@ async function getTickerInfo(req, res, next) {
       return 'Expensive';
     }
 
-    // Debt status
-    const de = kpiVal('DE');
+    // deRaw was resolved via registry (stored or computed); round for display
+    const de = r2(deRaw);
     function debtStatus(d) {
       if (d == null) return null;
       if (d <= 0.5)  return 'Low debt';
@@ -683,7 +664,9 @@ async function getTickerInfo(req, res, next) {
         fcfGrowth,
         earningsGrowth:   kpiYoy('EPS_BASIC'),
         revenuePerShare,
-        reserves:         kpiVal('NET_WORTH'),
+        reserves:         kpiVal('NET_WORTH') != null && kpiVal('EQ_SHARE_CAP') != null
+          ? r2(kpiVal('NET_WORTH') - kpiVal('EQ_SHARE_CAP'))
+          : kpiVal('NET_WORTH'),
         reservesGrowth:   kpiYoy('NET_WORTH'),
         quarterlyTrend,
       },
@@ -705,16 +688,12 @@ async function getTickerInfo(req, res, next) {
       efficiency: {
         returnOnEquity:    roe,
         returnOnAssets:    roa,
-        debtToEquity:      kpiVal('DE'),
+        debtToEquity:      de,
         debtGrowth:        kpiYoy('DE'),
         currentRatio,
         quickRatio,
-        totalCash:         kpiVal('CASH_EQUIV'),
-        totalDebt:         kpiVal('BORR_TOTAL') ?? (
-          (kpiVal('DEBT_LT') != null || kpiVal('DEBT_ST') != null)
-            ? (kpiVal('DEBT_LT') ?? 0) + (kpiVal('DEBT_ST') ?? 0)
-            : null
-        ),
+        totalCash:         cashEquivAbs,
+        totalDebt:         totalDebtAbs,
         totalCashPerShare,
       },
 
@@ -749,11 +728,11 @@ async function getTickerInfo(req, res, next) {
       },
 
       ratios: {
-        roce:      kpiVal('ROCE'),
+        roce,
         roce3yAvg,
         roe,
         roe3yAvg,
-        debtStatus: debtStatus(kpiVal('DE')),
+        debtStatus: debtStatus(de),
       },
 
       ownership: {
@@ -773,6 +752,7 @@ async function getTickerInfo(req, res, next) {
         cfo_ebitda_pct:    cfoEbitdaPct,
         net_debt_ebitda:   netDebtEbitda,
       },
+
     });
   } catch (err) {
     next(err);
@@ -854,7 +834,7 @@ async function getPrices(req, res, next) {
         volume: r.volume != null ? Number(r.volume) : null,
       }));
 
-    const indicators = computeIndicatorSeries(prices);
+    const indicators = resolveIndicatorSeries(prices);
 
     res.json({ symbol, count: prices.length, prices, indicators });
   } catch (err) {
@@ -915,12 +895,13 @@ async function getCharts(req, res, next) {
         ? prisma.pe_data.findMany({ where: { company: companyName }, orderBy: { date: 'asc' } })
         : prisma.pe_data.findMany({ where: { company: symbol },      orderBy: { date: 'asc' } }),
 
-      // All prowess KPIs for this company (quarterly)
+      // Quarterly prowess KPIs — standalone quarterly P&L + balance sheet for charts
       companyName
         ? prisma.$queryRaw`
             SELECT kpi_abbr, value, raw_value, multiplier, fiscal_year, quarter
             FROM prowess_values_new
             WHERE company = ${companyName}
+              AND call_id LIKE 'prowess_qtr_%'
             ORDER BY fiscal_year ASC, quarter ASC
           `
         : Promise.resolve([]),
@@ -1070,28 +1051,18 @@ async function getCharts(req, res, next) {
 
     // ── 4. Sales & Margin group ────────────────────────────────────────────
     const smRevenue = qPeriods.map((p) => p['REV_OP'] ?? p['TOTAL_INCOME'] ?? null);
-    const smCogs    = qPeriods.map((p) => p['TOTAL_COGS'] ?? null);
-    const smOpex    = qPeriods.map((p) => p['TOTAL_OPEX'] ?? null);
-    const smPat     = qPeriods.map((p) => p['PAT'] ?? null);
 
-    const smGpm = qPeriods.map((p, i) => {
-      const rev  = smRevenue[i];
-      const cogs = smCogs[i];
-      if (!rev || cogs == null) return null;
-      return Math.round(((rev - cogs) / rev) * 10000) / 100;
+    // Margins routed through registry; augment kpiMap with TOTAL_INCOME fallback for GROSS_MARGIN
+    const smGpm = qPeriods.map((p) => {
+      const km = { ...p, TOTAL_INCOME: p['TOTAL_INCOME'] ?? p['REV_OP'] };
+      return r2(resolveMetric('GROSS_MARGIN', { kpiMap: km }).value);
     });
-    const smOpm = qPeriods.map((p, i) => {
-      const rev  = smRevenue[i];
-      const opex = smOpex[i];
-      if (!rev || opex == null) return null;
-      return Math.round(((rev - opex) / rev) * 10000) / 100;
-    });
-    const smNpm = qPeriods.map((p, i) => {
-      const rev = smRevenue[i];
-      const np  = smPat[i];
-      if (!rev || np == null) return null;
-      return Math.round((np / rev) * 10000) / 100;
-    });
+    const smOpm = qPeriods.map((p) =>
+      r2(resolveMetric('OP_MARGIN', { kpiMap: p }).value)
+    );
+    const smNpm = qPeriods.map((p) =>
+      r2(resolveMetric('PROFIT_MARGIN', { kpiMap: p }).value)
+    );
 
     const salesMarginGroup = {
       group: 'Sales & Margin',
@@ -1107,13 +1078,9 @@ async function getCharts(req, res, next) {
     // ── 5. EV / EBITDA group ───────────────────────────────────────────────
     const evEbitdaData = qPeriods.map((p, i) => {
       const price     = priceForPeriod(p);
-      // EBITDA = PAT + FIN_COST + DEP_AMORT + TAX_EXP (derived; or use EBITDA if stored)
-      const pat    = p['PAT'];
-      const fc     = p['FIN_COST'];
-      const da     = p['DEP_AMORT'];
-      const tax    = p['TAX_EXP'];
-      const ebitdaCr = (pat != null && fc != null && da != null && tax != null)
-        ? Math.round((pat + fc + da + tax) * 100) / 100 : null;
+      // EBITDA via registry (PBT + FIN_COST + DEP_AMORT); derive PBT from PAT+TAX_EXP if absent
+      const pbtAugmented = p['PBT'] ?? (p['PAT'] != null && p['TAX_EXP'] != null ? p['PAT'] + p['TAX_EXP'] : null);
+      const ebitdaCr = r2(resolveMetric('EBITDA', { kpiMap: { ...p, PBT: pbtAugmented } }).value);
 
       // EV = marketCap + debt - cash
       const eqCapCr = p['EQ_SHARE_CAP'];
@@ -1124,9 +1091,13 @@ async function getCharts(req, res, next) {
       const ev = price != null && shares != null
         ? price * shares / 1e7 + (debtCr ?? 0) - (cashCr ?? 0) : null;
 
-      const ttmEbitda = ttmAt(i, 'PAT') != null
-        ? (ttmAt(i, 'PAT') ?? 0) + (ttmAt(i, 'FIN_COST') ?? 0) + (ttmAt(i, 'DEP_AMORT') ?? 0) + (ttmAt(i, 'TAX_EXP') ?? 0)
-        : null;
+      // TTM EBITDA via registry for each TTM quarter slice
+      const ttmKm = {
+        PBT:      (ttmAt(i, 'PAT') != null && ttmAt(i, 'TAX_EXP') != null) ? ttmAt(i, 'PAT') + ttmAt(i, 'TAX_EXP') : ttmAt(i, 'PBT'),
+        FIN_COST:  ttmAt(i, 'FIN_COST'),
+        DEP_AMORT: ttmAt(i, 'DEP_AMORT'),
+      };
+      const ttmEbitda = r2(resolveMetric('EBITDA', { kpiMap: ttmKm }).value);
 
       const ratio = ev != null && ttmEbitda != null && ttmEbitda !== 0
         ? Math.round((ev / ttmEbitda) * 100) / 100 : null;
@@ -1321,13 +1292,10 @@ async function getPeers(req, res, next) {
       const cmp       = needCmp       ? r2(cmpMap[peerSymbol] ?? null)    : undefined;
       let   marketCap = needMarketCap ? r2(mktCapMap[peerSymbol] ?? null)  : undefined;
 
-      // If market_cap table is missing the symbol, derive from CMP × shares (Prowess)
+      // Fallback: use market cap column from Prowess fund CSV (already in Cr)
       if (needMarketCap && marketCap == null && fundRow) {
-        const shares = peerPeriodVal(fundRow, LATEST, PEER_OFF.SHARES); // crore shares
-        const price  = cmpMap[peerSymbol] ?? null;
-        if (shares != null && price != null) {
-          marketCap = r2((shares * price) / 100); // shares(Cr) × price / 100 → Cr (price in ₹, shares in Cr)
-        }
+        const csvMcap = peerPeriodVal(fundRow, LATEST, PEER_OFF.MARKET_CAP);
+        if (csvMcap != null) marketCap = r2(csvMcap);
       }
 
       // ── Prowess fundamentals (latest period) ──

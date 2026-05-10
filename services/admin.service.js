@@ -1,8 +1,13 @@
 'use strict';
 
 const prisma        = require('../config/prisma');
-const { FinHelper } = require('../utils/finHelper');
 const { isBFSI }    = require('../utils/industryClassifier');
+const {
+  fetchEarningsTimeSeriesBatch, fetchDerivedBatch,
+  fetchStockCagr, fetchStockPeCagr,
+  fetchIndustryCagr, fetchIndustryPeCagr,
+  fetchEarningsLatest, fetchEarningsCagr,
+} = require('../utils/formulaRegistry');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -248,7 +253,6 @@ async function computeOpportunityStats(callId) {
   }
 
   const subjectTicker    = call.company;
-  const helper           = new FinHelper(prisma);
   const subjectSummaries = await getSubjectSummaries(subjectTicker);
   const latestSummary    = subjectSummaries[subjectSummaries.length - 1];
   const industry = latestSummary?.industryAnalysis?.industry || call.basic_industry || 'Unknown Industry';
@@ -259,15 +263,15 @@ async function computeOpportunityStats(callId) {
     stockEps, stockPe, industryEps, industryPe,
     custLatest, custCagr, peerTickers,
   ] = await Promise.all([
-    helper.getTimeSeriesBatch(subjectTicker, INDUSTRY_RAW_ABBRS),
-    helper.getTimeSeriesBatch(subjectTicker, FINANCIAL_STRENGTH_RAW_ABBRS),
-    helper.getDerivedKpiBatch(subjectTicker, bfsi),
-    helper.stockEpsCagr(subjectTicker),
-    helper.stockPeCagr(subjectTicker),
-    industry !== 'Unknown Industry' ? helper.industryEpsCagr(industry) : Promise.resolve(null),
-    industry !== 'Unknown Industry' ? helper.industryPeCagr(industry)  : Promise.resolve(null),
-    helper.stockKpiLatest(subjectTicker, 'CUST'),
-    helper.stockCustCagr(subjectTicker),
+    fetchEarningsTimeSeriesBatch(prisma, subjectTicker, INDUSTRY_RAW_ABBRS),
+    fetchEarningsTimeSeriesBatch(prisma, subjectTicker, FINANCIAL_STRENGTH_RAW_ABBRS),
+    fetchDerivedBatch(prisma, subjectTicker, bfsi),
+    fetchStockCagr(prisma, subjectTicker, 'EPS_BASIC'),
+    fetchStockPeCagr(prisma, subjectTicker),
+    industry !== 'Unknown Industry' ? fetchIndustryCagr(prisma, industry, 'EPS_BASIC') : Promise.resolve(null),
+    industry !== 'Unknown Industry' ? fetchIndustryPeCagr(prisma, industry)             : Promise.resolve(null),
+    fetchEarningsLatest(prisma, subjectTicker, 'CUST'),
+    fetchEarningsCagr(prisma, subjectTicker, 'CUST'),
     getAutoPeerTickers(subjectTicker, industry),
   ]);
 

@@ -201,6 +201,7 @@ model Kpi {
   industry     String[]          @default([])
   source       KpiSource
   kpi_type     KpiTypeCategory?
+  prowessValues ProwessValueNew[]
 
   @@index([abbr])
   @@index([source])
@@ -303,6 +304,7 @@ model ProwessValueNew {
   quarter     String?
   call_date   String?
   kpi_abbr    String
+  kpi         Kpi      @relation(fields: [kpi_abbr], references: [abbr], onDelete: Cascade)
   value       Float?
   raw_value   String?   @map("raw_value")
   unit        String?
@@ -315,6 +317,7 @@ model ProwessValueNew {
   end_date    String?   @map("end_date")
   start_date  String?   @map("start_date")
   period_type String?   @map("period_type")
+  source_type String    @default("C") @map("source_type")
 
   @@unique([callId, kpi_abbr], map: "pnv_call_kpi_unique")
   @@index([callId], map: "idx_pnv_call_id")
@@ -322,6 +325,7 @@ model ProwessValueNew {
   @@index([company, kpi_abbr], map: "idx_pnv_company_kpi")
   @@index([kpi_abbr], map: "idx_pnv_kpi")
   @@index([kpi_abbr, period_type], map: "idx_pnv_kpi_period")
+  @@index([company, source_type], map: "idx_pnv_company_srctype")
   @@map("prowess_values_new")
 }
 
@@ -641,6 +645,58 @@ model IitClusterScore {
   @@index([basic_industry])
   @@index([week_date, rank])
   @@map("iit_cluster_scores")
+}
+
+model shareholding_pattern {
+  id                        String   @id @default(uuid())
+  company                   String
+  quarter_label             String   // e.g. "Jun 2024" — display + unique key
+  fiscal_year               String   // e.g. "FY2025" — for ordering
+  quarter_code              String   // "Q1"–"Q4" — for ordering
+
+  total                     Float?
+  promoters                 Float?
+  indian_promoters          Float?
+  indian_promoter_indv_huf  Float?
+  indian_central_state_govt Float?
+  indian_promoter_corp      Float?
+  indian_promoter_fi_banks  Float?
+  other_indian_promoters    Float?
+  foreign_promoters         Float?
+  foreign_indv_nri          Float?
+  foreign_promoter_corp     Float?
+  foreign_promoter_inst     Float?
+  promoter_qfi              Float?
+  other_foreign_promoters   Float?
+  persons_acting_in_concert Float?
+  non_promoters             Float?
+  non_promoter_inst         Float?
+  np_mutual_funds           Float?
+  np_banks_fi_ins           Float?
+  np_insurance              Float?
+  np_fi_banks               Float?
+  np_central_state_govt     Float?
+  np_fiis                   Float?
+  np_venture_capital        Float?
+  np_foreign_venture        Float?
+  np_qfi_inst               Float?
+  other_inst_np             Float?
+  np_non_inst               Float?
+  np_corp_bodies            Float?
+  np_individuals            Float?
+  np_indv_upto_1l           Float?
+  np_indv_over_1l           Float?
+  np_qfi                    Float?
+  other_non_inst_np         Float?
+  custodians                Float?
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@unique([company, quarter_label])
+  @@index([company])
+  @@index([company, fiscal_year, quarter_code])
+  @@map("shareholding_pattern")
 }
 
 enum DenominationType {
