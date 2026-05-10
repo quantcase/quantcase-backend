@@ -5,7 +5,6 @@ const prisma     = require('./config/prisma');
 // Start all workers
 require('./workers/summarization');
 require('./workers/qe');
-require('./workers/dealIntelligence');
 require('./workers/wealthos.suggestion');
 require('./workers/wealthos.message');
 require('./workers/technicals');
