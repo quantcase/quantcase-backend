@@ -4,7 +4,7 @@ const prisma       = require('../config/prisma');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { dealAnalysisPrompt }    = require('../prompts/deal_analysis');
 const { upsertDealResult }      = require('../services/db/deal.db');
-const { FinHelper }             = require('../utils/finHelper');
+const { fetchDerivedBatch, fetchEarningsTimeSeries } = require('../utils/formulaRegistry');
 const { isBFSI }                = require('../utils/industryClassifier');
 const { loadSkillConfig }       = require('../utils/skillConfig');
 const { enqueueSkillJob }       = require('../services/plugins.service');
@@ -49,11 +49,10 @@ async function processDealJob(job) {
     // ── Derived KPI metrics (computed from kpi_values source KPIs) ─────────────
     let ebitMargin = null, roe = null, cashConversionPct = null;
     try {
-      const helper = new FinHelper(prisma);
       const bfsi   = isBFSI(industry);
       const [derivedBatch, patSeries] = await Promise.all([
-        helper.getDerivedKpiBatch(ticker, bfsi),
-        helper.getTimeSeries(ticker, 'PAT'),
+        fetchDerivedBatch(prisma, ticker, bfsi),
+        fetchEarningsTimeSeries(prisma, ticker, 'PAT'),
       ]);
       ebitMargin = _latest(derivedBatch.EBIT_MARGIN);
       roe        = _latest(derivedBatch.ROE);

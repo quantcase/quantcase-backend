@@ -9,8 +9,7 @@ const { generateDecisionIntelligence } = require('../utils/decisionIntelligence'
 const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_intelligence');
 const { loadSkillConfig } = require('../utils/skillConfig');
 const { llmStream, parseJson } = require('../utils/workerUtils');
-const { computeIndicatorSeries } = require('../utils/taIndicators');
-const { FinHelper } = require('../utils/finHelper');
+const { resolveMetric, resolveIndicatorSeries } = require('../utils/formulaRegistry/index');
 const prisma = require('../config/prisma');
 
 // ── Peer comparison helpers (reuse Prowess CSV data) ────────────────────────
@@ -438,7 +437,7 @@ async function getTickerInfo(req, res, next) {
 
     const _formulaUsed = {}; // provenance for admin endpoint — not in public response
     function rk(field, abbr, extra = {}) {
-      const res = FinHelper.resolveMetric(abbr, { kpiMap: { ...flatKpiMap, ...extra }, prevKpiMap: flatPrevKpiMap });
+      const res = resolveMetric(abbr, { kpiMap: { ...flatKpiMap, ...extra }, prevKpiMap: flatPrevKpiMap });
       if (res.source !== 'stored') {
         _formulaUsed[field] = { source: res.source, formula: res.formula, inputs: res.inputs, inputValues: res.inputValues };
       }
@@ -549,23 +548,10 @@ async function getTickerInfo(req, res, next) {
     const ebitdaGrowth = kpiYoy('PBT');
     const fcfGrowth    = kpiYoy('CFO');
 
-    // EPS 3Y CAGR: compare latest EPS_BASIC vs 3 years ago (same quarter, 3 fiscal years back)
-    const epsSeries = kpiByPeriod['EPS_BASIC'];
-    let epsCagr3y = null;
-    if (epsSeries && epsSeries.length >= 2) {
-      const latestEps = epsSeries[0];
-      const latestEpsYear = latestEps.fiscal_year ? parseInt(latestEps.fiscal_year.replace(/\D/g, '')) : null;
-      const priorEps3y = epsSeries.find(
-        (r) => r.quarter === latestEps.quarter &&
-               r.fiscal_year != null && latestEpsYear != null &&
-               parseInt(r.fiscal_year.replace(/\D/g, '')) === latestEpsYear - 3
-      );
-      if (priorEps3y && latestEps.value != null && priorEps3y.value != null && parseFloat(priorEps3y.value) > 0) {
-        const curr3 = parseFloat(latestEps.value);
-        const prev3 = parseFloat(priorEps3y.value);
-        epsCagr3y = r2((Math.pow(curr3 / prev3, 1 / 3) - 1) * 100);
-      }
-    }
+    // EPS 3Y CAGR — route through registry (EPS_CAGR_3Y, window=3, annual ASC series)
+    const epsSeriesAsc = [...(kpiByPeriod['EPS_BASIC'] ?? [])].reverse()
+      .map((r) => ({ value: r.value != null ? parseFloat(r.value) : null, fiscal_year: r.fiscal_year, period: r.quarter }));
+    const epsCagr3y = r2(resolveMetric('EPS_CAGR_3Y', { series: epsSeriesAsc }).value);
 
     function epsCagrLabel(cagr) {
       if (cagr == null) return null;
@@ -576,28 +562,27 @@ async function getTickerInfo(req, res, next) {
       return 'Negative';
     }
 
-    // ROCE 3Y avg
-    const roceSeries = kpiByPeriod['ROCE'];
-    let roce3yAvg = null;
-    if (roceSeries && roceSeries.length >= 3) {
-      const last3 = roceSeries.slice(0, 3);
-      const vals = last3.map((r) => r.value != null ? parseFloat(r.value) : null).filter((v) => v != null);
-      if (vals.length >= 2) roce3yAvg = r2(vals.reduce((s, v) => s + v, 0) / vals.length);
-    }
+    // ROCE 3Y avg — route through registry (ROCE_3Y_AVG, window=3, annual ASC series)
+    const roceSeriesAsc = [...(kpiByPeriod['ROCE'] ?? [])].reverse()
+      .map((r) => ({ value: r.value != null ? parseFloat(r.value) : null }));
+    const roce3yAvg = r2(resolveMetric('ROCE_3Y_AVG', { series: roceSeriesAsc }).value);
 
-    // ROE 3Y avg
-    const roeSeries = kpiByPeriod['PAT'];
-    const nwSeries  = kpiByPeriod['NET_WORTH'];
-    let roe3yAvg = null;
-    if (roeSeries && nwSeries && roeSeries.length >= 3 && nwSeries.length >= 3) {
-      const roeVals = [];
-      for (let i = 0; i < Math.min(3, roeSeries.length, nwSeries.length); i++) {
-        const pat = roeSeries[i]?.value != null ? parseFloat(roeSeries[i].value) : null;
-        const nw  = nwSeries[i]?.value != null  ? parseFloat(nwSeries[i].value)  : null;
-        if (pat != null && nw != null && nw !== 0) roeVals.push((pat / nw) * 100);
-      }
-      if (roeVals.length >= 2) roe3yAvg = r2(roeVals.reduce((s, v) => s + v, 0) / roeVals.length);
+    // ROE 3Y avg — build per-period ROE series (PAT/NET_WORTH), then route through registry
+    const patPeriodMap = {}, nwPeriodMap = {};
+    for (const r of (kpiByPeriod['PAT'] ?? [])) {
+      const k = `${r.fiscal_year}|${r.quarter}`;
+      if (!patPeriodMap[k]) patPeriodMap[k] = r.value != null ? parseFloat(r.value) : null;
     }
+    for (const r of (kpiByPeriod['NET_WORTH'] ?? [])) {
+      const k = `${r.fiscal_year}|${r.quarter}`;
+      if (!nwPeriodMap[k]) nwPeriodMap[k] = r.value != null ? parseFloat(r.value) : null;
+    }
+    const roeSeriesAsc = Object.keys(patPeriodMap).filter((k) => k in nwPeriodMap).sort()
+      .map((k) => {
+        const pat = patPeriodMap[k], nw = nwPeriodMap[k];
+        return { value: (pat != null && nw != null && nw !== 0) ? (pat / nw) * 100 : null };
+      });
+    const roe3yAvg = r2(resolveMetric('ROE_3Y_AVG', { series: roeSeriesAsc }).value);
 
     // PE valuation label based on trailing PE
     function peValuationLabel(pe) {
@@ -849,7 +834,7 @@ async function getPrices(req, res, next) {
         volume: r.volume != null ? Number(r.volume) : null,
       }));
 
-    const indicators = computeIndicatorSeries(prices);
+    const indicators = resolveIndicatorSeries(prices);
 
     res.json({ symbol, count: prices.length, prices, indicators });
   } catch (err) {
@@ -1066,28 +1051,18 @@ async function getCharts(req, res, next) {
 
     // ── 4. Sales & Margin group ────────────────────────────────────────────
     const smRevenue = qPeriods.map((p) => p['REV_OP'] ?? p['TOTAL_INCOME'] ?? null);
-    const smCogs    = qPeriods.map((p) => p['TOTAL_COGS'] ?? null);
-    const smOpex    = qPeriods.map((p) => p['TOTAL_OPEX'] ?? null);
-    const smPat     = qPeriods.map((p) => p['PAT'] ?? null);
 
-    const smGpm = qPeriods.map((p, i) => {
-      const rev  = smRevenue[i];
-      const cogs = smCogs[i];
-      if (!rev || cogs == null) return null;
-      return Math.round(((rev - cogs) / rev) * 10000) / 100;
+    // Margins routed through registry; augment kpiMap with TOTAL_INCOME fallback for GROSS_MARGIN
+    const smGpm = qPeriods.map((p) => {
+      const km = { ...p, TOTAL_INCOME: p['TOTAL_INCOME'] ?? p['REV_OP'] };
+      return r2(resolveMetric('GROSS_MARGIN', { kpiMap: km }).value);
     });
-    const smOpm = qPeriods.map((p, i) => {
-      const rev  = smRevenue[i];
-      const opex = smOpex[i];
-      if (!rev || opex == null) return null;
-      return Math.round(((rev - opex) / rev) * 10000) / 100;
-    });
-    const smNpm = qPeriods.map((p, i) => {
-      const rev = smRevenue[i];
-      const np  = smPat[i];
-      if (!rev || np == null) return null;
-      return Math.round((np / rev) * 10000) / 100;
-    });
+    const smOpm = qPeriods.map((p) =>
+      r2(resolveMetric('OP_MARGIN', { kpiMap: p }).value)
+    );
+    const smNpm = qPeriods.map((p) =>
+      r2(resolveMetric('PROFIT_MARGIN', { kpiMap: p }).value)
+    );
 
     const salesMarginGroup = {
       group: 'Sales & Margin',
@@ -1103,13 +1078,9 @@ async function getCharts(req, res, next) {
     // ── 5. EV / EBITDA group ───────────────────────────────────────────────
     const evEbitdaData = qPeriods.map((p, i) => {
       const price     = priceForPeriod(p);
-      // EBITDA = PAT + FIN_COST + DEP_AMORT + TAX_EXP (derived; or use EBITDA if stored)
-      const pat    = p['PAT'];
-      const fc     = p['FIN_COST'];
-      const da     = p['DEP_AMORT'];
-      const tax    = p['TAX_EXP'];
-      const ebitdaCr = (pat != null && fc != null && da != null && tax != null)
-        ? Math.round((pat + fc + da + tax) * 100) / 100 : null;
+      // EBITDA via registry (PBT + FIN_COST + DEP_AMORT); derive PBT from PAT+TAX_EXP if absent
+      const pbtAugmented = p['PBT'] ?? (p['PAT'] != null && p['TAX_EXP'] != null ? p['PAT'] + p['TAX_EXP'] : null);
+      const ebitdaCr = r2(resolveMetric('EBITDA', { kpiMap: { ...p, PBT: pbtAugmented } }).value);
 
       // EV = marketCap + debt - cash
       const eqCapCr = p['EQ_SHARE_CAP'];
@@ -1120,9 +1091,13 @@ async function getCharts(req, res, next) {
       const ev = price != null && shares != null
         ? price * shares / 1e7 + (debtCr ?? 0) - (cashCr ?? 0) : null;
 
-      const ttmEbitda = ttmAt(i, 'PAT') != null
-        ? (ttmAt(i, 'PAT') ?? 0) + (ttmAt(i, 'FIN_COST') ?? 0) + (ttmAt(i, 'DEP_AMORT') ?? 0) + (ttmAt(i, 'TAX_EXP') ?? 0)
-        : null;
+      // TTM EBITDA via registry for each TTM quarter slice
+      const ttmKm = {
+        PBT:      (ttmAt(i, 'PAT') != null && ttmAt(i, 'TAX_EXP') != null) ? ttmAt(i, 'PAT') + ttmAt(i, 'TAX_EXP') : ttmAt(i, 'PBT'),
+        FIN_COST:  ttmAt(i, 'FIN_COST'),
+        DEP_AMORT: ttmAt(i, 'DEP_AMORT'),
+      };
+      const ttmEbitda = r2(resolveMetric('EBITDA', { kpiMap: ttmKm }).value);
 
       const ratio = ev != null && ttmEbitda != null && ttmEbitda !== 0
         ? Math.round((ev / ttmEbitda) * 100) / 100 : null;

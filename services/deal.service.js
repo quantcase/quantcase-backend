@@ -2,7 +2,7 @@
 
 const prisma                        = require('../config/prisma');
 const { getPluginWithSkills, enqueueSkillJob } = require('./plugins.service');
-const { FinHelper }                 = require('../utils/finHelper');
+const { fetchStockCagr, fetchStockLatest, fetchStockPeCagr, fetchIndustryCagr, fetchIndustryPeCagr } = require('../utils/formulaRegistry');
 const { getDealResult }             = require('./db/deal.db');
 const { mapToDealResponseSchema }   = require('../utils/dealMapper');
 
@@ -19,20 +19,15 @@ async function createDealJob(callId) {
 
   const ticker      = call.company;
   const industry    = call.basic_industry;
-  const companyName = call.company_name;
-  const helper      = new FinHelper(prisma);
 
-  // Stock-level KPIs read from prowess_values_new (annual) for data consistency
-  // with screener and opportunity pages.  Industry-level averages still use
-  // kpiValue until those flows are migrated.
   const [stockEps, stockPe, industryEps, industryPe, stockRev, stockRoce, industryRev] = await Promise.all([
-    helper.prowessKpiCagr(companyName, 'EPS_BASIC'),
-    helper.stockPeCagr(ticker),                                    // pe_data table — no prowess equivalent
-    industry ? helper.industryEpsCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
-    industry ? helper.industryPeCagr(industry)   : Promise.resolve({ value: null, type: 'no_industry' }),
-    helper.prowessKpiCagr(companyName, 'REV_OP'),
-    helper.prowessKpiLatest(companyName, 'ROCE'),                  // stored in prowess or computed via registry
-    industry ? helper.industryRevCagr(industry)  : Promise.resolve({ value: null, type: 'no_industry' }),
+    fetchStockCagr(prisma, ticker, 'EPS_BASIC'),
+    fetchStockPeCagr(prisma, ticker),
+    industry ? fetchIndustryCagr(prisma, industry, 'EPS_BASIC') : Promise.resolve({ value: null, type: 'no_industry' }),
+    industry ? fetchIndustryPeCagr(prisma, industry)            : Promise.resolve({ value: null, type: 'no_industry' }),
+    fetchStockCagr(prisma, ticker, 'REV_OP'),
+    fetchStockLatest(prisma, ticker, 'ROCE'),
+    industry ? fetchIndustryCagr(prisma, industry, 'REV_OP')    : Promise.resolve({ value: null, type: 'no_industry' }),
   ]);
 
   const plugin  = await getPluginWithSkills('deal');
