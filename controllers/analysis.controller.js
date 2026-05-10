@@ -26,7 +26,7 @@ const getAnalysis = asyncHandler(async (req, res) => {
   }
 
   const result = await analysisService.getAnalysis(callId, types);
-  res.json({ success: true, ...result });
+  res.json({ success: true, data: result });
 });
 
 /**
