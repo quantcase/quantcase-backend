@@ -187,8 +187,12 @@ async function getTickerInfo(req, res, next) {
     const email             = idRow ? (idRow[44] || '').trim() || null : null;
     const bseCode           = idRow ? (idRow[33] || '').trim() || null : null;
 
-    // dividendYield and epsForward are not yet in DB; defaulting to null
-    const dividendYield = null;
+    // dividendYield from osc_fundamental_ind_qtr_v4.csv (PEER_OFF.YIELD = offset 8, latest period)
+    const { fundMap: _fundMapForYield } = loadPeerFundamentals();
+    const _fundRowForYield = companyName ? (_fundMapForYield[companyName] || null) : null;
+    const dividendYield = _fundRowForYield
+      ? r2(peerPeriodVal(_fundRowForYield, PEER_PERIOD_COUNT - 1, PEER_OFF.YIELD))
+      : null;
     const epsForward    = null;
 
     // ── 2. Price data from nse_equity ──────────────────────────────────────
@@ -239,14 +243,14 @@ async function getTickerInfo(req, res, next) {
             ORDER BY fiscal_year DESC, quarter DESC, source_type ASC
           `
         : Promise.resolve([]),
-      // Quarterly KPI values — standalone quarterly P&L for trend chart
+      // Quarterly KPI values — P&L (period_type='quarterly') + balance sheet snapshots ('snapshot')
       companyName
         ? prisma.$queryRaw`
             SELECT kpi_abbr, value, raw_value, unit, multiplier, fiscal_year, quarter
             FROM prowess_values_new
             WHERE company = ${companyName}
               AND call_id LIKE 'prowess_qtr_%'
-              AND period_type = 'quarterly'
+              AND period_type IN ('quarterly', 'snapshot')
             ORDER BY fiscal_year ASC, quarter ASC
           `
         : Promise.resolve([]),
@@ -376,7 +380,17 @@ async function getTickerInfo(req, res, next) {
     }
 
     // ── 7b. Quarterly trend — built from standalone quarterly rows ──────────
-    const TREND_ABBRS = new Set(['REV_OP', 'TOTAL_INCOME', 'PAT', 'EPS_BASIC', 'CFO']);
+    const TREND_ABBRS = new Set([
+      'REV_OP', 'TOTAL_INCOME', 'PAT', 'EPS_BASIC', 'CFO',
+      // EBITDA components (full formula path: PBT+FIN_COST+DEP_AMORT)
+      // fallback path when PBT absent: (REV_OP - TOTAL_OPEX) + DEP_AMORT
+      'PBT', 'FIN_COST', 'DEP_AMORT', 'TOTAL_OPEX',
+      // Balance sheet — debt
+      'BORR_TOTAL', 'DEBT_LT', 'DEBT_ST', 'NET_WORTH',
+      // Balance sheet — equity approximation components (available at H1/H2 snapshots)
+      'CURR_ASSETS', 'ASSET_PPE', 'ASSET_CWIP', 'OTH_ASSET_NC',
+      'CURR_LIAB', 'PROV_LT', 'PROV_ST',
+    ]);
     const trendPeriods = {};
     for (const row of quarterlyRows) {
       if (!TREND_ABBRS.has(row.kpi_abbr)) continue;
@@ -389,13 +403,40 @@ async function getTickerInfo(req, res, next) {
         if (a.fiscal_year !== b.fiscal_year) return (a.fiscal_year ?? '').localeCompare(b.fiscal_year ?? '');
         return (a.quarter ?? '').localeCompare(b.quarter ?? '');
       })
-      .map((p) => ({
-        period:    `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
-        revenue:   p.REV_OP ?? p.TOTAL_INCOME ?? null,
-        netIncome: p.PAT ?? null,
-        eps:       p.EPS_BASIC ?? null,
-        cfo:       p.CFO ?? null,
-      }));
+      .map((p) => {
+        // EBITDA: try registry formula (PBT+FIN_COST+DEP_AMORT); fall back to
+        // (REV_OP - TOTAL_OPEX) + DEP_AMORT when quarterly data lacks PBT
+        let ebitdaVal = resolveMetric('EBITDA', { kpiMap: p }).value;
+        if (ebitdaVal == null && p.REV_OP != null && p.TOTAL_OPEX != null) {
+          const opProfit = p.REV_OP - p.TOTAL_OPEX;
+          ebitdaVal = opProfit + (p.DEP_AMORT ?? 0);
+        }
+        ebitdaVal = r2(ebitdaVal);
+
+        const totalDebtVal = p.BORR_TOTAL ?? ((p.DEBT_LT != null || p.DEBT_ST != null)
+          ? (p.DEBT_LT ?? 0) + (p.DEBT_ST ?? 0) : null);
+        // totalEquity: use stored NET_WORTH if present; otherwise approximate from
+        // balance sheet components available at H1/H2 snapshot quarters (Q2, Q4):
+        // Assets(curr + PPE + CWIP + other NC) − Liabilities(curr + debt + provisions)
+        let totalEquityVal = p.NET_WORTH ?? null;
+        if (totalEquityVal == null &&
+            p.CURR_ASSETS != null && p.CURR_LIAB != null && p.BORR_TOTAL != null) {
+          const assets = p.CURR_ASSETS + (p.ASSET_PPE ?? 0) + (p.ASSET_CWIP ?? 0) + (p.OTH_ASSET_NC ?? 0);
+          const liabs  = p.CURR_LIAB + p.BORR_TOTAL + (p.PROV_LT ?? 0) + (p.PROV_ST ?? 0);
+          totalEquityVal = assets - liabs;
+        }
+
+        return {
+          period:      `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
+          revenue:     p.REV_OP ?? p.TOTAL_INCOME ?? null,
+          netIncome:   p.PAT ?? null,
+          eps:         p.EPS_BASIC ?? null,
+          cfo:         p.CFO ?? null,
+          ebitda:      ebitdaVal,
+          totalDebt:   totalDebtVal != null ? r2(totalDebtVal) : null,
+          totalEquity: totalEquityVal != null ? r2(totalEquityVal) : null,
+        };
+      });
 
     // ── 7c. Registry-driven derived metrics ─────────────────────────────────
     // Build a flat numeric map from the latest period (prowess_values_new).
