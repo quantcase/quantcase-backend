@@ -853,7 +853,7 @@ model Skill {
   promptKey           String        @map("prompt_key")
   promptTemplate      String?       @map("prompt_template")        // Static instructional portion of the prompt — editable without code deploys
   defaultInstructions String?       @map("default_instructions")   // DEFAULT_INSTRUCTIONS text injected at {{DEFAULT_INSTRUCTIONS}} in the template
-  model               String        @default("anthropic/claude-sonnet-4-6")
+  model               String        @default("anthropic/claude-haiku-4.5")
   maxTokens           Int           @default(16000) @map("max_tokens")
   outputSchema        Json?         @map("output_schema")
   isActive            Boolean       @default(true) @map("is_active")
