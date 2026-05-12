@@ -145,7 +145,7 @@ async function seed() {
       promptKey:      'fundamentalsIntelligencePrompt',
       promptTemplate: PROMPT_TEMPLATE,
       outputSchema:   OUTPUT_SCHEMA,
-      model:          'anthropic/claude-sonnet-4-6',
+      model:          'anthropic/claude-haiku-4.5',
       maxTokens:      16000,
       isActive:       true,
     },

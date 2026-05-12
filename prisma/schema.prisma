@@ -238,34 +238,6 @@ model SubstituteKpi {
   @@map("substitute_kpis")
 }
 
-model OFactorResult {
-  id            String   @id @default(uuid())
-  callId        String   @unique @map("call_id")
-  subjectTicker String   @map("subject_ticker")
-  peerTickers   String[] @map("peer_tickers")
-  result        Json
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  @@index([callId])
-  @@index([subjectTicker])
-  @@map("ofactor_results")
-}
-
-model DealResult {
-  id        String   @id @default(uuid())
-  callId    String   @unique @map("call_id")
-  ticker    String
-  result    Json
-  inputs    Json
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@index([callId])
-  @@index([ticker])
-  @@map("deal_results")
-}
-
 model KpiValue {
   id          String    @id @default(uuid())
   callId      String    @map("call_id")
@@ -784,12 +756,14 @@ model PortfolioModel {
 }
 
 model AiInsight {
-  id         String   @id @default(uuid())
-  ticker     String
-  type       String                        // e.g. "technicals", "financials", "peers"
-  insight    Json                          // raw LLM output, stored as-is for frontend rendering
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id               String   @id @default(uuid())
+  ticker           String
+  type             String                        // e.g. "technicals", "financials", "peers"
+  insight          Json                          // raw LLM output, stored as-is for frontend rendering
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  lens_scores_hash String?  @map("lens_scores_hash") // SHA-256 of lens scores used as L3 input; cache key
+  prompt_v         String?  @map("prompt_v")          // skill version that generated this insight
 
   @@unique([ticker, type])
   @@map("ai_insights")
@@ -879,7 +853,7 @@ model Skill {
   promptKey           String        @map("prompt_key")
   promptTemplate      String?       @map("prompt_template")        // Static instructional portion of the prompt — editable without code deploys
   defaultInstructions String?       @map("default_instructions")   // DEFAULT_INSTRUCTIONS text injected at {{DEFAULT_INSTRUCTIONS}} in the template
-  model               String        @default("anthropic/claude-sonnet-4-6")
+  model               String        @default("anthropic/claude-haiku-4.5")
   maxTokens           Int           @default(16000) @map("max_tokens")
   outputSchema        Json?         @map("output_schema")
   isActive            Boolean       @default(true) @map("is_active")
@@ -919,4 +893,122 @@ model PluginSkill {
   @@index([pluginId])
   @@index([skillId])
   @@map("plugin_skills")
+}
+
+// ─── 3-Layer Analysis Pipeline ───────────────────────────────────────────────
+
+enum SignalSourceType {
+  transcript
+  qe
+  management
+  ofactor
+  prowess
+}
+
+// Controlled vocabularies for signal classification
+// signal_type: what kind of signal this is
+//   kpi            — numeric financial/operational KPI (REV_OP, EPS, P_E, etc.)
+//   governance     — board/disclosure quality flag (transparent, defensive_language, …)
+//   entity         — named entity extracted from text (person, segment, geography)
+//   milestone      — forward-looking target or past achievement
+//   industry       — industry-level demand/supply/margin signal
+//   customer       — customer-traction signal (growth, churn, ARPU, …)
+//   financial_health — qualitative financial-strength driver (FCF quality, leverage, …)
+//   tone           — overall management tone signal
+//   ofactor_section — opportunity factor section score
+//   management_score — management quality score
+//
+// metric_family: broad category for lens composition
+//   profitability | growth | governance | customer | capital | industry | qualitative | milestone | ofactor
+
+model ExtractedSignal {
+  id              String          @id @default(uuid())
+  call_id         String
+  ticker          String
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  source_type     SignalSourceType
+  signal_type     String          // controlled vocab — see comment above
+  metric          String          // e.g. "REV_OP", "transparent", "churn_rate", "tone"
+  value           Float?          // numeric value (null for qualitative-only)
+  raw_value       String?         // original text / stringified number from LLM
+  unit            String?
+  multiplier      Int             @default(1)
+  w               Float           @default(1.0)
+  b               Float           @default(0.0)
+  confidence      Float?          // 0.0–1.0
+  time_horizon    String?         // "short" | "medium" | "long"
+  esg_tag         String?
+  risk_tag        String?
+  sector          String?
+  metric_family   String?         // controlled vocab — see comment above
+  impact          String?         // "high" | "medium" | "low" — LLM-assigned, cross-signal comparable
+  severity        String?         // "critical" | "high" | "medium" | "low" | "informational"
+  source_hash     String          // SHA-256 of source document; gates L1 re-runs
+  prompt_v        String          // skillSlug@updatedAt — invalidated when prompt changes
+  schema_v        String          @default("2.0.0")
+  extractor_model String
+  lineage_id      String          // groups all signals from one extraction run
+  statement       String?         // evidence quote from source
+  start_date      String?
+  end_date        String?
+  period_type     String?
+  is_invalidated  Boolean         @default(false)
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+
+  @@unique([call_id, signal_type, metric, source_hash, prompt_v])
+  @@index([ticker])
+  @@index([call_id])
+  @@index([ticker, metric_family])
+  @@index([call_id, signal_type])
+  @@index([impact])
+  @@index([severity])
+  @@index([source_hash])
+  @@index([prompt_v])
+  @@index([lineage_id])
+  @@index([is_invalidated])
+  @@map("extracted_signals")
+}
+
+model LensConfig {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String?
+  category    String?  // "management" | "opportunity" | "deal" — groups lenses into insight types
+  is_active   Boolean  @default(true)
+  version     String   @default("1.0.0")
+  config      Json     // { signal_filters: { signal_types, metric_family, source_types }, weights: [{ metric, w, b }], aggregation: "weighted_sum" }
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([slug])
+  @@index([category])
+  @@map("lens_configs")
+}
+
+model LensScore {
+  id               String   @id @default(uuid())
+  call_id          String
+  ticker           String
+  lens_slug        String
+  z_score          Float
+  confidence_lo    Float?
+  confidence_hi    Float?
+  signal_count     Int
+  lens_config_v    String   // LensConfig.version at compute time
+  signals_snapshot Json     // [{ signal_id, metric, value, w, b, contribution }]
+  lens_data        Json?    // Full structured output from L2 LLM call {score, status, takeaway, key_metrics, highlights, risks}
+  signals_hash     String?  // SHA-256 of signal IDs+values; L2 LLM cache key
+  is_stale         Boolean  @default(false)
+  computed_at      DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  @@unique([call_id, lens_slug])
+  @@index([ticker, lens_slug])
+  @@index([call_id])
+  @@map("lens_scores")
 }
