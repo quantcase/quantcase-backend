@@ -170,6 +170,13 @@ async function getTickerInfo(req, res, next) {
     const companyName       = idRow ? (idRow[ID_COL_NAME] || '').trim() : null;
     const industryGroup     = idRow ? (idRow[ID_COL_INDUSTRY_GRP] || '').trim() : null;
     const basicIndustry     = idRow ? (idRow[ID_COL_NSE_BASIC_IND] || '').trim() : null;
+
+    // BFSI flag — drives label and column visibility decisions passed to the frontend
+    const BFSI_INDUSTRY_KEYWORDS = ['bank', 'insurance', 'nbfc', 'financial services', 'microfinance', 'housing finance'];
+    const isBfsi = BFSI_INDUSTRY_KEYWORDS.some(
+      (kw) => (industryGroup || '').toLowerCase().includes(kw) ||
+               (basicIndustry || '').toLowerCase().includes(kw)
+    );
     const description       = idRow ? (idRow[8]  || '').trim() || null : null;
     const website           = idRow ? (idRow[50] || '').trim() || null : null;
     const isin              = idRow ? (idRow[21] || '').trim() || null : null;
@@ -379,11 +386,17 @@ async function getTickerInfo(req, res, next) {
       // EBITDA components (full formula path: PBT+FIN_COST+DEP_AMORT)
       // fallback path when PBT absent: (REV_OP - TOTAL_OPEX) + DEP_AMORT
       'PBT', 'FIN_COST', 'DEP_AMORT', 'TOTAL_OPEX',
+      // cfoProxy add-backs (non-cash items available every quarter)
+      'PROV_CONT',
       // Balance sheet — debt
       'BORR_TOTAL', 'DEBT_LT', 'DEBT_ST', 'NET_WORTH',
       // Balance sheet — equity approximation components (available at H1/H2 snapshots)
       'CURR_ASSETS', 'ASSET_PPE', 'ASSET_CWIP', 'OTH_ASSET_NC',
       'CURR_LIAB', 'PROV_LT', 'PROV_ST',
+      // BFSI equity components (available every quarter for insurance/banks)
+      'EQ_SHARE_CAP', 'RES_SURPLUS',
+      // Interest coverage components
+      'IC',
     ]);
     const trendPeriods = {};
     for (const row of quarterlyRows) {
@@ -409,10 +422,14 @@ async function getTickerInfo(req, res, next) {
 
         const totalDebtVal = p.BORR_TOTAL ?? ((p.DEBT_LT != null || p.DEBT_ST != null)
           ? (p.DEBT_LT ?? 0) + (p.DEBT_ST ?? 0) : null);
-        // totalEquity: use stored NET_WORTH if present; otherwise approximate from
-        // balance sheet components available at H1/H2 snapshot quarters (Q2, Q4):
-        // Assets(curr + PPE + CWIP + other NC) − Liabilities(curr + debt + provisions)
+        // totalEquity:
+        //   1. Stored NET_WORTH (rarely present quarterly)
+        //   2. BFSI: EQ_SHARE_CAP + RES_SURPLUS — exact book value, available every quarter
+        //   3. Non-BFSI H1/H2 snapshots: Assets − Liabilities approximation
         let totalEquityVal = p.NET_WORTH ?? null;
+        if (totalEquityVal == null && p.EQ_SHARE_CAP != null && p.RES_SURPLUS != null) {
+          totalEquityVal = p.EQ_SHARE_CAP + p.RES_SURPLUS;
+        }
         if (totalEquityVal == null &&
             p.CURR_ASSETS != null && p.CURR_LIAB != null && p.BORR_TOTAL != null) {
           const assets = p.CURR_ASSETS + (p.ASSET_PPE ?? 0) + (p.ASSET_CWIP ?? 0) + (p.OTH_ASSET_NC ?? 0);
@@ -420,17 +437,53 @@ async function getTickerInfo(req, res, next) {
           totalEquityVal = assets - liabs;
         }
 
+        // Interest coverage: stored IC → (PBT+FIN_COST)/FIN_COST → EBITDA/FIN_COST
+        // Null for BFSI (no FIN_COST field — interest is operating revenue for them)
+        let icVal = p.IC ?? null;
+        if (icVal == null && p.FIN_COST != null && p.FIN_COST !== 0) {
+          if (p.PBT != null) {
+            icVal = (p.PBT + p.FIN_COST) / p.FIN_COST;
+          } else if (ebitdaVal != null) {
+            icVal = ebitdaVal / p.FIN_COST;
+          }
+        }
+
+        // cfoProxy (non-BFSI): PAT + DEP_AMORT + PROV_CONT — first two lines of indirect method.
+        // Omits working capital changes so it overstates CFO in working-capital-intensive quarters;
+        // use stored CFO when available (BFSI H1, or if data ever expands).
+        const cfoVal = p.CFO ?? null;
+        const cfoProxyVal = (cfoVal == null && p.PAT != null && p.DEP_AMORT != null)
+          ? p.PAT + p.DEP_AMORT + (p.PROV_CONT ?? 0)
+          : null;
+
         return {
-          period:      `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
-          revenue:     p.REV_OP ?? p.TOTAL_INCOME ?? null,
-          netIncome:   p.PAT ?? null,
-          eps:         p.EPS_BASIC ?? null,
-          cfo:         p.CFO ?? null,
-          ebitda:      ebitdaVal,
-          totalDebt:   totalDebtVal != null ? r2(totalDebtVal) : null,
-          totalEquity: totalEquityVal != null ? r2(totalEquityVal) : null,
+          period:           `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
+          revenue:          p.REV_OP ?? p.TOTAL_INCOME ?? null,
+          netIncome:        p.PAT ?? null,
+          eps:              p.EPS_BASIC ?? null,
+          cfo:              cfoVal,
+          cfoProxy:         cfoProxyVal != null ? r2(cfoProxyVal) : null,
+          cfoLabel:         cfoVal != null ? 'CFO' : (cfoProxyVal != null ? 'Est. CFO' : null),
+          ebitda:           ebitdaVal,
+          ebitdaLabel:      isBfsi ? 'Op. Profit' : 'EBITDA',
+          totalDebt:        totalDebtVal != null ? r2(totalDebtVal) : null,
+          totalEquity:      totalEquityVal != null ? r2(totalEquityVal) : null,
+          interestCoverage: icVal != null ? r2(icVal) : null,
         };
       });
+
+    // ── 7b-ii. Dividend yield quarterly trend from peer fund CSV ────────────
+    const dividendYieldTrend = [];
+    if (companyName) {
+      const { fundMap: dyFundMap, qtrs: dyQtrs } = loadPeerFundamentals();
+      const dyRow = dyFundMap[companyName];
+      if (dyRow) {
+        for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
+          const val = peerPeriodVal(dyRow, i, PEER_OFF.YIELD);
+          dividendYieldTrend.push({ period: dyQtrs[i] ?? `Q${i + 1}`, dividendYield: val != null ? r2(val) : null });
+        }
+      }
+    }
 
     // ── 7c. Registry-driven derived metrics ─────────────────────────────────
     // Build a flat numeric map from the latest period (prowess_values_new).
@@ -583,6 +636,24 @@ async function getTickerInfo(req, res, next) {
     const ebitdaGrowth = kpiYoy('PBT');
     const fcfGrowth    = kpiYoy('CFO');
 
+    // PEG ratio = trailingPE / EPS growth rate (%)
+    // epsGrowthRate from kpiYoy is a fraction (e.g. 0.15 = 15%); multiply by 100 for PEG denominator
+    const epsGrowthFraction = kpiYoy('EPS_BASIC');
+    const pegRatio = trailingPE != null && epsGrowthFraction != null && epsGrowthFraction > 0
+      ? r2(trailingPE / (epsGrowthFraction * 100))
+      : null;
+
+    // Interest coverage — prefer stored IC from Prowess; fallback: (PBT + FIN_COST) / FIN_COST
+    const icStored    = kpiVal('IC');
+    const finCostAbs  = kpiVal('FIN_COST');
+    const pbtAbs      = kpiVal('PBT');
+    const interestCoverage = icStored != null
+      ? r2(icStored)
+      : (finCostAbs != null && finCostAbs !== 0 && pbtAbs != null
+          ? r2((pbtAbs + finCostAbs) / finCostAbs)
+          : null);
+    const interestCoverageGrowth = kpiYoy('IC');
+
     // EPS 3Y CAGR — route through registry (EPS_CAGR_3Y, window=3, annual ASC series)
     const epsSeriesAsc = [...(kpiByPeriod['EPS_BASIC'] ?? [])].reverse()
       .map((r) => ({ value: r.value != null ? parseFloat(r.value) : null, fiscal_year: r.fiscal_year, period: r.quarter }));
@@ -647,6 +718,7 @@ async function getTickerInfo(req, res, next) {
         exchange:        'NSE',
         sector:          industryGroup  || null,
         industry:        basicIndustry  || null,
+        isBfsi,
         mainProduct:     mainProduct,
         description,
         website,
@@ -704,6 +776,15 @@ async function getTickerInfo(req, res, next) {
           : kpiVal('NET_WORTH'),
         reservesGrowth:   kpiYoy('NET_WORTH'),
         quarterlyTrend,
+        quarterlyTrendMeta: {
+          ebitdaLabel:                 isBfsi ? 'Op. Profit' : 'EBITDA',
+          showInterestCoverage:        !isBfsi,
+          cfoIsEstimated:              !isBfsi,  // non-BFSI cfo is always the proxy; BFSI gets real CFO at H1
+          cfoTooltip:                  isBfsi
+            ? 'Cash from operations (H1 filing only)'
+            : 'Estimated: Net profit + D&A + Provisions. Excludes working capital changes.',
+        },
+        dividendYieldTrend,
       },
 
       valuation: {
@@ -711,7 +792,7 @@ async function getTickerInfo(req, res, next) {
         peValuationLabel: peValuationLabel(trailingPE),
         forwardPE,
         pbRatio,
-        pegRatio:         null,
+        pegRatio,
         evToEbitda,
         evToRevenue,
         enterpriseValue,
@@ -721,15 +802,17 @@ async function getTickerInfo(req, res, next) {
       },
 
       efficiency: {
-        returnOnEquity:    roe,
-        returnOnAssets:    roa,
-        debtToEquity:      de,
-        debtGrowth:        kpiYoy('DE'),
+        returnOnEquity:          roe,
+        returnOnAssets:          roa,
+        debtToEquity:            de,
+        debtGrowth:              kpiYoy('DE'),
         currentRatio,
         quickRatio,
-        totalCash:         cashEquivAbs,
-        totalDebt:         totalDebtAbs,
+        totalCash:               cashEquivAbs,
+        totalDebt:               totalDebtAbs,
         totalCashPerShare,
+        interestCoverage,
+        interestCoverageGrowth,
       },
 
       perShare: {
