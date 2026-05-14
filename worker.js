@@ -9,6 +9,7 @@ require('./workers/wealthos.suggestion');
 require('./workers/wealthos.message');
 require('./workers/technicals');
 require('./workers/aiInsightSynthesis');
+require('./workers/overviewSynthesis');
 
 console.log('All workers started');
 

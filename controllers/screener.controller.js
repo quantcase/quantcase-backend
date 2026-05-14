@@ -14,11 +14,13 @@ const prisma = require('../config/prisma');
 
 // ── Peer comparison helpers (reuse Prowess CSV data) ────────────────────────
 
-// Identity CSV column indices (0-based)
-const ID_COL_NAME          = 0;
-const ID_COL_INDUSTRY_GRP  = 9;   // "Industry group"
-const ID_COL_NSE_BASIC_IND = 24;  // "NSE Basic Industry classification"
-const ID_COL_NSE_SYMBOL    = 25;  // "NSE symbol"
+const peerIdentity = require('../lib/peerIdentity');
+
+// Identity CSV column indices (0-based) — kept for local peer-table lookups
+const ID_COL_NAME          = peerIdentity.COL_NAME;
+const ID_COL_INDUSTRY_GRP  = peerIdentity.COL_INDUSTRY_GRP;
+const ID_COL_NSE_BASIC_IND = peerIdentity.COL_NSE_BASIC_IND;
+const ID_COL_NSE_SYMBOL    = peerIdentity.COL_NSE_SYMBOL;
 
 // Fundamental CSV layout (same as prowess.controller)
 const PEER_COLS_PER_PERIOD = 20;
@@ -36,8 +38,6 @@ const MOD_OFF = {
   BORROWINGS:  36, // "Borrowings"
 };
 
-let _peerIdentityRows    = null; // raw parsed rows (array of arrays)
-let _peerIdentityHeader  = null;
 let _peerFundMap         = null; // { companyName: row[] }
 let _peerFundQtrs        = null; // string[]
 let _modMap              = null; // { companyName: row[] } from osc_mod_qtr_v1.csv
@@ -47,13 +47,7 @@ const SH_COLS_PER_PERIOD = 35;
 const SH_OFF = { PROMOTER: 1, NON_PROMOTER: 15, MF_DII: 17, FII: 22, PUBLIC_NON_INST: 27 };
 
 function loadPeerIdentity() {
-  if (_peerIdentityRows) return { rows: _peerIdentityRows, header: _peerIdentityHeader };
-  const raw = fs.readFileSync(path.join(__dirname, '../lib/osc_identity.csv'), 'utf-8');
-  const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-  const all = csvParse.parse(content, { relax_column_count: true });
-  _peerIdentityHeader = all[0];
-  _peerIdentityRows   = all.slice(1);
-  return { rows: _peerIdentityRows, header: _peerIdentityHeader };
+  return peerIdentity.load();
 }
 
 function loadPeerFundamentals() {
