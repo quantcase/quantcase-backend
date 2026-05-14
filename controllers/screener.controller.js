@@ -472,15 +472,25 @@ async function getTickerInfo(req, res, next) {
         };
       });
 
-    // ── 7b-ii. Dividend yield quarterly trend from peer fund CSV ────────────
+    // ── 7b-ii. Dividend yield + fundamentals trend from peer fund CSV ─────────
     const dividendYieldTrend = [];
+    const fundamentalsTrend  = [];
     if (companyName) {
       const { fundMap: dyFundMap, qtrs: dyQtrs } = loadPeerFundamentals();
       const dyRow = dyFundMap[companyName];
       if (dyRow) {
         for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
-          const val = peerPeriodVal(dyRow, i, PEER_OFF.YIELD);
-          dividendYieldTrend.push({ period: dyQtrs[i] ?? `Q${i + 1}`, dividendYield: val != null ? r2(val) : null });
+          const period = dyQtrs[i] ?? `Q${i + 1}`;
+          dividendYieldTrend.push({ period, dividendYield: r2(peerPeriodVal(dyRow, i, PEER_OFF.YIELD)) });
+          fundamentalsTrend.push({
+            period,
+            eps:          r2(peerPeriodVal(dyRow, i, PEER_OFF.ADJ_EPS)),
+            pe:           r2(peerPeriodVal(dyRow, i, PEER_OFF.PE)),
+            pb:           r2(peerPeriodVal(dyRow, i, PEER_OFF.PB)),
+            bookValue:    r2(peerPeriodVal(dyRow, i, 7)),
+            revenue:      r2(peerPeriodVal(dyRow, i, PEER_OFF.TOTAL_INCOME)),
+            netProfit:    r2(peerPeriodVal(dyRow, i, PEER_OFF.NET_PROFIT)),
+          });
         }
       }
     }
@@ -785,6 +795,7 @@ async function getTickerInfo(req, res, next) {
             : 'Estimated: Net profit + D&A + Provisions. Excludes working capital changes.',
         },
         dividendYieldTrend,
+        fundamentalsTrend,
       },
 
       valuation: {
