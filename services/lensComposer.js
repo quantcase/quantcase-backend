@@ -2,6 +2,7 @@
 
 const prisma = require('../config/prisma');
 const { querySignals } = require('./db/signals.db');
+const { sortLensesByConfig } = require('../lib/insightLenses');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { computeSourceHash } = require('../utils/sourceHash');
 
@@ -298,6 +299,10 @@ async function getLensesByCategory(callId, category) {
       signal_count: ls?.signal_count ?? 0,
       computed_at:  ls?.computed_at  ?? null,
     });
+  }
+
+  for (const cat of Object.keys(categories)) {
+    categories[cat] = sortLensesByConfig(categories[cat], cat);
   }
 
   return { callId, categories };
