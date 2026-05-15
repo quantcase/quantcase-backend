@@ -11,9 +11,9 @@ Return a single valid JSON object with this exact structure (no markdown fences,
   "verdict": <"STRONG" | "MODERATE" | "WEAK" | "CAUTIOUS">,
   "verdict_band": <short label — exactly one of: "STRONG BUY" | "MODERATE BAND" | "CAUTIOUS HOLD" | "WEAK / AVOID">,
 
-  "headline": <≤8 words — punchy thesis. COUNT the words. GOOD: "*Execution* headwinds on core growth" (5w). BAD: "Scaled growth with *structural* tailwinds and fortress balance sheet" (9w).>,
-  "subtitle": <≤10 words — single action or timing qualifier. GOOD: "Watch greenfields ramp before adding" (5w). BAD: "Greenfields ramp delays are offset by fortress balance sheet strength" (11w).>,
-  "description": <2 short sentences MAX — each ≤20 words. Support the verdict, no padding.>,
+  "headline": <≤8 words — punchy thesis. Italicise 1–2 key terms with *single asterisks*. GOOD: "*Execution* headwinds on core growth" (5w). BAD: "Scaled growth with *structural* tailwinds and fortress balance sheet" (9w).>,
+  "subtitle": <≤10 words — single action or timing qualifier. Italicise the single most important term with *single asterisks*. GOOD: "Watch *greenfields* ramp before adding" (5w). BAD: "Greenfields ramp delays are offset by fortress balance sheet strength" (11w).>,
+  "description": <2 short sentences MAX — each ≤20 words. Bold 1–2 key phrases per sentence with **double asterisks**. GOOD: "MSWIL posts **25.5% YoY revenue growth** with **fortress balance sheet**, but organic growth slumps to 1%." BAD: plain text with no highlights.>,
 
   "key_signals": [
     {
@@ -30,7 +30,7 @@ Return a single valid JSON object with this exact structure (no markdown fences,
       "max_score": <integer — allocate total 100 pts across lenses proportional to their weight; each lens gets between 15 and 45>,
       "status": <"STRONG" | "MODERATE" | "NEUTRAL" | "MIXED" | "WEAK" | "REACTIVE" | "DISCIPLINED" | "STABLE">,
       "subtitle": <≤5 words ALL CAPS — punchy thematic label, e.g. "BEATS ON CREDIT", "EXECUTION RISK", "FORTRESS BALANCE SHEET">,
-      "description": <1 sentence only ≤20 words — the single most important finding for this lens>
+      "description": <1 sentence only ≤20 words — the single most important finding for this lens. Bold the key number or finding with **double asterisks**.>
     }
   ],
 
@@ -43,9 +43,9 @@ Return a single valid JSON object with this exact structure (no markdown fences,
     }
   ],
 
-  "thesis": <EXACTLY 2-3 sentences, each ≤30 words. NOT a paragraph — separate distinct sentences. GOOD: "Strong headline growth masks weak core at +1% ex-greenfields. Execution risk on capacity absorption is the key watchout. Deal math works if ramp stabilises." BAD: one 80-word run-on paragraph.>,
-  "evidence": [<3–4 strings — HARD LIMIT ≤10 words each. COUNT them. GOOD: "Ex-greenfields EBITDA grew 7.6% stable margin" (7w). BAD: "Management proactively acknowledged slower-than-expected greenfields capacity ramp-up issues" (8w — borderline ok, but trim where possible).>],
-  "watch_outs": [<2–3 strings — HARD LIMIT ≤8 words each. COUNT them. GOOD: "Greenfields ramp delay compresses margins" (5w). BAD: "25% project-revenue exposure creates earnings volatility and sustainability risk" (9w).>]
+  "thesis": <EXACTLY 2-3 sentences, each ≤30 words. NOT a paragraph — separate distinct sentences. Bold 1 key phrase per sentence with **double asterisks**. GOOD: "**Strong headline growth** masks weak core at +1% ex-greenfields. **Execution risk** on capacity absorption is the key watchout. Deal math works if **ramp stabilises**." BAD: one 80-word run-on paragraph with no highlights.>,
+  "evidence": [<3–4 strings — HARD LIMIT ≤10 words each. COUNT them. Bold the key metric or number with **double asterisks**. GOOD: "**Ex-greenfields EBITDA** grew 7.6% stable margin" (7w). BAD: plain text without highlights.>],
+  "watch_outs": [<2–3 strings — HARD LIMIT ≤8 words each. COUNT them. Bold the core risk term with **double asterisks**. GOOD: "**Greenfields ramp** delay compresses margins" (5w). BAD: plain text without highlights.>]
 }
 
 Rules:
@@ -56,7 +56,8 @@ Rules:
 - key_signals: exactly 2–4 pills — the single most critical positive and negative data points
 - WORD COUNT IS MANDATORY: count every word in key_signals, signal_map signals, evidence, watch_outs, headline, subtitle before writing. Truncate ruthlessly.
 - Keep ALL text fields SHORT. This is a scorecard chip UI — every field renders in a small pill or label. Verbose answers break the UI.
-- verdict_band: score ≥80 → STRONG BUY; 60–79 → MODERATE BAND; 40–59 → CAUTIOUS HOLD; <40 → WEAK / AVOID`;
+- verdict_band: score ≥80 → STRONG BUY; 60–79 → MODERATE BAND; 40–59 → CAUTIOUS HOLD; <40 → WEAK / AVOID
+- HIGHLIGHT RULE: Apply markdown highlights ONLY to fields longer than 5 words. Use **double asterisks** to bold key phrases in description, thesis, evidence, watch_outs, and lenses[].description. Use *single asterisks* to italicise 1–2 key terms in headline and subtitle. Never bold or italicise short fields (key_signals labels, signal_map signals/summary, lenses subtitle). Never bold a full sentence — highlight only the most diagnostic phrase per sentence/item.`;
 
 /**
  * Build a compact data block from Lens summaries for the L3 LLM prompt.
