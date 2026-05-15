@@ -2,7 +2,7 @@
 
 const prisma   = require('../config/prisma');
 const { enqueueAiInsightSynthesisJob } = require('./aiInsightSynthesis.service');
-const { INSIGHT_LENSES } = require('../lib/insightLenses');
+const { INSIGHT_LENSES, sortLensesByConfig } = require('../lib/insightLenses');
 
 /**
  * Extract ticker from callId (format: TICKER_FYYYY_QX).
@@ -89,14 +89,17 @@ async function getAnalysis(callId, types) {
       // Lens breakdown (prefer the L3-synthesised lenses array; fall back to live lensScores)
       // Normalize L3 lens scores: LLM returns score 0-100, but max_score is the allocated weight.
       // Scale so score is out of max_score (e.g. score=73, max_score=22 → score=16).
-      lenses:       ins?.lenses?.length > 0
-        ? ins.lenses.map(l => ({
-            ...l,
-            score: (l.score != null && l.max_score != null)
-              ? Math.round((l.score / 100) * l.max_score)
-              : l.score,
-          }))
-        : lenses,
+      lenses:       sortLensesByConfig(
+        ins?.lenses?.length > 0
+          ? ins.lenses.map(l => ({
+              ...l,
+              score: (l.score != null && l.max_score != null)
+                ? Math.round((l.score / 100) * l.max_score)
+                : l.score,
+            }))
+          : lenses,
+        insightType
+      ),
       // Signal map for the signal grid
       signal_map:   ins?.signal_map   ?? [],
       // Thesis / evidence section
