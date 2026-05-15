@@ -38,6 +38,7 @@ Return a single valid JSON object with this exact structure (no markdown fences,
     {
       "category": <≤3 words ALL CAPS — e.g. "ASSET QUALITY", "MARGIN RISK", "CORE GROWTH">,
       "signal": <HARD LIMIT ≤7 words. COUNT them. GOOD: "Core ex-greenfields at +1% YoY" (6w). BAD: "Greenfields ramp delays acknowledged; capacity absorption tracking needed" (8w).>,
+      "summary": <1–3 words — tile value distinct from category. GOOD: "Strong YoY", "Margin squeeze", "+1% organic". NOT a repeat of category.>,
       "sentiment": <"positive" | "negative" | "neutral">
     }
   ],

@@ -41,7 +41,7 @@ Return a single valid JSON object with this exact structure (no markdown fences,
   ],
 
   "signal_map": [
-    { "category": <MAX 3 WORDS, ALL CAPS>, "signal": <MAX 7 WORDS. Examples: "Headline 25.5% vs organic 18.8%", "Core ex-greenfields stalled at +1%", "₹10 Cr debt; strong balance">, "sentiment": <"positive" | "negative" | "neutral"> }
+    { "category": <MAX 3 WORDS, ALL CAPS>, "signal": <MAX 7 WORDS. Examples: "Headline 25.5% vs organic 18.8%", "Core ex-greenfields stalled at +1%", "₹10 Cr debt; strong balance">, "summary": <1–3 words — tile value distinct from category. GOOD: "Strong YoY", "Margin squeeze", "+1% organic". NOT a repeat of category.>, "sentiment": <"positive" | "negative" | "neutral"> }
   ],
 
   "thesis": <MUST BE EXACTLY 3 SENTENCES. Write sentence 1, add ". ", write sentence 2, add ". ", write sentence 3, add ".". No joining with "but", "however", "and" across sentence boundaries. Each sentence standalone ≤20 words. Bold 1 phrase per sentence. Example: "**Strong headline growth** masks weak core at +1% ex-greenfields. **Execution risk** on greenfields ramp is the key watchout. Wait for **demonstrated capacity absorption** before building conviction.">,
