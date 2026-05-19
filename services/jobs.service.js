@@ -1,7 +1,8 @@
 'use strict';
 
-const prisma    = require('../config/prisma');
-const jobQueue  = require('../lib/jobQueue');
+const prisma         = require('../config/prisma');
+const jobQueue       = require('../lib/jobQueue');
+const { ProwessHelper } = require('../utils/prowessHelper');
 
 const STATE_TO_STATUS = {
   waiting:   'pending',
@@ -52,8 +53,36 @@ async function addQeExtractionJob(callId) {
   return jobQueue.addJob('qe_extraction', { callId, type: 'qe_extraction' });
 }
 
+async function addProwessExtractionJob(callId) {
+  const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
+  if (!call) {
+    const err = new Error('Call not found');
+    err.status = 404;
+    throw err;
+  }
+
+  // Verify prowess company mapping and data exist before enqueuing
+  const helper = new ProwessHelper(prisma);
+  const prowessName = await helper.resolveProwessName(call.company);
+  if (!prowessName) {
+    const err = new Error(`No Prowess company mapping found for ticker "${call.company}"`);
+    err.status = 400;
+    throw err;
+  }
+  const rowCount = await prisma.prowessValueNew.count({
+    where: { company: prowessName, fiscal_year: { lte: call.fiscal_year } },
+  });
+  if (!rowCount) {
+    const err = new Error(`No Prowess data found for "${prowessName}" up to ${call.fiscal_year}`);
+    err.status = 400;
+    throw err;
+  }
+
+  return jobQueue.addJob('prowess_extraction', { callId, type: 'prowess_extraction' });
+}
+
 async function findJob(jobId) {
-  const queues = ['summarization', 'qe_extraction', 'ai_insight_synthesis'];
+  const queues = ['summarization', 'qe_extraction', 'prowess_extraction', 'ai_insight_synthesis'];
   for (const q of queues) {
     const job = await jobQueue.getJobStatus(q, jobId);
     if (job) {
@@ -84,5 +113,6 @@ async function findJob(jobId) {
 module.exports = {
   addSummarizationJob,
   addQeExtractionJob,
+  addProwessExtractionJob,
   findJob,
 };

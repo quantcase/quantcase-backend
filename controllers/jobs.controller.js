@@ -23,6 +23,16 @@ const enqueueQeExtraction = asyncHandler(async (req, res) => {
   });
 });
 
+const enqueueProwessExtraction = asyncHandler(async (req, res) => {
+  const { callId } = req.params;
+  const job = await jobsService.addProwessExtractionJob(callId);
+  res.json({
+    success: true,
+    message: 'Prowess extraction job created and queued',
+    job: { id: job.id, callId, type: 'prowess_extraction', status: 'pending' },
+  });
+});
+
 const getJobStatus = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
   const job = await jobsService.findJob(jobId);
@@ -30,4 +40,4 @@ const getJobStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, data: job });
 });
 
-module.exports = { enqueueSummarization, enqueueQeExtraction, getJobStatus };
+module.exports = { enqueueSummarization, enqueueQeExtraction, enqueueProwessExtraction, getJobStatus };

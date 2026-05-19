@@ -959,7 +959,7 @@ model ExtractedSignal {
   created_at      DateTime        @default(now())
   updated_at      DateTime        @updatedAt
 
-  @@unique([call_id, signal_type, metric, source_hash, prompt_v])
+  @@unique([call_id, signal_type, metric, source_hash, prompt_v, start_date])
   @@index([ticker])
   @@index([call_id])
   @@index([ticker, metric_family])
