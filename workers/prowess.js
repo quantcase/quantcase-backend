@@ -126,10 +126,11 @@ async function processProwessJob(job) {
   const prompt = prowessExtractionPrompt(
     annualRows,
     quarterlyRows,
-    call.quarter     || '',
-    call.fiscal_year || '',
-    call.company,
+    call.quarter        || '',
+    call.fiscal_year    || '',
+    call.company_name   || call.company,
     promptTemplate,
+    call.basic_industry || null,
   );
   console.log(`[prowess] Prompt length: ${prompt.length} chars (${allRows.length} rows)`);
   await job.updateProgress(40);
