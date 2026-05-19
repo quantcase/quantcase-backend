@@ -137,7 +137,7 @@ async function processSummarizationJob(job) {
 
 const worker = new Worker('summarization', processSummarizationJob, {
   connection,
-  concurrency: 1,
+  concurrency: 50,
   limiter: { max: 10, duration: 1000 },
 });
 

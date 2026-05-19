@@ -28,7 +28,6 @@ async function llmStream(params) {
     stream = await openRouter.chat.completions.create({
       ...params,
       stream:   true,
-      provider: { order: ['Anthropic'], allow_fallbacks: false },
     });
   } catch (err) {
     const body = err?.error ?? err?.response?.data ?? err?.message;

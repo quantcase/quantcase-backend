@@ -163,7 +163,9 @@ Return ONLY a valid JSON object with exactly two top-level keys:
 3. Never hallucinate KPI abbrs. Unrecognised KPIs go to new_kpis first, then reference by the abbr you assigned.
 4. Segment KPIs: SEG_<SEGMENT>_<ABBR> — always register in new_kpis if not in AVAILABLE KPIs.
 5. financial_health signals carry NO numeric value — put drivers in raw_value.
-6. Return ONLY the JSON. No explanation, no markdown fences.`;
+6. Return ONLY the JSON. No explanation, no markdown fences.
+7. KPI abbrs are TIMELESS — never embed a period, quarter, or fiscal year in the abbr (no _Q1/_Q3/_9M/_H1/_FY25 etc.). Time belongs in start_date/end_date. Use REV not REV_Q3; use EBITDA not EBITDA_9M. If the same abbr already exists in AVAILABLE KPIs, reuse it — do not create a period-suffixed variant.
+8. Company-prefixed abbrs (e.g. JAI_EBITDA) and unprefixed abbrs (e.g. EBITDA) represent the same metric — check AVAILABLE KPIs for both forms before registering a new one. Only create a company-prefixed abbr if the metric is genuinely company-specific and has no generic equivalent in the list.`;
 
 /**
  * Assemble the runtime data block (call metadata + KPI reference + transcript).

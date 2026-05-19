@@ -139,7 +139,6 @@ async function processProwessJob(job) {
   const params = {
     model,
     max_tokens: maxTokens,
-    provider:   { order: ['Anthropic'], allow_fallbacks: false },
     messages:   [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     stream:     true,
   };
@@ -205,7 +204,7 @@ async function processProwessJob(job) {
 
 const worker = new Worker('prowess_extraction', processProwessJob, {
   connection,
-  concurrency: 1,
+  concurrency: 50,
   limiter: { max: 5, duration: 1000 },
 });
 

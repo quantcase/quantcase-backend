@@ -104,7 +104,6 @@ async function processQeJob(job) {
   const qeParams = {
     model,
     max_tokens: maxTokens,
-    provider:   { order: ['Anthropic'], allow_fallbacks: false },
     messages:   [{ role: 'user', content: [pdfBlock, { type: 'text', text: prompt }] }],
     stream:     true,
   };
