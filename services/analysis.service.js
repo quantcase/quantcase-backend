@@ -68,6 +68,7 @@ async function getAnalysis(callId, types) {
           key_metrics: ld.key_metrics ?? {},
           highlights:  ld.highlights  ?? [],
           risks:       ld.risks       ?? [],
+          top_signals: ld.top_signals ?? [],
           z_score:     ls.z_score,
           signal_count:ls.signal_count,
           computed_at: ls.computed_at,

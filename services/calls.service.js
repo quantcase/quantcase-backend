@@ -37,7 +37,13 @@ async function getTranscriptStocks() {
 
 async function getTranscriptCalls(symbol) {
   return prisma.earnings_calls.findMany({
-    where:  { company: symbol },
+    where: {
+      company: symbol,
+      OR: [
+        { transcript_text: { not: null } },
+        { ppt_text: { not: null } },
+      ],
+    },
     select: {
       id:            true,
       company:       true,

@@ -22,8 +22,27 @@ Return a JSON object with this exact structure:
   "takeaway": <string — 1-2 sentence synthesis in plain English>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
   "highlights": [<up to 3 positive findings, each a short sentence>],
-  "risks": [<up to 2 concerns, each a short sentence>]
-}`;
+  "risks": [<up to 2 concerns, each a short sentence>],
+  "top_signals": [
+    {
+      "signal_id": <string — id of the signal from the data block>,
+      "metric": <string — metric name exactly as provided>,
+      "label": <string — human-readable metric label>,
+      "guided_value": <number | null — management's forward-looking commitment or guidance, if present>,
+      "guided_date": <string | null — ISO 8601 date YYYY-MM-DD, last day of the guidance target period, e.g. "2027-03-31" for FY2027, "2026-09-30" for FY2026 Q3>,
+      "actual_value": <number | null — realised/reported value>,
+      "actual_date": <string | null — ISO 8601 date YYYY-MM-DD, last day of the reported period, e.g. "2026-09-30" for FY2026 Q3, "2026-03-31" for FY2026>,
+      "unit": <string | null — e.g. "Cr", "%", "x">,
+      "delta": <number | null — actual_value minus guided_value; positive means beat, negative means miss; null if only one side available>,
+      "delta_pct": <number | null — percentage delta relative to guided_value; null if not computable>,
+      "direction": <"beat" | "miss" | "in_line" | "tracking" | null — "tracking" when guidance exists but actuals not yet due>,
+      "impact": <"high" | "medium" | "low">,
+      "statement": <string | null — key evidence quote from the source, ≤80 chars>
+    }
+  ]
+}
+
+For top_signals: select 8–10 signals that most influenced this lens score — include ALL signals that have meaningful analytical value for this lens, not just the top few. For signals where management gave a forward-looking promise (guidance), populate guided_value/guided_date and compare against actual_value if the period has passed. If no actual is available yet, set direction to "tracking". For all dates use strict ISO 8601 format (YYYY-MM-DD) resolved to the last day of the implied period — never use free-text period labels like "FY2026 Q3".`;
 
 // ─── Per metric_family normalization ranges ───────────────────────────────────
 
@@ -68,7 +87,7 @@ function buildSignalSummary(lensName, signals, mathResult) {
     '',
   ];
 
-  // Show up to 10 signals with their key fields; summarize the rest
+  // Show up to 10 signals with full context for top_signals selection; summarize the rest
   const withValue = signals.filter(s => s.value != null);
   const shown = withValue.slice(0, 10);
   const rest  = withValue.slice(10);
@@ -76,8 +95,12 @@ function buildSignalSummary(lensName, signals, mathResult) {
   for (const s of shown) {
     const period = [s.fiscal_year, s.quarter].filter(Boolean).join(' ');
     const periodStr = period ? ` [${period}]` : '';
-    const stmt = s.statement ? ` — "${s.statement.slice(0, 60)}${s.statement.length > 60 ? '…' : ''}"` : '';
-    lines.push(`  ${s.metric}: ${s.value}${s.unit ? ' ' + s.unit : ''}${periodStr} (${s.signal_type})${stmt}`);
+    const periodType = s.period_type ? ` period_type=${s.period_type}` : '';
+    const dates = [s.start_date && `start=${s.start_date}`, s.end_date && `end=${s.end_date}`].filter(Boolean).join(' ');
+    const datesStr = dates ? ` (${dates})` : '';
+    const impact = s.impact ? ` impact=${s.impact}` : '';
+    const stmt = s.statement ? ` — "${s.statement.slice(0, 80)}${s.statement.length > 80 ? '…' : ''}"` : '';
+    lines.push(`  [id=${s.id}] ${s.metric}: ${s.value}${s.unit ? ' ' + s.unit : ''}${periodStr}${datesStr} (${s.signal_type}${periodType}${impact})${stmt}`);
   }
 
   if (rest.length > 0) {
@@ -102,12 +125,24 @@ async function composeLens(callId, lensSlug) {
   const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
           model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate } = lensConfig.config;
 
-  const signals = await querySignals({ callId, ...filters });
+  const { include_historical, ...signalFilters } = filters ?? {};
+
+  const currentSignals = await querySignals({ callId, ...signalFilters });
+
+  let signals = currentSignals;
+  if (include_historical && currentSignals.length > 0) {
+    const ticker = currentSignals[0].ticker;
+    const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...signalFilters });
+    if (historicalSignals.length > 0) {
+      console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
+      signals = [...currentSignals, ...historicalSignals];
+    }
+  }
 
   if (signals.length === 0) {
     const empty = {
       score: null, status: 'WEAK', takeaway: 'No signals available for this lens.',
-      key_metrics: {}, highlights: [], risks: [],
+      key_metrics: {}, highlights: [], risks: [], top_signals: [],
       z_score: 0, confidence_lo: 0, confidence_hi: 0, signal_count: 0, signals_snapshot: [],
     };
     await prisma.lensScore.upsert({
@@ -152,9 +187,11 @@ async function composeLens(callId, lensSlug) {
   const existing = await prisma.lensScore.findUnique({
     where: { call_id_lens_slug: { call_id: callId, lens_slug: lensSlug } },
   });
-  if (existing && existing.signals_hash === signalsHash && !existing.is_stale && existing.lens_data) {
+  const cachedLensData = existing?.lens_data;
+  const hasCachedTopSignals = Array.isArray(cachedLensData?.top_signals);
+  if (existing && existing.signals_hash === signalsHash && !existing.is_stale && cachedLensData && hasCachedTopSignals) {
     console.log(`[lensComposer] Cache hit for ${lensSlug}/${callId} — signals_hash match, skipping L2 LLM`);
-    return { ...existing.lens_data, z_score: existing.z_score, signals_snapshot: existing.signals_snapshot };
+    return { ...cachedLensData, z_score: existing.z_score, signals_snapshot: existing.signals_snapshot };
   }
 
   // ── Build compact signal summary → L2 LLM call ───────────────────────────
@@ -165,7 +202,7 @@ async function composeLens(callId, lensSlug) {
     .replace('{{DATA_BLOCK}}', signalSummary);
 
   const model     = cfgModel     ?? 'anthropic/claude-haiku-4.5';
-  const maxTokens = cfgMaxTokens ?? 800;
+  const maxTokens = cfgMaxTokens ?? 8000;
 
   console.log(`[lensComposer] Calling L2 LLM for lens "${lensSlug}" (${signals.length} signals, prompt: ${prompt.length} chars)`);
   const responseText = await llmStream({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
@@ -175,7 +212,7 @@ async function composeLens(callId, lensSlug) {
     lensResult = parseJson(responseText);
   } catch (e) {
     console.error(`[lensComposer] Failed to parse L2 LLM response for "${lensSlug}":`, e.message);
-    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [] };
+    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [] };
   }
 
   // Normalize the score from 0-100 to a z_score; prefer math z_score if LLM score absent
@@ -295,6 +332,7 @@ async function getLensesByCategory(callId, category) {
       key_metrics:  ld.key_metrics  ?? {},
       highlights:   ld.highlights   ?? [],
       risks:        ld.risks        ?? [],
+      top_signals:  ld.top_signals  ?? [],
       z_score:      ls?.z_score     ?? null,
       signal_count: ls?.signal_count ?? 0,
       computed_at:  ls?.computed_at  ?? null,

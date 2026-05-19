@@ -49,6 +49,7 @@ async function cacheHit(callId, sourceHash, promptV, signalTypes) {
  * @param {object} filters
  * @param {string}   [filters.callId]
  * @param {string}   [filters.ticker]
+ * @param {string}   [filters.excludeCallId]         Exclude a specific call_id (used for historical queries)
  * @param {string|string[]} [filters.signal_types]  Array of signal_type values (preferred)
  * @param {string[]} [filters.signalTypes]           Alias for signal_types (backward compat)
  * @param {string|string[]} [filters.metric_family]  Single value or array (preferred)
@@ -63,6 +64,7 @@ async function querySignals(filters = {}) {
 
   if (filters.callId) where.call_id = filters.callId;
   if (filters.ticker) where.ticker  = filters.ticker;
+  if (filters.excludeCallId) where.call_id = { not: filters.excludeCallId };
   if (filters.promptV) where.prompt_v = filters.promptV;
 
   // signal_type filter — accept signal_types array (new) or signalTypes (old)
