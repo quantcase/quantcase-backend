@@ -95,6 +95,12 @@ function normalizeSignal(raw, base) {
   if (merged.impact   && !IMPACT.includes(merged.impact))     merged.impact   = null;
   if (merged.severity && !SEVERITY.includes(merged.severity)) merged.severity = null;
 
+  // Ensure multiplier is a finite number (LLM may send 1e12 which overflows INT4)
+  if (merged.multiplier !== null && merged.multiplier !== undefined) {
+    const m = parseFloat(merged.multiplier);
+    merged.multiplier = isNaN(m) ? 1 : m;
+  }
+
   // Ensure value is a number or null
   if (merged.value !== null && merged.value !== undefined) {
     const v = parseFloat(merged.value);

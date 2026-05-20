@@ -52,7 +52,8 @@ async function main() {
     orderBy: { _count: { company: 'desc' } },
   });
 
-  const companies = rows.map((r) => r.company).slice(0, 3); // TODO: remove slice to run on all companies
+  const companies = rows.map((r) => r.company);
+  // const companies = rows.map((r) => r.company).slice(0, 3); // TODO: remove slice to run on all companies
   console.log(`\nFound ${companies.length} unique companies.\n`);
 
   for (const symbol of companies) {

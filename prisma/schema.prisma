@@ -935,7 +935,7 @@ model ExtractedSignal {
   value           Float?          // numeric value (null for qualitative-only)
   raw_value       String?         // original text / stringified number from LLM
   unit            String?
-  multiplier      Int             @default(1)
+  multiplier      Float           @default(1)
   w               Float           @default(1.0)
   b               Float           @default(0.0)
   confidence      Float?          // 0.0–1.0
