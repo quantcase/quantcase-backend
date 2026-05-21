@@ -10,7 +10,8 @@ const jobsRouter          = require('./jobs.routes');
 const adminRouter         = require('./admin.routes');
 const wealthosRouter      = require('./wealthos.routes');
 const screenerRouter      = require('./screener.routes');
-const basketsRouter       = require('./baskets.routes');
+const basketsRouter              = require('./baskets.routes');
+const industryBasketsRouter      = require('./industryBaskets.routes');
 const watchlistRouter     = require('./watchlist.routes');
 const modelsRouter        = require('./models.routes');
 const privateEquityRouter = require('./privateEquity.routes');
@@ -35,6 +36,9 @@ router.use('/api/screener', screenerRouter);
 
 // Baskets (stock screen) routes
 router.use('/api/baskets', basketsRouter);
+
+// Industry baskets routes
+router.use('/api/industry-baskets', industryBasketsRouter);
 
 // Watchlist routes
 router.use('/api/watchlists', watchlistRouter);
