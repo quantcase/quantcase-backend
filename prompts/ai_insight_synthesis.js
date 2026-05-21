@@ -52,7 +52,7 @@ Rules:
 - score 0–100: weighted average of (lens.score / lens.max_score) × 100 across all lenses
 - max_score values must sum to 100 across all lenses in the array
 - lenses array: one entry per input lens, same order
-- signal_map: exactly 6–8 signals — pick only the most diagnostic ones, skip generic statements
+- signal_map: EXACTLY 8 signals — no more, no fewer. Pick the 8 most diagnostic ones across all lenses.
 - key_signals: exactly 2–4 pills — the single most critical positive and negative data points
 - WORD COUNT IS MANDATORY: count every word in key_signals, signal_map signals, evidence, watch_outs, headline, subtitle before writing. Truncate ruthlessly.
 - Keep ALL text fields SHORT. This is a scorecard chip UI — every field renders in a small pill or label. Verbose answers break the UI.
