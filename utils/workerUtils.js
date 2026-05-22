@@ -35,12 +35,19 @@ async function llmStream(params) {
     throw err;
   }
   let text = '';
+  let finishReason;
   try {
-    for await (const chunk of stream) text += chunk.choices[0]?.delta?.content ?? '';
+    for await (const chunk of stream) {
+      text += chunk.choices[0]?.delta?.content ?? '';
+      if (chunk.choices[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
+    }
   } catch (err) {
     const body = err?.error ?? err?.response?.data ?? err?.message;
     console.error('[llmStream] stream error:', JSON.stringify(body, null, 2));
     throw err;
+  }
+  if (finishReason === 'length') {
+    throw new Error(`[llmStream] Response truncated at token limit (finish_reason=length, ${text.length} chars). Increase maxTokens or reduce input.`);
   }
   return text;
 }
