@@ -7,7 +7,7 @@ const sep  = base?.includes('?') ? '&' : '?';
 const prisma = global._prisma ?? new PrismaClient({
   datasources: {
     db: {
-      url: base + sep + 'connection_limit=4&pool_timeout=10&idle_timeout=10&pgbouncer=true'
+      url: base + sep + 'connection_limit=20&pool_timeout=10&idle_timeout=10&pgbouncer=true'
     }
   }
 });

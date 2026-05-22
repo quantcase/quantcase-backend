@@ -23,10 +23,21 @@ async function addSummarizationJob(callId) {
 
   const hasTranscript = call.transcript_text && call.transcript_text.trim().length > 0;
   const hasPPT        = call.ppt_text && call.ppt_text.trim().length > 0;
+
   if (!hasTranscript && !hasPPT) {
-    const err = new Error('No transcript or PPT text available for this call');
-    err.status = 400;
-    throw err;
+    const hasTranscriptUrl = call.transcript_url && call.transcript_url.trim().length > 0;
+    const hasPptUrl        = call.ppt_url && call.ppt_url.trim().length > 0;
+    if (!hasTranscriptUrl && !hasPptUrl) {
+      const err = new Error('No transcript or PPT text available for this call');
+      err.status = 400;
+      throw err;
+    }
+    return jobQueue.addJob('summarization', {
+      callId,
+      transcriptUrl: hasTranscriptUrl ? call.transcript_url : null,
+      pptUrl:        hasPptUrl        ? call.ppt_url        : null,
+      type:          'summarization',
+    });
   }
 
   return jobQueue.addJob('summarization', {

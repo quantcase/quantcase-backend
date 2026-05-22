@@ -40,19 +40,34 @@ async function getCallMeta(callId) {
 
 // ─── Processor ───────────────────────────────────────────────────────────────
 
+async function downloadAsBase64(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to download PDF (${res.status}): ${url}`);
+  const buf = await res.arrayBuffer();
+  return Buffer.from(buf).toString('base64');
+}
+
+function buildBase64FileContent(base64Data) {
+  return { type: 'file', file: { file_data: `data:application/pdf;base64,${base64Data}` } };
+}
+
 async function processSummarizationJob(job) {
-  const { callId, transcriptText, pptText } = job.data;
+  const { callId, transcriptText, pptText, transcriptUrl, pptUrl } = job.data;
   console.log(`[summarization] Processing job ${job.id} (callId: ${callId})`);
 
-  const combinedText = [transcriptText || '', pptText || '']
+  const usingUrls = !transcriptText && !pptText && (transcriptUrl || pptUrl);
+
+  const combinedText = usingUrls ? '' : [transcriptText || '', pptText || '']
     .filter(t => t.trim().length > 0)
     .join('\n\n');
 
-  if (!combinedText.trim()) throw new Error(`No transcript or PPT text for call ${callId}`);
+  if (!usingUrls && !combinedText.trim()) throw new Error(`No transcript or PPT text for call ${callId}`);
   await job.updateProgress(10);
 
   // L1 cache check
-  const sourceHash = computeSourceHash(transcriptText || '', pptText || '');
+  const sourceHash = usingUrls
+    ? computeSourceHash(transcriptUrl || '', pptUrl || '')
+    : computeSourceHash(transcriptText || '', pptText || '');
   const skillConfig = await loadSkillConfig('summarization');
   const promptV     = computePromptVersion('summarization', skillConfig.updatedAt);
   const signalTypes = ['kpi', 'governance', 'entity', 'milestone', 'industry', 'customer', 'financial_health', 'tone'];
@@ -71,14 +86,27 @@ async function processSummarizationJob(job) {
   console.log(`[summarization] ${existingKpis.length} KPIs loaded, industry: ${callMeta.basic_industry}`);
   await job.updateProgress(25);
 
-  const truncatedText = combinedText.substring(0, TRANSCRIPT_CHAR_LIMIT);
   const { model, maxTokens, outputSchema, promptTemplate } = skillConfig;
-  const prompt = transcriptExtractorPrompt(truncatedText, existingKpis, callMeta.call_date, FISCAL_YEAR_END, promptTemplate);
-  console.log(`[summarization] Prompt length: ${prompt.length} chars`);
+
+  let userMessageContent;
+  if (usingUrls) {
+    console.log(`[summarization] Downloading PDFs for base64 encoding...`);
+    const fileParts = [];
+    if (transcriptUrl) fileParts.push(buildBase64FileContent(await downloadAsBase64(transcriptUrl)));
+    if (pptUrl)        fileParts.push(buildBase64FileContent(await downloadAsBase64(pptUrl)));
+    const prompt = transcriptExtractorPrompt('', existingKpis, callMeta.call_date, FISCAL_YEAR_END, promptTemplate);
+    userMessageContent = [{ type: 'text', text: prompt }, ...fileParts];
+    console.log(`[summarization] PDF mode: ${fileParts.length} PDF(s) attached as base64`);
+  } else {
+    const truncatedText = combinedText.substring(0, TRANSCRIPT_CHAR_LIMIT);
+    const prompt = transcriptExtractorPrompt(truncatedText, existingKpis, callMeta.call_date, FISCAL_YEAR_END, promptTemplate);
+    userMessageContent = prompt;
+    console.log(`[summarization] Text mode: prompt length ${prompt.length} chars`);
+  }
   await job.updateProgress(40);
 
   console.log('[summarization] Calling LLM...');
-  const llmParams = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] };
+  const llmParams = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: userMessageContent }] };
   if (outputSchema) llmParams.response_format = outputSchema;
   const responseText = await llmStream(llmParams);
   await job.updateProgress(70);

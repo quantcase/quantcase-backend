@@ -19,15 +19,14 @@ function parseJson(responseText) {
 }
 
 /**
- * Stream an LLM request through OpenRouter, routing exclusively to Anthropic native.
- * Avoids Bedrock which has different limitations (e.g. no PDF support).
+ * Stream an LLM request through OpenRouter.
  */
 async function llmStream(params) {
   let stream;
   try {
     stream = await openRouter.chat.completions.create({
       ...params,
-      stream:   true,
+      stream: true,
     });
   } catch (err) {
     const body = err?.error ?? err?.response?.data ?? err?.message;
