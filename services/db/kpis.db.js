@@ -4,6 +4,20 @@
 const prisma = require('../../config/prisma');
 
 /**
+ * Strip any LLM-injected "new_kpis" prefix variants from an abbr and uppercase it.
+ * The LLM sometimes echoes the output-array key ("new_kpis") back into the abbr string,
+ * producing cascading garbage like "new_kpis:new_kpis:CAPEX" or "new_kpis/CAPEX".
+ * We normalize before any DB lookup so these are deduplicated against clean existing rows.
+ */
+function normalizeAbbr(abbr) {
+  if (typeof abbr !== 'string') return abbr;
+  let a = abbr.trim();
+  const prefix = /^new_kpis[:/_.\-]/i;
+  while (prefix.test(a)) a = a.replace(prefix, '').trim();
+  return a.toUpperCase();
+}
+
+/**
  * Collects all KPI abbrs that were referenced in the LLM output
  * (excluding new_kpis — those are handled separately).
  */
@@ -73,9 +87,10 @@ async function upsertNewKpis(result, industry, source = 'transcript') {
   // ── Step 2: Validate new KPIs ─────────────────────────────────────────────
   const validated = [];
   for (const kpi of newKpis) {
-    const error = validateKpi(kpi);
-    if (error) out.failed.push({ abbr: kpi.abbr ?? 'UNKNOWN', error });
-    else        validated.push(kpi);
+    const cleanAbbr = normalizeAbbr(kpi.abbr);
+    const error = validateKpi({ ...kpi, abbr: cleanAbbr });
+    if (error) out.failed.push({ abbr: cleanAbbr ?? 'UNKNOWN', error });
+    else        validated.push({ ...kpi, abbr: cleanAbbr });
   }
 
   const industryArr = industry ? [industry] : [];
@@ -95,12 +110,12 @@ async function upsertNewKpis(result, industry, source = 'transcript') {
 
       await prisma.kpi.create({
         data: {
-          abbr:        kpi.abbr,
-          full_form:   kpi.full_form,
-          kpi_type:    kpi.kpi_type,
+          abbr:         kpi.abbr,
+          full_form:    kpi.full_form,
+          kpi_type:     kpi.kpi_type,
           denomination: kpi.denomination,
           source,
-          industry:    industryArr
+          industry:     industryArr
         }
       });
       out.inserted.push(kpi.abbr);

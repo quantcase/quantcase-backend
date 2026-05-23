@@ -21,14 +21,16 @@ async function getExistingKpisForPrompt(basicIndustry) {
     ? { source: 'transcript', industry: { has: basicIndustry } }
     : { source: 'transcript' };
   const transcriptKpis = await prisma.kpi.findMany({ where: transcriptWhere });
-  return [...qeKpis, ...transcriptKpis].map(k => ({
-    id:          k.id,
-    abbr:        k.abbr,
-    full_form:   k.full_form,
-    kpi_type:    k.kpi_type    ?? undefined,
-    denomination: k.denomination ?? undefined,
-    source:      k.source,
-  }));
+  return [...qeKpis, ...transcriptKpis]
+    .filter(k => !/^new_kpis/i.test(k.abbr))  // exclude legacy dirty abbrs from LLM context
+    .map(k => ({
+      id:           k.id,
+      abbr:         k.abbr,
+      full_form:    k.full_form,
+      kpi_type:     k.kpi_type    ?? undefined,
+      denomination: k.denomination ?? undefined,
+      source:       k.source,
+    }));
 }
 
 async function getCallMeta(callId) {
