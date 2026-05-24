@@ -265,13 +265,15 @@ class ProwessUploader {
    * @param {string} opts.csvPath        - Absolute path to the CSV file
    * @param {boolean} opts.doInsert      - Write to DB if true; verify-only if false
    * @param {boolean} opts.doClear       - Delete existing rows before insert
-   * @param {string} [opts.constraintName] - UNIQUE constraint name (defaults to <table>_call_kpi_unique)
+   * @param {string}  [opts.constraintName] - UNIQUE constraint name (defaults to <table>_call_kpi_unique)
+   * @param {number}  [opts.rowLimit]        - Cap data rows processed (for smoke-testing)
    */
-  constructor({ table, csvPath, doInsert, doClear, constraintName }) {
+  constructor({ table, csvPath, doInsert, doClear, constraintName, rowLimit }) {
     this.table          = table;
     this.csvPath        = csvPath;
     this.doInsert       = doInsert;
     this.doClear        = doClear;
+    this.rowLimit       = rowLimit ?? Infinity;
     this._constraint    = constraintName ?? `${table}_call_kpi_unique`;
     this._idxPrefix     = this._constraint.replace('_call_kpi_unique', '');
     this.prisma         = new PrismaClient();
@@ -362,26 +364,32 @@ class ProwessUploader {
 
   async ensureTable() {
     const { table, _constraint, _idxPrefix: p } = this;
-    await this.prisma.$executeRawUnsafe(
-      `CREATE TABLE IF NOT EXISTS ${table} (LIKE kpi_values INCLUDING DEFAULTS)`
+
+    // Skip all DDL if table is already present — avoids timeout on large live tables.
+    const existing = await this.prisma.$queryRawUnsafe(
+      `SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = '${table}'`
     );
-    await this.prisma.$executeRawUnsafe(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = '${_constraint}') THEN
-          ALTER TABLE ${table} ADD CONSTRAINT ${_constraint} UNIQUE (call_id, kpi_abbr);
-        END IF;
-      END $$
-    `);
+    if (existing.length > 0) {
+      console.log(`  (${table} already exists — skipping DDL)`);
+      return;
+    }
+
+    // First-time setup only
     await this.prisma.$executeRawUnsafe(
-      `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS source_type VARCHAR(1) NOT NULL DEFAULT 'C'`
+      `CREATE TABLE ${table} (LIKE kpi_values INCLUDING DEFAULTS)`
     );
-    await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_${p}_call_id         ON ${table} (call_id)`);
-    await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_${p}_company_fy_q    ON ${table} (company, fiscal_year, quarter)`);
-    await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_${p}_company_kpi     ON ${table} (company, kpi_abbr)`);
-    await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_${p}_kpi             ON ${table} (kpi_abbr)`);
-    await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_${p}_kpi_period      ON ${table} (kpi_abbr, period_type)`);
-    await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_${p}_company_srctype ON ${table} (company, source_type)`);
+    await this.prisma.$executeRawUnsafe(
+      `ALTER TABLE ${table} ADD CONSTRAINT ${_constraint} UNIQUE (call_id, kpi_abbr)`
+    );
+    await this.prisma.$executeRawUnsafe(
+      `ALTER TABLE ${table} ADD COLUMN source_type VARCHAR(1) NOT NULL DEFAULT 'C'`
+    );
+    await this.prisma.$executeRawUnsafe(`CREATE INDEX idx_${p}_call_id         ON ${table} (call_id)`);
+    await this.prisma.$executeRawUnsafe(`CREATE INDEX idx_${p}_company_fy_q    ON ${table} (company, fiscal_year, quarter)`);
+    await this.prisma.$executeRawUnsafe(`CREATE INDEX idx_${p}_company_kpi     ON ${table} (company, kpi_abbr)`);
+    await this.prisma.$executeRawUnsafe(`CREATE INDEX idx_${p}_kpi             ON ${table} (kpi_abbr)`);
+    await this.prisma.$executeRawUnsafe(`CREATE INDEX idx_${p}_kpi_period      ON ${table} (kpi_abbr, period_type)`);
+    await this.prisma.$executeRawUnsafe(`CREATE INDEX idx_${p}_company_srctype ON ${table} (company, source_type)`);
   }
 
   // ─── Annual mode ──────────────────────────────────────────────────────────────
@@ -495,9 +503,9 @@ class ProwessUploader {
     const unitRow    = records[3];
     const yearRow    = records[4];
     const headers    = records[5];
-    const dataRows   = records.slice(6).filter(r => (r[0] || '').trim());
+    const dataRows   = records.slice(6).filter(r => (r[0] || '').trim()).slice(0, this.rowLimit);
 
-    console.log(`  Companies : ${dataRows.length}`);
+    console.log(`  Companies : ${dataRows.length}${this.rowLimit < Infinity ? ` (limited to ${this.rowLimit})` : ''}`);
     console.log(`  Columns   : ${headers.length}`);
 
     // 2. Build per-section column maps
@@ -668,9 +676,9 @@ class ProwessUploader {
     const unitRow  = records[3];
     const yearRow  = records[4];
     const headers  = records[5];
-    const dataRows = records.slice(6).filter(r => (r[0] || '').trim());
+    const dataRows = records.slice(6).filter(r => (r[0] || '').trim()).slice(0, this.rowLimit);
 
-    console.log(`  Companies : ${dataRows.length}`);
+    console.log(`  Companies : ${dataRows.length}${this.rowLimit < Infinity ? ` (limited to ${this.rowLimit})` : ''}`);
     console.log(`  Columns   : ${headers.length}`);
 
     const sectionLabel = (records[2][1] || '').trim();
