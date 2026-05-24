@@ -52,8 +52,12 @@ async function main() {
   // ROW_NUMBER() partitions by company and orders by fiscal_year desc, quarter desc so
   // we keep the most recent calls. The NOT EXISTS subquery replaces the two-step
   // "fetch covered IDs then filter in JS" approach.
+  // Companies that have zero valid signals anywhere (not just on this specific call)
   const rows = await prisma.$queryRaw`
-    WITH ranked AS (
+    WITH companies_with_signals AS (
+      SELECT DISTINCT company FROM extracted_signals WHERE is_invalidated = false
+    ),
+    ranked AS (
       SELECT
         ec.id,
         ec.company,
@@ -70,11 +74,7 @@ async function main() {
         COALESCE(ec.transcript_text, '') = ''
         AND COALESCE(ec.ppt_text, '')     = ''
         AND (ec.transcript_url IS NOT NULL OR ec.ppt_url IS NOT NULL)
-        AND NOT EXISTS (
-          SELECT 1 FROM extracted_signals es
-          WHERE es.call_id = ec.id
-            AND es.is_invalidated = false
-        )
+        AND ec.company NOT IN (SELECT company FROM companies_with_signals)
     )
     SELECT id, company, company_name, fiscal_year, quarter, basic_industry
     FROM ranked
