@@ -115,6 +115,28 @@ function buildSignalSummary(lensName, signals, mathResult) {
   return lines.join('\n');
 }
 
+// ─── Source priority deduplication ───────────────────────────────────────────
+// When the same metric/period appears from multiple sources, keep the most
+// authoritative one. prowess = audited financials > qe = interim PDF > transcript = LLM extract.
+
+const SOURCE_PRIORITY = { prowess: 0, qe: 1, transcript: 2 };
+
+function deduplicateSignals(signals) {
+  const best = new Map();
+  for (const sig of signals) {
+    const key = `${sig.metric}|${sig.fiscal_year ?? ''}|${sig.quarter ?? ''}|${sig.start_date ?? ''}|${sig.end_date ?? ''}`;
+    const existing = best.get(key);
+    if (!existing) {
+      best.set(key, sig);
+    } else {
+      const existingPrio = SOURCE_PRIORITY[existing.source_type] ?? 99;
+      const sigPrio      = SOURCE_PRIORITY[sig.source_type]      ?? 99;
+      if (sigPrio < existingPrio) best.set(key, sig);
+    }
+  }
+  return [...best.values()];
+}
+
 // ─── composeLens ─────────────────────────────────────────────────────────────
 
 async function composeLens(callId, lensSlug) {
@@ -138,6 +160,12 @@ async function composeLens(callId, lensSlug) {
       signals = [...currentSignals, ...historicalSignals];
     }
   }
+
+  const deduped = deduplicateSignals(signals);
+  if (deduped.length < signals.length) {
+    console.log(`[lensComposer] "${lensSlug}" — dropped ${signals.length - deduped.length} duplicate signals (prowess > qe > transcript)`);
+  }
+  signals = deduped;
 
   if (signals.length === 0) {
     const empty = {

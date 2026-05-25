@@ -103,14 +103,16 @@ model kv_store_abda8bef {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model nse_equity {
-  id       Int       @id(map: "nse_daily_data_pkey") @default(autoincrement())
-  symbol   String?
-  datetime DateTime? @db.Timestamp(6)
-  open     Float?
-  high     Float?
-  low      Float?
-  close    Float?
-  volume   BigInt?
+  id           Int       @id(map: "nse_daily_data_pkey") @default(autoincrement())
+  symbol       String?
+  datetime     DateTime? @db.Timestamp(6)
+  open         Float?
+  high         Float?
+  low          Float?
+  close        Float?
+  volume       BigInt?
+  pe           Float?
+  market_cap_cr Float?
 
   @@unique([symbol, datetime], map: "unique_symbol_datetime")
 }
@@ -208,25 +210,6 @@ model Kpi {
   @@map("kpis")
 }
 
-model market_cap {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  date          DateTime? @db.Date
-  symbol        String?
-  market_cap_cr Float?    @map("market_cap(Cr)")
-  created_at    DateTime  @default(now()) @db.Timestamptz(6)
-  market_cap    BigInt?
-}
-
-model pe_data {
-  id         BigInt    @id @default(autoincrement())
-  company    String
-  date       DateTime  @db.Date
-  pe         Decimal?  @db.Decimal
-  created_at DateTime? @default(now()) @db.Timestamp(6)
-
-  @@unique([company, date])
-  @@index([company])
-}
 
 model SubstituteKpi {
   id             String   @id @default(uuid())
