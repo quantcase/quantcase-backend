@@ -80,33 +80,53 @@ function computeConfidenceInterval(signals, effectiveWeights) {
 // Produces a compact ~20-50 line text block from signals for the L2 LLM prompt.
 // Pure math — no LLM.
 
-function buildSignalSummary(lensName, signals, mathResult) {
+// balance: optional object from LensConfig.config.balance, e.g. { milestone: 8, governance: 3, default: 3 }
+// Within each signal_type group, signals with end_date are shown first (most trackable).
+function buildSignalSummary(lensName, signals, mathResult, balance) {
   const lines = [
     `LENS: ${lensName}`,
     `SIGNAL SUMMARY (${signals.length} signals, weighted aggregate z=${mathResult.z_score.toFixed(4)}):`,
     '',
   ];
 
-  // Show up to 10 signals with full context for top_signals selection; summarize the rest
-  const withValue = signals.filter(s => s.value != null);
-  const shown = withValue.slice(0, 10);
-  const rest  = withValue.slice(10);
-
-  for (const s of shown) {
-    const period = [s.fiscal_year, s.quarter].filter(Boolean).join(' ');
-    const periodStr = period ? ` [${period}]` : '';
-    const periodType = s.period_type ? ` period_type=${s.period_type}` : '';
-    const dates = [s.start_date && `start=${s.start_date}`, s.end_date && `end=${s.end_date}`].filter(Boolean).join(' ');
-    const datesStr = dates ? ` (${dates})` : '';
-    const impact = s.impact ? ` impact=${s.impact}` : '';
-    const stmt = s.statement ? ` — "${s.statement.slice(0, 80)}${s.statement.length > 80 ? '…' : ''}"` : '';
-    lines.push(`  [id=${s.id}] ${s.metric}: ${s.value}${s.unit ? ' ' + s.unit : ''}${periodStr}${datesStr} (${s.signal_type}${periodType}${impact})${stmt}`);
+  const groups = new Map();
+  for (const s of signals) {
+    const t = s.signal_type ?? 'other';
+    if (!groups.has(t)) groups.set(t, []);
+    groups.get(t).push(s);
   }
 
-  if (rest.length > 0) {
-    const vals = rest.map(s => s.value).filter(v => v != null);
-    const avg  = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : 'N/A';
-    lines.push(`  ... ${rest.length} more signals: avg=${avg}`);
+  const formatLine = s => {
+    const period     = [s.fiscal_year, s.quarter].filter(Boolean).join(' ');
+    const periodStr  = period ? ` [${period}]` : '';
+    const periodType = s.period_type ? ` period_type=${s.period_type}` : '';
+    const dates      = [s.start_date && `start=${s.start_date}`, s.end_date && `end=${s.end_date}`].filter(Boolean).join(' ');
+    const datesStr   = dates ? ` (${dates})` : '';
+    const impact     = s.impact ? ` impact=${s.impact}` : '';
+    const stmt       = s.statement ? ` — "${s.statement.slice(0, 80)}${s.statement.length > 80 ? '…' : ''}"` : '';
+    return `  [id=${s.id}] ${s.metric}: ${s.value}${s.unit ? ' ' + s.unit : ''}${periodStr}${datesStr} (${s.signal_type}${periodType}${impact})${stmt}`;
+  };
+
+  for (const [type, groupSignals] of groups) {
+    const cap = balance?.[type] ?? balance?.default ?? 10;
+
+    // Within each group: keep only signals with a value; float end_date-bearing ones to the top
+    const withValue = groupSignals
+      .filter(s => s.value != null)
+      .sort((a, b) => (a.end_date != null ? 0 : 1) - (b.end_date != null ? 0 : 1));
+
+    const shown = withValue.slice(0, cap);
+    const rest  = withValue.slice(cap);
+
+    if (shown.length > 0) {
+      lines.push(`  --- ${type.toUpperCase()} signals (${groupSignals.length} total, showing ${shown.length}) ---`);
+      for (const s of shown) lines.push(formatLine(s));
+    }
+
+    if (rest.length > 0) {
+      const avg = (rest.reduce((a, s) => a + s.value, 0) / rest.length).toFixed(2);
+      lines.push(`  ... ${rest.length} more ${type} signals: avg=${avg}`);
+    }
   }
 
   lines.push('');
@@ -145,7 +165,8 @@ async function composeLens(callId, lensSlug) {
   if (!lensConfig.is_active) throw new Error(`LensConfig "${lensSlug}" is inactive`);
 
   const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
-          model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate } = lensConfig.config;
+          model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
+          balance: cfgBalance } = lensConfig.config;
 
   const { include_historical, ...signalFilters } = filters ?? {};
 
@@ -223,7 +244,7 @@ async function composeLens(callId, lensSlug) {
   }
 
   // ── Build compact signal summary → L2 LLM call ───────────────────────────
-  const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult);
+  const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance);
   const promptTemplate = cfgPromptTemplate || L2_DEFAULT_PROMPT;
   const prompt = promptTemplate
     .replace('{{LENS_NAME}}', lensConfig.name)
