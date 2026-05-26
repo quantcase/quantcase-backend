@@ -7,12 +7,13 @@ const { llmStream, parseJson } = require('../utils/workerUtils');
 const { computeSourceHash } = require('../utils/sourceHash');
 
 // ─── L2 default prompt template ─────────────────────────────────────────────
-// Overridable per lens via LensConfig.config.prompt_template
+// {{LENS_INSTRUCTIONS}} is injected from LensConfig.config.prompt_template (per-lens guidelines).
+// Leave prompt_template null to omit the section entirely.
 
 const L2_DEFAULT_PROMPT = `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management analysis using a rigorous L1 extraction pipeline.
 
 Your task is to synthesise this compact signal summary into a structured analytical view. Do NOT invent data — work only from the signals provided.
-
+{{LENS_INSTRUCTIONS}}
 {{DATA_BLOCK}}
 
 Return a JSON object with this exact structure:
@@ -224,9 +225,12 @@ async function composeLens(callId, lensSlug) {
 
   // ── Build compact signal summary → L2 LLM call ───────────────────────────
   const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult);
-  const promptTemplate = cfgPromptTemplate || L2_DEFAULT_PROMPT;
-  const prompt = promptTemplate
+  const lensInstructions = cfgPromptTemplate
+    ? `\n\nLENS-SPECIFIC GUIDELINES:\n${cfgPromptTemplate}\n`
+    : '';
+  const prompt = L2_DEFAULT_PROMPT
     .replace('{{LENS_NAME}}', lensConfig.name)
+    .replace('{{LENS_INSTRUCTIONS}}', lensInstructions)
     .replace('{{DATA_BLOCK}}', signalSummary);
 
   const model     = cfgModel     ?? 'anthropic/claude-haiku-4.5';
