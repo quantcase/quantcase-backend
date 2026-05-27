@@ -11,6 +11,7 @@ require('./workers/technicals');
 require('./workers/aiInsightSynthesis');
 require('./workers/overviewSynthesis');
 require('./workers/prowess');
+require('./workers/lensComputation');
 
 console.log('All workers started');
 

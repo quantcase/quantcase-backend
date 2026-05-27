@@ -9,6 +9,7 @@ const {
   getLensesByCategory,
   markLensStaleBySlug,
 } = require('../services/lensComposer');
+const { addLensComputationJob } = require('../services/jobs.service');
 
 const router = Router();
 
@@ -69,23 +70,24 @@ router.get('/scores', async (req, res, next) => {
   }
 });
 
-// POST /api/lenses/compute — sync lens composition (pure math, no worker needed)
+// POST /api/lenses/compute — enqueue async lens computation jobs via BullMQ
 // Body: { callId, lenses?: string[] }  (alias: lensSlugs)
+// Returns jobIds; results are computed by the lens_computation worker.
 router.post('/compute', async (req, res, next) => {
   try {
     const { callId, lenses, lensSlugs } = req.body;
     if (!callId) return res.status(400).json({ error: 'callId is required' });
 
-    const slugs = lenses ?? lensSlugs;
-    let scores;
-    if (slugs && slugs.length > 0) {
-      const results = await Promise.all(slugs.map(slug => composeLens(callId, slug)));
-      scores = Object.fromEntries(slugs.map((slug, i) => [slug, results[i]]));
-    } else {
-      scores = await composeAllLenses(callId);
+    let slugs = lenses ?? lensSlugs;
+    if (!slugs || slugs.length === 0) {
+      const configs = await prisma.lensConfig.findMany({ where: { is_active: true }, select: { slug: true } });
+      slugs = configs.map(c => c.slug);
     }
 
-    res.json({ callId, scores });
+    const jobs = await Promise.all(slugs.map(slug => addLensComputationJob(callId, slug)));
+    const jobIds = jobs.map(j => j.id);
+
+    res.json({ success: true, callId, lenses: slugs, jobIds, count: jobIds.length });
   } catch (err) {
     next(err);
   }
