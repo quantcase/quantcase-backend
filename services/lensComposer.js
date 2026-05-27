@@ -5,6 +5,9 @@ const { querySignals } = require('./db/signals.db');
 const { sortLensesByConfig } = require('../lib/insightLenses');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { computeSourceHash } = require('../utils/sourceHash');
+const { fetchPeerMetrics, formatPeerMetricsBlock } = require('./peerMetrics');
+
+const PEER_LENS_SLUGS = new Set(['industry-analysis', 'competition']);
 
 // ─── L2 default prompt template ─────────────────────────────────────────────
 // {{LENS_INSTRUCTIONS}} is injected from LensConfig.config.prompt_template (per-lens guidelines).
@@ -255,10 +258,20 @@ async function composeLens(callId, lensSlug) {
   // ── Build compact signal summary → L2 LLM call ───────────────────────────
   const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance);
   const promptTemplate = cfgPromptTemplate || L2_DEFAULT_PROMPT;
+
+  const lensInstructions = cfgPromptTemplate ? '' : '';
+
+  // For industry-analysis and competition lenses, append peer KPI context block
+  let peerBlock = '';
+  if (PEER_LENS_SLUGS.has(lensSlug)) {
+    const pm = await fetchPeerMetrics(callId);
+    peerBlock = formatPeerMetricsBlock(pm);
+  }
+
   const prompt = promptTemplate
     .replace('{{LENS_NAME}}', lensConfig.name)
     .replace('{{LENS_INSTRUCTIONS}}', lensInstructions)
-    .replace('{{DATA_BLOCK}}', signalSummary);
+    .replace('{{DATA_BLOCK}}', signalSummary + peerBlock);
 
   const model     = cfgModel     ?? 'anthropic/claude-haiku-4.5';
   const maxTokens = cfgMaxTokens ?? 8000;
