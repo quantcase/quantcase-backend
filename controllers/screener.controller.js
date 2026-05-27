@@ -216,24 +216,22 @@ async function getTickerInfo(req, res, next) {
         FROM nse_equity
         WHERE symbol = ${sym} AND datetime >= ${oneYearAgo}
       `,
-      // Latest market cap
+      // Latest market cap from nse_equity
       prisma.$queryRaw`
-        SELECT "market_cap(Cr)" AS market_cap_cr, market_cap, date
-        FROM market_cap
-        WHERE symbol = ${sym}
-        ORDER BY date DESC
+        SELECT market_cap_cr, datetime AS date
+        FROM nse_equity
+        WHERE symbol = ${sym} AND market_cap_cr IS NOT NULL
+        ORDER BY datetime DESC
         LIMIT 1
       `,
-      // Latest P/E (pe_data keyed by company name)
-      companyName
-        ? prisma.$queryRaw`
-            SELECT pe, date
-            FROM pe_data
-            WHERE company = ${companyName}
-            ORDER BY date DESC
-            LIMIT 1
-          `
-        : Promise.resolve([]),
+      // Latest P/E from nse_equity (keyed by symbol)
+      prisma.$queryRaw`
+        SELECT pe, datetime AS date
+        FROM nse_equity
+        WHERE symbol = ${sym} AND pe IS NOT NULL
+        ORDER BY datetime DESC
+        LIMIT 1
+      `,
       // Annual KPI values — audited full-year figures for ratios, YoY, balance sheet
       companyName
         ? prisma.$queryRaw`
@@ -1019,10 +1017,13 @@ async function getCharts(req, res, next) {
         ORDER BY quarter_date ASC
       `,
 
-      // PE history (keyed by company name or symbol)
-      companyName
-        ? prisma.pe_data.findMany({ where: { company: companyName }, orderBy: { date: 'asc' } })
-        : prisma.pe_data.findMany({ where: { company: symbol },      orderBy: { date: 'asc' } }),
+      // PE history from nse_equity (keyed by symbol)
+      prisma.$queryRaw`
+        SELECT pe, datetime AS date
+        FROM nse_equity
+        WHERE symbol = ${symbol} AND pe IS NOT NULL
+        ORDER BY datetime ASC
+      `,
 
       // Quarterly prowess KPIs — standalone quarterly P&L + balance sheet for charts
       companyName
@@ -1374,32 +1375,31 @@ async function getPeers(req, res, next) {
       }
     }
 
-    // Market Cap: latest entry per symbol from market_cap table
+    // Market Cap: latest entry per symbol from nse_equity
     const mktCapMap = {};
     if (needMarketCap) {
       const latestMktCap = await prisma.$queryRaw`
-        SELECT DISTINCT ON (symbol) symbol, "market_cap(Cr)" AS market_cap_cr
-        FROM market_cap
-        WHERE symbol = ANY(${nseSymbols})
-        ORDER BY symbol, date DESC
+        SELECT DISTINCT ON (symbol) symbol, market_cap_cr
+        FROM nse_equity
+        WHERE symbol = ANY(${nseSymbols}) AND market_cap_cr IS NOT NULL
+        ORDER BY symbol, datetime DESC
       `;
       for (const row of latestMktCap) {
         if (row.market_cap_cr != null) mktCapMap[row.symbol.toUpperCase()] = parseFloat(row.market_cap_cr);
       }
     }
 
-    // PE: latest entry per company from pe_data table (keyed by company name)
+    // PE: latest entry per symbol from nse_equity
     const peDbMap = {};
     if (needPe) {
-      const companyNames = peerRows.map((r) => (r[ID_COL_NAME] || '').trim()).filter(Boolean);
       const latestPe = await prisma.$queryRaw`
-        SELECT DISTINCT ON (company) company, pe
-        FROM pe_data
-        WHERE company = ANY(${companyNames})
-        ORDER BY company, date DESC
+        SELECT DISTINCT ON (symbol) symbol, pe
+        FROM nse_equity
+        WHERE symbol = ANY(${nseSymbols}) AND pe IS NOT NULL
+        ORDER BY symbol, datetime DESC
       `;
       for (const row of latestPe) {
-        if (row.pe != null) peDbMap[row.company.trim()] = parseFloat(row.pe);
+        if (row.pe != null) peDbMap[row.symbol.toUpperCase()] = parseFloat(row.pe);
       }
     }
 
@@ -1428,7 +1428,7 @@ async function getPeers(req, res, next) {
       }
 
       // ── Prowess fundamentals (latest period) ──
-      let pe           = needPe ? r2(peDbMap[companyName] ?? null) : undefined;
+      let pe           = needPe ? r2(peDbMap[peerSymbol] ?? null) : undefined;
       let divYld       = null;
       let npQtr        = null;
       let salesQtr     = null;

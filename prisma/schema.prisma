@@ -783,6 +783,120 @@ model WatchlistAsset {
   @@map("watchlist_assets")
 }
 
+// ─── Auth: Users, Teams ────────────────────────────────────────────────────────
+
+enum AccountType {
+  manager
+  investor
+}
+
+model User {
+  id              String      @id @default(uuid())
+  email           String?     @unique
+  mobile          String?     @unique
+  password_hash   String?     @map("password_hash")
+  google_id       String?     @unique @map("google_id")
+  display_name    String?     @map("display_name")
+  display_picture String?     @map("display_picture")
+  account_type    AccountType @map("account_type")
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+
+  team_memberships  TeamMember[]
+  user_portfolios   UserPortfolio[]
+  shadow_portfolios ShadowPortfolio[]
+
+  @@index([email])
+  @@index([mobile])
+  @@index([google_id])
+  @@map("qc_users")
+}
+
+model Team {
+  id         String       @id @default(uuid())
+  name       String
+  created_at DateTime     @default(now())
+  updated_at DateTime     @updatedAt
+
+  members    TeamMember[]
+
+  @@map("qc_teams")
+}
+
+model TeamMember {
+  id         String   @id @default(uuid())
+  team_id    String
+  user_id    String
+  created_at DateTime @default(now())
+
+  team       Team     @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([team_id, user_id])
+  @@index([team_id])
+  @@index([user_id])
+  @@map("qc_team_members")
+}
+
+// ─── Portfolio & Shadow Portfolio ─────────────────────────────────────────────
+
+model UserPortfolio {
+  id         String    @id @default(uuid())
+  user_id    String    @unique @map("user_id")
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  user     User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  holdings Holding[]
+
+  @@map("qc_user_portfolios")
+}
+
+model ShadowPortfolio {
+  id         String    @id @default(uuid())
+  user_id    String    @unique @map("user_id")
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  user     User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  holdings Holding[]
+
+  @@map("qc_shadow_portfolios")
+}
+
+model Holding {
+  id                  String   @id @default(uuid())
+  ticker              String
+  amount_invested     Float    @map("amount_invested")
+  invested_at         DateTime @map("invested_at")
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  user_portfolio_id   String?  @map("user_portfolio_id")
+  shadow_portfolio_id String?  @map("shadow_portfolio_id")
+
+  user_portfolio   UserPortfolio?   @relation(fields: [user_portfolio_id], references: [id], onDelete: Cascade)
+  shadow_portfolio ShadowPortfolio? @relation(fields: [shadow_portfolio_id], references: [id], onDelete: Cascade)
+  notes            HoldingNote[]
+
+  @@index([user_portfolio_id])
+  @@index([shadow_portfolio_id])
+  @@index([ticker])
+  @@map("qc_holdings")
+}
+
+model HoldingNote {
+  id         String   @id @default(uuid())
+  holding_id String   @map("holding_id")
+  note_text  String   @map("note_text")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  holding    Holding  @relation(fields: [holding_id], references: [id], onDelete: Cascade)
+
+  @@index([holding_id])
+  @@map("qc_holding_notes")
+}
+
 // ─── Mutual Funds ─────────────────────────────────────────────────────────────
 
 model MutualFundScheme {
