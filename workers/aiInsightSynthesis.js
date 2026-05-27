@@ -127,8 +127,8 @@ async function processAiInsightSynthesisJob(job) {
 
 const worker = new Worker('ai_insight_synthesis', processAiInsightSynthesisJob, {
   connection,
-  concurrency: 3,
-  limiter: { max: 5, duration: 1000 },
+  concurrency: 25,
+  limiter: { max: 25, duration: 1000 },
 });
 
 worker.on('completed', job       => console.log(`[ai-insight-synthesis] Job ${job.id} completed`));

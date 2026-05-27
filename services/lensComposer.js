@@ -108,6 +108,8 @@ function buildSignalSummary(lensName, signals, mathResult, balance) {
     groups.get(t).push(s);
   }
 
+  const IMPACT_ORDER = { high: 0, medium: 1, low: 2 };
+
   const formatLine = s => {
     const period     = [s.fiscal_year, s.quarter].filter(Boolean).join(' ');
     const periodStr  = period ? ` [${period}]` : '';
@@ -115,20 +117,39 @@ function buildSignalSummary(lensName, signals, mathResult, balance) {
     const dates      = [s.start_date && `start=${s.start_date}`, s.end_date && `end=${s.end_date}`].filter(Boolean).join(' ');
     const datesStr   = dates ? ` (${dates})` : '';
     const impact     = s.impact ? ` impact=${s.impact}` : '';
-    const stmt       = s.statement ? ` — "${s.statement.slice(0, 80)}${s.statement.length > 80 ? '…' : ''}"` : '';
+    const stmt       = s.statement ? ` — "${s.statement}"` : '';
     return `  [id=${s.id}] ${s.metric}: ${s.value}${s.unit ? ' ' + s.unit : ''}${periodStr}${datesStr} (${s.signal_type}${periodType}${impact})${stmt}`;
   };
 
   for (const [type, groupSignals] of groups) {
-    const cap = balance?.[type] ?? balance?.default ?? 10;
+    const cap = balance?.[type] ?? balance?.default ?? 15;
 
-    // Within each group: keep only signals with a value; float end_date-bearing ones to the top
-    const withValue = groupSignals
-      .filter(s => s.value != null)
-      .sort((a, b) => (a.end_date != null ? 0 : 1) - (b.end_date != null ? 0 : 1));
+    // For milestone signals: include all (even null-value) so the LLM sees guidance text.
+    // Sort: concrete values (value != null) first, then null-value signals; within each group by impact.
+    // For other signal types: keep existing behaviour (value != null filter, sort by impact then end_date).
+    let sorted;
+    if (type === 'milestone') {
+      sorted = [...groupSignals].sort((a, b) => {
+        const aHasVal = a.value != null ? 0 : 1;
+        const bHasVal = b.value != null ? 0 : 1;
+        if (aHasVal !== bHasVal) return aHasVal - bHasVal;
+        const ia = IMPACT_ORDER[a.impact] ?? 3;
+        const ib = IMPACT_ORDER[b.impact] ?? 3;
+        return ia - ib;
+      });
+    } else {
+      sorted = groupSignals
+        .filter(s => s.value != null)
+        .sort((a, b) => {
+          const ia = IMPACT_ORDER[a.impact] ?? 3;
+          const ib = IMPACT_ORDER[b.impact] ?? 3;
+          if (ia !== ib) return ia - ib;
+          return (a.end_date != null ? 0 : 1) - (b.end_date != null ? 0 : 1);
+        });
+    }
 
-    const shown = withValue.slice(0, cap);
-    const rest  = withValue.slice(cap);
+    const shown = sorted.slice(0, cap);
+    const rest  = sorted.slice(cap);
 
     if (shown.length > 0) {
       lines.push(`  --- ${type.toUpperCase()} signals (${groupSignals.length} total, showing ${shown.length}) ---`);
@@ -136,8 +157,11 @@ function buildSignalSummary(lensName, signals, mathResult, balance) {
     }
 
     if (rest.length > 0) {
-      const avg = (rest.reduce((a, s) => a + s.value, 0) / rest.length).toFixed(2);
-      lines.push(`  ... ${rest.length} more ${type} signals: avg=${avg}`);
+      const summary = rest.map(s => {
+        const dates = [s.start_date && `start=${s.start_date}`, s.end_date && `end=${s.end_date}`].filter(Boolean).join(' ');
+        return `${s.metric}${dates ? ` (${dates})` : ''}`;
+      }).join(', ');
+      lines.push(`  ... ${rest.length} more ${type} signals: ${summary}`);
     }
   }
 
