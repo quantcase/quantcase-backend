@@ -16,19 +16,27 @@ Your task is to synthesise this compact signal summary into a structured analyti
 {{LENS_INSTRUCTIONS}}
 {{DATA_BLOCK}}
 
+WRITING STYLE RULES — apply to every text field:
+- "takeaway": max 25 words, action-oriented, lead with the key finding (e.g. "Margins expanding on operating leverage; FCF conversion risk remains — watch CFO/PAT ratio.")
+- "highlights" items: max 12 words each, start with a verb or metric (e.g. "EBITDA margin up 180 bps YoY on cost discipline.")
+- "risks" items: max 12 words each, start with the risk noun (e.g. "Debt elevated; interest cover below 3x for 2 quarters.")
+- "label" in top_signals: 2–5 words, title-case, human-readable (e.g. "Operating Cash Flow")
+- "statement" in top_signals: ≤80 chars, verbatim or tightly paraphrased evidence
+- Never pad with filler phrases like "It is important to note that…" or "Overall, the company…"
+
 Return a JSON object with this exact structure:
 {
   "score": <integer 0-100>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — 1-2 sentence synthesis in plain English>,
+  "takeaway": <string — max 25 words, action-oriented synthesis leading with the key finding>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
-  "highlights": [<up to 3 positive findings, each a short sentence>],
-  "risks": [<up to 2 concerns, each a short sentence>],
+  "highlights": [<up to 3 positive findings, each max 12 words, starting with a verb or metric>],
+  "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
   "top_signals": [
     {
       "signal_id": <string — id of the signal from the data block>,
       "metric": <string — metric name exactly as provided>,
-      "label": <string — human-readable metric label>,
+      "label": <string — 2–5 word title-case human-readable label>,
       "guided_value": <number | null — management's forward-looking commitment or guidance, if present>,
       "guided_date": <string | null — ISO 8601 date YYYY-MM-DD, last day of the guidance target period, e.g. "2027-03-31" for FY2027, "2026-09-30" for FY2026 Q3>,
       "actual_value": <number | null — realised/reported value>,
