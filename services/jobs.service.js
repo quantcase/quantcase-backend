@@ -121,9 +121,14 @@ async function findJob(jobId) {
   return null;
 }
 
+async function addLensComputationJob(callId, lensSlug) {
+  return jobQueue.addJob('lens_computation', { callId, lensSlug, type: 'lens_computation' });
+}
+
 module.exports = {
   addSummarizationJob,
   addQeExtractionJob,
   addProwessExtractionJob,
+  addLensComputationJob,
   findJob,
 };
