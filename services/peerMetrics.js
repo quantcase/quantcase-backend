@@ -1,9 +1,10 @@
 'use strict';
 
 const prisma = require('../config/prisma');
+const { resolveProwess } = require('../utils/prowessResolver');
 
 // KPI abbrs needed for industry-analysis and competition peer context
-const PEER_ABBRS = ['REV_OP', 'EBITDA_MARGIN', 'ROCE'];
+const PEER_ABBRS = ['REV_OP', 'EBITDA_MARGIN', 'ROCE', 'EPS_DILUTED', 'EPS_BASIC'];
 
 /**
  * Fetch peer KPI metrics for all tickers in the same basic_industry as callId.
@@ -95,14 +96,17 @@ async function fetchPeerMetrics(callId) {
   // 6. Build peer list (only tickers with any data)
   const peers = allTickers
     .map(ticker => {
-      const km = tickerMap[ticker] ?? {};
+      const km  = tickerMap[ticker] ?? {};
+      // Prefer EPS_DILUTED; fall back to EPS_BASIC
+      const eps = km['EPS_DILUTED'] ?? km['EPS_BASIC'] ?? null;
       return {
         ticker,
         is_subject:       ticker === subjectTicker,
-        REV_OP:           km['REV_OP']          ?? null,
-        REV_OP_cagr_3y:   cagrByTicker[ticker]  ?? null,
-        EBITDA_MARGIN:    km['EBITDA_MARGIN']    ?? null,
-        ROCE:             km['ROCE']             ?? null,
+        REV_OP:           km['REV_OP']       ?? null,
+        REV_OP_cagr_3y:   cagrByTicker[ticker] ?? null,
+        EBITDA_MARGIN:    km['EBITDA_MARGIN'] ?? null,
+        ROCE:             km['ROCE']          ?? null,
+        EPS:              eps,
       };
     })
     .filter(p => p.REV_OP != null || p.EBITDA_MARGIN != null || p.ROCE != null);
@@ -117,6 +121,7 @@ async function fetchPeerMetrics(callId) {
   const withCagr  = peers.filter(p => p.REV_OP_cagr_3y != null);
   const withOpm   = peers.filter(p => p.EBITDA_MARGIN != null);
   const withRoce  = peers.filter(p => p.ROCE != null);
+  const withEps   = peers.filter(p => p.EPS != null);
 
   const avg = (arr, key) => arr.length ? parseFloat((arr.reduce((s, p) => s + p[key], 0) / arr.length).toFixed(1)) : null;
 
@@ -125,6 +130,7 @@ async function fetchPeerMetrics(callId) {
     avg_REV_OP_cagr_3y: avg(withCagr, 'REV_OP_cagr_3y'),
     avg_EBITDA_MARGIN:  avg(withOpm,  'EBITDA_MARGIN'),
     weighted_avg_ROCE:  withRoce.length ? _weightedAvgRoce(withRoce) : null,
+    avg_EPS:            avg(withEps,  'EPS'),
     peer_count:         peers.length,
   };
 
@@ -159,8 +165,9 @@ function formatPeerMetricsBlock(pm) {
     `  Avg 3Y Revenue CAGR: ${pm.industry_agg.avg_REV_OP_cagr_3y != null ? pm.industry_agg.avg_REV_OP_cagr_3y + '%' : 'N/A'}`,
     `  Avg Industry OPM (EBITDA_MARGIN): ${pm.industry_agg.avg_EBITDA_MARGIN != null ? pm.industry_agg.avg_EBITDA_MARGIN + '%' : 'N/A'}`,
     `  Weighted Avg Industry ROCE: ${pm.industry_agg.weighted_avg_ROCE != null ? pm.industry_agg.weighted_avg_ROCE + '%' : 'N/A'}`,
+    `  Avg Industry EPS: ${pm.industry_agg.avg_EPS != null ? '₹' + pm.industry_agg.avg_EPS : 'N/A'}`,
     '',
-    'Peer Breakdown (ticker | REV_OP Cr | 3Y Rev CAGR | OPM% | ROCE%):',
+    'Peer Breakdown (ticker | REV_OP Cr | 3Y Rev CAGR | OPM% | ROCE% | EPS):',
   ];
 
   for (const p of pm.peers) {
@@ -170,7 +177,8 @@ function formatPeerMetricsBlock(pm) {
       `REV=${p.REV_OP != null ? p.REV_OP + ' Cr' : 'N/A'} | ` +
       `CAGR=${p.REV_OP_cagr_3y != null ? p.REV_OP_cagr_3y + '%' : 'N/A'} | ` +
       `OPM=${p.EBITDA_MARGIN != null ? p.EBITDA_MARGIN + '%' : 'N/A'} | ` +
-      `ROCE=${p.ROCE != null ? p.ROCE + '%' : 'N/A'}`
+      `ROCE=${p.ROCE != null ? p.ROCE + '%' : 'N/A'} | ` +
+      `EPS=${p.EPS != null ? '₹' + p.EPS : 'N/A'}`
     );
   }
 
@@ -213,25 +221,74 @@ async function fetchEquityMetrics(callId) {
     distinct: ['symbol'],
   });
 
-  if (equityRows.length === 0) return null;
+  // Build ticker → prowess name map for EPS lookup
+  const tickerToProwess = {};
+  for (const ticker of allTickers) {
+    const resolved = resolveProwess(ticker);
+    if (resolved) tickerToProwess[ticker] = resolved.prowessName;
+  }
+  const prowessNames = Object.values(tickerToProwess);
 
-  // Build per-ticker map
+  // Latest EPS per prowess company (prefer EPS_DILUTED, fallback EPS_BASIC)
+  const epsAbbrs = ['EPS_DILUTED', 'EPS_BASIC'];
+  let prowessEpsRows = [];
+  if (prowessNames.length > 0) {
+    prowessEpsRows = await prisma.$queryRaw`
+      SELECT DISTINCT ON (company, kpi_abbr)
+             company, kpi_abbr, value, fiscal_year
+      FROM   prowess_values_new
+      WHERE  company  = ANY(${prowessNames}::text[])
+        AND  kpi_abbr = ANY(${epsAbbrs}::text[])
+        AND  call_id LIKE 'prowess_new_%'
+      ORDER  BY company, kpi_abbr, fiscal_year DESC, source_type ASC
+    `;
+  }
+
+  // Build prowess name → EPS map (prefer EPS_DILUTED over EPS_BASIC)
+  const prowessEpsMap = {};
+  for (const row of prowessEpsRows) {
+    const val = row.value != null ? parseFloat(row.value) : null;
+    if (val == null) continue;
+    if (!prowessEpsMap[row.company] || row.kpi_abbr === 'EPS_DILUTED') {
+      prowessEpsMap[row.company] = { eps: val, fiscal_year: row.fiscal_year };
+    }
+  }
+
+  // Build ticker → EPS by reversing the prowess name lookup
+  const tickerEpsMap = {};
+  for (const [ticker, prowessName] of Object.entries(tickerToProwess)) {
+    if (prowessEpsMap[prowessName]) tickerEpsMap[ticker] = prowessEpsMap[prowessName];
+  }
+
+  if (equityRows.length === 0 && Object.keys(tickerEpsMap).length === 0) return null;
+
+  // Build per-ticker map from nse_equity
   const equityMap = {};
   for (const row of equityRows) {
     equityMap[row.symbol] = {
-      pe:           row.pe   != null ? parseFloat(row.pe.toFixed(1))           : null,
+      pe:            row.pe            != null ? parseFloat(row.pe.toFixed(1))            : null,
       market_cap_cr: row.market_cap_cr != null ? parseFloat(row.market_cap_cr.toFixed(0)) : null,
-      as_of:        row.datetime,
+      as_of:         row.datetime,
     };
   }
 
-  // Industry aggregates — exclude PE > 200x (negative earnings distortion)
-  const validPeRows  = equityRows.filter(r => r.pe != null && r.pe > 0 && r.pe <= 200);
-  const validMcapRows = equityRows.filter(r => r.market_cap_cr != null);
+  // Merge EPS into equityMap keyed by NSE ticker
+  for (const [ticker, data] of Object.entries(tickerEpsMap)) {
+    if (!equityMap[ticker]) equityMap[ticker] = { pe: null, market_cap_cr: null, as_of: null };
+    equityMap[ticker].eps           = data.eps;
+    equityMap[ticker].eps_fiscal_yr = data.fiscal_year;
+  }
 
-  const avgPe       = validPeRows.length  ? parseFloat((validPeRows.reduce((s, r)  => s + r.pe, 0) / validPeRows.length).toFixed(1)) : null;
-  const medianPe    = _median(validPeRows.map(r  => r.pe));
-  const totalMcap   = validMcapRows.length ? parseFloat(validMcapRows.reduce((s, r) => s + r.market_cap_cr, 0).toFixed(0)) : null;
+  // Industry aggregates — exclude PE > 200x (negative earnings distortion)
+  const validPeRows   = equityRows.filter(r => r.pe != null && r.pe > 0 && r.pe <= 200);
+  const validMcapRows = equityRows.filter(r => r.market_cap_cr != null);
+  const validEpsPeers = Object.values(tickerEpsMap);
+
+  const avgPe     = validPeRows.length  ? parseFloat((validPeRows.reduce((s, r)  => s + r.pe, 0)  / validPeRows.length).toFixed(1))  : null;
+  const medianPe  = _median(validPeRows.map(r => r.pe));
+  const totalMcap = validMcapRows.length ? parseFloat(validMcapRows.reduce((s, r) => s + r.market_cap_cr, 0).toFixed(0)) : null;
+  const avgEps    = validEpsPeers.length ? parseFloat((validEpsPeers.reduce((s, r) => s + r.eps, 0) / validEpsPeers.length).toFixed(1)) : null;
+  const medianEps = _median(validEpsPeers.map(r => r.eps));
 
   const subject = equityMap[subjectTicker] ?? null;
 
@@ -239,7 +296,7 @@ async function fetchEquityMetrics(callId) {
     .filter(t => equityMap[t])
     .map(t => ({ ticker: t, is_subject: t === subjectTicker, ...equityMap[t] }));
 
-  console.log(`[equityMetrics] "${industry}" — ${peers.length} peers with PE data, subject PE=${subject?.pe ?? 'N/A'}`);
+  console.log(`[equityMetrics] "${industry}" — ${peers.length} peers, subject PE=${subject?.pe ?? 'N/A'} EPS=${subject?.eps ?? 'N/A'}`);
 
   return {
     industry,
@@ -247,10 +304,13 @@ async function fetchEquityMetrics(callId) {
     subject,
     peers,
     industry_agg: {
-      avg_pe:    avgPe,
-      median_pe: medianPe,
+      avg_pe:              avgPe,
+      median_pe:           medianPe,
       total_market_cap_cr: totalMcap,
+      avg_eps:             avgEps,
+      median_eps:          medianEps,
       peer_count_with_pe:  validPeRows.length,
+      peer_count_with_eps: validEpsPeers.length,
     },
   };
 }
@@ -274,15 +334,15 @@ function formatEquityMetricsBlock(em) {
   const lines = [
     '',
     `EQUITY VALUATION CONTEXT — Industry: ${em.industry}`,
-    `Subject (${em.subject_ticker}): PE=${fmt(em.subject?.pe, 'x')} | Market Cap=${fmt(em.subject?.market_cap_cr, ' Cr')}`,
-    `Industry (${em.industry_agg.peer_count_with_pe} peers with data): Avg PE=${fmt(em.industry_agg.avg_pe, 'x')} | Median PE=${fmt(em.industry_agg.median_pe, 'x')} | Total MCap=${fmt(em.industry_agg.total_market_cap_cr, ' Cr')}`,
+    `Subject (${em.subject_ticker}): PE=${fmt(em.subject?.pe, 'x')} | EPS=₹${em.subject?.eps ?? 'N/A'} | Market Cap=${fmt(em.subject?.market_cap_cr, ' Cr')}`,
+    `Industry (${em.industry_agg.peer_count_with_pe} peers): Avg PE=${fmt(em.industry_agg.avg_pe, 'x')} | Median PE=${fmt(em.industry_agg.median_pe, 'x')} | Avg EPS=₹${em.industry_agg.avg_eps ?? 'N/A'} | Median EPS=₹${em.industry_agg.median_eps ?? 'N/A'} | Total MCap=${fmt(em.industry_agg.total_market_cap_cr, ' Cr')}`,
     '',
-    'Peer PE & Market Cap:',
+    'Peer PE, EPS & Market Cap:',
   ];
 
   for (const p of em.peers) {
     const tag = p.is_subject ? ' ← subject' : '';
-    lines.push(`  ${p.ticker}${tag} | PE=${fmt(p.pe, 'x')} | MCap=${fmt(p.market_cap_cr, ' Cr')}`);
+    lines.push(`  ${p.ticker}${tag} | PE=${fmt(p.pe, 'x')} | EPS=₹${p.eps ?? 'N/A'} | MCap=${fmt(p.market_cap_cr, ' Cr')}`);
   }
 
   lines.push('');
