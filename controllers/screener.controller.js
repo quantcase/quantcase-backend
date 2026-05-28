@@ -1305,26 +1305,17 @@ async function getCharts(req, res, next) {
 // ── Peer comparison ───────────────────────────────────────────────────────────
 
 /**
- * POST /api/screener/:symbol/peers
- *
- * Body (optional):
- *   { "indicators": ["cmp","pe","marketCap","divYld","npQtr","qtrProfitVar","salesQtr","qtrSalesVar","roce"] }
+ * GET /api/screener/:symbol/peers
  *
  * 1. Resolve symbol → NSE Basic Industry classification via osc_identity.csv
- * 2. Collect all peers in the same basic industry (+ same industry group for tighter match)
+ * 2. Collect all peers in the same basic industry
  * 3. Pull latest-quarter fundamentals from osc_fundamental_ind_qtr_v4.csv
- * 4. Bulk-fetch Yahoo Finance quotes for live CMP & Market Cap
- * 5. Return table rows with requested indicators as columns
+ * 4. Bulk-fetch CMP, Market Cap, and PE from DB
+ * 5. Return all metrics for all peers
  */
 async function getPeers(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
-
-    // Default column set matches the image
-    const DEFAULT_INDICATORS = ['cmp','pe','marketCap','divYld','npQtr','qtrProfitVar','salesQtr','qtrSalesVar','roce'];
-    const requestedIndicators = (req.body && Array.isArray(req.body.indicators) && req.body.indicators.length > 0)
-      ? req.body.indicators
-      : DEFAULT_INDICATORS;
 
     // ── 1. Find subject company in identity CSV ──────────────────────────────
     const { rows: idRows } = loadPeerIdentity();
@@ -1355,58 +1346,60 @@ async function getPeers(req, res, next) {
 
     const nseSymbols = peerRows.map((r) => (r[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase()).filter(Boolean);
 
-    // ── 4. Bulk-fetch CMP, Market Cap, and PE from DB ────────────────────────
-    const needCmp       = requestedIndicators.includes('cmp');
-    const needMarketCap = requestedIndicators.includes('marketCap');
-    const needPe        = requestedIndicators.includes('pe');
-    const needRoce      = requestedIndicators.includes('roce');
-
-    // CMP: latest close per symbol from nse_equity
-    const cmpMap = {};
-    if (needCmp || needMarketCap) {
-      const latestPrices = await prisma.$queryRaw`
+    // ── 4. Bulk-fetch CMP, Market Cap, PE, and AI insight scores from DB ────────────────────────
+    const [latestPrices, latestMktCap, latestPe, aiInsightRows] = await Promise.all([
+      prisma.$queryRaw`
         SELECT DISTINCT ON (symbol) symbol, close
         FROM nse_equity
         WHERE symbol = ANY(${nseSymbols})
         ORDER BY symbol, datetime DESC
-      `;
-      for (const row of latestPrices) {
-        if (row.close != null) cmpMap[row.symbol.toUpperCase()] = parseFloat(row.close);
-      }
-    }
-
-    // Market Cap: latest entry per symbol from nse_equity
-    const mktCapMap = {};
-    if (needMarketCap) {
-      const latestMktCap = await prisma.$queryRaw`
+      `,
+      prisma.$queryRaw`
         SELECT DISTINCT ON (symbol) symbol, market_cap_cr
         FROM nse_equity
         WHERE symbol = ANY(${nseSymbols}) AND market_cap_cr IS NOT NULL
         ORDER BY symbol, datetime DESC
-      `;
-      for (const row of latestMktCap) {
-        if (row.market_cap_cr != null) mktCapMap[row.symbol.toUpperCase()] = parseFloat(row.market_cap_cr);
-      }
-    }
-
-    // PE: latest entry per symbol from nse_equity
-    const peDbMap = {};
-    if (needPe) {
-      const latestPe = await prisma.$queryRaw`
+      `,
+      prisma.$queryRaw`
         SELECT DISTINCT ON (symbol) symbol, pe
         FROM nse_equity
         WHERE symbol = ANY(${nseSymbols}) AND pe IS NOT NULL
         ORDER BY symbol, datetime DESC
-      `;
-      for (const row of latestPe) {
-        if (row.pe != null) peDbMap[row.symbol.toUpperCase()] = parseFloat(row.pe);
-      }
+      `,
+      prisma.aiInsight.findMany({
+        where: { ticker: { in: nseSymbols }, type: { in: ['management', 'opportunity', 'deal'] } },
+        select: { ticker: true, type: true, insight: true },
+      }),
+    ]);
+
+    // aiInsightsMap[ticker][type] = { score, verdict }
+    const aiInsightsMap = {};
+    for (const row of aiInsightRows) {
+      const t = row.ticker.toUpperCase();
+      if (!aiInsightsMap[t]) aiInsightsMap[t] = {};
+      const insight = row.insight;
+      aiInsightsMap[t][row.type] = {
+        score:   insight?.score   ?? null,
+        verdict: insight?.verdict ?? null,
+      };
     }
 
-    // ROCE: load osc_mod_qtr_v1.csv — EBIT / Capital Employed
-    // EBIT ≈ Net Profit + Interest (annualised from latest quarter × 4 is not done; use raw Qtr EBIT)
-    // Capital Employed = Paid-up Capital + Reserves + Borrowings
-    const modMap = needRoce ? loadModData() : {};
+    const cmpMap = {};
+    for (const row of latestPrices) {
+      if (row.close != null) cmpMap[row.symbol.toUpperCase()] = parseFloat(row.close);
+    }
+
+    const mktCapMap = {};
+    for (const row of latestMktCap) {
+      if (row.market_cap_cr != null) mktCapMap[row.symbol.toUpperCase()] = parseFloat(row.market_cap_cr);
+    }
+
+    const peDbMap = {};
+    for (const row of latestPe) {
+      if (row.pe != null) peDbMap[row.symbol.toUpperCase()] = parseFloat(row.pe);
+    }
+
+    const modMap = loadModData();
 
     // ── 5. Build table rows ──────────────────────────────────────────────────
     const latestQtr = qtrs[LATEST];
@@ -1418,27 +1411,26 @@ async function getPeers(req, res, next) {
       const fundRow     = fundMap[companyName] || null;
 
       // ── DB-sourced data ──
-      const cmp       = needCmp       ? r2(cmpMap[peerSymbol] ?? null)    : undefined;
-      let   marketCap = needMarketCap ? r2(mktCapMap[peerSymbol] ?? null)  : undefined;
+      const cmp = r2(cmpMap[peerSymbol] ?? null);
+      let marketCap = r2(mktCapMap[peerSymbol] ?? null);
 
       // Fallback: use market cap column from Prowess fund CSV (already in Cr)
-      if (needMarketCap && marketCap == null && fundRow) {
+      if (marketCap == null && fundRow) {
         const csvMcap = peerPeriodVal(fundRow, LATEST, PEER_OFF.MARKET_CAP);
         if (csvMcap != null) marketCap = r2(csvMcap);
       }
 
       // ── Prowess fundamentals (latest period) ──
-      let pe           = needPe ? r2(peDbMap[peerSymbol] ?? null) : undefined;
+      let pe           = r2(peDbMap[peerSymbol] ?? null);
       let divYld       = null;
       let npQtr        = null;
       let salesQtr     = null;
       let qtrProfitVar = null;
       let qtrSalesVar  = null;
-      let roce         = null;
 
       if (fundRow) {
         // PE fallback: Prowess CSV if DB had no entry
-        if (needPe && pe == null) pe = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.PE));
+        if (pe == null) pe = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.PE));
 
         divYld   = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.YIELD));
         npQtr    = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.NET_PROFIT));
@@ -1454,53 +1446,51 @@ async function getPeers(req, res, next) {
         }
       }
 
-      // ROCE from osc_mod_qtr_v1.csv
-      // Formula: ROCE = EBIT / Capital Employed × 100
-      //   EBIT            = Net Profit + Interest Expenses  (latest quarter, annualised ×4)
+      // ROCE: EBIT / Capital Employed × 100
+      //   EBIT = (Net Profit + Interest) × 4 (annualised from latest quarter)
       //   Capital Employed = Paid-up Capital + Reserves + Borrowings
-      if (needRoce) {
-        const modRow = modMap[companyName] || null;
-        if (modRow) {
-          // Latest period = last block: col offset = 1 + (n-1)*54 where n is derived from row length
-          const totalCols   = modRow.length - 1; // exclude col 0 (company name)
-          const periodCount = Math.floor(totalCols / MOD_COLS_PER_PERIOD);
-          const lastPeriod  = periodCount - 1;
-          const base        = 1 + lastPeriod * MOD_COLS_PER_PERIOD;
+      let roce = null;
+      const modRow = modMap[companyName] || null;
+      if (modRow) {
+        const totalCols   = modRow.length - 1;
+        const periodCount = Math.floor(totalCols / MOD_COLS_PER_PERIOD);
+        const lastPeriod  = periodCount - 1;
+        const base        = 1 + lastPeriod * MOD_COLS_PER_PERIOD;
 
-          const netProfit  = peerToFloat(modRow[base + MOD_OFF.NET_PROFIT]);
-          const interest   = peerToFloat(modRow[base + MOD_OFF.INTEREST]);
-          const paidCap    = peerToFloat(modRow[base + MOD_OFF.PAID_CAP]);
-          const reserves   = peerToFloat(modRow[base + MOD_OFF.RESERVES]);
-          const borrowings = peerToFloat(modRow[base + MOD_OFF.BORROWINGS]);
+        const netProfit  = peerToFloat(modRow[base + MOD_OFF.NET_PROFIT]);
+        const interest   = peerToFloat(modRow[base + MOD_OFF.INTEREST]);
+        const paidCap    = peerToFloat(modRow[base + MOD_OFF.PAID_CAP]);
+        const reserves   = peerToFloat(modRow[base + MOD_OFF.RESERVES]);
+        const borrowings = peerToFloat(modRow[base + MOD_OFF.BORROWINGS]);
 
-          if (netProfit != null && interest != null && paidCap != null && reserves != null && borrowings != null) {
-            const ebitQtr        = netProfit + interest;
-            const ebitAnnualised = ebitQtr * 4;
-            const capitalEmployed = paidCap + reserves + borrowings;
-            if (capitalEmployed > 0) {
-              roce = r2((ebitAnnualised / capitalEmployed) * 100);
-            }
+        if (netProfit != null && interest != null && paidCap != null && reserves != null && borrowings != null) {
+          const ebitAnnualised  = (netProfit + interest) * 4;
+          const capitalEmployed = paidCap + reserves + borrowings;
+          if (capitalEmployed > 0) {
+            roce = r2((ebitAnnualised / capitalEmployed) * 100);
           }
         }
       }
 
-      const row = {
-        symbol:    peerSymbol,
-        name:      companyName,
-        isSubject: peerSymbol === symbol,
+      const aiScores = aiInsightsMap[peerSymbol] || {};
+
+      return {
+        symbol:      peerSymbol,
+        name:        companyName,
+        isSubject:   peerSymbol === symbol,
+        cmp:         cmp ?? null,
+        pe:          pe ?? null,
+        marketCapCr: marketCap ?? null,
+        divYld,
+        npQtrCr:     npQtr,
+        qtrProfitVar,
+        salesQtrCr:  salesQtr,
+        qtrSalesVar,
+        roce,
+        management:  aiScores.management  ?? null,
+        opportunity: aiScores.opportunity ?? null,
+        deal:        aiScores.deal        ?? null,
       };
-
-      if (requestedIndicators.includes('cmp'))          row.cmp          = cmp ?? null;
-      if (requestedIndicators.includes('pe'))           row.pe           = pe ?? null;
-      if (requestedIndicators.includes('marketCap'))    row.marketCapCr  = marketCap ?? null;
-      if (requestedIndicators.includes('divYld'))       row.divYld       = divYld;
-      if (requestedIndicators.includes('npQtr'))        row.npQtrCr      = npQtr;
-      if (requestedIndicators.includes('qtrProfitVar')) row.qtrProfitVar = qtrProfitVar;
-      if (requestedIndicators.includes('salesQtr'))     row.salesQtrCr   = salesQtr;
-      if (requestedIndicators.includes('qtrSalesVar'))  row.qtrSalesVar  = qtrSalesVar;
-      if (requestedIndicators.includes('roce'))         row.roce         = roce;
-
-      return row;
     });
 
     // Sort: subject first, then by marketCap desc
@@ -1516,7 +1506,6 @@ async function getPeers(req, res, next) {
       industryGroup: subjectIndGrp,
       latestQuarter: latestQtr,
       yearAgoQuarter: yearAgoQtr,
-      indicators: requestedIndicators,
       count: peers.length,
       peers,
     });
