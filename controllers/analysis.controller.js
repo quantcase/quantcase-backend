@@ -12,8 +12,8 @@ const VALID_TYPES = new Set(['management', 'opportunity', 'deal']);
  * Returns AiInsight objects + constituent Lens data for each requested type.
  */
 const getAnalysis = asyncHandler(async (req, res) => {
-  const { callId, type } = req.query;
-  if (!callId) return res.status(400).json({ success: false, error: 'callId is required' });
+  const { ticker, type } = req.query;
+  if (!ticker) return res.status(400).json({ success: false, error: 'ticker is required' });
 
   const types = (type ?? 'management,opportunity,deal')
     .split(',')
@@ -27,7 +27,7 @@ const getAnalysis = asyncHandler(async (req, res) => {
     });
   }
 
-  const result = await analysisService.getAnalysis(callId, types);
+  const result = await analysisService.getAnalysis(ticker, types);
   res.json({ success: true, data: result });
 });
 

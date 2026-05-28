@@ -13,13 +13,22 @@ const { addLensComputationJob } = require('../services/jobs.service');
 
 const router = Router();
 
-// GET /api/lenses?callId=&category= — lens scores grouped by category (management/opportunity/deal)
+// GET /api/lenses?ticker=&category= — lens scores grouped by category for the latest available quarter
 router.get('/', async (req, res, next) => {
   try {
-    const { callId, category } = req.query;
-    if (!callId) return res.status(400).json({ error: 'callId is required' });
-    const result = await getLensesByCategory(callId, category);
-    res.json(result);
+    const { ticker, category } = req.query;
+    if (!ticker) return res.status(400).json({ error: 'ticker is required' });
+
+    // Resolve the latest call_id for this ticker from lens_scores
+    const latest = await prisma.lensScore.findFirst({
+      where:   { ticker },
+      select:  { call_id: true },
+      orderBy: { call_id: 'desc' },
+    });
+    if (!latest) return res.json({ ticker, callId: null, categories: {} });
+
+    const result = await getLensesByCategory(latest.call_id, category);
+    res.json({ ...result, ticker });
   } catch (err) {
     next(err);
   }

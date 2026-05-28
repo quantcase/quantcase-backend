@@ -178,4 +178,115 @@ function formatPeerMetricsBlock(pm) {
   return lines.join('\n');
 }
 
-module.exports = { fetchPeerMetrics, formatPeerMetricsBlock };
+/**
+ * Fetch PE and market-cap from nse_equity for the subject ticker and all
+ * industry peers (derived from earnings_calls.basic_industry).
+ *
+ * Returns the latest available row per symbol (data is monthly/yearly snapshots).
+ * Industry-level averages exclude extreme outliers (PE > 200x treated as N/A).
+ *
+ * @param {string} callId
+ * @returns {Promise<object|null>}
+ */
+async function fetchEquityMetrics(callId) {
+  const call = await prisma.earnings_calls.findUnique({
+    where:  { id: callId },
+    select: { company: true, basic_industry: true },
+  });
+  if (!call?.basic_industry) return null;
+
+  const { company: subjectTicker, basic_industry: industry } = call;
+
+  // Resolve all peer tickers in the same industry
+  const peerRows = await prisma.earnings_calls.findMany({
+    where:    { basic_industry: industry },
+    select:   { company: true },
+    distinct: ['company'],
+  });
+  const allTickers = peerRows.map(r => r.company);
+
+  // Latest PE + mcap per ticker from nse_equity
+  const equityRows = await prisma.nse_equity.findMany({
+    where:    { symbol: { in: allTickers }, pe: { not: null } },
+    select:   { symbol: true, pe: true, market_cap_cr: true, datetime: true },
+    orderBy:  [{ symbol: 'asc' }, { datetime: 'desc' }],
+    distinct: ['symbol'],
+  });
+
+  if (equityRows.length === 0) return null;
+
+  // Build per-ticker map
+  const equityMap = {};
+  for (const row of equityRows) {
+    equityMap[row.symbol] = {
+      pe:           row.pe   != null ? parseFloat(row.pe.toFixed(1))           : null,
+      market_cap_cr: row.market_cap_cr != null ? parseFloat(row.market_cap_cr.toFixed(0)) : null,
+      as_of:        row.datetime,
+    };
+  }
+
+  // Industry aggregates — exclude PE > 200x (negative earnings distortion)
+  const validPeRows  = equityRows.filter(r => r.pe != null && r.pe > 0 && r.pe <= 200);
+  const validMcapRows = equityRows.filter(r => r.market_cap_cr != null);
+
+  const avgPe       = validPeRows.length  ? parseFloat((validPeRows.reduce((s, r)  => s + r.pe, 0) / validPeRows.length).toFixed(1)) : null;
+  const medianPe    = _median(validPeRows.map(r  => r.pe));
+  const totalMcap   = validMcapRows.length ? parseFloat(validMcapRows.reduce((s, r) => s + r.market_cap_cr, 0).toFixed(0)) : null;
+
+  const subject = equityMap[subjectTicker] ?? null;
+
+  const peers = allTickers
+    .filter(t => equityMap[t])
+    .map(t => ({ ticker: t, is_subject: t === subjectTicker, ...equityMap[t] }));
+
+  console.log(`[equityMetrics] "${industry}" — ${peers.length} peers with PE data, subject PE=${subject?.pe ?? 'N/A'}`);
+
+  return {
+    industry,
+    subject_ticker: subjectTicker,
+    subject,
+    peers,
+    industry_agg: {
+      avg_pe:    avgPe,
+      median_pe: medianPe,
+      total_market_cap_cr: totalMcap,
+      peer_count_with_pe:  validPeRows.length,
+    },
+  };
+}
+
+function _median(arr) {
+  if (!arr.length) return null;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const val = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  return parseFloat(val.toFixed(1));
+}
+
+/**
+ * Format equity (PE + mcap) metrics as a compact text block for L2 prompt injection.
+ */
+function formatEquityMetricsBlock(em) {
+  if (!em) return '';
+
+  const fmt = (v, suffix = '') => v != null ? `${v}${suffix}` : 'N/A';
+
+  const lines = [
+    '',
+    `EQUITY VALUATION CONTEXT — Industry: ${em.industry}`,
+    `Subject (${em.subject_ticker}): PE=${fmt(em.subject?.pe, 'x')} | Market Cap=${fmt(em.subject?.market_cap_cr, ' Cr')}`,
+    `Industry (${em.industry_agg.peer_count_with_pe} peers with data): Avg PE=${fmt(em.industry_agg.avg_pe, 'x')} | Median PE=${fmt(em.industry_agg.median_pe, 'x')} | Total MCap=${fmt(em.industry_agg.total_market_cap_cr, ' Cr')}`,
+    '',
+    'Peer PE & Market Cap:',
+  ];
+
+  for (const p of em.peers) {
+    const tag = p.is_subject ? ' ← subject' : '';
+    lines.push(`  ${p.ticker}${tag} | PE=${fmt(p.pe, 'x')} | MCap=${fmt(p.market_cap_cr, ' Cr')}`);
+  }
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+module.exports = { fetchPeerMetrics, formatPeerMetricsBlock, fetchEquityMetrics, formatEquityMetricsBlock };

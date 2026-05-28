@@ -9,11 +9,13 @@
  *   node scripts/analysis/analyze_L3_all.js --dispatch
  *   node scripts/analysis/analyze_L3_all.js --dispatch --base-url http://localhost:9000
  *   node scripts/analysis/analyze_L3_all.js --dispatch --force-refresh
+ *   node scripts/analysis/analyze_L3_all.js --dispatch --fix-missing
  *
  * Flags:
  *   --dispatch            Call POST /api/analysis for the latest call of each company (2 s stagger)
  *   --base-url <url>      API base URL (default: http://localhost:8000)
  *   --force-refresh       Pass forceRefresh: true to bypass existing cached insights
+ *   --fix-missing         Also re-run tickers whose existing L3 insight has score=0 (bad LLM run)
  */
 
 require('dotenv').config();
@@ -22,6 +24,7 @@ const prisma = require('../../config/prisma');
 const args         = process.argv.slice(2);
 const dispatch     = args.includes('--dispatch');
 const forceRefresh = args.includes('--force-refresh');
+const fixMissing   = args.includes('--fix-missing');
 const buIdx        = args.indexOf('--base-url');
 const baseUrl      = buIdx !== -1 ? args[buIdx + 1] : 'http://localhost:8000';
 
@@ -50,42 +53,57 @@ async function enqueueAnalysis(callId) {
 }
 
 async function main() {
-  // Source of truth for L3 is L2 (lens_scores), not earnings_calls.
-  // Pick the latest non-stale call_id per ticker by sorting on the embedded FY/Q in call_id.
-  const rows = await prisma.lensScore.groupBy({
-    by: ['ticker'],
-    where: { is_stale: false, ticker: { not: '' } },
-    _count: { ticker: true },
-    orderBy: { _count: { ticker: 'desc' } },
-  });
+  // Single bulk query: latest call_id per ticker from L2 (lens_scores)
+  const latestScores = await prisma.$queryRawUnsafe(`
+    SELECT DISTINCT ON (ticker) ticker, call_id
+    FROM lens_scores
+    WHERE is_stale = false AND ticker IS NOT NULL AND ticker <> ''
+    ORDER BY ticker, call_id DESC
+  `);
 
-  const tickers = rows.map((r) => r.ticker);
-  console.log(`\nFound ${tickers.length} unique tickers in L2 — dispatching L3 for latest quarter only.\n`);
+  console.log(`\nFound ${latestScores.length} unique tickers in L2.\n`);
+
+  // Load existing L3 records: ticker -> Set<type>
+  const l3Rows = await prisma.aiInsight.findMany({
+    where: { type: { in: TYPES } },
+    select: { ticker: true, type: true, insight: true },
+  });
+  const l3Done = new Map(); // ticker -> Set<type>
+  for (const r of l3Rows) {
+    // With --fix-missing, treat score=0 records as not done so they get re-dispatched.
+    if (fixMissing && (r.insight?.score ?? 0) === 0) continue;
+    if (!l3Done.has(r.ticker)) l3Done.set(r.ticker, new Set());
+    l3Done.get(r.ticker).add(r.type);
+  }
 
   console.log(
     'Ticker'.padEnd(20),
     'Latest Call ID'.padEnd(40),
+    'Missing types'
   );
-  console.log('-'.repeat(62));
+  console.log('-'.repeat(90));
 
-  const latest = [];
-  for (const ticker of tickers) {
-    const score = await prisma.lensScore.findFirst({
-      where: { ticker, is_stale: false },
-      select: { call_id: true, ticker: true },
-      orderBy: { call_id: 'desc' },
-    });
+  const todo = [];
+  let skipped = 0;
 
-    if (!score) continue;
-    latest.push(score);
+  for (const score of latestScores) {
+    const covered    = l3Done.get(score.ticker) ?? new Set();
+    const missingSet = TYPES.filter((t) => !covered.has(t));
 
+    if (missingSet.length === 0) {
+      skipped++;
+      continue; // already fully covered — skip
+    }
+
+    todo.push(score);
     console.log(
       (score.ticker  ?? '').padEnd(20),
       (score.call_id ?? '').padEnd(40),
+      missingSet.join(', ')
     );
   }
 
-  console.log(`\nTotal: ${latest.length} calls to process.\n`);
+  console.log(`\nAlready complete: ${skipped} | Needs L3: ${todo.length} | Total: ${latestScores.length}\n`);
 
   if (!dispatch) {
     console.log('Run with --dispatch to enqueue L3 analysis for each call.\n');
@@ -95,9 +113,9 @@ async function main() {
   console.log(`Dispatching L3 analysis to ${baseUrl} (2 s stagger between calls)...\n`);
   console.log(`Types: ${TYPES.join(', ')}${forceRefresh ? '  [force-refresh ON]' : ''}\n`);
 
-  for (let i = 0; i < latest.length; i++) {
-    await enqueueAnalysis(latest[i].call_id);
-    if (i < latest.length - 1) await sleep(2000);
+  for (let i = 0; i < todo.length; i++) {
+    await enqueueAnalysis(todo[i].call_id);
+    if (i < todo.length - 1) await sleep(2000);
   }
 
   console.log('\nDone.\n');

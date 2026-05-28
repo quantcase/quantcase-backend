@@ -13,15 +13,32 @@ function tickerFromCallId(callId) {
 }
 
 /**
+ * Resolve the latest call_id for a ticker from the lens_scores table.
+ * Sorts by fiscal_year desc, then quarter desc to get the most recent quarter.
+ *
+ * @param {string} ticker
+ * @returns {Promise<string|null>}
+ */
+async function latestCallIdFromLensScores(ticker) {
+  const row = await prisma.lensScore.findFirst({
+    where:   { ticker },
+    select:  { call_id: true },
+    orderBy: { call_id: 'desc' },
+  });
+  return row?.call_id ?? null;
+}
+
+/**
  * Fetch AiInsight objects for the given types and enrich each with
  * the constituent LensScore objects (lens_data, score, status, takeaway, etc.).
  *
- * @param {string}   callId
+ * @param {string}   ticker
  * @param {string[]} types  e.g. ['management', 'opportunity']
  * @returns {Promise<object>}
  */
-async function getAnalysis(callId, types) {
-  const ticker = tickerFromCallId(callId);
+async function getAnalysis(ticker, types) {
+  // Resolve the latest call_id for this ticker from lens_scores
+  const callId = await latestCallIdFromLensScores(ticker);
 
   // Fetch all requested AiInsight rows in one query
   const insights = await prisma.aiInsight.findMany({
@@ -32,11 +49,11 @@ async function getAnalysis(callId, types) {
   // Collect all relevant lens slugs across all requested types
   const allLensSlugs = [...new Set(types.flatMap(t => INSIGHT_LENSES[t] ?? []))];
 
-  // Fetch all relevant LensScores for this call in one query
-  const lensScores = await prisma.lensScore.findMany({
+  // Fetch all relevant LensScores for this call in one query (only if we have a callId)
+  const lensScores = callId ? await prisma.lensScore.findMany({
     where: { call_id: callId, lens_slug: { in: allLensSlugs }, is_stale: false },
     orderBy: { lens_slug: 'asc' },
-  });
+  }) : [];
   const lensMap = new Map(lensScores.map(ls => [ls.lens_slug, ls]));
 
   // Fetch LensConfig names for display

@@ -4,8 +4,9 @@ const prisma = require('../config/prisma');
 const { querySignals } = require('./db/signals.db');
 const { sortLensesByConfig } = require('../lib/insightLenses');
 const { llmStream, parseJson } = require('../utils/workerUtils');
+const { lensOutputSchema } = require('../outputSchemas/lens');
 const { computeSourceHash } = require('../utils/sourceHash');
-const { fetchPeerMetrics, formatPeerMetricsBlock } = require('./peerMetrics');
+const { fetchPeerMetrics, formatPeerMetricsBlock, fetchEquityMetrics, formatEquityMetricsBlock } = require('./peerMetrics');
 
 const PEER_LENS_SLUGS = new Set(['industry-analysis', 'competition']);
 
@@ -274,7 +275,7 @@ async function composeLens(callId, lensSlug) {
   });
   const cachedLensData = existing?.lens_data;
   const hasCachedTopSignals = Array.isArray(cachedLensData?.top_signals);
-  if (existing && existing.signals_hash === signalsHash && !existing.is_stale && cachedLensData && hasCachedTopSignals) {
+  if (existing && existing.signals_hash === signalsHash && existing.lens_config_v === lensConfig.version && !existing.is_stale && cachedLensData && hasCachedTopSignals) {
     console.log(`[lensComposer] Cache hit for ${lensSlug}/${callId} — signals_hash match, skipping L2 LLM`);
     return { ...cachedLensData, z_score: existing.z_score, signals_snapshot: existing.signals_snapshot };
   }
@@ -292,16 +293,26 @@ async function composeLens(callId, lensSlug) {
     peerBlock = formatPeerMetricsBlock(pm);
   }
 
+  // For all lenses: append live PE + market-cap context (subject + industry peers)
+  const em = await fetchEquityMetrics(callId);
+  const equityBlock = formatEquityMetricsBlock(em);
+
   const prompt = promptTemplate
     .replace('{{LENS_NAME}}', lensConfig.name)
     .replace('{{LENS_INSTRUCTIONS}}', lensInstructions)
-    .replace('{{DATA_BLOCK}}', signalSummary + peerBlock);
+    .replace('{{DATA_BLOCK}}', signalSummary + peerBlock + equityBlock);
 
-  const model     = cfgModel     ?? 'anthropic/claude-haiku-4.5';
-  const maxTokens = cfgMaxTokens ?? 8000;
+  const model          = cfgModel     ?? 'anthropic/claude-haiku-4.5';
+  const maxTokens      = cfgMaxTokens ?? 8000;
+  const outputSchema   = lensConfig.config.output_schema ?? lensOutputSchema;
 
   console.log(`[lensComposer] Calling L2 LLM for lens "${lensSlug}" (${signals.length} signals, prompt: ${prompt.length} chars)`);
-  const responseText = await llmStream({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
+  const responseText = await llmStream({
+    model,
+    max_tokens:      maxTokens,
+    messages:        [{ role: 'user', content: prompt }],
+    response_format: outputSchema,
+  });
 
   let lensResult;
   try {
