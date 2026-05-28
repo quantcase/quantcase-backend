@@ -36,7 +36,7 @@ async function getTranscriptStocks() {
 }
 
 async function getTranscriptCalls(symbol) {
-  return prisma.earnings_calls.findMany({
+  const calls = await prisma.earnings_calls.findMany({
     where: {
       company: symbol,
       OR: [
@@ -56,6 +56,10 @@ async function getTranscriptCalls(symbol) {
       transcript_text: false,
       ppt_text:        false,
     },
+  });
+  return calls.sort((a, b) => {
+    if (b.fiscal_year !== a.fiscal_year) return b.fiscal_year.localeCompare(a.fiscal_year);
+    return b.quarter.localeCompare(a.quarter);
   });
 }
 

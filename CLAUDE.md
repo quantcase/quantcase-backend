@@ -55,8 +55,23 @@ Key Prisma models:
 - **earnings_calls**: Stores earnings call data (company, fiscal_year, quarter, transcript_text, ppt_text, etc.)
 - **Job**: Tracks background jobs with status (pending/processing/completed/failed) and links to BullMQ via `bullmqId`
 - **Summary**: Stores extracted intelligence (entities, promises, guidance, governance_signals, etc.)
+- **extracted_signals**: L1 output — structured financial/operational signals extracted per call (ticker, signal_type, metric, value, etc.)
+- **lens_scores**: L2 output — aggregated z-scores per ticker per lens (lens_slug, z_score, signal_count, etc.)
+- **ai_insights**: L3 output — narrative AI insights per ticker by type (management, opportunity, deal, technicals, etc.)
 
 Note: Multiple earnings_calls tables exist (earnings_calls_1, earnings_calls_2, earnings_calls_test) - likely for testing/migration purposes.
+
+### Three-Layer Pipeline Coverage (as of 2026-05-28)
+The pipeline processes earnings calls through three progressive layers:
+
+| Layer | Table | Description | Unique Companies |
+|-------|-------|-------------|-----------------|
+| Raw | `earnings_calls` | All ingested calls | **1,991** |
+| L1 | `extracted_signals` | Signal extraction (metrics, KPIs, flags) | **1,948** |
+| L2 | `lens_scores` | Lens scoring / z-score aggregation | **550** |
+| L3 | `ai_insights` | AI narrative insights (management/opportunity/deal) | **743** |
+
+**L3 types breakdown**: management (743), opportunity (743), deal (741), technicals (111), fundamentals (24), nse_industry (13), overview (6), drhp-analysis (1)
 
 ## API Endpoints
 

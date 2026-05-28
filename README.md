@@ -1,5 +1,22 @@
 # QuantCase Backend
 
+## Three-Layer Pipeline
+
+Earnings calls are processed through three progressive enrichment layers:
+
+| Layer | Table | Description | Unique Companies |
+|-------|-------|-------------|-----------------|
+| Raw | `earnings_calls` | All ingested calls | **1,991** |
+| L1 | `extracted_signals` | Structured signal extraction (metrics, KPIs, flags per call) | **1,948** |
+| L2 | `lens_scores` | Aggregated lens z-scores per ticker | **550** |
+| L3 | `ai_insights` | AI narrative insights by type (management, opportunity, deal) | **743** |
+
+- **L1** runs on every new call to extract granular signals (signal_type, metric, value, confidence, etc.)
+- **L2** aggregates L1 signals into lens-level z-scores for cross-company comparison
+- **L3** generates narrative insights from L2 scores; types include `management`, `opportunity`, `deal`, `technicals`, `fundamentals`
+
+> Coverage as of 2026-05-28
+
 ## PRISMA
 npx prisma db pull
 npx prisma generate
