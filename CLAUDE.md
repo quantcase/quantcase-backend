@@ -68,7 +68,7 @@ The pipeline processes earnings calls through three progressive layers:
 |-------|-------|-------------|-----------------|
 | Raw | `earnings_calls` | All ingested calls | **1,991** |
 | L1 | `extracted_signals` | Signal extraction (metrics, KPIs, flags) | **1,948** |
-| L2 | `lens_scores` | Lens scoring / z-score aggregation | **550** |
+| L2 | `lens_scores` | Lens scoring / z-score aggregation | **680** |
 | L3 | `ai_insights` | AI narrative insights (management/opportunity/deal) | **743** |
 
 **L3 types breakdown**: management (743), opportunity (743), deal (741), technicals (111), fundamentals (24), nse_industry (13), overview (6), drhp-analysis (1)

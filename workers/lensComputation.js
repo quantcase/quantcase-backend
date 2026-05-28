@@ -18,7 +18,7 @@ async function processLensComputationJob(job) {
 
 const worker = new Worker('lens_computation', processLensComputationJob, {
   connection,
-  concurrency: 25,
+  concurrency: 50,
   limiter: { max: 30, duration: 1000 },
 });
 

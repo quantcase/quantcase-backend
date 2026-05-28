@@ -40,7 +40,7 @@ const enqueueAnalysis = asyncHandler(async (req, res) => {
   const { callId, types, forceRefresh } = req.body;
   if (!callId) return res.status(400).json({ success: false, error: 'callId is required' });
 
-  const requestedTypes = Array.isArray(types) ? types : ['management', 'opportunity'];
+  const requestedTypes = Array.isArray(types) ? types : ['management', 'opportunity', 'deal'];
   const validTypes = requestedTypes
     .map(t => String(t).trim().toLowerCase())
     .filter(t => VALID_TYPES.has(t));

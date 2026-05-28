@@ -50,62 +50,38 @@ async function enqueueAnalysis(callId) {
 }
 
 async function main() {
-  const rows = await prisma.earnings_calls.groupBy({
-    by: ['company'],
-    where: {
-      OR: [
-        { transcript_text: { not: null }, NOT: { transcript_text: '' } },
-        { ppt_text: { not: null }, NOT: { ppt_text: '' } },
-      ],
-    },
-    _count: { company: true },
-    orderBy: { _count: { company: 'desc' } },
+  // Source of truth for L3 is L2 (lens_scores), not earnings_calls.
+  // Pick the latest non-stale call_id per ticker by sorting on the embedded FY/Q in call_id.
+  const rows = await prisma.lensScore.groupBy({
+    by: ['ticker'],
+    where: { is_stale: false, ticker: { not: '' } },
+    _count: { ticker: true },
+    orderBy: { _count: { ticker: 'desc' } },
   });
 
-  const companies = rows.map((r) => r.company);
-  console.log(`\nFound ${companies.length} unique companies — dispatching L3 for latest quarter only.\n`);
+  const tickers = rows.map((r) => r.ticker);
+  console.log(`\nFound ${tickers.length} unique tickers in L2 — dispatching L3 for latest quarter only.\n`);
 
   console.log(
-    'Company'.padEnd(16),
+    'Ticker'.padEnd(20),
     'Latest Call ID'.padEnd(40),
-    'Company Name'.padEnd(30),
-    'FY'.padEnd(8),
-    'Q'.padEnd(4),
-    'Date'
   );
-  console.log('-'.repeat(120));
+  console.log('-'.repeat(62));
 
   const latest = [];
-  for (const symbol of companies) {
-    const call = await prisma.earnings_calls.findFirst({
-      where: {
-        company: symbol,
-        OR: [
-          { transcript_text: { not: null }, NOT: { transcript_text: '' } },
-          { ppt_text: { not: null }, NOT: { ppt_text: '' } },
-        ],
-      },
-      select: {
-        id: true,
-        company: true,
-        company_name: true,
-        fiscal_year: true,
-        quarter: true,
-        call_date: true,
-      },
-      orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
+  for (const ticker of tickers) {
+    const score = await prisma.lensScore.findFirst({
+      where: { ticker, is_stale: false },
+      select: { call_id: true, ticker: true },
+      orderBy: { call_id: 'desc' },
     });
 
-    if (!call) continue;
-    latest.push(call);
+    if (!score) continue;
+    latest.push(score);
 
     console.log(
-      (call.company ?? '').padEnd(16),
-      (call.id ?? '').padEnd(40),
-      (call.company_name ?? '').padEnd(30),
-      (call.fiscal_year ?? '').padEnd(8),
-      (call.quarter ?? '').padEnd(4),
-      call.call_date ?? ''
+      (score.ticker  ?? '').padEnd(20),
+      (score.call_id ?? '').padEnd(40),
     );
   }
 
@@ -120,7 +96,7 @@ async function main() {
   console.log(`Types: ${TYPES.join(', ')}${forceRefresh ? '  [force-refresh ON]' : ''}\n`);
 
   for (let i = 0; i < latest.length; i++) {
-    await enqueueAnalysis(latest[i].id);
+    await enqueueAnalysis(latest[i].call_id);
     if (i < latest.length - 1) await sleep(2000);
   }
 
