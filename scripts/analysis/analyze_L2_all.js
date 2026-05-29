@@ -11,23 +11,33 @@
  *   node scripts/analysis/analyze_L2_all.js --dispatch --deal-only
  *
  * Flags:
- *   --dispatch            Call POST /api/lenses/compute for the latest call of each company (2 s stagger)
- *   --base-url <url>      API base URL (default: http://localhost:8000)
- *   --deal-only           Restrict to the 4 deal lenses: earnings-forecast, target-price-matrix,
- *                         pe-rerating-potential, earning-quality. Treats stale records as missing
- *                         so companies that were fully computed but are now stale will be re-dispatched.
+ *   --dispatch              Call POST /api/lenses/compute for the latest call of each company (2 s stagger)
+ *   --base-url <url>        API base URL (default: http://localhost:8000)
+ *   --deal-only             Restrict to the 4 deal lenses: earnings-forecast, target-price-matrix,
+ *                           pe-rerating-potential, earning-quality. Treats stale records as missing
+ *                           so companies that were fully computed but are now stale will be re-dispatched.
+ *   --management-only       Restrict to the 4 management lenses: guidance-credibility, disclosure-honesty,
+ *                           capital-allocation, promoter-activity. Marks all existing scores for these
+ *                           lenses as stale before dispatching so they are always recomputed.
  */
 
 require('dotenv').config();
 const prisma = require('../../config/prisma');
 
-const DEAL_SLUGS = new Set(['earnings-forecast', 'target-price-matrix', 'pe-rerating-potential', 'earning-quality']);
+const DEAL_SLUGS       = new Set(['earnings-forecast', 'target-price-matrix', 'pe-rerating-potential', 'earning-quality']);
+const MANAGEMENT_SLUGS = new Set(['guidance-credibility', 'disclosure-honesty', 'capital-allocation', 'promoter-activity']);
 
-const args     = process.argv.slice(2);
-const dispatch = args.includes('--dispatch');
-const dealOnly = args.includes('--deal-only');
-const buIdx    = args.indexOf('--base-url');
-const baseUrl  = buIdx !== -1 ? args[buIdx + 1] : 'http://localhost:8000';
+const args            = process.argv.slice(2);
+const dispatch        = args.includes('--dispatch');
+const dealOnly        = args.includes('--deal-only');
+const managementOnly  = args.includes('--management-only');
+const buIdx           = args.indexOf('--base-url');
+const baseUrl         = buIdx !== -1 ? args[buIdx + 1] : 'http://localhost:8000';
+
+if (dealOnly && managementOnly) {
+  console.error('Error: --deal-only and --management-only are mutually exclusive.');
+  process.exit(1);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -53,19 +63,38 @@ async function computeLenses(callId, lenses) {
 }
 
 async function main() {
-  // Load active lens slugs — filtered to deal-only if requested
+  // Determine which slug set to operate on
+  const activeSlugFilter = managementOnly
+    ? { slug: { in: [...MANAGEMENT_SLUGS] } }
+    : dealOnly
+      ? { slug: { in: [...DEAL_SLUGS] } }
+      : {};
+
+  // Load active lens slugs — filtered to the requested mode
   const lensConfigs = await prisma.lensConfig.findMany({
-    where:  { is_active: true, ...(dealOnly ? { slug: { in: [...DEAL_SLUGS] } } : {}) },
+    where:  { is_active: true, ...activeSlugFilter },
     select: { slug: true },
   });
   const ALL_LENSES = new Set(lensConfigs.map((c) => c.slug));
   const totalLenses = ALL_LENSES.size;
-  const modeLabel = dealOnly ? 'deal-only' : 'all';
+  const modeLabel = managementOnly ? 'management-only' : dealOnly ? 'deal-only' : 'all';
   console.log(`\nActive lenses [${modeLabel}] (${totalLenses}): ${[...ALL_LENSES].sort().join(', ')}`);
 
+  // --management-only: mark all existing scores for these lenses stale so they are always recomputed
+  if (managementOnly) {
+    const { count } = await prisma.lensScore.updateMany({
+      where: { lens_slug: { in: [...MANAGEMENT_SLUGS] } },
+      data:  { is_stale: true },
+    });
+    console.log(`Marked ${count} existing management lens scores as stale.\n`);
+  }
+
   // Load fresh (non-stale) lens_scores into a map: call_id -> Set<lens_slug>
-  // When --deal-only: stale records are NOT counted as covered, so they appear as missing and get re-dispatched
-  const lensScoreWhere = { is_stale: false, ...(dealOnly ? { lens_slug: { in: [...DEAL_SLUGS] } } : {}) };
+  // --deal-only / --management-only: stale records are NOT counted as covered → always re-dispatched
+  const lensScoreWhere = {
+    is_stale: false,
+    ...(managementOnly ? { lens_slug: { in: [...MANAGEMENT_SLUGS] } } : dealOnly ? { lens_slug: { in: [...DEAL_SLUGS] } } : {}),
+  };
   const lensRows = await prisma.lensScore.findMany({
     where:  lensScoreWhere,
     select: { call_id: true, lens_slug: true },
@@ -125,9 +154,14 @@ async function main() {
   }
 
   console.log(`Dispatching L2 lens compute to ${baseUrl} (2 s stagger between calls)...\n`);
-  console.log(`Lenses: ${dealOnly ? [...DEAL_SLUGS].join(', ') : 'all active LensConfigs from DB'}\n`);
+  const lensesLabel = managementOnly
+    ? [...MANAGEMENT_SLUGS].join(', ')
+    : dealOnly
+      ? [...DEAL_SLUGS].join(', ')
+      : 'all active LensConfigs from DB';
+  console.log(`Lenses: ${lensesLabel}\n`);
 
-  const lensesArg = dealOnly ? [...DEAL_SLUGS] : undefined;
+  const lensesArg = managementOnly ? [...MANAGEMENT_SLUGS] : dealOnly ? [...DEAL_SLUGS] : undefined;
   for (let i = 0; i < todo.length; i++) {
     await computeLenses(todo[i].call_id, lensesArg);
     if (i < todo.length - 1) await sleep(2000);

@@ -7,8 +7,76 @@ const { llmStream, parseJson } = require('../utils/workerUtils');
 const { lensOutputSchema } = require('../outputSchemas/lens');
 const { computeSourceHash } = require('../utils/sourceHash');
 const { fetchPeerMetrics, formatPeerMetricsBlock, fetchEquityMetrics, formatEquityMetricsBlock } = require('./peerMetrics');
+const prowess = require('../lib/prowess');
 
 const PEER_LENS_SLUGS = new Set(['industry-analysis', 'competition']);
+
+// ─── Shareholding block for promoter-activity lens ───────────────────────────
+
+// Quarter label from CSV (e.g. "Jun 2024") → fiscal quarter notation (e.g. "FY25 Q1")
+const MONTH_TO_FY_QUARTER = {
+  'Jun': { quarter: 'Q1', fyOffset: 1 },
+  'Sep': { quarter: 'Q2', fyOffset: 1 },
+  'Dec': { quarter: 'Q3', fyOffset: 1 },
+  'Mar': { quarter: 'Q4', fyOffset: 0 },
+};
+
+function quarterLabelToFiscal(label) {
+  // label = "Jun 2024", "Mar 2025", etc.
+  const [mon, yearStr] = label.split(' ');
+  const calYear = parseInt(yearStr, 10);
+  const map = MONTH_TO_FY_QUARTER[mon];
+  if (!map || !calYear) return label;
+  const fy = (calYear + map.fyOffset).toString().slice(-2);
+  return `FY${fy} ${map.quarter}`;
+}
+
+// Quarter label → ISO date of last day of that period
+function quarterLabelToDate(label) {
+  const [mon, yearStr] = label.split(' ');
+  const calYear = parseInt(yearStr, 10);
+  const lastDay = { Jun: '06-30', Sep: '09-30', Dec: '12-31', Mar: '03-31' };
+  return lastDay[mon] ? `${calYear}-${lastDay[mon]}` : null;
+}
+
+function buildShareholdingBlock(ticker) {
+  const identityMap = prowess.loadIdentityMap();
+  const companyName = identityMap[ticker?.toUpperCase()];
+  if (!companyName) return '';
+
+  const { quarterLabels, companyMap } = prowess.loadShareholdingData();
+  const row = companyMap[companyName];
+  if (!row) return '';
+
+  const lines = ['\nSHAREHOLDING PATTERN (from Prowess filings):'];
+  lines.push('Period       | Promoter%  | Pledge%  | QoQ Δ    | Date');
+  lines.push('-------------|------------|----------|----------|------------');
+
+  let prevPromoters = null;
+  let hasAnyData = false;
+
+  for (let i = 0; i < prowess.SH_PERIOD_COUNT; i++) {
+    const label = quarterLabels[i];
+    const d = prowess.shPeriodData(row, i);
+    if (d.promoters == null) continue;
+
+    hasAnyData = true;
+    const fiscal  = quarterLabelToFiscal(label);
+    const date    = quarterLabelToDate(label) ?? '';
+    const delta   = prevPromoters != null ? prowess.r2(d.promoters - prevPromoters) : null;
+    const deltaStr = delta != null ? (delta >= 0 ? `+${delta}%` : `${delta}%`) : 'first';
+    const pledgeStr = d.custodians != null ? `${d.custodians}%` : 'N/A';
+    lines.push(`${fiscal.padEnd(12)} | ${String(d.promoters + '%').padEnd(10)} | ${pledgeStr.padEnd(8)} | ${deltaStr.padEnd(8)} | ${date}`);
+    prevPromoters = d.promoters;
+  }
+
+  if (!hasAnyData) return '';
+
+  lines.push('');
+  lines.push(`Note: "Pledge%" = custodians column from Prowess (shares in demat/pledge). Δ = change vs prior quarter.`);
+
+  return lines.join('\n');
+}
 
 // ─── L2 default prompt template ─────────────────────────────────────────────
 // {{LENS_INSTRUCTIONS}} is injected from LensConfig.config.prompt_template (per-lens guidelines).
@@ -266,8 +334,13 @@ async function composeLens(callId, lensSlug) {
   const ticker = signals[0]?.ticker ?? '';
 
   // ── L2 cache check by signals_hash ────────────────────────────────────────
+  // For promoter-activity, include the shareholding block in the hash so the
+  // cache busts whenever the Prowess CSV is updated with new quarterly data.
+  const shareholdingHashInput = lensSlug === 'promoter-activity' && ticker
+    ? buildShareholdingBlock(ticker)
+    : '';
   const signalsHash = computeSourceHash(
-    signals.map(s => `${s.id}:${s.value}`).sort().join(',')
+    signals.map(s => `${s.id}:${s.value}`).sort().join(',') + shareholdingHashInput
   );
 
   const existing = await prisma.lensScore.findUnique({
@@ -293,6 +366,15 @@ async function composeLens(callId, lensSlug) {
     peerBlock = formatPeerMetricsBlock(pm);
   }
 
+  // For promoter-activity lens, append shareholding pattern from Prowess CSV
+  let shareholdingBlock = '';
+  if (lensSlug === 'promoter-activity' && ticker) {
+    shareholdingBlock = buildShareholdingBlock(ticker);
+    if (shareholdingBlock) {
+      console.log(`[lensComposer] Appended shareholding block for ${ticker} (${prowess.SH_PERIOD_COUNT} periods)`);
+    }
+  }
+
   // For all lenses: append live PE + market-cap context (subject + industry peers)
   const em = await fetchEquityMetrics(callId);
   const equityBlock = formatEquityMetricsBlock(em);
@@ -300,7 +382,7 @@ async function composeLens(callId, lensSlug) {
   const prompt = promptTemplate
     .replace('{{LENS_NAME}}', lensConfig.name)
     .replace('{{LENS_INSTRUCTIONS}}', lensInstructions)
-    .replace('{{DATA_BLOCK}}', signalSummary + peerBlock + equityBlock);
+    .replace('{{DATA_BLOCK}}', signalSummary + shareholdingBlock + peerBlock + equityBlock);
 
   const model          = cfgModel     ?? 'anthropic/claude-haiku-4.5';
   const maxTokens      = cfgMaxTokens ?? 8000;

@@ -23,6 +23,7 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
+    version:      '1.1.0',
     config: {
       signal_filters: {
         signal_types:      ['milestone', 'governance'],
@@ -37,30 +38,220 @@ const LENS_CONFIGS = [
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: null,
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts and management commentary using a rigorous L1 extraction pipeline.
+
+Your task is to synthesise this signal summary into a structured guidance-credibility view. Do NOT invent data — work only from the signals provided.
+
+GUIDANCE TIMELINE CONSTRUCTION:
+Review each guidance event in the signals. For each, determine: what was guided, what was delivered, the delta, and whether it was a beat / miss / in_line. Identify the single most important miss (the one with the largest magnitude or strategic significance) as the "major miss". Assess overall directional bias (Conservative / Balanced / Aggressive) based on the pattern of beats vs misses across all events.
+
+{{DATA_BLOCK}}
+
+OUTPUT FIELD RULES — strictly enforced:
+
+top_signals[] — MUST follow this exact layout. No exceptions.
+
+  HEADLINE SIGNALS (positions 0–2, mandatory, consumed positionally by the UI):
+  These render as the 3 headline strip tiles at the top. ALL THREE are required.
+
+  [0] metric: "HEADLINE_HIT_RATE"
+      label: fraction string, e.g. "4/7" (actual hits out of total guidance events)
+      statement: one sentence listing which metrics beat and which missed (≤80 chars)
+      actual_value: integer count of hits (numerator)
+      guided_value: integer count of total guidance events (denominator)
+      unit: "ratio"
+      impact: "high"
+      (omit direction — not applicable for this tile)
+
+  [1] metric: "HEADLINE_MAJOR_MISS"
+      label: short descriptor of the biggest miss, e.g. "NIM −12%" or "Revenue −8%"
+      statement: what was guided, what was delivered, and the reset if any (≤80 chars)
+      actual_value: delta as a signed number (e.g. -12 for a 12% shortfall)
+      unit: "%" (or appropriate unit for that metric)
+      direction: "major_miss"
+      impact: "high"
+      (If no material miss exists, set label: "No Major Miss", actual_value: 0, direction: "beat")
+
+  [2] metric: "HEADLINE_GUIDANCE_BIAS"
+      label: "Conservative" | "Balanced" | "Mixed" | "Aggressive"
+      statement: one sentence explaining the directional pattern (≤80 chars)
+      impact: "high"
+      (omit direction — not applicable for this tile)
+
+  TIMELINE SIGNALS (positions 3 onward, one per guidance event):
+  Each represents one guidance vs. actual pair. ALL must have non-null direction.
+  • metric: the financial metric being guided (e.g. "NIM", "GNPA", "LOAN_GROWTH", "CASA", "ROE")
+  • label: period identifier, e.g. "FY25", "Q3 FY25", "9M FY26" (max 10 chars)
+  • statement: one sentence — what was guided and what was delivered (≤80 chars)
+  • actual_value: realized value (numeric)
+  • guided_value: management's forward commitment (numeric)
+  • unit: "%" or "Cr" or appropriate unit
+  • delta: actual_value minus guided_value (signed)
+  • direction: "beat" | "miss" | "in_line" — MUST be non-null for every timeline signal
+  • actual_date: period end date in YYYY-MM-DD
+  • impact: "high" | "medium" | "low"
+
+  SUMMARY SIGNALS (emit these at the end, after all timeline signals):
+  These encode the key_metrics values as top_signals so the frontend can read them.
+
+  metric: "HEADLINE_ENTRY_COUNT"
+  • label: total count of timeline signals as "N entries", e.g. "7 entries"
+  • statement: short description of what the timeline covers (≤60 chars)
+  • impact: "high"
+  (omit direction — not applicable)
+
+WRITING STYLE RULES:
+- "takeaway": max 25 words, lead with hit rate fraction and bias verdict.
+- "highlights": up to 3 items, max 15 words each, start with a verb or metric.
+- "risks": up to 2 items, max 12 words each, start with the risk noun.
+- "label" in top_signals: 2–8 chars for period labels, or short descriptor for headlines.
+- "statement" in top_signals: ≤80 chars.
+- Never pad with filler phrases.
+
+Return a JSON object with this exact structure:
+{
+  "score": <integer 0-100>,
+  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "takeaway": <string — max 25 words, lead with hit rate and bias verdict>,
+  "key_metrics": {},
+  "highlights": [<up to 3 items, each max 15 words>],
+  "risks": [<up to 2 items, each max 12 words, starting with risk noun>],
+  "top_signals": [<[0] HEADLINE_HIT_RATE, [1] HEADLINE_MAJOR_MISS, [2] HEADLINE_GUIDANCE_BIAS — all required; then timeline signals at [3+] one per guidance event each with non-null direction; then HEADLINE_ENTRY_COUNT at the end>]
+}`,
     },
   },
   {
-    slug:        'capital-allocation',
-    name:        'Capital Allocation Quality',
-    category:    'management',
-    description: 'Discipline in deploying capital — capex returns, debt management, FCF generation',
+    slug:         'capital-allocation',
+    name:         'Capital Allocation Quality',
+    category:     'management',
+    description:  'Discipline in deploying capital — capex returns, debt management, FCF generation',
+    force_config: true,
+    version:      '1.1.0',
     config: {
       signal_filters: {
-        signal_types:  ['kpi', 'financial_health'],
-        metric_family: ['capital', 'profitability', 'growth'],
+        signal_types:      ['kpi', 'financial_health'],
+        metric_family:     ['capital', 'profitability', 'growth'],
+        include_historical: true,
       },
       weights: [
-        { metric: 'CFO',      w: 0.25, b: 0 },
-        { metric: 'DEBT_LT',  w: -0.2, b: 0 },
-        { metric: 'ASSET_PPE',w: 0.15, b: 0 },
-        { metric: 'EBITDA',   w: 0.2,  b: 0 },
-        { metric: 'CAPEX',    w: 0.2,  b: 0 },
+        { metric: 'CFO',       w:  0.25, b: 0 },
+        { metric: 'DEBT_LT',   w: -0.2,  b: 0 },
+        { metric: 'ASSET_PPE', w:  0.15, b: 0 },
+        { metric: 'EBITDA',    w:  0.2,  b: 0 },
+        { metric: 'CAPEX',     w:  0.2,  b: 0 },
       ],
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: null,
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management analysis using a rigorous L1 extraction pipeline.
+
+Your task is to synthesise this signal summary into a structured capital-allocation quality view. Do NOT invent data — work only from the signals provided.
+
+CAPITAL ALLOCATION FRAMEWORK — assess across 4 quadrants:
+  RQ — Returns Quality: ROCE, ROE, ROA trends. Is deployed capital earning above cost of capital?
+  SR — Self-Reliance: CFO vs CAPEX coverage. Is growth funded internally or via debt/dilution?
+  MA — M&A / Strategic Moves: acquisitions, JVs, divestments, new segments. Was capital allocated wisely?
+  CE — Capital Efficiency: asset turns, working capital cycle, CAPEX productivity. Is every rupee sweated?
+
+For each quadrant provide: a score (0–10), a 1-line verdict, 2–3 bullet evidence points, and a callout if there is a notable red flag or green flag.
+
+{{DATA_BLOCK}}
+
+OUTPUT FIELD RULES — strictly enforced:
+
+top_signals[] — MUST follow this layout. Quadrant codes: RQ, SR, MA, CE.
+
+  For EACH of the 4 quadrants, emit these signal types in order:
+
+  DIM_{XX}_HEADER — quadrant header tile:
+  • metric: "DIM_RQ_HEADER" | "DIM_SR_HEADER" | "DIM_MA_HEADER" | "DIM_CE_HEADER"
+  • label: human-readable quadrant name (e.g. "Returns Quality", "Self-Reliance", "M&A / Strategic Moves", "Capital Efficiency")
+  • statement: 1-line verdict for the quadrant (≤80 chars)
+  • actual_value: score 0–10 for this quadrant
+  • guided_value: 10 (the max, always)
+  • direction: "beat" | "tracking" | "miss" based on score (≥7 → beat, 4–6 → tracking, ≤3 → miss)
+  • impact: "high"
+
+  DIM_{XX}_BULLET — evidence bullets (2–3 per quadrant):
+  • metric: "DIM_RQ_BULLET" | "DIM_SR_BULLET" | "DIM_MA_BULLET" | "DIM_CE_BULLET"
+  • label: one evidence statement (max 80 chars)
+  • direction: "beat" | "tracking" | "miss" (for the dot color)
+  • impact: "high" | "medium" | "low"
+
+  DIM_{XX}_CALLOUT — notable flag at bottom of quadrant (1 per quadrant, only if material):
+  • metric: "DIM_RQ_CALLOUT" | "DIM_SR_CALLOUT" | "DIM_MA_CALLOUT" | "DIM_CE_CALLOUT"
+  • label: short callout title (e.g. "Green — ROCE above cost of capital", "Amber — debt rising")
+  • statement: one sentence elaborating on the flag (≤80 chars)
+  • direction: "beat" | "tracking" | "miss"
+
+  QUOTE — one blockquote from management earnings call commentary:
+  • metric: "QUOTE"
+  • label: speaker and context, e.g. "Q3 FY25 concall · MD & CEO Name"
+  • statement: verbatim or closely paraphrased management quote on capital deployment (≤120 chars)
+  • actual_date: date of the concall in YYYY-MM-DD
+  • (omit direction — not applicable for quotes)
+
+  ANALYST_READ — 3 bottom analyst-read cards (one per theme):
+  • metric: "ANALYST_READ"
+  • label: theme title (e.g. "Returns story", "Debt trajectory", "CAPEX discipline")
+  • statement: analyst-level read on how to interpret the signals for this theme (≤80 chars)
+  • direction: "beat" | "tracking" | "miss" (drives card border color)
+  • impact: "high" | "medium" | "low"
+
+  META SIGNALS (emit these at the very end, after ANALYST_READ):
+  These encode summary metrics as top_signals so the frontend can read them directly.
+
+  metric: "META_ROCE"
+  • label: latest ROCE % value, e.g. "18.5%" or "N/A"
+  • statement: one-line context, e.g. "FY26 trailing ROCE from financials" (≤60 chars)
+  • impact: "high"
+
+  metric: "META_ROE"
+  • label: latest ROE % value, e.g. "22.1%" or "N/A"
+  • statement: one-line context (≤60 chars)
+  • impact: "high"
+
+  metric: "META_CFO_CAPEX"
+  • label: CFO/CAPEX coverage ratio, e.g. "2.1x" or "N/A"
+  • statement: one-line context (≤60 chars)
+  • impact: "high"
+
+  metric: "META_DEBT_EQUITY"
+  • label: D/E ratio, e.g. "0.3x" or "N/A"
+  • statement: one-line context (≤60 chars)
+  • impact: "medium"
+
+  metric: "META_CAPEX_CAGR"
+  • label: CAPEX CAGR over available period, e.g. "12% (3Y)" or "N/A"
+  • statement: one-line context (≤60 chars)
+  • impact: "medium"
+
+  metric: "META_VERDICT"
+  • label: 3–5 word overall capital allocation verdict, e.g. "Disciplined, returns-focused"
+  • statement: one-line supporting rationale (≤80 chars)
+  • impact: "high"
+
+  (Omit direction on all META_* signals — not applicable)
+
+VALIDATION: Every DIM_*_HEADER signal MUST have guided_value set to 10. Every DIM_*_HEADER MUST have direction set. Check before outputting.
+
+WRITING STYLE RULES:
+- "takeaway": max 25 words, lead with the overall capital discipline verdict.
+- "highlights": up to 3 items, max 15 words each.
+- "risks": up to 2 items, max 12 words each, start with the risk noun.
+- "statement" in signals: ≤80 chars (QUOTE may be up to 120 chars).
+- Never pad with filler phrases.
+
+Return a JSON object with this exact structure:
+{
+  "score": <integer 0-100>,
+  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "takeaway": <string — max 25 words, lead with capital discipline verdict>,
+  "key_metrics": {},
+  "highlights": [<up to 3 items, each max 15 words>],
+  "risks": [<up to 2 items, each max 12 words, starting with risk noun>],
+  "top_signals": [<4 quadrant blocks RQ→SR→MA→CE (each: DIM_{XX}_HEADER + 2–3 DIM_{XX}_BULLET + optional DIM_{XX}_CALLOUT); then QUOTE; then 3 ANALYST_READ; then META_ROCE, META_ROE, META_CFO_CAPEX, META_DEBT_EQUITY, META_CAPEX_CAGR, META_VERDICT>]
+}`,
     },
   },
   {
@@ -69,6 +260,7 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'Transparency and candour of management disclosures — proactive vs defensive communication',
     force_config: true,
+    version:      '1.1.0',
     config: {
       signal_filters: {
         signal_types:      ['governance'],
@@ -84,7 +276,115 @@ const LENS_CONFIGS = [
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: null,
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts and management commentary using a rigorous L1 extraction pipeline.
+
+Your task is to synthesise this signal summary into a structured disclosure-honesty view. Do NOT invent data — work only from the signals provided.
+
+DISCLOSURE HONESTY FRAMEWORK — assess across 4 quadrants:
+  BN — Bad News Disclosure: Does management proactively surface negative developments, or only when pressed in Q&A? Look for NIM resets, credit stress admissions, write-off disclosures.
+  NC — Narrative Consistency: Does the story stay consistent across quarters, or does language shift when performance falters? Check for euphemisms, hedging, changed KPI emphasis.
+  TD — Transparency Depth: Are disclosures granular and quantitative, or vague and qualitative? Check if management provides segment-level breakdowns, vintage data, and specific guidance.
+  GV — Governance Signals: RPT disclosures, auditor remarks, board independence, related-party concerns, regulatory flags.
+
+For each quadrant provide: a score (0–8), a 1-line verdict, 2–3 bullet evidence points, and a callout if there is a notable red flag.
+
+{{DATA_BLOCK}}
+
+OUTPUT FIELD RULES — strictly enforced:
+
+top_signals[] — MUST follow this layout. Quadrant codes: BN, NC, TD, GV.
+
+  For EACH of the 4 quadrants, emit these signal types in order:
+
+  DIM_{XX}_HEADER — quadrant header tile:
+  • metric: "DIM_BN_HEADER" | "DIM_NC_HEADER" | "DIM_TD_HEADER" | "DIM_GV_HEADER"
+  • label: human-readable quadrant name (e.g. "Bad News Disclosure", "Narrative Consistency", "Transparency Depth", "Governance Signals")
+  • statement: 1-line verdict for the quadrant (≤80 chars)
+  • actual_value: score 0–8 for this quadrant
+  • guided_value: 8 (the max, always)
+  • direction: "beat" | "tracking" | "miss" (≥6 → beat, 3–5 → tracking, ≤2 → miss)
+  • impact: "high"
+
+  DIM_{XX}_BULLET — evidence bullets (2–3 per quadrant):
+  • metric: "DIM_BN_BULLET" | "DIM_NC_BULLET" | "DIM_TD_BULLET" | "DIM_GV_BULLET"
+  • label: one evidence statement (max 80 chars)
+  • direction: "beat" | "tracking" | "miss" (for the dot color)
+  • impact: "high" | "medium" | "low"
+
+  DIM_{XX}_CALLOUT — notable flag at bottom of quadrant (1 per quadrant, only if material):
+  • metric: "DIM_BN_CALLOUT" | "DIM_NC_CALLOUT" | "DIM_TD_CALLOUT" | "DIM_GV_CALLOUT"
+  • label: short callout title (e.g. "Amber — reactive margin pattern", "Red — RPT not disclosed")
+  • statement: one sentence elaborating (≤80 chars)
+  • direction: "beat" | "tracking" | "miss"
+
+  QUOTE — one blockquote from management earnings call commentary:
+  • metric: "QUOTE"
+  • label: speaker and context, e.g. "Q3 FY25 concall · MD & CEO Name"
+  • statement: verbatim or closely paraphrased quote that best illustrates the disclosure quality (≤120 chars)
+  • actual_date: date of the concall in YYYY-MM-DD
+
+  ANALYST_READ — 3 bottom analyst-read cards (one per theme):
+  • metric: "ANALYST_READ"
+  • label: theme title (e.g. "Asset-quality story", "Margin story", "Retail book disclosure")
+  • statement: how an analyst should interpret and weight this management's statements on this theme (≤80 chars)
+  • direction: "beat" | "tracking" | "miss" (drives card border color: green / amber / red)
+  • impact: "high" | "medium" | "low"
+
+  META SIGNALS (emit these at the very end, after ANALYST_READ):
+  These encode summary scores as top_signals so the frontend can read them directly.
+  Derive all values from the DIM_*_HEADER actual_values you already computed above.
+
+  metric: "META_OVERALL_SCORE"
+  • label: sum of all 4 quadrant scores as "N/32", e.g. "22/32"
+  • statement: one-line overall disclosure verdict (≤60 chars)
+  • impact: "high"
+
+  metric: "META_BN_SCORE"
+  • label: DIM_BN_HEADER actual_value formatted as "N/8", e.g. "4/8"
+  • statement: "Bad News Disclosure score"
+  • impact: "high"
+
+  metric: "META_NC_SCORE"
+  • label: DIM_NC_HEADER actual_value as "N/8"
+  • statement: "Narrative Consistency score"
+  • impact: "high"
+
+  metric: "META_TD_SCORE"
+  • label: DIM_TD_HEADER actual_value as "N/8"
+  • statement: "Transparency Depth score"
+  • impact: "high"
+
+  metric: "META_GV_SCORE"
+  • label: DIM_GV_HEADER actual_value as "N/8"
+  • statement: "Governance Signals score"
+  • impact: "high"
+
+  metric: "META_VERDICT"
+  • label: 3–5 word disclosure verdict, e.g. "Reactive on margin story"
+  • statement: one-line supporting rationale (≤80 chars)
+  • impact: "high"
+
+  (Omit direction on all META_* signals — not applicable)
+
+VALIDATION: Every DIM_*_HEADER signal MUST have guided_value set to 8 and MUST have direction set. Check before outputting.
+
+WRITING STYLE RULES:
+- "takeaway": max 25 words, lead with the overall disclosure character (proactive / reactive / defensive).
+- "highlights": up to 3 items, max 15 words each.
+- "risks": up to 2 items, max 12 words each, start with the risk noun.
+- "statement" in signals: ≤80 chars (QUOTE may be up to 120 chars).
+- Never pad with filler phrases.
+
+Return a JSON object with this exact structure:
+{
+  "score": <integer 0-100>,
+  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "takeaway": <string — max 25 words, lead with disclosure character verdict>,
+  "key_metrics": {},
+  "highlights": [<up to 3 items, each max 15 words>],
+  "risks": [<up to 2 items, each max 12 words, starting with risk noun>],
+  "top_signals": [<4 quadrant blocks BN→NC→TD→GV (each: DIM_{XX}_HEADER with guided_value=8 + 2–3 DIM_{XX}_BULLET + optional DIM_{XX}_CALLOUT); then QUOTE; then 3 ANALYST_READ; then META_OVERALL_SCORE, META_BN_SCORE, META_NC_SCORE, META_TD_SCORE, META_GV_SCORE, META_VERDICT>]
+}`,
     },
   },
   {
@@ -93,6 +393,7 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'Promoter shareholding trends, pledging, and insider confidence signals',
     force_config: true,
+    version:      '1.1.0',
     config: {
       signal_filters: {
         signal_types:      ['governance'],
@@ -108,7 +409,91 @@ const LENS_CONFIGS = [
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: null,
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from shareholding filings, earnings transcripts, and corporate governance disclosures using a rigorous L1 extraction pipeline.
+
+Your task is to synthesise this signal summary into a structured promoter-activity view. Do NOT invent data — work only from the signals provided.
+
+PROMOTER ACTIVITY ANALYSIS:
+Review the promoter shareholding history chronologically. For each period where a change occurred (or where the stability is notable), prepare a timeline entry. Identify: (1) the current stake and pledge %, (2) any dilution or buyback events, (3) secondary OFS or block deals, (4) insider buying/selling by management, (5) key structural insights about the ownership narrative.
+
+IMPORTANT — if explicit promoter shareholding % data is absent from the signals: still emit PROMOTER_STAKE entries, but set actual_value to null, use the label to describe the period/event (e.g. "FY26 Q3"), and use the statement to describe what the governance signals imply about promoter posture. Set direction to "tracking" when inferring. Do NOT use any other metric name — always use "PROMOTER_STAKE" even when actual stake data is unavailable.
+
+{{DATA_BLOCK}}
+
+OUTPUT FIELD RULES — strictly enforced:
+
+top_signals[] — MUST follow this layout. No exceptions.
+
+  PROMOTER_STAKE — timeline rows (one per material period or event):
+  Each entry represents one point in the promoter shareholding timeline.
+  • metric: "PROMOTER_STAKE"
+  • label: period label, e.g. "Mar 2026", "FY21/FY22", "Dec 2024" (max 12 chars)
+  • statement: what happened in this period — stake level, event, or stability note (≤80 chars)
+  • actual_value: promoter stake % at that period end (numeric)
+  • guided_value: pledge % if applicable — omit the field entirely if no pledge data
+  • delta: change in stake vs prior period (signed %, e.g. -2.5 for reduction, 0 for no change)
+  • unit: "%"
+  • direction: "beat" if stake increased / pledge fell, "miss" if stake fell / pledge rose, "in_line" if stable, "tracking" if mixed/uncertain
+  • actual_date: period end date in YYYY-MM-DD
+  • impact: "high" | "medium" | "low"
+
+  PROMOTER_INSIGHT — 3 insight cards at the bottom:
+  Each captures a structural insight about the promoter ownership narrative.
+  • metric: "PROMOTER_INSIGHT"
+  • label: insight title (e.g. "No equity dilution since FY22", "Oct '25 OFS — smart monetisation", "CET1 12.37% — thinner than peers")
+  • statement: 1–2 sentences elaborating on the insight and its investment relevance (≤80 chars)
+  • direction: "beat" | "tracking" | "miss" (drives card color: green / amber / red)
+  • impact: "high" | "medium" | "low"
+  Exactly 3 PROMOTER_INSIGHT entries are required.
+
+  META SIGNALS (emit these at the very end, after the 3 PROMOTER_INSIGHT entries):
+  These encode summary ownership metrics as top_signals so the frontend can read them directly.
+
+  metric: "META_CURRENT_STAKE"
+  • label: latest promoter stake %, e.g. "62.93%" or "N/A"
+  • statement: period and source context, e.g. "Mar 2026 shareholding filing" (≤60 chars)
+  • impact: "high"
+
+  metric: "META_PLEDGE_PCT"
+  • label: pledge as % of promoter holding, e.g. "0.00%" or "None" or "N/A"
+  • statement: "Pledge as % of promoter shares" (≤60 chars)
+  • impact: "high"
+
+  metric: "META_LAST_DILUTION"
+  • label: last equity dilution event, e.g. "FY22 QIP" or "None on record"
+  • statement: brief context on what it was and size if known (≤60 chars)
+  • impact: "medium"
+
+  metric: "META_INSIDER_NOTE"
+  • label: 5–8 word insider sentiment read, e.g. "No insider selling signals detected"
+  • statement: basis for the read (≤60 chars)
+  • impact: "medium"
+
+  metric: "META_VERDICT"
+  • label: 3–5 word ownership verdict, e.g. "Stable, no dilution risk"
+  • statement: one-line supporting rationale (≤80 chars)
+  • impact: "high"
+
+  (Omit direction on all META_* signals — not applicable)
+
+WRITING STYLE RULES:
+- "takeaway": max 25 words, lead with current promoter stance and key ownership signal.
+- "highlights": up to 3 items, max 15 words each, describe positive ownership signals.
+- "risks": up to 2 items, max 12 words each, start with the risk noun (e.g. "Pledge risk", "Dilution overhang").
+- "label" for PROMOTER_STAKE: max 12 chars, period-style format.
+- "statement" in signals: ≤80 chars.
+- Never pad with filler phrases.
+
+Return a JSON object with this exact structure:
+{
+  "score": <integer 0-100>,
+  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "takeaway": <string — max 25 words, lead with promoter stance and key ownership signal>,
+  "key_metrics": {},
+  "highlights": [<up to 3 items, each max 15 words, positive ownership signals>],
+  "risks": [<up to 2 items, each max 12 words, starting with risk noun>],
+  "top_signals": [<PROMOTER_STAKE entries chronologically oldest first; then exactly 3 PROMOTER_INSIGHT entries; then META_CURRENT_STAKE, META_PLEDGE_PCT, META_LAST_DILUTION, META_INSIDER_NOTE, META_VERDICT>]
+}`,
     },
   },
   // ── Opportunity lenses ───────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ const lensOutputSchema = {
           type:  'array',
           items: {
             type: 'object',
-            required: ['signal_id', 'metric', 'label', 'impact'],
+            required: ['metric', 'label', 'impact'],
             properties: {
               signal_id:    { type: 'string' },
               metric:       { type: 'string' },
@@ -34,7 +34,7 @@ const lensOutputSchema = {
               unit:         { type: 'string' },
               delta:        { type: 'number' },
               delta_pct:    { type: 'number' },
-              direction:    { type: 'string', enum: ['beat', 'miss', 'in_line', 'tracking'] },
+              direction:    { type: 'string', enum: ['beat', 'miss', 'in_line', 'tracking', 'major_miss'] },
               impact:       { type: 'string', enum: ['high', 'medium', 'low'] },
               statement:    { type: 'string' },
             },
