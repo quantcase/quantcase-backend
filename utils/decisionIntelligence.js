@@ -146,7 +146,7 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
   },
   "actionBias": "<max 25 words, one crisp actionable sentence combining growth and value lenses>",
   "actionableInsight": {
-    "action": "<Buy | Sell | Hold | Avoid | Ignore>",
+    "action": "<Strong Accumulate | Accumulate | Add | Neutral | Trim | Cut | Exit | Stop | Avoid>",
     "firstShift": "<max 20 words, what the first structural shift to watch for is>",
     "existingHolderAction": "<max 15 words, what existing holders should do>",
     "reEvaluateCondition": "<max 20 words, condition that would trigger re-evaluation>"
@@ -175,13 +175,13 @@ Rules:
 - lens: "Value" if market bias is bearish and price is below 200 SMA, "Growth" if bullish momentum is present
 - idealFor: "Investment" for 6M+ holds, "Positional" for 3-6M, "Swing" for 0-3M
 - timeframe: must match idealFor ("Investment"→"6M+", "Positional"→"3-6M", "Swing"→"0-3M")
-- actionableInsight.action: "Buy" for STRONG_BUY, "Sell" for STRONG_SELL, "Hold" for mild signals, "Avoid" for bearish/distribution, "Ignore" for insufficient data
+- actionableInsight.action: "Strong Accumulate" for STRONG_BUY; "Accumulate" for BUY; "Add" for WEAK_BUY; "Neutral" for mild/mixed signals; "Trim" for WEAK_SELL (partial exit in profit); "Cut" for partial exit at loss; "Exit" for STRONG_SELL; "Stop" for stop-loss triggered; "Avoid" for bearish/distribution or insufficient data
 - whatCanChange: 3-5 specific catalysts that could shift the regime (e.g. "RSI sustains above 40 — momentum recovery")
 - description: max 12 words, no filler
 - actionBias: max 25 words, direct imperative tone
 - strategyViews.growth and strategyViews.value: max 15 words each, no overlap with actionBias
 - riskAlerts: 3-5 items max, each exactly 3-5 words, noun phrases only
-- convictionLevel: High if STRONG_BUY or STRONG_SELL, Medium if BUY or SELL, Low otherwise
+- convictionLevel: High if action is "Strong Accumulate" or "Exit" or "Stop"; Medium if "Accumulate", "Add", "Trim", or "Cut"; Low if "Neutral" or "Avoid"
 - indicators: always exactly 8 objects in the order above
   - tag: 2-5 word summary of indicator state (e.g. "Distribution phase", "Smart money exiting", "Bearish crossover active")
   - explanation: max 20 words, tooltip text explaining the indicator for a non-expert

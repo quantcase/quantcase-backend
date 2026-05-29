@@ -9,6 +9,7 @@ const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash
 const { getIdentity }                      = require('../lib/peerIdentity');
 const { overviewSynthesisPrompt }          = require('../prompts/overview_synthesis');
 const { OVERVIEW_SOURCE_TYPES }            = require('../services/overviewSynthesis.service');
+const { overviewOutputSchema }             = require('../outputSchemas/overview');
 
 // ─── Processor ───────────────────────────────────────────────────────────────
 
@@ -78,8 +79,9 @@ async function processOverviewSynthesisJob(job) {
     console.log('[OverviewSynthesis] Calling LLM...');
     const responseText = await llmStream({
       model,
-      max_tokens: maxTokens,
-      messages:   [{ role: 'user', content: prompt }],
+      max_tokens:      maxTokens,
+      messages:        [{ role: 'user', content: prompt }],
+      response_format: overviewOutputSchema,
     });
     await job.updateProgress(85);
 

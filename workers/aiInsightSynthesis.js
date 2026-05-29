@@ -9,6 +9,7 @@ const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash
 const { composeAllLenses, getLensScores } = require('../services/lensComposer');
 const { aiInsightSynthesisPrompt }         = require('../prompts/ai_insight_synthesis');
 const { INSIGHT_LENSES }                   = require('../lib/insightLenses');
+const { aiInsightOutputSchema }            = require('../outputSchemas/aiInsight');
 
 // ─── Processor ───────────────────────────────────────────────────────────────
 
@@ -81,8 +82,9 @@ async function processAiInsightSynthesisJob(job) {
     console.log('[AiInsightSynthesis] Calling LLM...');
     const responseText = await llmStream({
       model,
-      max_tokens: maxTokens,
-      messages:   [{ role: 'user', content: prompt }],
+      max_tokens:      maxTokens,
+      messages:        [{ role: 'user', content: prompt }],
+      response_format: aiInsightOutputSchema,
     });
     await job.updateProgress(85);
 
