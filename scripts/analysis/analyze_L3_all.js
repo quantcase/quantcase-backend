@@ -32,18 +32,18 @@ const TYPES = ['management', 'opportunity', 'deal'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function enqueueAnalysis(callId) {
+async function enqueueAnalysis(callId, types) {
   const url = `${baseUrl}/api/analysis`;
   try {
     const res = await fetch(url, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ callId, types: TYPES, forceRefresh }),
+      body:    JSON.stringify({ callId, types, forceRefresh }),
     });
     const body = await res.json().catch(() => ({}));
     if (res.ok) {
       const jobIds = (body.jobs ?? []).map(j => j.jobId).join(', ');
-      console.log(`  [OK]  enqueued → ${callId}  (jobs: ${jobIds})`);
+      console.log(`  [OK]  enqueued → ${callId}  types: [${types.join(', ')}]  (jobs: ${jobIds})`);
     } else {
       console.warn(`  [${res.status}] failed → ${callId}  ${JSON.stringify(body)}`);
     }
@@ -95,7 +95,7 @@ async function main() {
       continue; // already fully covered — skip
     }
 
-    todo.push(score);
+    todo.push({ ...score, missingTypes: missingSet });
     console.log(
       (score.ticker  ?? '').padEnd(20),
       (score.call_id ?? '').padEnd(40),
@@ -110,11 +110,15 @@ async function main() {
     return;
   }
 
+  if (fixMissing && !forceRefresh) {
+    console.warn('WARNING: --fix-missing is set but --force-refresh is not. The API may return cached score=0 results. Add --force-refresh to overwrite them.\n');
+  }
+
   console.log(`Dispatching L3 analysis to ${baseUrl} (2 s stagger between calls)...\n`);
-  console.log(`Types: ${TYPES.join(', ')}${forceRefresh ? '  [force-refresh ON]' : ''}\n`);
+  console.log(`Flags: fix-missing=${fixMissing}  force-refresh=${forceRefresh}\n`);
 
   for (let i = 0; i < todo.length; i++) {
-    await enqueueAnalysis(todo[i].call_id);
+    await enqueueAnalysis(todo[i].call_id, todo[i].missingTypes);
     if (i < todo.length - 1) await sleep(2000);
   }
 

@@ -124,7 +124,7 @@ async function processOverviewSynthesisJob(job) {
 
 const worker = new Worker('overview_synthesis', processOverviewSynthesisJob, {
   connection,
-  concurrency: 3,
+  concurrency: 25,
   limiter: { max: 5, duration: 1000 },
 });
 
