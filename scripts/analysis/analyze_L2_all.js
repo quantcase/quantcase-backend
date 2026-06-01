@@ -80,8 +80,8 @@ async function main() {
   const modeLabel = managementOnly ? 'management-only' : dealOnly ? 'deal-only' : 'all';
   console.log(`\nActive lenses [${modeLabel}] (${totalLenses}): ${[...ALL_LENSES].sort().join(', ')}`);
 
-  // --management-only: mark all existing scores for these lenses stale so they are always recomputed
-  if (managementOnly) {
+  // --management-only --dispatch: mark all existing scores stale so every company is recomputed
+  if (managementOnly && dispatch) {
     const { count } = await prisma.lensScore.updateMany({
       where: { lens_slug: { in: [...MANAGEMENT_SLUGS] } },
       data:  { is_stale: true },
