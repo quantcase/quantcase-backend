@@ -4,7 +4,7 @@ const prisma = require('../config/prisma');
 const { resolveProwess } = require('../utils/prowessResolver');
 
 // KPI abbrs needed for industry-analysis and competition peer context
-const PEER_ABBRS = ['REV_OP', 'EBITDA_MARGIN', 'ROCE', 'EPS_DILUTED', 'EPS_BASIC'];
+const PEER_ABBRS = ['REV_OP', 'EBITDA_MARGIN', 'ROCE', 'EPS_DILUTED', 'EPS_BASIC', 'DE'];
 
 /**
  * Fetch peer KPI metrics for all tickers in the same basic_industry as callId.
@@ -46,22 +46,40 @@ async function fetchPeerMetrics(callId) {
     return null;
   }
 
+  // 2b. Resolve NSE tickers → prowess company names for prowess_values_new lookup
+  const tickerToProwess = {};
+  for (const ticker of allTickers) {
+    const resolved = resolveProwess(ticker);
+    if (resolved) tickerToProwess[ticker] = resolved.prowessName;
+  }
+  const prowessNames = Object.values(tickerToProwess);
+  // Inverse map: prowess name → NSE ticker
+  const prowessToTicker = Object.fromEntries(
+    Object.entries(tickerToProwess).map(([t, p]) => [p, t])
+  );
+
+  if (prowessNames.length === 0) {
+    console.log(`[peerMetrics] No prowess mappings found for industry "${industry}"`);
+    return null;
+  }
+
   // 3. Pull the latest annual KPIs for every peer from prowess_values_new in one query
   const rows = await prisma.$queryRaw`
     SELECT DISTINCT ON (company, kpi_abbr)
            company, kpi_abbr, value, fiscal_year
     FROM   prowess_values_new
-    WHERE  company  = ANY(${allTickers}::text[])
+    WHERE  company  = ANY(${prowessNames}::text[])
       AND  kpi_abbr = ANY(${PEER_ABBRS}::text[])
       AND  call_id LIKE 'prowess_new_%'
     ORDER  BY company, kpi_abbr, fiscal_year DESC, source_type ASC
   `;
 
-  // 4. Build per-ticker kpiMap
+  // 4. Build per-ticker kpiMap (keyed by NSE ticker)
   const tickerMap = {};
   for (const row of rows) {
-    if (!tickerMap[row.company]) tickerMap[row.company] = {};
-    tickerMap[row.company][row.kpi_abbr] = row.value != null ? parseFloat(row.value) : null;
+    const ticker = prowessToTicker[row.company] ?? row.company;
+    if (!tickerMap[ticker]) tickerMap[ticker] = {};
+    tickerMap[ticker][row.kpi_abbr] = row.value != null ? parseFloat(row.value) : null;
   }
 
   // 5. Compute 3-year revenue CAGR per ticker from prowess annual time-series
@@ -69,7 +87,7 @@ async function fetchPeerMetrics(callId) {
     SELECT DISTINCT ON (company, fiscal_year)
            company, fiscal_year, value
     FROM   prowess_values_new
-    WHERE  company  = ANY(${allTickers}::text[])
+    WHERE  company  = ANY(${prowessNames}::text[])
       AND  kpi_abbr = 'REV_OP'
       AND  call_id LIKE 'prowess_new_%'
     ORDER  BY company, fiscal_year ASC, source_type ASC
@@ -78,8 +96,9 @@ async function fetchPeerMetrics(callId) {
   const cagrByTicker = {};
   const tickerSeries = {};
   for (const row of cagrRows) {
-    if (!tickerSeries[row.company]) tickerSeries[row.company] = [];
-    tickerSeries[row.company].push({ fiscal_year: row.fiscal_year, value: row.value != null ? parseFloat(row.value) : null });
+    const ticker = prowessToTicker[row.company] ?? row.company;
+    if (!tickerSeries[ticker]) tickerSeries[ticker] = [];
+    tickerSeries[ticker].push({ fiscal_year: row.fiscal_year, value: row.value != null ? parseFloat(row.value) : null });
   }
 
   for (const [ticker, series] of Object.entries(tickerSeries)) {
@@ -106,6 +125,7 @@ async function fetchPeerMetrics(callId) {
         REV_OP_cagr_3y:   cagrByTicker[ticker] ?? null,
         EBITDA_MARGIN:    km['EBITDA_MARGIN'] ?? null,
         ROCE:             km['ROCE']          ?? null,
+        DE:               km['DE']            ?? null,
         EPS:              eps,
       };
     })
@@ -121,15 +141,17 @@ async function fetchPeerMetrics(callId) {
   const withCagr  = peers.filter(p => p.REV_OP_cagr_3y != null);
   const withOpm   = peers.filter(p => p.EBITDA_MARGIN != null);
   const withRoce  = peers.filter(p => p.ROCE != null);
+  const withDe    = peers.filter(p => p.DE != null);
   const withEps   = peers.filter(p => p.EPS != null);
 
-  const avg = (arr, key) => arr.length ? parseFloat((arr.reduce((s, p) => s + p[key], 0) / arr.length).toFixed(1)) : null;
+  const avg = (arr, key) => arr.length ? parseFloat((arr.reduce((s, p) => s + p[key], 0) / arr.length).toFixed(2)) : null;
 
   const industry_agg = {
     total_REV_OP:       withRev.length  ? parseFloat(withRev.reduce((s, p) => s + p.REV_OP, 0).toFixed(0)) : null,
     avg_REV_OP_cagr_3y: avg(withCagr, 'REV_OP_cagr_3y'),
     avg_EBITDA_MARGIN:  avg(withOpm,  'EBITDA_MARGIN'),
     weighted_avg_ROCE:  withRoce.length ? _weightedAvgRoce(withRoce) : null,
+    avg_DE:             avg(withDe,   'DE'),
     avg_EPS:            avg(withEps,  'EPS'),
     peer_count:         peers.length,
   };
@@ -165,9 +187,10 @@ function formatPeerMetricsBlock(pm) {
     `  Avg 3Y Revenue CAGR: ${pm.industry_agg.avg_REV_OP_cagr_3y != null ? pm.industry_agg.avg_REV_OP_cagr_3y + '%' : 'N/A'}`,
     `  Avg Industry OPM (EBITDA_MARGIN): ${pm.industry_agg.avg_EBITDA_MARGIN != null ? pm.industry_agg.avg_EBITDA_MARGIN + '%' : 'N/A'}`,
     `  Weighted Avg Industry ROCE: ${pm.industry_agg.weighted_avg_ROCE != null ? pm.industry_agg.weighted_avg_ROCE + '%' : 'N/A'}`,
+    `  Avg Industry D/E: ${pm.industry_agg.avg_DE != null ? pm.industry_agg.avg_DE : 'N/A'}`,
     `  Avg Industry EPS: ${pm.industry_agg.avg_EPS != null ? '₹' + pm.industry_agg.avg_EPS : 'N/A'}`,
     '',
-    'Peer Breakdown (ticker | REV_OP Cr | 3Y Rev CAGR | OPM% | ROCE% | EPS):',
+    'Peer Breakdown (ticker | REV_OP Cr | 3Y Rev CAGR | OPM% | ROCE% | D/E | EPS):',
   ];
 
   for (const p of pm.peers) {
@@ -178,6 +201,7 @@ function formatPeerMetricsBlock(pm) {
       `CAGR=${p.REV_OP_cagr_3y != null ? p.REV_OP_cagr_3y + '%' : 'N/A'} | ` +
       `OPM=${p.EBITDA_MARGIN != null ? p.EBITDA_MARGIN + '%' : 'N/A'} | ` +
       `ROCE=${p.ROCE != null ? p.ROCE + '%' : 'N/A'} | ` +
+      `DE=${p.DE != null ? p.DE : 'N/A'} | ` +
       `EPS=${p.EPS != null ? '₹' + p.EPS : 'N/A'}`
     );
   }

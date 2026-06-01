@@ -503,6 +503,7 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Demand/supply dynamics and structural positioning within the industry',
     force_config: true,
+    version:     '1.1.0',
     config: {
       signal_filters: {
         signal_types:  ['kpi', 'industry'],
@@ -516,7 +517,63 @@ Return a JSON object with this exact structure:
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: null,
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens, including individual company signals AND industry-level aggregate metrics from the PEER CONTEXT block below.
+
+Your task is to synthesise this data into a structured industry view. Do NOT invent data — work only from the signals and peer context provided.
+
+{{DATA_BLOCK}}
+
+WRITING STYLE RULES — apply to every text field:
+- "takeaway": max 25 words, action-oriented, lead with the industry structural finding (e.g. "Industry revenue compounding at 10.8% CAGR; margin pressure from input costs — watch copper pass-through lag.")
+- "highlights" items: max 12 words each, start with a verb or metric (e.g. "Industry OPM at 8.9%, down 180bps YoY on copper drag.")
+- "risks" items: max 12 words each, start with the risk noun (e.g. "Greenfield capacity idle at 36% — fixed-cost dilution risk.")
+- "label" in top_signals: 2–5 words, title-case, human-readable (e.g. "Industry Revenue", "3Y Revenue CAGR")
+- "statement" in top_signals: ≤80 chars, verbatim or tightly paraphrased evidence
+- Never pad with filler phrases like "It is important to note that…" or "Overall, the company…"
+
+top_signals[] — MUST follow this exact positional layout. Positions 0–3 are FIXED INDUSTRY KPI TILES consumed positionally by the UI — ALL four MUST be present with non-null actual_value sourced from the PEER CONTEXT "Industry Aggregates" block:
+
+  FIXED INDUSTRY KPI TILES (positions 0–3, mandatory — use PEER CONTEXT values, NOT the subject company's individual signals):
+  • [0] metric: "INDUSTRY_REVENUE", unit: "Cr", actual_value: Total Industry Revenue (REV_OP) from PEER CONTEXT. label: "Industry Revenue". direction: "beat"|"miss"|"in_line"|"tracking" based on YoY trend if available, else "tracking".
+  • [1] metric: "INDUSTRY_REV_CAGR_3Y", unit: "%", actual_value: Avg 3Y Revenue CAGR from PEER CONTEXT. label: "3Y Revenue CAGR". direction: "beat" if >12%, "in_line" if 8–12%, "miss" if <8%.
+  • [2] metric: "INDUSTRY_OPM", unit: "%", actual_value: Avg Industry OPM (EBITDA_MARGIN) from PEER CONTEXT. label: "Industry OPM". direction: "beat" if expanding YoY, "miss" if contracting, else "tracking".
+  • [3] metric: "INDUSTRY_ROCE", unit: "%", actual_value: Weighted Avg Industry ROCE from PEER CONTEXT. label: "Industry ROCE". direction: "beat" if >15%, "in_line" if 10–15%, "miss" if <10%.
+
+  MANAGEMENT CONSENSUS SIGNALS (positions 4–7, mandatory — derived from management commentary in the signal data block):
+  • [4] metric: "MGMT_DEMAND_BULLISH_COUNT", unit: "transcripts", actual_value: count of company transcripts in the data block showing bullish demand signals (volume growth, order book expansion, positive guidance). label: "Demand: Bullish Signals".
+  • [5] metric: "MGMT_DEMAND_TOTAL_COUNT", unit: "transcripts", actual_value: total count of company transcripts in the data block that mention demand. label: "Demand: Total Signals".
+  • [6] metric: "MGMT_SUPPLY_TIGHT_COUNT", unit: "transcripts", actual_value: count of company transcripts in the data block showing tight supply or capacity pressure signals. label: "Supply: Tight Signals".
+  • [7] metric: "MGMT_SUPPLY_TOTAL_COUNT", unit: "transcripts", actual_value: total count of company transcripts in the data block that mention supply or capacity. label: "Supply: Total Signals".
+
+  DEMAND DRIVERS (positions 8+): include up to 5 individual demand signals from the data block, each with actual_value, unit, and statement. Use "tracking" direction for forward-looking signals, "beat"/"miss" for actuals vs prior period.
+  SUPPLY SIGNALS (after demand drivers): include up to 5 individual supply/cost pressure signals from the data block.
+
+Return a JSON object with this exact structure:
+{
+  "score": <integer 0-100>,
+  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "takeaway": <string — max 25 words, action-oriented industry structural synthesis>,
+  "key_metrics": { <metric_name>: <formatted_value_string> },
+  "highlights": [<up to 3 positive industry findings, each max 12 words, starting with a verb or metric>],
+  "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
+  "top_signals": [
+    {
+      "signal_id": <string — id of the signal from the data block, or "peer_context" for PEER CONTEXT-derived values>,
+      "metric": <string — metric name exactly as specified above>,
+      "label": <string — 2–5 word title-case human-readable label>,
+      "guided_value": <number | null>,
+      "guided_date": <string | null — ISO 8601 YYYY-MM-DD>,
+      "actual_value": <number | null — MUST be non-null for positions 0–7>,
+      "actual_date": <string | null — ISO 8601 YYYY-MM-DD>,
+      "unit": <string | null>,
+      "delta": <number | null>,
+      "delta_pct": <number | null>,
+      "direction": <"beat" | "miss" | "in_line" | "tracking" | null>,
+      "impact": <"high" | "medium" | "low">,
+      "statement": <string | null — key evidence quote, ≤80 chars>
+    }
+  ]
+}`,
     },
   },
   {
@@ -525,6 +582,7 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Market moat, pricing power, and competitive differentiation vs peers',
     force_config: true,
+    version:     '1.1.0',
     config: {
       signal_filters: {
         signal_types:  ['kpi', 'industry'],
@@ -537,7 +595,142 @@ Return a JSON object with this exact structure:
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: null,
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens, plus a PEER CONTEXT block with industry aggregate and individual peer KPIs (Revenue, 3Y CAGR, OPM, ROCE, EPS) sourced from audited financials.
+
+Your task is to assess the subject company's competitive position, moat quality, pricing power, and entry barriers relative to its industry peers. Do NOT invent data — work only from the signals and peer context provided.
+
+{{DATA_BLOCK}}
+
+PORTER'S SCORE CALCULATION (score out of 10):
+Assess each of the 5 forces and assign 0–2 points each:
+  1. Competitive Rivalry (0=intense, 2=low): based on peer count, market share concentration, OEM switching cost signals.
+  2. Supplier Power (0=high, 2=low): based on raw material cost signals, commodity exposure, pass-through ability.
+  3. Buyer Power (0=high, 2=low): based on customer concentration, OEM dependency, long-term programme locks.
+  4. Threat of New Entrants (0=high, 2=low): based on capex moat, certifications/qualifications, technology barriers.
+  5. Threat of Substitutes (0=high, 2=low): based on technology disruption signals (EV, imports), powertrain shift.
+Sum these for the Porter's Score (0–10). State each sub-score in the statement for PORTERS_SCORE signal.
+
+PEER TABLE CONSTRUCTION:
+From the PEER CONTEXT block, identify the subject company and its closest 2–4 named peers. For each, extract:
+  - REV_OP (Cr), REV_GROWTH_YOY (%), EBITDA_MARGIN (%), ROCE (%), DE (ratio), MKT_SHARE_PCT (% = peer REV_OP / total industry REV_OP × 100).
+Include an Industry Avg row using the industry aggregates from PEER CONTEXT.
+Encode each peer as one PEER_ROW_* signal.
+
+WRITING STYLE RULES — apply to every text field:
+- "takeaway": max 25 words, lead with market share vs growth vs moat finding (e.g. "+25.5% revenue vs 4% PV market growth — share gains visible; ex-greenfield margins hold at 11.3%")
+- "highlights" items: max 12 words each, start with a verb or metric
+- "risks" items: max 12 words each, start with the risk noun
+- "label" in top_signals: 2–5 words, title-case
+- "statement" in top_signals: ≤80 chars, evidence or sub-score breakdown
+- Never pad with filler phrases
+
+top_signals[] — MUST follow this exact positional layout. The frontend consumes positions 0–3 as KPI tiles, 4–7 as competitive cards, and 8+ as peer table rows.
+
+  COMPETITIVE KPI TILES (positions 0–3, mandatory):
+  • [0] metric: "MARKET_POSITION", unit: null.
+      actual_value: signal count backing the assessment as a number (e.g. 3 means "3/3 signals").
+      guided_value: max possible signals (denominator, e.g. 3).
+      direction: "beat" if Strong (market share above average + outperforming peers), "in_line" if Moderate, "miss" if Weak.
+      label: "Market Position".
+      statement: ≤80 chars — one-line evidence (e.g. "Dominant India wiring harness; 25.5% rev vs 4% PV growth").
+
+  • [1] metric: "PRICING_POWER", unit: null.
+      actual_value: signal count backing the assessment (e.g. 2 out of 3 = 2).
+      guided_value: max possible signals (denominator, e.g. 3).
+      direction: "beat" if Strong, "in_line" if Moderate/Partial, "miss" if Weak.
+      label: "Pricing Power".
+      statement: ≤80 chars — evidence of pass-through ability or lack thereof (e.g. "Copper pass-through partial; timing lag compresses near-term margins").
+
+  • [2] metric: "ENTRY_BARRIERS", unit: null.
+      actual_value: signal count backing the assessment (e.g. 3).
+      guided_value: max possible signals (denominator, e.g. 3).
+      direction: "beat" if High, "in_line" if Medium, "miss" if Low.
+      label: "Entry Barriers".
+      statement: ≤80 chars — moat source (e.g. "OEM quals, capex-intensive plants, 12–18 month requalification cycle").
+
+  • [3] metric: "PORTERS_SCORE", unit: "/10".
+      actual_value: Porter's Five Forces score (0–10, computed from rubric above).
+      guided_value: 10.
+      direction: "beat" if ≥7, "in_line" if 5–6, "miss" if ≤4.
+      label: "Porter's Score".
+      statement: ≤80 chars — sub-scores breakdown (e.g. "Rivalry 1/2 · Supplier 1/2 · Buyer 1/2 · Entry 2/2 · Sub 1/2").
+
+  COMPETITIVE SIGNAL CARDS (positions 4–7, mandatory — 2 strength signals then 2 risk/watch signals):
+  • [4] metric: "COMP_STRENGTH_1" — primary moat or competitive advantage. direction: "beat". impact: "high".
+      actual_value: numeric evidence (e.g. delta bps, %, Cr) if available, else null.
+      unit: relevant unit or null.
+      label: ≤5 words, title-case moat description (e.g. "Engine-Agnostic Platform Moat").
+      statement: ≤80 chars, specific evidence (e.g. "ICE·hybrid·EV all covered; OEM requalification = 12–18 month moat").
+
+  • [5] metric: "COMP_STRENGTH_2" — secondary advantage (balance sheet, share gain, cost structure). direction: "beat". impact: "medium".
+      actual_value: numeric evidence if available, else null.
+      unit: relevant unit or null.
+      label: ≤5 words, title-case.
+      statement: ≤80 chars evidence.
+
+  • [6] metric: "COMP_RISK_1" — primary competitive risk or watch-out. direction: "miss". impact: "high".
+      actual_value: numeric evidence (e.g. -90 for -90 bps, 6.7 for 6.7% share) if available, else null.
+      unit: relevant unit or null.
+      label: ≤5 words, title-case risk description (e.g. "EV Revenue Share Decline").
+      statement: ≤80 chars evidence (e.g. "EV rev share 6.7% → 5.8% QoQ; OEM EV timeline slippage key watch-out").
+
+  • [7] metric: "COMP_RISK_2" — secondary risk or sector comparison signal. direction: "miss" or "tracking". impact: "medium".
+      actual_value: numeric evidence if available, else null.
+      unit: relevant unit or null.
+      label: ≤5 words, title-case.
+      statement: ≤80 chars evidence.
+
+  ROCE SPREAD SIGNAL (position 8, mandatory):
+  • [8] metric: "ROCE_VS_INDUSTRY", unit: "bps".
+      actual_value: the spread in basis points = (subject_ROCE_pct - industry_avg_ROCE_pct) × 100. Example: 38.7% - 16.1% = 22.6 percentage points = 2260 bps → actual_value: 2260. Always a plain integer bps number, never a percentage.
+      guided_value: industry weighted average ROCE as a percentage (e.g. 16.1, not 1610). Plain decimal percent.
+      delta: subject company ROCE as a percentage (e.g. 38.7, not 3872). Plain decimal percent.
+      actual_date: last day of the latest reported fiscal year for subject ROCE (ISO 8601).
+      direction: "beat" if spread >500bps, "in_line" if 0–500bps, "miss" if negative.
+      label: "ROCE vs Industry Avg".
+      statement: ≤80 chars — e.g. "MSUMI 38.7% vs industry 16.1% — 2,260bps spread above WACC".
+
+  PEER TABLE ROWS (positions 9+, one signal per company including subject and named peers + industry avg row):
+  Each peer row encodes one company's competitive metrics. Use metric name "PEER_ROW_{TICKER}" (e.g. "PEER_ROW_MSUMI", "PEER_ROW_MOTHERSON", "PEER_ROW_INDUSTRY_AVG").
+  • signal_id: "peer_context"
+  • metric: "PEER_ROW_{TICKER}" — use the NSE ticker or "INDUSTRY_AVG" for the average row
+  • label: company display name (e.g. "MSUMI (Current)", "MOTHERSON", "Industry Avg")
+  • actual_value: REV_OP in Cr
+  • unit: "Cr"
+  • guided_value: ROCE% (encode as guided_value so UI can render it in the ROCE% column)
+  • guided_date: null
+  • delta: EBITDA_MARGIN% (encode as delta so UI can render it in the OPM% column)
+  • delta_pct: D/E ratio (encode as delta_pct so UI can render it in the D/E column)
+  • direction: "beat" if subject company (is_subject), "in_line" for peers, "tracking" for industry avg row
+  • impact: "high" for subject, "medium" for named peers, "low" for industry avg
+  • statement: "REV_GROWTH={x}%|MKT_SHARE={y}%" — pipe-separated key=value pairs the UI can parse for the Rev Growth and Mkt Share columns
+
+Return a JSON object with this exact structure:
+{
+  "score": <integer 0-100>,
+  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "takeaway": <string — max 25 words, lead with revenue vs market growth delta and moat finding>,
+  "key_metrics": { <metric_name>: <formatted_value_string> },
+  "highlights": [<up to 3 positive competitive findings, each max 12 words>],
+  "risks": [<up to 2 competitive risks, each max 12 words, starting with risk noun>],
+  "top_signals": [
+    {
+      "signal_id": <string — signal id from data block, or "peer_context" for PEER CONTEXT-derived values>,
+      "metric": <string — metric name exactly as specified above>,
+      "label": <string — as specified per position>,
+      "guided_value": <number | null>,
+      "guided_date": <string | null — ISO 8601 YYYY-MM-DD>,
+      "actual_value": <number | null>,
+      "actual_date": <string | null — ISO 8601 YYYY-MM-DD>,
+      "unit": <string | null>,
+      "delta": <number | null>,
+      "delta_pct": <number | null>,
+      "direction": <"beat" | "miss" | "in_line" | "tracking" | null>,
+      "impact": <"high" | "medium" | "low">,
+      "statement": <string | null — ≤80 chars>
+    }
+  ]
+}`,
     },
   },
   {
