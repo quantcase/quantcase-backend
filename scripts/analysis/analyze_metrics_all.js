@@ -10,11 +10,13 @@
  *   node scripts/analysis/analyze_metrics_all.js --dispatch --base-url http://localhost:9000
  *   node scripts/analysis/analyze_metrics_all.js --dispatch --type technicals
  *   node scripts/analysis/analyze_metrics_all.js --dispatch --type financials
+ *   node scripts/analysis/analyze_metrics_all.js --dispatch --type technicals --force-refresh
  *
  * Flags:
  *   --dispatch             Actually make the API calls (dry-run by default)
  *   --base-url <url>       API base URL (default: http://localhost:8000)
  *   --type <type>          Only run one: "technicals" or "financials" (default: both)
+ *   --force-refresh        Ignore existing ai_insights cache; re-run all tickers (appends ?refresh=1)
  *
  * Behaviour:
  *   - Reads all distinct company tickers from earnings_calls
@@ -26,12 +28,13 @@
 require('dotenv').config();
 const prisma = require('../../config/prisma');
 
-const args     = process.argv.slice(2);
-const dispatch = args.includes('--dispatch');
-const buIdx    = args.indexOf('--base-url');
-const baseUrl  = buIdx !== -1 ? args[buIdx + 1] : 'http://localhost:8000';
-const typeIdx  = args.indexOf('--type');
-const typeArg  = typeIdx !== -1 ? args[typeIdx + 1] : null;
+const args         = process.argv.slice(2);
+const dispatch     = args.includes('--dispatch');
+const forceRefresh = args.includes('--force-refresh');
+const buIdx        = args.indexOf('--base-url');
+const baseUrl      = buIdx !== -1 ? args[buIdx + 1] : 'http://localhost:8000';
+const typeIdx      = args.indexOf('--type');
+const typeArg      = typeIdx !== -1 ? args[typeIdx + 1] : null;
 
 const BATCH_SIZE  = 50;
 const BATCH_DELAY = 1000; // ms between batches
@@ -45,7 +48,7 @@ const TYPE_MAP = {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchOne(symbol, apiType) {
-  const url = `${baseUrl}/api/screener/${symbol}/${apiType}`;
+  const url = `${baseUrl}/api/screener/${symbol}/${apiType}${forceRefresh ? '?refresh=1' : ''}`;
   try {
     const res = await fetch(url);
     if (res.ok) {
@@ -92,17 +95,18 @@ async function main() {
     return;
   }
 
-  // ── 4. Build work list (skip already cached) ───────────────────────────────
+  // ── 4. Build work list (skip already cached unless --force-refresh) ──────────
   const todo = [];
   for (const ticker of allTickers) {
     for (const apiType of activeApiTypes) {
       const dbType = TYPE_MAP[apiType];
-      if (!doneSet.has(`${ticker}::${dbType}`)) {
+      if (forceRefresh || !doneSet.has(`${ticker}::${dbType}`)) {
         todo.push({ ticker, apiType });
       }
     }
   }
 
+  if (forceRefresh) console.log('  *** --force-refresh: bypassing cache, re-running all tickers ***\n');
   console.log(`Dispatching ${todo.length} requests to ${baseUrl} (batch=${BATCH_SIZE}, delay=${BATCH_DELAY}ms)...\n`);
 
   let ok = 0, err = 0;

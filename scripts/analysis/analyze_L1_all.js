@@ -116,11 +116,11 @@ async function main() {
       const done = new Set(existingCounts.filter((r) => r._count.source_type > 0).map((r) => r.source_type));
 
       const jobs = [];
-      if (!done.has('transcript')) jobs.push(postJob(callId, 'summarize'));
-      else console.log(`  [SKIP] summarize         → ${callId}  (transcript signals exist)`);
+      // if (!done.has('transcript')) jobs.push(postJob(callId, 'summarize'));
+      // else console.log(`  [SKIP] summarize         → ${callId}  (transcript signals exist)`);
 
-      // if (!done.has('prowess'))    jobs.push(postJob(callId, 'extract-prowess'));
-      // else console.log(`  [SKIP] extract-prowess   → ${callId}  (prowess signals exist)`);
+      if (!done.has('prowess'))    jobs.push(postJob(callId, 'extract-prowess'));
+      else console.log(`  [SKIP] extract-prowess   → ${callId}  (prowess signals exist)`);
 
       if (jobs.length > 0) await Promise.all(jobs);
       if (i < calls.length - 1) await sleep(2000);

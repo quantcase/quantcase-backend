@@ -480,6 +480,8 @@ function _computeTimeframe(bars, quote, full) {
   const sma200 = full ? sma(closes, 200) : null;
   const ema20  = full ? ema(closes, 20)  : null;
   const ema50  = full ? ema(closes, 50)  : null;
+  // SMA50 10 days ago — needed for slope direction (Rising if today > 10d ago)
+  const sma50Prev10 = (full && closes.length > 60) ? sma(closes.slice(0, -10), 50) : null;
 
   const rsi14     = rsi(closes);
   const rsiTrend_ = full ? rsiTrend(closes) : null;
@@ -540,6 +542,7 @@ function _computeTimeframe(bars, quote, full) {
 
     // MAs
     sma20, sma50, sma100, sma200, ema20, ema50,
+    sma50Prev10,
     aboveSMA20:  sma20  != null ? cmp > sma20  : null,
     aboveSMA50:  sma50  != null ? cmp > sma50  : null,
     aboveSMA200: sma200 != null ? cmp > sma200 : null,

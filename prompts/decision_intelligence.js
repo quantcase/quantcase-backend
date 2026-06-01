@@ -6,205 +6,187 @@ function na(val) {
   return val != null ? val : 'N/A';
 }
 
-function buildContext(taResult) {
-  const re = taResult.ruleEngine;
-  const se = re?.structureEngine;
-  const te = re?.trendEngine;
-  const ti = re?.timingEngine;
-  const de = re?.dominanceEngine?.leadership;
-
-  return {
-    symbol:        taResult.symbol,
-    sector:        na(taResult.meta?.macroSector),
-    overallSignal: na(taResult.signals?.overall),
-    score:         na(taResult.signals?.score),
-
-    wyckoffPhase:               na(se?.marketStructure?.wyckoffPhase),
-    marketStructureGrowthOutput: na(se?.marketStructure?.growthOutput),
-    marketStructureValueOutput:  na(se?.marketStructure?.valueOutput),
-    participation:               na(se?.participation?.growthOutput),
-    participationValue:          na(se?.participation?.valueOutput),
-    priceStructure:              na(se?.priceStructure?.growthOutput),
-    priceStructureValue:         na(se?.priceStructure?.valueOutput),
-
-    trendDirectionGrowth:  na(te?.trendDirection?.growthOutput),
-    trendDirectionValue:   na(te?.trendDirection?.valueOutput),
-    priceVsSMA20:          na(te?.trendDirection?.priceVsSMA20),
-    priceVsSMA50:          na(te?.trendDirection?.priceVsSMA50),
-    priceVsSMA100:         na(te?.trendDirection?.priceVsSMA100),
-    priceVsSMA200:         na(te?.trendDirection?.priceVsSMA200),
-    adxCondition:          na(te?.trendQuality?.condition),
-    adx:                   na(te?.trendQuality?.adx),
-    adxTrend:              na(te?.trendQuality?.adxTrend),
-    trendQualityGrowth:    na(te?.trendQuality?.growthOutput),
-    trendQualityValue:     na(te?.trendQuality?.valueOutput),
-
-    rsiZone:          na(ti?.momentum?.rsiZone),
-    rsi:              na(ti?.momentum?.rsi),
-    momentumGrowth:   na(ti?.momentum?.growthOutput),
-    momentumValue:    na(ti?.momentum?.valueOutput),
-    bbCondition:      na(ti?.volatility?.condition),
-    bbWidth:          na(ti?.volatility?.bbWidth),
-    bbExpanding:      na(ti?.volatility?.expanding),
-    volatilityGrowth: na(ti?.volatility?.growthOutput),
-    volatilityValue:  na(ti?.volatility?.valueOutput),
-
-    vsNiftySignal:  na(de?.vsNifty?.signal),
-    vsNiftyGrowth:  na(de?.vsNifty?.growthOutput),
-    vsNiftyValue:   na(de?.vsNifty?.valueOutput),
-    vsSectorSignal: na(de?.vsSector?.signal),
-    vsSectorGrowth: na(de?.vsSector?.growthOutput),
-    vsSectorValue:  na(de?.vsSector?.valueOutput),
-
-    decisionSummary:  na(re?.decisionContext?.summary),
-    marketBias:       na(re?.decisionContext?.marketBias),
-    overallCondition: na(re?.decisionContext?.overallCondition),
-    alerts: Array.isArray(re?.decisionContext?.alerts)
-      ? re.decisionContext.alerts.join(', ')
-      : 'N/A',
-
-    wyckoffGrowthWatchout:        na(se?.marketStructure?.growthWatchout),
-    wyckoffValueWatchout:         na(se?.marketStructure?.valueWatchout),
-    participationGrowthWatchout:  na(se?.participation?.growthWatchout),
-    participationValueWatchout:   na(se?.participation?.valueWatchout),
-    priceStructureGrowthWatchout: na(se?.priceStructure?.growthWatchout),
-    priceStructureValueWatchout:  na(se?.priceStructure?.valueWatchout),
-    adxGrowthWatchout:            na(te?.trendQuality?.growthWatchout),
-    adxValueWatchout:             na(te?.trendQuality?.valueWatchout),
-    rsiGrowthWatchout:            na(ti?.momentum?.growthWatchout),
-    rsiValueWatchout:             na(ti?.momentum?.valueWatchout),
-    bbGrowthWatchout:             na(ti?.volatility?.growthWatchout),
-    bbValueWatchout:              na(ti?.volatility?.valueWatchout),
-    vsNiftyGrowthWatchout:        na(de?.vsNifty?.growthWatchout),
-    vsNiftyValueWatchout:         na(de?.vsNifty?.valueWatchout),
-    vsSectorGrowthWatchout:       na(de?.vsSector?.growthWatchout),
-    vsSectorValueWatchout:        na(de?.vsSector?.valueWatchout),
-  };
+function naFloat(val) {
+  return val != null && !isNaN(val) ? String(val) : 'N/A';
 }
 
 /**
- * Format the dynamic data block from a technical analysis result object.
- * Injected into {{DATA_BLOCK}} in PROMPT_TEMPLATE.
+ * Build the raw-indicator data block injected into {{DATA_BLOCK}}.
+ *
+ * The new prompt does its own scoring from raw values — we no longer pass
+ * pre-classified canned text from the old rule engine lookup tables.
+ * We still pass the pre-computed signals where they are direct boolean/enum
+ * results (SMA positions, CRS direction, volume signal, CMF sign) since those
+ * require 3-day hold logic already computed by taIndicators.
  */
 function buildDataBlock(taResult) {
-  const ctx = buildContext(taResult);
-  return `SYMBOL: ${ctx.symbol} | SECTOR: ${ctx.sector}
-OVERALL SIGNAL: ${ctx.overallSignal} (score: ${ctx.score}/100)
-MARKET BIAS: ${ctx.marketBias} | CONDITION: ${ctx.overallCondition}
+  const d    = taResult;                                    // top-level result
+  const re   = d.ruleEngine;
+  const se   = re?.structureEngine;
+  const te   = re?.trendEngine;
+  const ti   = re?.timingEngine;
+  const de   = re?.dominanceEngine?.leadership;
+  const td   = te?.trendDirection;
+  const tq   = te?.trendQuality;
+  const mom  = ti?.momentum;
+  const vol  = ti?.volatility;
+  const ms   = se?.marketStructure;
+  const part = se?.participation;
+  const ps   = se?.priceStructure;
 
-=== STRUCTURE ENGINE ===
-Wyckoff Phase: ${ctx.wyckoffPhase}
-Market Structure (Growth): ${ctx.marketStructureGrowthOutput}
-Market Structure (Value): ${ctx.marketStructureValueOutput}
-Participation (Growth): ${ctx.participation}
-Participation (Value): ${ctx.participationValue}
-Price Structure (Growth): ${ctx.priceStructure}
-Price Structure (Value): ${ctx.priceStructureValue}
+  // fundamental_type: from watchlist row if available, else Mixed
+  const fundamentalType = d.meta?.fundamentalType ?? 'Mixed';
 
-=== TREND ENGINE ===
-SMA Position: 20=${ctx.priceVsSMA20}, 50=${ctx.priceVsSMA50}, 100=${ctx.priceVsSMA100}, 200=${ctx.priceVsSMA200}
-Trend Direction (Growth): ${ctx.trendDirectionGrowth}
-Trend Direction (Value): ${ctx.trendDirectionValue}
-ADX: ${ctx.adx} (${ctx.adxCondition}, trend: ${ctx.adxTrend})
-Trend Quality (Growth): ${ctx.trendQualityGrowth}
-Trend Quality (Value): ${ctx.trendQualityValue}
+  // Price levels
+  const price   = naFloat(d.price?.cmp);
+  const sma20   = naFloat(d.movingAverages?.sma?.[20]);
+  const sma50   = naFloat(d.movingAverages?.sma?.[50]);
+  const sma100  = naFloat(d.movingAverages?.sma?.[100]);
+  const sma200  = naFloat(d.movingAverages?.sma?.[200]);
 
-=== TIMING ENGINE ===
-RSI: ${ctx.rsi} (zone: ${ctx.rsiZone})
-Momentum (Growth): ${ctx.momentumGrowth}
-Momentum (Value): ${ctx.momentumValue}
-BB Width: ${ctx.bbWidth} (${ctx.bbCondition}, expanding: ${ctx.bbExpanding})
-Volatility (Growth): ${ctx.volatilityGrowth}
-Volatility (Value): ${ctx.volatilityValue}
+  // SMA position flags (3-day hold logic already applied by taIndicators)
+  const aboveSMA20  = td?.priceVsSMA20  ?? 'N/A';
+  const aboveSMA50  = td?.priceVsSMA50  ?? 'N/A';
+  const aboveSMA100 = td?.priceVsSMA100 ?? 'N/A';
+  const aboveSMA200 = td?.priceVsSMA200 ?? 'N/A';
 
-=== DOMINANCE ENGINE ===
-vs Nifty (${ctx.vsNiftySignal}): Growth: ${ctx.vsNiftyGrowth} | Value: ${ctx.vsNiftyValue}
-vs Sector (${ctx.vsSectorSignal}): Growth: ${ctx.vsSectorGrowth} | Value: ${ctx.vsSectorValue}
+  // SMA50 slope — Rising if today > 10 days ago
+  const _sma50Now  = parseFloat(d.movingAverages?.sma?.[50]);
+  const _sma50Prev = parseFloat(d.movingAverages?.sma50Prev10);
+  const sma50Slope = (!isNaN(_sma50Now) && !isNaN(_sma50Prev))
+    ? (_sma50Now > _sma50Prev ? 'Rising' : 'Falling')
+    : 'N/A';
 
-=== DECISION CONTEXT ===
-Summary: ${ctx.decisionSummary}
-Risk Alerts: ${ctx.alerts}
+  // ADX — prefer direct response fields over ruleEngine intermediary
+  const adxVal   = naFloat(d.trend?.adx14 ?? tq?.adx);
+  const adxBand  = tq?.adxBand  ?? 'N/A';
+  const adxTrend = tq?.adxTrend ?? 'N/A';   // RISING | FALLING
 
-=== INDICATOR WATCHOUTS ===
-Market Structure | Growth: ${ctx.wyckoffGrowthWatchout} | Value: ${ctx.wyckoffValueWatchout}
-Participation | Growth: ${ctx.participationGrowthWatchout} | Value: ${ctx.participationValueWatchout}
-Price Structure | Growth: ${ctx.priceStructureGrowthWatchout} | Value: ${ctx.priceStructureValueWatchout}
-Trend Direction | Growth: ${ctx.trendDirectionGrowth} | Value: ${ctx.trendDirectionValue}
-Trend Quality (ADX) | Growth: ${ctx.adxGrowthWatchout} | Value: ${ctx.adxValueWatchout}
-Momentum (RSI) | Growth: ${ctx.rsiGrowthWatchout} | Value: ${ctx.rsiValueWatchout}
-Volatility (BB) | Growth: ${ctx.bbGrowthWatchout} | Value: ${ctx.bbValueWatchout}
-Relative Strength | vs Nifty: ${ctx.vsNiftyGrowthWatchout} | vs Sector: ${ctx.vsSectorGrowthWatchout}`;
+  // RSI — use direct response fields (taResult.momentum.rsi.*)
+  const rsiVal  = naFloat(d.momentum?.rsi?.value ?? mom?.rsi);
+  const rsiZone = d.momentum?.rsi?.zone ?? mom?.rsiZone ?? 'N/A';   // 0-30 | 30-50 | 50-70 | 70-100
+  const rsiDir  = d.momentum?.rsi?.trend ?? 'N/A';                  // RISING | FALLING
+
+  // BBW
+  const bbWidth    = naFloat(vol?.bbWidth);
+  const bbExpanding = vol?.expanding;    // true | false | null
+  const bbwDir     = bbExpanding === true ? 'Rising' : bbExpanding === false ? 'Falling' : 'N/A';
+
+  // Volume
+  const volSignal = part?.volumeSignal ?? 'N/A';   // ABOVE_AVERAGE | BELOW_AVERAGE
+
+  // CMF
+  const cmfSignal = part?.cmfSignal ?? 'N/A';      // POSITIVE | NEGATIVE
+  const cmfVal    = naFloat(part?.cmf);
+
+  // Wyckoff phase (from watchlist Google Sheet, already UPPER-CASED)
+  const wyckoff = ms?.wyckoffPhase ?? 'N/A';
+
+  // S/R zone (already classified by the existing price architecture rule)
+  const srZone = ps?.zone ?? 'N/A';
+
+  // S/R levels from supportResistance block
+  // Google Sheet provides a single support and resistance price (no strength score).
+  // We pass proximity % as a strength proxy for Module 1 S/R strength modifier.
+  const staticSR    = d.supportResistance?.static ?? {};
+  const supports    = staticSR.support    ?? [];
+  const resistances = staticSR.resistance ?? [];
+  const nearestSupport    = supports.length    > 0 ? supports[0]    : null;
+  const nearestResistance = resistances.length > 0 ? resistances[0] : null;
+  const _price = parseFloat(price);
+  const supportProximityPct = (nearestSupport != null && !isNaN(_price) && _price > 0)
+    ? naFloat(Math.abs((_price - nearestSupport) / _price * 100))
+    : 'N/A';
+  const resistanceProximityPct = (nearestResistance != null && !isNaN(_price) && _price > 0)
+    ? naFloat(Math.abs((nearestResistance - _price) / _price * 100))
+    : 'N/A';
+  // Strength score not available from Google Sheet — use proximity as proxy:
+  // proximity < 3% → treat as high-strength (>=70); proximity > 10% → low-strength (<=30)
+  const supportStrengthNote = supportProximityPct === 'N/A' ? 'N/A'
+    : parseFloat(supportProximityPct) < 3  ? 'HIGH (proximity < 3%)'
+    : parseFloat(supportProximityPct) > 10 ? 'LOW (proximity > 10%)'
+    : 'MEDIUM';
+
+  // CRS signals
+  const vsNifty  = de?.vsNifty?.signal  ?? 'N/A';   // OUTPERFORMING | UNDERPERFORMING
+  const vsSector = de?.vsSector?.signal ?? 'N/A';
+  // rs_sector_vs_nifty: not currently computed; pass N/A so LLM can still score
+  // the other two legs (Module 5 partial match)
+  const vsSectorNifty = 'N/A';
+
+  return `=== STOCK INPUT ===
+SYMBOL: ${na(d.symbol)} | SECTOR: ${na(d.meta?.macroSector)}
+FUNDAMENTAL TYPE: ${fundamentalType}
+PRICE: ${price}
+
+=== SMA POSITIONS (3-day hold confirmed) ===
+Price vs SMA_20:  ${aboveSMA20}
+Price vs SMA_50:  ${aboveSMA50}
+Price vs SMA_100: ${aboveSMA100}
+Price vs SMA_200: ${aboveSMA200}
+SMA_20:  ${sma20}
+SMA_50:  ${sma50}
+SMA_100: ${sma100}
+SMA_200: ${sma200}
+SMA_50 Slope (vs 10d ago): ${sma50Slope}
+
+=== ADX ===
+ADX Value: ${adxVal}
+ADX Band:  ${adxBand}
+ADX Trend: ${adxTrend}
+
+=== RSI ===
+RSI Value:     ${rsiVal}
+RSI Zone:      ${rsiZone}
+RSI Direction: ${rsiDir}
+
+=== BOLLINGER BAND WIDTH ===
+BBW Value:     ${bbWidth}
+BBW Direction: ${bbwDir}
+
+=== VOLUME & MONEY FLOW ===
+Volume Signal: ${volSignal}
+CMF Signal:    ${cmfSignal}
+CMF Value:     ${cmfVal}
+
+=== WYCKOFF PHASE ===
+Phase: ${wyckoff}
+
+=== S/R ZONE ===
+Zone: ${srZone}
+Nearest Support:          ${nearestSupport ?? 'N/A'}
+Support Proximity %:      ${supportProximityPct}
+Support Strength (proxy): ${supportStrengthNote}
+Nearest Resistance:       ${nearestResistance ?? 'N/A'}
+Resistance Proximity %:   ${resistanceProximityPct}
+
+=== RELATIVE STRENGTH ===
+Stock vs NIFTY:  ${vsNifty}
+Stock vs Sector: ${vsSector}
+Sector vs NIFTY: ${vsSectorNifty}`;
 }
 
-// ─── Static prompt template ───────────────────────────────────────────────────
+// ─── Static fallback prompt (used only if DB promptTemplate is null) ──────────
+// The DB-stored template is the live version; this is the in-code fallback.
 
-const PROMPT_TEMPLATE = `You are a systematic equity analyst. Based on the structured technical analysis below, generate a Decision Intelligence summary in strict JSON.
+const PROMPT_TEMPLATE = `You are a systematic quantitative equity analyst implementing Ajay's rule-based technical analysis framework.
+
+You will receive pre-computed technical indicator data for a stock. Your job is to:
+1. Score each of the 7 modules using the exact scoring rules provided
+2. Generate plain-language outputs for each engine bucket (NO indicator jargon)
+3. Apply playbook classification
+4. Produce the complete JSON output
 
 {{DATA_BLOCK}}
 
 ---
-Respond ONLY with a valid JSON object matching this exact schema (no markdown fences, no preamble):
-{
-  "tag": "<2-5 words alignment tag, e.g. Full Bearish Alignment | Bullish Momentum Building | Mixed Signals Neutral>",
-  "lens": "<Value | Growth>",
-  "idealFor": "<Investment | Swing | Positional>",
-  "timeframe": "<6M+ | 3-6M | 0-3M>",
-  "currentRegime": {
-    "label": "<2-4 words, e.g. Strong Uptrend | Sideways Consolidation | Distribution Phase | Oversold Reversal>",
-    "description": "<max 12 words, one sharp phrase characterizing the structure>"
-  },
-  "actionBias": "<max 25 words, one crisp actionable sentence combining growth and value lenses>",
-  "actionableInsight": {
-    "action": "<Strong Accumulate | Accumulate | Add | Neutral | Trim | Cut | Exit | Stop | Avoid>",
-    "firstShift": "<max 20 words, what the first structural shift to watch for is>",
-    "existingHolderAction": "<max 15 words, what existing holders should do>",
-    "reEvaluateCondition": "<max 20 words, condition that would trigger re-evaluation>"
-  },
-  "whatCanChange": ["<max 15 words each, 3-5 catalysts that could shift the current regime>"],
-  "strategyViews": {
-    "growth": "<max 15 words for momentum managers>",
-    "value": "<max 15 words for value investors>"
-  },
-  "riskAlerts": ["<3-5 words>", "<3-5 words>"],
-  "convictionLevel": "<Low | Medium | High>",
-  "indicators": [
-    { "name": "Market Structure", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words, e.g. Distribution phase>", "explanation": "<max 20 words tooltip explaining this indicator's current state>", "sentiment": "<positive | negative | transitional>" },
-    { "name": "Capital Participation", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
-    { "name": "Price Architecture", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
-    { "name": "Trend Direction", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
-    { "name": "Trend Quality", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
-    { "name": "Momentum", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
-    { "name": "Volatility", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" },
-    { "name": "Relative Strength", "growthWatchout": "<max 15 words>", "valueWatchout": "<max 15 words>", "tag": "<2-5 words>", "explanation": "<max 20 words>", "sentiment": "<positive | negative | transitional>" }
-  ]
-}
-
-Rules:
-- tag: 2-5 word alignment summary reflecting whether all indicators agree (e.g. "Full Bearish Alignment") or diverge (e.g. "Mixed Signals")
-- lens: "Value" if market bias is bearish and price is below 200 SMA, "Growth" if bullish momentum is present
-- idealFor: "Investment" for 6M+ holds, "Positional" for 3-6M, "Swing" for 0-3M
-- timeframe: must match idealFor ("Investment"→"6M+", "Positional"→"3-6M", "Swing"→"0-3M")
-- actionableInsight.action: "Strong Accumulate" for STRONG_BUY; "Accumulate" for BUY; "Add" for WEAK_BUY; "Neutral" for mild/mixed signals; "Trim" for WEAK_SELL (partial exit in profit); "Cut" for partial exit at loss; "Exit" for STRONG_SELL; "Stop" for stop-loss triggered; "Avoid" for bearish/distribution or insufficient data
-- whatCanChange: 3-5 specific catalysts that could shift the regime (e.g. "RSI sustains above 40 — momentum recovery")
-- description: max 12 words, no filler
-- actionBias: max 25 words, direct imperative tone
-- strategyViews.growth and strategyViews.value: max 15 words each, no overlap with actionBias
-- riskAlerts: 3-5 items max, each exactly 3-5 words, noun phrases only
-- convictionLevel: High if action is "Strong Accumulate" or "Exit" or "Stop"; Medium if "Accumulate", "Add", "Trim", or "Cut"; Low if "Neutral" or "Avoid"
-- indicators: always exactly 8 objects in the order above
-  - tag: 2-5 word summary of indicator state (e.g. "Distribution phase", "Smart money exiting", "Bearish crossover active")
-  - explanation: max 20 words, tooltip text explaining the indicator for a non-expert
-  - sentiment: "positive" for bullish signals (green), "negative" for bearish (red), "transitional" for neutral/mixed (orange)
-  - growthWatchout and valueWatchout: MUST be a single crisp actionable sentence, max 15 words. Do NOT copy or concatenate the raw watchout text from the input. Instead, synthesize the multiple watchout points into one sharp, original insight. Example: "Monitor volume confirmation before adding positions near breakout."
-- CRITICAL: Each watchout must be ONE sentence only. Never join or list multiple points. Distill, don't copy.
-- No verbose explanations, no repeating context already stated above
-- Return pure JSON only`;
+Respond ONLY with valid JSON. No markdown fences. Exact field names per schema.`;
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 
 /**
  * Build the full prompt for decision intelligence generation.
- * @param {object} taResult  Full technicalAnalysis.analyze() result
+ * @param {object} taResult   Full technicalAnalysis.analyze() result
  * @param {string|null} template  DB-stored template (uses PROMPT_TEMPLATE if null)
  */
 function decisionIntelligencePrompt(taResult, template) {

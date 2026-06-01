@@ -5,12 +5,12 @@ const path = require('path');
 const csvParse = require('csv-parse/sync');
 const technicalAnalysis = require('../lib/technicalAnalysis');
 const financials = require('../lib/financials');
-const { generateDecisionIntelligence } = require('../utils/decisionIntelligence');
 const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_intelligence');
 const { loadSkillConfig } = require('../utils/skillConfig');
 const { llmStream, parseJson } = require('../utils/workerUtils');
 const { resolveMetric, resolveIndicatorSeries } = require('../utils/formulaRegistry/index');
-const prisma = require('../config/prisma');
+const prisma    = require('../config/prisma');
+const jobQueue  = require('../lib/jobQueue');
 
 // ── Peer comparison helpers (reuse Prowess CSV data) ────────────────────────
 
@@ -113,25 +113,21 @@ function peerPeriodVal(row, periodIndex, offset) {
 
 async function getTechnicals(req, res, next) {
   try {
-    const symbol = req.params.symbol.toUpperCase();
+    const symbol      = req.params.symbol.toUpperCase();
+    const forceRefresh = req.query.refresh === '1';
     const result = await technicalAnalysis.analyze(symbol);
 
-    const dbInsight = await prisma.aiInsight.findUnique({
+    const dbInsight = forceRefresh ? null : await prisma.aiInsight.findUnique({
       where: { ticker_type: { ticker: symbol, type: 'technicals' } },
     });
 
     if (dbInsight?.insight) {
       result.decisionIntelligence = dbInsight.insight;
     } else {
-      const insight = await generateDecisionIntelligence(result);
-      result.decisionIntelligence = insight;
-      if (insight) {
-        await prisma.aiInsight.upsert({
-          where: { ticker_type: { ticker: symbol, type: 'technicals' } },
-          create: { ticker: symbol, type: 'technicals', insight },
-          update: { insight, updated_at: new Date() },
-        });
-      }
+      result.decisionIntelligence = null;
+      jobQueue.addJob('technicals_analysis', { symbol }).catch((err) =>
+        console.error('[getTechnicals] Failed to enqueue job:', err.message)
+      );
     }
 
     // Strip joined watchout strings from ruleEngine — decisionIntelligence has distilled versions

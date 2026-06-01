@@ -278,12 +278,19 @@ async function composeLens(callId, lensSlug) {
   const currentSignals = await querySignals({ callId, ...signalFilters });
 
   let signals = currentSignals;
-  if (include_historical && currentSignals.length > 0) {
-    const ticker = currentSignals[0].ticker;
-    const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...signalFilters });
-    if (historicalSignals.length > 0) {
-      console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
-      signals = [...currentSignals, ...historicalSignals];
+  if (include_historical) {
+    // Resolve ticker from current signals; if none matched the filter, fall back to any signal on this call
+    let ticker = currentSignals[0]?.ticker;
+    if (!ticker) {
+      const anySignal = await prisma.extractedSignal.findFirst({ where: { call_id: callId, is_invalidated: false } });
+      ticker = anySignal?.ticker;
+    }
+    if (ticker) {
+      const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...signalFilters });
+      if (historicalSignals.length > 0) {
+        console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
+        signals = [...currentSignals, ...historicalSignals];
+      }
     }
   }
 

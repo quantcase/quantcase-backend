@@ -21,6 +21,7 @@ module.exports = [
 
   { id: 'TA_SMA_20',       taKey: 'sma20',            taAppliesTo: ['daily', 'weekly', 'monthly'], name: 'SMA 20',                     unit: '₹',      formula: 'SMA(close, 20)' },
   { id: 'TA_SMA_50',       taKey: 'sma50',            taAppliesTo: ['daily', 'weekly', 'monthly'], name: 'SMA 50',                     unit: '₹',      formula: 'SMA(close, 50)' },
+  { id: 'TA_SMA_50_PREV10', taKey: 'sma50Prev10',   taAppliesTo: ['daily'],                      name: 'SMA 50 (10 days ago)',       unit: '₹',      formula: 'SMA(close[:-10], 50)' },
   { id: 'TA_SMA_100',      taKey: 'sma100',           taAppliesTo: ['daily'],                      name: 'SMA 100',                    unit: '₹',      formula: 'SMA(close, 100)' },
   { id: 'TA_SMA_200',      taKey: 'sma200',           taAppliesTo: ['daily'],                      name: 'SMA 200',                    unit: '₹',      formula: 'SMA(close, 200)' },
   { id: 'TA_EMA_20',       taKey: 'ema20',            taAppliesTo: ['daily'],                      name: 'EMA 20',                     unit: '₹',      formula: 'EMA(close, 20)' },

@@ -130,7 +130,7 @@ Return a JSON object with this exact structure:
     config: {
       signal_filters: {
         signal_types:      ['kpi', 'financial_health'],
-        metric_family:     ['capital', 'profitability', 'growth'],
+        metric_family:     ['capital', 'profitability', 'growth', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity'],
         include_historical: true,
       },
       weights: [
@@ -502,10 +502,11 @@ Return a JSON object with this exact structure:
     name:        'Industry Analysis',
     category:    'opportunity',
     description: 'Demand/supply dynamics and structural positioning within the industry',
+    force_config: true,
     config: {
       signal_filters: {
         signal_types:  ['kpi', 'industry'],
-        metric_family: ['industry', 'growth'],
+        metric_family: ['industry', 'growth', 'industry_specific'],
       },
       weights: [
         { metric: 'REV_OP',        w: 0.4,  b: 0 },
@@ -523,10 +524,11 @@ Return a JSON object with this exact structure:
     name:        'Competition',
     category:    'opportunity',
     description: 'Market moat, pricing power, and competitive differentiation vs peers',
+    force_config: true,
     config: {
       signal_filters: {
         signal_types:  ['kpi', 'industry'],
-        metric_family: ['growth', 'industry', 'profitability'],
+        metric_family: ['growth', 'industry', 'profitability', 'industry_specific'],
       },
       weights: [
         { metric: 'EBITDA_MARGIN', w: 0.35, b: 0 },
@@ -543,10 +545,11 @@ Return a JSON object with this exact structure:
     name:        'Financial Strength',
     category:    'opportunity',
     description: 'Balance sheet strength, FCF generation, and margin quality',
+    force_config: true,
     config: {
       signal_filters: {
         signal_types:  ['kpi', 'financial_health'],
-        metric_family: ['profitability', 'capital', 'growth'],
+        metric_family: ['profitability', 'capital', 'growth', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity'],
       },
       weights: [
         { metric: 'EBITDA',        w:  0.3,  b: 0 },
@@ -565,10 +568,12 @@ Return a JSON object with this exact structure:
     name:        'Customer & Distribution',
     category:    'opportunity',
     description: 'Client base growth, channel quality, and revenue concentration risk',
+    force_config: true,
     config: {
       signal_filters: {
-        signal_types:  ['kpi', 'customer'],
-        metric_family: ['customer', 'growth'],
+        signal_types:       ['kpi', 'customer'],
+        metric_family:      ['customer', 'customer_kpis', 'growth'],
+        include_historical: true,
       },
       weights: [
         { metric: 'REV_OP', w: 0.35, b: 0 },
@@ -590,7 +595,7 @@ Return a JSON object with this exact structure:
     config: {
       signal_filters: {
         signal_types:       ['kpi', 'financial_health', 'milestone'],
-        metric_family:      ['profitability', 'growth', 'capital'],
+        metric_family:      ['profitability', 'growth', 'capital', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity'],
         include_historical: true,
       },
       weights: [
@@ -684,7 +689,7 @@ Return a JSON object with this exact structure:
     config: {
       signal_filters: {
         signal_types:       ['kpi', 'financial_health'],
-        metric_family:      ['profitability', 'growth', 'capital'],
+        metric_family:      ['profitability', 'growth', 'capital', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity'],
         include_historical: true,
       },
       weights: [
