@@ -22,6 +22,8 @@
  *   --opportunity-only      Restrict to the 4 opportunity lenses: industry-analysis, financial-strength,
  *                           customer-distribution, competition. Treats stale records as missing
  *                           so companies that were fully computed but are now stale will be re-dispatched.
+ *   --force                 Mark all existing lens scores for the active mode as stale before dispatching,
+ *                           forcing a full recompute even for companies that appear complete.
  */
 
 require('dotenv').config();
@@ -37,6 +39,7 @@ const dispatch         = args.includes('--dispatch');
 const dealOnly         = args.includes('--deal-only');
 const managementOnly   = args.includes('--management-only');
 const opportunityOnly  = args.includes('--opportunity-only');
+const force            = args.includes('--force');
 const buIdx            = args.indexOf('--base-url');
 const baseUrl          = buIdx !== -1 ? args[buIdx + 1] : 'http://localhost:8000';
 
@@ -88,39 +91,47 @@ async function main() {
   const modeLabel = managementOnly ? 'management-only' : dealOnly ? 'deal-only' : opportunityOnly ? 'opportunity-only' : 'all';
   console.log(`\nActive lenses [${modeLabel}] (${totalLenses}): ${[...ALL_LENSES].sort().join(', ')}`);
 
-  // --management-only --dispatch: mark all existing scores stale so every company is recomputed
-  if (managementOnly && dispatch) {
+  // --force --dispatch: mark all existing scores for the active lens set as stale so every company is recomputed
+  if (force && dispatch) {
+    const staleSlugs = [...ALL_LENSES];
     const { count } = await prisma.lensScore.updateMany({
-      where: { lens_slug: { in: [...MANAGEMENT_SLUGS] } },
+      where: { lens_slug: { in: staleSlugs } },
       data:  { is_stale: true },
     });
-    console.log(`Marked ${count} existing management lens scores as stale.\n`);
+    console.log(`Marked ${count} existing lens scores as stale (force recompute).\n`);
   }
 
   // Load fresh (non-stale) lens_scores into a map: call_id -> Set<lens_slug>
   // --deal-only / --opportunity-only / --management-only: stale records are NOT counted as covered → always re-dispatched
-  const lensScoreWhere = {
-    is_stale: false,
-    ...(managementOnly
-      ? { lens_slug: { in: [...MANAGEMENT_SLUGS] } }
-      : dealOnly
-        ? { lens_slug: { in: [...DEAL_SLUGS] } }
-        : opportunityOnly
-          ? { lens_slug: { in: [...OPPORTUNITY_SLUGS] } }
-          : {}),
-  };
-  const lensRows = await prisma.lensScore.findMany({
-    where:  lensScoreWhere,
-    select: { call_id: true, lens_slug: true },
-  });
+  const slugFilter = managementOnly
+    ? [...MANAGEMENT_SLUGS]
+    : dealOnly
+      ? [...DEAL_SLUGS]
+      : opportunityOnly
+        ? [...OPPORTUNITY_SLUGS]
+        : null;
+  const slugWhereClause = slugFilter
+    ? `AND lens_slug = ANY(ARRAY[${slugFilter.map((s) => `'${s}'`).join(',')}]::text[])`
+    : '';
+
+  console.log('Loading existing L2 scores...');
+  const [, lensRows] = await prisma.$transaction([
+    prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
+    prisma.$queryRawUnsafe(`
+      SELECT call_id, lens_slug
+      FROM lens_scores
+      WHERE is_stale = false ${slugWhereClause}
+    `),
+  ]);
   const l2Done = new Map(); // call_id -> Set of covered lens slugs
   for (const r of lensRows) {
     if (!l2Done.has(r.call_id)) l2Done.set(r.call_id, new Set());
     l2Done.get(r.call_id).add(r.lens_slug);
   }
+  console.log(`Loaded ${lensRows.length} existing lens score rows.\n`);
 
   // Single bulk query: latest call_id per ticker from L1 (extracted_signals)
-  // Use $transaction to disable statement_timeout for this long-running analytical query
+  console.log('Loading latest signals per ticker...');
   const [, latestSignals] = await prisma.$transaction([
     prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
     prisma.$queryRawUnsafe(`
