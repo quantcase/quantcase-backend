@@ -19,11 +19,11 @@ router.get('/', async (req, res, next) => {
     const { ticker, category } = req.query;
     if (!ticker) return res.status(400).json({ error: 'ticker is required' });
 
-    // Resolve the latest call_id for this ticker from lens_scores
+    // Resolve the call_id with the most recently computed non-stale score for this ticker
     const latest = await prisma.lensScore.findFirst({
-      where:   { ticker },
+      where:   { ticker, is_stale: false },
       select:  { call_id: true },
-      orderBy: { call_id: 'desc' },
+      orderBy: { computed_at: 'desc' },
     });
     if (!latest) return res.json({ ticker, callId: null, categories: {} });
 

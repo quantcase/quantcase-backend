@@ -17,18 +17,18 @@
 require('dotenv').config();
 const prisma = require('../../config/prisma');
 
-// const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT'];
-const TARGET_TICKERS = ['AXISBANK'];
+const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT'];
+// const TARGET_TICKERS = ['AXISBANK'];
 
 const TARGET_LENSES  = [
-  // 'guidance-credibility',
-  // 'disclosure-honesty',
-  // 'capital-allocation',
-  // 'promoter-activity',
-  // 'industry-analysis',
+  'guidance-credibility',
+  'disclosure-honesty',
+  'capital-allocation',
+  'promoter-activity',
+  'industry-analysis',
   'financial-strength',
   // 'customer-distribution',
-  // 'competition',
+  'competition',
 ];
 
 const args     = process.argv.slice(2);
@@ -68,6 +68,7 @@ async function main() {
       SELECT DISTINCT ON (ticker) ticker, call_id, fiscal_year, quarter
       FROM extracted_signals
       WHERE is_invalidated = false
+        AND call_id NOT LIKE 'prowess%'
         AND ticker = ANY(ARRAY[${TARGET_TICKERS.map((t) => `'${t}'`).join(',')}]::text[])
       ORDER BY ticker, fiscal_year DESC, quarter DESC
     `),
@@ -97,16 +98,25 @@ async function main() {
     return;
   }
 
-  // Mark existing scores stale
+  // Mark ALL call_ids for these tickers stale (not just the latest),
+  // so older call_id rows don't show up alongside the fresh ones.
+  const allCallIdsForTickers = await prisma.lensScore.findMany({
+    where:  { ticker: { in: TARGET_TICKERS }, lens_slug: { in: TARGET_LENSES }, is_stale: false },
+    select: { call_id: true },
+    distinct: ['call_id'],
+  });
+  const allCallIds = allCallIdsForTickers.map(r => r.call_id);
+  console.log(`\nFound ${allCallIds.length} distinct call_ids across target tickers: ${allCallIds.join(', ')}`);
+
   const { count: staleCount } = await prisma.lensScore.updateMany({
     where: {
-      call_id:   { in: callIds },
+      call_id:   { in: allCallIds },
       lens_slug: { in: TARGET_LENSES },
       is_stale:  false,
     },
     data: { is_stale: true },
   });
-  console.log(`\nMarked ${staleCount} lens score rows as stale.\n`);
+  console.log(`Marked ${staleCount} lens score rows as stale.\n`);
 
   console.log(`Dispatching to ${baseUrl} (2 s stagger)...\n`);
   for (let i = 0; i < latestSignals.length; i++) {
