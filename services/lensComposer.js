@@ -178,6 +178,7 @@ function buildSignalSummary(lensName, signals, mathResult, balance) {
   }
 
   const IMPACT_ORDER = { high: 0, medium: 1, low: 2 };
+  const QUALITATIVE_TYPES = new Set(['milestone', 'industry', 'financial_health', 'customer']);
 
   const formatLine = s => {
     const period     = [s.fiscal_year, s.quarter].filter(Boolean).join(' ');
@@ -193,11 +194,12 @@ function buildSignalSummary(lensName, signals, mathResult, balance) {
   for (const [type, groupSignals] of groups) {
     const cap = balance?.[type] ?? balance?.default ?? 15;
 
-    // For milestone signals: include all (even null-value) so the LLM sees guidance text.
-    // Sort: concrete values (value != null) first, then null-value signals; within each group by impact.
+    // For qualitative signal types (milestone, industry, financial_health): include all signals
+    // even when value is null, so the LLM sees the statement text. Sort: valued signals first,
+    // then null-value signals; within each group by impact.
     // For other signal types: keep existing behaviour (value != null filter, sort by impact then end_date).
     let sorted;
-    if (type === 'milestone') {
+    if (QUALITATIVE_TYPES.has(type)) {
       sorted = [...groupSignals].sort((a, b) => {
         const aHasVal = a.value != null ? 0 : 1;
         const bHasVal = b.value != null ? 0 : 1;
@@ -260,6 +262,67 @@ function deduplicateSignals(signals) {
     }
   }
   return [...best.values()];
+}
+
+// ─── buildPeerSignalsBlock ────────────────────────────────────────────────────
+// Fetches entity + industry L1 signals from each peer's latest call (same basic_industry)
+// and formats them as a compact text block for injection into the competition / industry-analysis prompt.
+
+const PEER_SIGNAL_TYPES  = ['entity', 'industry'];
+const PEER_SIGNALS_CAP   = 10; // max signals shown per peer ticker (after filtering)
+const PEER_IMPACT_ORDER  = { high: 0, medium: 1, low: 2 };
+
+async function buildPeerSignalsBlock(callId, subjectTicker) {
+  const call = await prisma.earnings_calls.findUnique({
+    where:  { id: callId },
+    select: { basic_industry: true },
+  });
+  if (!call?.basic_industry) return '';
+
+  const peerRows = await prisma.earnings_calls.findMany({
+    where:   { basic_industry: call.basic_industry, NOT: { company: subjectTicker } },
+    select:  { company: true, id: true, fiscal_year: true, quarter: true },
+    orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
+  });
+
+  // Pick the latest call per peer ticker
+  const latestByTicker = new Map();
+  for (const r of peerRows) {
+    if (!latestByTicker.has(r.company)) latestByTicker.set(r.company, r);
+  }
+  if (latestByTicker.size === 0) return '';
+
+  const lines = ['\nPEER L1 SIGNALS (competitor + industry signals from peer earnings calls):'];
+
+  for (const [peerTicker, peerCall] of latestByTicker) {
+    const raw = await prisma.extractedSignal.findMany({
+      where: {
+        call_id:        peerCall.id,
+        signal_type:    { in: PEER_SIGNAL_TYPES },
+        is_invalidated: false,
+        NOT:            { metric: 'person' }, // exclude analyst/presenter names
+      },
+    });
+    if (raw.length === 0) continue;
+
+    // Sort high → medium → low, then by statement presence
+    const sorted = raw.sort((a, b) => {
+      const ia = PEER_IMPACT_ORDER[a.impact] ?? 3;
+      const ib = PEER_IMPACT_ORDER[b.impact] ?? 3;
+      if (ia !== ib) return ia - ib;
+      return (b.statement ? 1 : 0) - (a.statement ? 1 : 0);
+    }).slice(0, PEER_SIGNALS_CAP);
+
+    lines.push(`\n  [${peerTicker} — ${peerCall.fiscal_year} ${peerCall.quarter}]`);
+    for (const s of sorted) {
+      const stmt = s.statement ? ` — "${s.statement}"` : '';
+      lines.push(`    [id=${s.id}] ${s.metric}: ${s.raw_value ?? s.value ?? 'N/A'} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
+    }
+  }
+
+  if (lines.length === 1) return ''; // only header, no data
+  lines.push('');
+  return lines.join('\n');
 }
 
 // ─── composeLens ─────────────────────────────────────────────────────────────
@@ -366,11 +429,12 @@ async function composeLens(callId, lensSlug) {
 
   const lensInstructions = cfgPromptTemplate ? '' : '';
 
-  // For industry-analysis and competition lenses, append peer KPI context block
+  // For industry-analysis and competition lenses, append peer KPI context block + peer L1 signals
   let peerBlock = '';
   if (PEER_LENS_SLUGS.has(lensSlug)) {
     const pm = await fetchPeerMetrics(callId);
     peerBlock = formatPeerMetricsBlock(pm);
+    peerBlock += await buildPeerSignalsBlock(callId, ticker);
   }
 
   // For promoter-activity lens, append shareholding pattern from Prowess CSV
