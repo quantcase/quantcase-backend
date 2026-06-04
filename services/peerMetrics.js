@@ -2,9 +2,13 @@
 
 const prisma = require('../config/prisma');
 const { resolveProwess } = require('../utils/prowessResolver');
+const { isBFSI } = require('../utils/industryClassifier');
 
 // KPI abbrs needed for industry-analysis and competition peer context
 const PEER_ABBRS = ['REV_OP', 'EBITDA_MARGIN', 'ROCE', 'EPS_DILUTED', 'EPS_BASIC', 'DE'];
+
+// Additional BFSI-specific KPI abbrs
+const BFSI_PEER_ABBRS = ['NIM', 'ROA', 'AUM', 'GNPA_RATIO', 'CASA_RATIO', 'LOAN_ADVANCES', 'DEPOSITS', 'TOTAL_INCOME'];
 
 /**
  * Fetch peer KPI metrics for all tickers in the same basic_industry as callId.
@@ -63,13 +67,16 @@ async function fetchPeerMetrics(callId) {
     return null;
   }
 
+  const isBfsiIndustry = isBFSI(industry);
+  const abbrsToFetch = isBfsiIndustry ? [...PEER_ABBRS, ...BFSI_PEER_ABBRS] : PEER_ABBRS;
+
   // 3. Pull the latest annual KPIs for every peer from prowess_values_new in one query
   const rows = await prisma.$queryRaw`
     SELECT DISTINCT ON (company, kpi_abbr)
            company, kpi_abbr, value, fiscal_year
     FROM   prowess_values_new
     WHERE  company  = ANY(${prowessNames}::text[])
-      AND  kpi_abbr = ANY(${PEER_ABBRS}::text[])
+      AND  kpi_abbr = ANY(${abbrsToFetch}::text[])
       AND  call_id LIKE 'prowess_new_%'
     ORDER  BY company, kpi_abbr, fiscal_year DESC, source_type ASC
   `;
@@ -118,7 +125,7 @@ async function fetchPeerMetrics(callId) {
       const km  = tickerMap[ticker] ?? {};
       // Prefer EPS_DILUTED; fall back to EPS_BASIC
       const eps = km['EPS_DILUTED'] ?? km['EPS_BASIC'] ?? null;
-      return {
+      const base = {
         ticker,
         is_subject:       ticker === subjectTicker,
         REV_OP:           km['REV_OP']       ?? null,
@@ -128,8 +135,19 @@ async function fetchPeerMetrics(callId) {
         DE:               km['DE']            ?? null,
         EPS:              eps,
       };
+      if (isBfsiIndustry) {
+        base.NIM          = km['NIM']          ?? null;
+        base.ROA          = km['ROA']          ?? null;
+        base.AUM          = km['AUM']          ?? null;
+        base.GNPA_RATIO   = km['GNPA_RATIO']   ?? null;
+        base.CASA_RATIO   = km['CASA_RATIO']   ?? null;
+        base.LOAN_ADVANCES= km['LOAN_ADVANCES']?? null;
+        base.DEPOSITS     = km['DEPOSITS']     ?? null;
+        base.TOTAL_INCOME = km['TOTAL_INCOME'] ?? null;
+      }
+      return base;
     })
-    .filter(p => p.REV_OP != null || p.EBITDA_MARGIN != null || p.ROCE != null);
+    .filter(p => p.REV_OP != null || p.EBITDA_MARGIN != null || p.ROCE != null || p.NIM != null || p.ROA != null);
 
   if (peers.length === 0) {
     console.log(`[peerMetrics] No peer KPI data found for industry "${industry}"`);
@@ -156,9 +174,28 @@ async function fetchPeerMetrics(callId) {
     peer_count:         peers.length,
   };
 
-  console.log(`[peerMetrics] "${industry}" — ${peers.length} peers, subject=${subjectTicker}`);
+  if (isBfsiIndustry) {
+    const withNim  = peers.filter(p => p.NIM  != null);
+    const withRoa  = peers.filter(p => p.ROA  != null);
+    const withAum  = peers.filter(p => p.AUM  != null);
+    const withGnpa = peers.filter(p => p.GNPA_RATIO != null);
+    const withCasa = peers.filter(p => p.CASA_RATIO != null);
+    const withLoans= peers.filter(p => p.LOAN_ADVANCES != null);
+    const withDeps = peers.filter(p => p.DEPOSITS != null);
+    const withTotalIncome = peers.filter(p => p.TOTAL_INCOME != null);
+    industry_agg.avg_NIM          = avg(withNim,  'NIM');
+    industry_agg.avg_ROA          = avg(withRoa,  'ROA');
+    industry_agg.total_AUM        = withAum.length  ? parseFloat(withAum.reduce((s, p) => s + p.AUM, 0).toFixed(0)) : null;
+    industry_agg.avg_GNPA_RATIO   = avg(withGnpa, 'GNPA_RATIO');
+    industry_agg.avg_CASA_RATIO   = avg(withCasa, 'CASA_RATIO');
+    industry_agg.total_LOAN_ADVANCES = withLoans.length ? parseFloat(withLoans.reduce((s, p) => s + p.LOAN_ADVANCES, 0).toFixed(0)) : null;
+    industry_agg.total_DEPOSITS   = withDeps.length  ? parseFloat(withDeps.reduce((s, p) => s + p.DEPOSITS, 0).toFixed(0)) : null;
+    industry_agg.total_TOTAL_INCOME = withTotalIncome.length ? parseFloat(withTotalIncome.reduce((s, p) => s + p.TOTAL_INCOME, 0).toFixed(0)) : null;
+  }
 
-  return { industry, subject_ticker: subjectTicker, peers, industry_agg };
+  console.log(`[peerMetrics] "${industry}" — ${peers.length} peers, subject=${subjectTicker}${isBfsiIndustry ? ' (BFSI)' : ''}`);
+
+  return { industry, is_bfsi: isBfsiIndustry, subject_ticker: subjectTicker, peers, industry_agg };
 }
 
 function _weightedAvgRoce(peers) {
@@ -175,35 +212,65 @@ function _weightedAvgRoce(peers) {
 
 /**
  * Format peer metrics as a compact text block for injection into the L2 prompt.
+ * For BFSI industries, shows NIM, ROA, AUM, GNPA, CASA instead of OPM/ROCE/D/E.
  */
 function formatPeerMetricsBlock(pm) {
   if (!pm) return '';
 
   const lines = [
     '',
-    `PEER CONTEXT — Industry: ${pm.industry} (${pm.industry_agg.peer_count} peers)`,
+    `PEER CONTEXT — Industry: ${pm.industry} (${pm.industry_agg.peer_count} peers)${pm.is_bfsi ? ' [BFSI]' : ''}`,
     `Industry Aggregates:`,
-    `  Total Industry Revenue (REV_OP): ${pm.industry_agg.total_REV_OP != null ? pm.industry_agg.total_REV_OP + ' Cr' : 'N/A'}`,
-    `  Avg 3Y Revenue CAGR: ${pm.industry_agg.avg_REV_OP_cagr_3y != null ? pm.industry_agg.avg_REV_OP_cagr_3y + '%' : 'N/A'}`,
-    `  Avg Industry OPM (EBITDA_MARGIN): ${pm.industry_agg.avg_EBITDA_MARGIN != null ? pm.industry_agg.avg_EBITDA_MARGIN + '%' : 'N/A'}`,
-    `  Weighted Avg Industry ROCE: ${pm.industry_agg.weighted_avg_ROCE != null ? pm.industry_agg.weighted_avg_ROCE + '%' : 'N/A'}`,
-    `  Avg Industry D/E: ${pm.industry_agg.avg_DE != null ? pm.industry_agg.avg_DE : 'N/A'}`,
-    `  Avg Industry EPS: ${pm.industry_agg.avg_EPS != null ? '₹' + pm.industry_agg.avg_EPS : 'N/A'}`,
-    '',
-    'Peer Breakdown (ticker | REV_OP Cr | 3Y Rev CAGR | OPM% | ROCE% | D/E | EPS):',
   ];
 
-  for (const p of pm.peers) {
-    const tag = p.is_subject ? ' ← subject' : '';
-    lines.push(
-      `  ${p.ticker}${tag} | ` +
-      `REV=${p.REV_OP != null ? p.REV_OP + ' Cr' : 'N/A'} | ` +
-      `CAGR=${p.REV_OP_cagr_3y != null ? p.REV_OP_cagr_3y + '%' : 'N/A'} | ` +
-      `OPM=${p.EBITDA_MARGIN != null ? p.EBITDA_MARGIN + '%' : 'N/A'} | ` +
-      `ROCE=${p.ROCE != null ? p.ROCE + '%' : 'N/A'} | ` +
-      `DE=${p.DE != null ? p.DE : 'N/A'} | ` +
-      `EPS=${p.EPS != null ? '₹' + p.EPS : 'N/A'}`
-    );
+  if (pm.is_bfsi) {
+    lines.push(`  Avg Industry NIM: ${pm.industry_agg.avg_NIM != null ? pm.industry_agg.avg_NIM + '%' : 'N/A'}`);
+    lines.push(`  Avg Industry ROA: ${pm.industry_agg.avg_ROA != null ? pm.industry_agg.avg_ROA + '%' : 'N/A'}`);
+    lines.push(`  Total Industry AUM: ${pm.industry_agg.total_AUM != null ? pm.industry_agg.total_AUM + ' Cr' : 'N/A'}`);
+    lines.push(`  Avg Industry GNPA Ratio: ${pm.industry_agg.avg_GNPA_RATIO != null ? pm.industry_agg.avg_GNPA_RATIO + '%' : 'N/A'}`);
+    lines.push(`  Avg Industry CASA Ratio: ${pm.industry_agg.avg_CASA_RATIO != null ? pm.industry_agg.avg_CASA_RATIO + '%' : 'N/A'}`);
+    lines.push(`  Total Industry Loan/Advances: ${pm.industry_agg.total_LOAN_ADVANCES != null ? pm.industry_agg.total_LOAN_ADVANCES + ' Cr' : 'N/A'}`);
+    lines.push(`  Total Industry Deposits: ${pm.industry_agg.total_DEPOSITS != null ? pm.industry_agg.total_DEPOSITS + ' Cr' : 'N/A'}`);
+    lines.push(`  Total Industry Income: ${pm.industry_agg.total_TOTAL_INCOME != null ? pm.industry_agg.total_TOTAL_INCOME + ' Cr' : 'N/A'}`);
+    lines.push(`  Avg 3Y Revenue CAGR: ${pm.industry_agg.avg_REV_OP_cagr_3y != null ? pm.industry_agg.avg_REV_OP_cagr_3y + '%' : 'N/A'}`);
+    lines.push(`  Avg Industry EPS: ${pm.industry_agg.avg_EPS != null ? '₹' + pm.industry_agg.avg_EPS : 'N/A'}`);
+    lines.push('');
+    lines.push('Peer Breakdown (ticker | Total Income Cr | NIM% | ROA% | AUM Cr | GNPA% | CASA% | 3Y CAGR | EPS):');
+    for (const p of pm.peers) {
+      const tag = p.is_subject ? ' ← subject' : '';
+      lines.push(
+        `  ${p.ticker}${tag} | ` +
+        `INCOME=${p.TOTAL_INCOME != null ? p.TOTAL_INCOME + ' Cr' : 'N/A'} | ` +
+        `NIM=${p.NIM != null ? p.NIM + '%' : 'N/A'} | ` +
+        `ROA=${p.ROA != null ? p.ROA + '%' : 'N/A'} | ` +
+        `AUM=${p.AUM != null ? p.AUM + ' Cr' : 'N/A'} | ` +
+        `GNPA=${p.GNPA_RATIO != null ? p.GNPA_RATIO + '%' : 'N/A'} | ` +
+        `CASA=${p.CASA_RATIO != null ? p.CASA_RATIO + '%' : 'N/A'} | ` +
+        `CAGR=${p.REV_OP_cagr_3y != null ? p.REV_OP_cagr_3y + '%' : 'N/A'} | ` +
+        `EPS=${p.EPS != null ? '₹' + p.EPS : 'N/A'}`
+      );
+    }
+  } else {
+    lines.push(`  Total Industry Revenue (REV_OP): ${pm.industry_agg.total_REV_OP != null ? pm.industry_agg.total_REV_OP + ' Cr' : 'N/A'}`);
+    lines.push(`  Avg 3Y Revenue CAGR: ${pm.industry_agg.avg_REV_OP_cagr_3y != null ? pm.industry_agg.avg_REV_OP_cagr_3y + '%' : 'N/A'}`);
+    lines.push(`  Avg Industry OPM (EBITDA_MARGIN): ${pm.industry_agg.avg_EBITDA_MARGIN != null ? pm.industry_agg.avg_EBITDA_MARGIN + '%' : 'N/A'}`);
+    lines.push(`  Weighted Avg Industry ROCE: ${pm.industry_agg.weighted_avg_ROCE != null ? pm.industry_agg.weighted_avg_ROCE + '%' : 'N/A'}`);
+    lines.push(`  Avg Industry D/E: ${pm.industry_agg.avg_DE != null ? pm.industry_agg.avg_DE : 'N/A'}`);
+    lines.push(`  Avg Industry EPS: ${pm.industry_agg.avg_EPS != null ? '₹' + pm.industry_agg.avg_EPS : 'N/A'}`);
+    lines.push('');
+    lines.push('Peer Breakdown (ticker | REV_OP Cr | 3Y Rev CAGR | OPM% | ROCE% | D/E | EPS):');
+    for (const p of pm.peers) {
+      const tag = p.is_subject ? ' ← subject' : '';
+      lines.push(
+        `  ${p.ticker}${tag} | ` +
+        `REV=${p.REV_OP != null ? p.REV_OP + ' Cr' : 'N/A'} | ` +
+        `CAGR=${p.REV_OP_cagr_3y != null ? p.REV_OP_cagr_3y + '%' : 'N/A'} | ` +
+        `OPM=${p.EBITDA_MARGIN != null ? p.EBITDA_MARGIN + '%' : 'N/A'} | ` +
+        `ROCE=${p.ROCE != null ? p.ROCE + '%' : 'N/A'} | ` +
+        `DE=${p.DE != null ? p.DE : 'N/A'} | ` +
+        `EPS=${p.EPS != null ? '₹' + p.EPS : 'N/A'}`
+      );
+    }
   }
 
   lines.push('');

@@ -524,6 +524,8 @@ Return a JSON object with this exact structure:
 
 Your task is to synthesise this data into a structured industry view. Do NOT invent data — work only from the signals and peer context provided.
 
+SECTOR DETECTION — check the PEER CONTEXT block header. If it contains "[BFSI]", this is a BFSI industry (bank, NBFC, HFC, MFI, insurance, AMC). Apply the BFSI tile layout below. Otherwise apply the Non-BFSI tile layout.
+
 {{DATA_BLOCK}}
 
 WRITING STYLE RULES — apply to every text field:
@@ -534,13 +536,19 @@ WRITING STYLE RULES — apply to every text field:
 - "statement" in top_signals: ≤80 chars, verbatim or tightly paraphrased evidence
 - Never pad with filler phrases like "It is important to note that…" or "Overall, the company…"
 
-top_signals[] — MUST follow this exact positional layout. Positions 0–3 are FIXED INDUSTRY KPI TILES consumed positionally by the UI — ALL four MUST be present with non-null actual_value sourced from the PEER CONTEXT "Industry Aggregates" block:
+top_signals[] — MUST follow this exact positional layout. Positions 0–3 are FIXED INDUSTRY KPI TILES consumed positionally by the UI — ALL four MUST be present with non-null actual_value sourced from the PEER CONTEXT "Industry Aggregates" block.
 
-  FIXED INDUSTRY KPI TILES (positions 0–3, mandatory — use PEER CONTEXT values, NOT the subject company's individual signals):
+  ── NON-BFSI FIXED INDUSTRY KPI TILES (use when PEER CONTEXT does NOT contain [BFSI]):
   • [0] metric: "INDUSTRY_REVENUE", unit: "Cr", actual_value: Total Industry Revenue (REV_OP) from PEER CONTEXT. label: "Industry Revenue". direction: "beat"|"miss"|"in_line"|"tracking" based on YoY trend if available, else "tracking".
   • [1] metric: "INDUSTRY_REV_CAGR_3Y", unit: "%", actual_value: Avg 3Y Revenue CAGR from PEER CONTEXT. label: "3Y Revenue CAGR". direction: "beat" if >12%, "in_line" if 8–12%, "miss" if <8%.
   • [2] metric: "INDUSTRY_OPM", unit: "%", actual_value: Avg Industry OPM (EBITDA_MARGIN) from PEER CONTEXT. label: "Industry OPM". direction: "beat" if expanding YoY, "miss" if contracting, else "tracking".
   • [3] metric: "INDUSTRY_ROCE", unit: "%", actual_value: Weighted Avg Industry ROCE from PEER CONTEXT. label: "Industry ROCE". direction: "beat" if >15%, "in_line" if 10–15%, "miss" if <10%.
+
+  ── BFSI FIXED INDUSTRY KPI TILES (use ONLY when PEER CONTEXT contains [BFSI]):
+  • [0] metric: "INDUSTRY_ROA", unit: "%", actual_value: Avg Industry ROA from PEER CONTEXT "Avg Industry ROA". label: "Industry ROA". direction: "beat" if >1.5%, "in_line" if 1–1.5%, "miss" if <1%.
+  • [1] metric: "INDUSTRY_NIM", unit: "%", actual_value: Avg Industry NIM from PEER CONTEXT "Avg Industry NIM". label: "Industry NIM". direction: "beat" if >3.5%, "in_line" if 2.5–3.5%, "miss" if <2.5%.
+  • [2] metric: "INDUSTRY_AUM", unit: "Cr", actual_value: Total Industry AUM from PEER CONTEXT "Total Industry AUM". label: "Industry AUM". direction: "beat" if growing YoY, "miss" if declining, else "tracking". (If AUM is N/A, use Total Industry Loan/Advances instead and set label: "Industry Loan Book".)
+  • [3] metric: "INDUSTRY_REV_CAGR_3Y", unit: "%", actual_value: Avg 3Y Revenue CAGR from PEER CONTEXT. label: "3Y Revenue CAGR". direction: "beat" if >15%, "in_line" if 10–15%, "miss" if <10%.
 
   MANAGEMENT CONSENSUS SIGNALS (positions 4–7, mandatory — derived from management commentary in the signal data block):
   • [4] metric: "MGMT_DEMAND_BULLISH_COUNT", unit: "transcripts", actual_value: count of company transcripts in the data block showing bullish demand signals (volume growth, order book expansion, positive guidance). label: "Demand: Bullish Signals".
@@ -658,6 +666,12 @@ top_signals[] — MUST follow this exact positional layout. The frontend consume
       label: "Porter's Score".
       statement: ≤80 chars — sub-scores breakdown (e.g. "Rivalry 1/2 · Supplier 1/2 · Buyer 1/2 · Entry 2/2 · Sub 1/2").
 
+  TILE VALIDATION (positions 0–3) — strictly enforced before output:
+  • [0–2] guided_value MUST be a number (≥2, ≤5). It is the total signal count you assessed for that dimension. Never null, never undefined.
+  • [3] guided_value MUST be exactly 10 (fixed constant). Never null.
+  • direction MUST be non-null for all four tiles. Only "beat", "in_line", or "miss" are valid.
+  If any of these are missing, go back and fill them before returning the JSON.
+
   COMPETITIVE SIGNAL CARDS (positions 4–7, mandatory — 2 strength signals then 2 risk/watch signals):
   • [4] metric: "COMP_STRENGTH_1" — primary moat or competitive advantage. direction: "beat". impact: "high".
       actual_value: numeric evidence (e.g. delta bps, %, Cr) if available, else null.
@@ -742,10 +756,11 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Balance sheet strength, FCF generation, and margin quality',
     force_config: true,
+    version:     '1.1.0',
     config: {
       signal_filters: {
         signal_types:  ['kpi', 'financial_health'],
-        metric_family: ['profitability', 'capital', 'growth', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity'],
+        metric_family: ['profitability', 'capital', 'growth', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity', 'industry_specific'],
       },
       weights: [
         { metric: 'EBITDA',        w:  0.3,  b: 0 },
@@ -756,7 +771,91 @@ Return a JSON object with this exact structure:
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: null,
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management analysis using a rigorous L1 extraction pipeline.
+
+Your task is to synthesise this signal summary into a structured financial-strength view. Do NOT invent data — work only from the signals provided.
+
+SECTOR DETECTION — determine whether this is a BFSI company (bank, NBFC, HFC, MFI, insurance, AMC) or a non-BFSI company by inspecting the signals. BFSI signals include: NIM, GNPA, NPA, CASA, LOAN_ADVANCES, DEPOSITS, INTEREST_INCOME, NII, PCR, CRAR, CAR, TIER1. Non-BFSI signals are dominated by EBITDA, CAPEX, WORKING_CAPITAL, INVENTORY, RECEIVABLES, COGS.
+
+BFSI FINANCIAL STRENGTH FRAMEWORK (use when BFSI signals are present):
+Assess across these dimensions:
+  1. Margin Quality — NIM trajectory (expanding/compressing/stable), NII growth, cost-of-funds pressure.
+  2. Asset Quality — GNPA%, NPA%, PCR trend, slippage ratio. Is the book cleaning up or deteriorating?
+  3. Funding Franchise — Deposit growth, CASA ratio, cost-of-deposits. Is the liability franchise strong?
+  4. Book Growth — Loan/Advances CAGR, AUM growth, disbursement trajectory. Is growth sustainable?
+  5. Profitability & Efficiency — ROA, ROE, cost-to-income ratio, PAT trend.
+  6. Capital Adequacy — CRAR/CAR/Tier-1 vs regulatory minimums.
+
+NON-BFSI FINANCIAL STRENGTH FRAMEWORK (use when BFSI signals are absent):
+Assess across these dimensions:
+  1. Margin Quality — EBITDA margin trajectory and PAT margin. Operating leverage signals.
+  2. Cash Generation — FCF (CFO − CAPEX), CFO/PAT conversion, working capital efficiency.
+  3. Balance Sheet — Debt/Equity, interest coverage, net debt trajectory.
+  4. Revenue Quality — Revenue growth, concentration, recurring vs one-off.
+  5. Profitability — ROA, ROE, ROCE trends.
+  6. Capex Cycle — CAPEX intensity, asset turns, growth vs maintenance capex.
+
+{{DATA_BLOCK}}
+
+OUTPUT FIELD RULES — strictly enforced:
+
+data_block PRIORITIZATION — when building top_signals, strictly prioritize these metrics by sector:
+
+  BFSI priority order (include ALL available, in this order):
+    1. NIM (Net Interest Margin)
+    2. INTEREST_INCOME / NII (Interest Revenue / Net Interest Income)
+    3. TOTAL_INCOME / REV_OP (Total Revenue)
+    4. LOAN_ADVANCES / ADVANCES (Loan Book / Advances)
+    5. DEPOSITS (Total Deposits)
+    6. CASA / CASA_RATIO (CASA Ratio %)
+    7. ROA (Return on Assets)
+    8. GNPA / GNPA_RATIO (Gross NPA %)
+    9. NPA / NET_NPA / NET_NPA_RATIO (Net NPA %)
+    10. PAT (Profit After Tax)
+    11. OPEX / COST_TO_INCOME (Operating Expenses / Cost-to-Income)
+    Secondary (include if space): PCR, CRAR, ROE, TIER1, EPS, CFO
+
+  Non-BFSI priority order:
+    1. REV_OP / REVENUE (Operating Revenue)
+    2. EBITDA / EBITDA_MARGIN (EBITDA & Margin %)
+    3. PAT / PAT_MARGIN (PAT & Margin %)
+    4. CFO (Operating Cash Flow)
+    5. CAPEX (Capital Expenditure)
+    6. DEBT_LT / DEBT_ST / DE (Debt levels & D/E ratio)
+    7. ROA / ROE / ROCE (Return ratios)
+    8. WORKING_CAPITAL / RECEIVABLE_DAYS / INVENTORY_DAYS (Efficiency)
+    9. FCF (Free Cash Flow)
+    10. EPS (Earnings per Share)
+
+top_signals[] — include 8–12 signals. ALL must have non-null actual_value.
+  For each signal:
+  • metric: use the exact metric name from the data block
+  • label: human-readable name (e.g. "Net Interest Margin", "Gross NPA Ratio", "Operating Revenue", "EBITDA Margin")
+  • actual_value: numeric value (non-null)
+  • unit: "%" for ratios/margins, "Cr" for absolute amounts, "x" for multiples
+  • direction: "beat" if improving YoY, "miss" if deteriorating, "in_line" if stable, "tracking" if forward-looking
+  • impact: "high" for the 4 most important signals for this sector, "medium" for next tier, "low" for supporting
+  • statement: ≤80 chars — key context (YoY change, quarter, comparison vs guidance)
+  • actual_date: ISO 8601 date YYYY-MM-DD of the period end
+  • guided_value: management guidance if available, else null
+  • guided_date: guidance target date if available, else null
+
+WRITING STYLE RULES:
+- "takeaway": max 25 words, lead with the dominant financial strength or weakness verdict.
+- "highlights": up to 3 items, max 12 words each, start with a verb or metric.
+- "risks": up to 2 items, max 12 words each, start with the risk noun.
+- Never pad with filler phrases.
+
+Return a JSON object with this exact structure:
+{
+  "score": <integer 0-100>,
+  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "takeaway": <string — max 25 words, lead with dominant financial strength/weakness verdict>,
+  "key_metrics": { <metric_name>: <formatted_value_string> },
+  "highlights": [<up to 3 positive findings, each max 12 words, starting with a verb or metric>],
+  "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
+  "top_signals": [<8–12 signals; ALL must have non-null actual_value; BFSI: prioritise NIM, Interest Revenue, Total Revenue, Loan/Advances, Deposits, CASA, ROA, GNPA, NPA, PAT, OpEx in that order; Non-BFSI: prioritise Revenue, EBITDA, PAT, CFO, CAPEX, Debt, Return ratios>]
+}`,
     },
   },
   {
@@ -765,6 +864,7 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Client base growth, channel quality, and revenue concentration risk',
     force_config: true,
+    version:     '1.1.0',
     config: {
       signal_filters: {
         signal_types:       ['kpi', 'customer'],
@@ -777,7 +877,72 @@ Return a JSON object with this exact structure:
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: null,
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management commentary using a rigorous L1 extraction pipeline.
+
+Your task is to synthesise this signal summary into a structured customer-and-distribution view. Do NOT invent data — work only from the signals provided.
+
+CUSTOMER & DISTRIBUTION FRAMEWORK — assess across 5 dimensions:
+
+  1. Customer Base Size & Growth — Total customer count, active users, subscriber count, client additions. Is the base growing, stable, or shrinking? What is the YoY growth rate?
+  2. Revenue Mix & Segmentation — Business model breakdown: segment revenues (B2B vs B2C, domestic vs export, branded vs private label, product vs service), AUM/loan book/order book, contribution from top customers. Is revenue diversified or concentrated?
+  3. Price-Volume Dynamics — Volume growth vs price/realization growth. Are revenue gains volume-led, price-led, or mix-led? Watch for realization compression or volume declines.
+  4. Channel Quality & Reach — Outlet/retailer/dealer network size, expansion velocity, digital vs physical channel split, distribution depth (T1/T2/T3 cities, rural penetration). Are distribution investments driving incremental revenue?
+  5. Customer Stickiness & Retention — Retention rate, repeat purchase rate, average ticket size trend, churn rate, NPS/CSAT score, cross-sell signals, revenue from existing vs new customers. Are customers being deepened or churning?
+
+BUSINESS MODEL DETECTION — infer from signals:
+  - If signals include AUM, SIP flows, loan book, disbursements → financial services / AMC / NBFC model
+  - If signals include outlet count, retailer network, dealer expansion → FMCG / retail / auto distribution model
+  - If signals include order book, project pipeline, client wins → B2B / capital goods / IT services model
+  - If signals include subscriber count, paid users, engagement → consumer tech / media / telecom model
+  Tailor your analysis language to match the detected model.
+
+{{DATA_BLOCK}}
+
+OUTPUT FIELD RULES — strictly enforced:
+
+top_signals[] — include 8–12 signals. Prioritize in this order:
+  1. CUSTOMER_COUNT / TOTAL_CUSTOMERS / ACTIVE_USERS / SUBSCRIBER_COUNT / CLIENT_BASE — customer base size (unit: number/mn/lakh)
+  2. CUSTOMER_GROWTH / CUSTOMER_GROWTH_YOY / NEW_CUSTOMERS — customer addition rate (unit: %)
+  3. Order book / AUM / loan book / disbursements — forward revenue visibility (unit: Cr/Mn)
+  4. REV_OP or TOTAL_INCOME — total revenue anchor (unit: Cr)
+  5. Segment revenue signals (SEG_* metrics) — business model mix (unit: Cr or %)
+  6. OUTLET_COUNT / RETAILER_NETWORK / DEALER_COUNT / reach_outlets — distribution reach (unit: number)
+  7. CHANNEL_EXPANSION / outlet additions / new geographies — distribution growth (unit: %)
+  8. REVENUE_PER_CUSTOMER / AVG_TICKET_SIZE / AVERAGE_TICKET_SIZE / REALIZATION — monetisation depth (unit: ₹/Cr)
+  9. REV_OP_GROWTH_YOY / SALES_GROWTH_RATE / ORGANIC_GROWTH — revenue growth rate (unit: %)
+  10. CUSTOMER_RETENTION_RATE / retention_rate / LOYALTY_RATE — stickiness (unit: %)
+  11. CUSTOMER_CONCENTRATION / top-customer revenue share — concentration risk (unit: %)
+  12. CSAT_SCORE / NPS — satisfaction signals (unit: % or score)
+
+  For each signal:
+  • signal_id: id from the data block (or "derived" if computed)
+  • metric: exact metric name from the data block
+  • label: human-readable name (e.g. "Total Customers", "Order Book", "Retailer Network", "Avg Ticket Size", "Revenue Growth", "CASA Ratio")
+  • actual_value: numeric value (non-null for all included signals)
+  • unit: "%" for rates/shares, "Cr" for INR crores, "Mn" for millions, number for counts, "₹" for per-unit values
+  • direction: "beat" if growing/positive trend, "miss" if declining/negative, "in_line" if stable, "tracking" if forward-looking guidance
+  • impact: "high" for customer base size, order book/AUM, revenue mix; "medium" for channel reach, ticket size; "low" for satisfaction scores
+  • statement: ≤80 chars — key context (YoY change, management commentary, comparison to guidance)
+  • actual_date: ISO 8601 YYYY-MM-DD of the period end
+  • guided_value: management target if available (e.g. customer count target, outlet expansion target), else null
+  • guided_date: guidance target date if available, else null
+
+WRITING STYLE RULES:
+- "takeaway": max 25 words, lead with the dominant customer growth or distribution quality finding (e.g. "Customer base up 18% YoY; distribution reach growing via 3,200 new outlets — revenue concentration risk from top-3 accounts.")
+- "highlights": up to 3 items, max 12 words each, start with a verb or metric.
+- "risks": up to 2 items, max 12 words each, start with the risk noun (e.g. "Concentration risk", "Churn rising", "Outlet productivity declining").
+- Never pad with filler phrases.
+
+Return a JSON object with this exact structure:
+{
+  "score": <integer 0-100>,
+  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "takeaway": <string — max 25 words, lead with dominant customer growth or distribution quality verdict>,
+  "key_metrics": { <metric_name>: <formatted_value_string> },
+  "highlights": [<up to 3 positive findings, each max 12 words, starting with a verb or metric>],
+  "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
+  "top_signals": [<8–12 signals; ALL must have non-null actual_value; prioritise: customer count/growth, order book/AUM, revenue segments, outlet/channel reach, ticket size/realization, revenue growth, retention, concentration risk>]
+}`,
     },
   },
   // ── Deal lenses ──────────────────────────────────────────────────────────────
