@@ -21,14 +21,14 @@ const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNT
 // const TARGET_TICKERS = ['AXISBANK'];
 
 const TARGET_LENSES  = [
-  'guidance-credibility',
-  'disclosure-honesty',
-  'capital-allocation',
-  'promoter-activity',
+  // 'guidance-credibility',
+  // 'disclosure-honesty',
+  // 'capital-allocation',
+  // 'promoter-activity',
   'industry-analysis',
-  'financial-strength',
+  // 'financial-strength',
   // 'customer-distribution',
-  'competition',
+  // 'competition',
 ];
 
 const args     = process.argv.slice(2);

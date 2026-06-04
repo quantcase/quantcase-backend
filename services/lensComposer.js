@@ -351,11 +351,18 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
 
   const { basic_industry: industry } = call;
 
-  const allRows = await prisma.earnings_calls.findMany({
-    where:   { basic_industry: industry },
-    select:  { id: true, company: true, fiscal_year: true, quarter: true },
-    orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
-  });
+  // Use only transcript-based call_ids (exclude prowess synthetic ones) so that
+  // the fan-out targets the same call_ids that have real L1 signals.
+  const allRows = await prisma.$queryRaw`
+    SELECT DISTINCT ON (es.ticker) es.ticker AS company, es.call_id AS id, es.fiscal_year, es.quarter
+    FROM extracted_signals es
+    WHERE es.is_invalidated = false
+      AND es.call_id NOT LIKE 'prowess%'
+      AND es.call_id IN (
+        SELECT id FROM earnings_calls WHERE basic_industry = ${industry}
+      )
+    ORDER BY es.ticker, es.fiscal_year DESC, es.quarter DESC
+  `;
   const latestCallByTicker = new Map();
   for (const r of allRows) {
     if (!latestCallByTicker.has(r.company)) latestCallByTicker.set(r.company, r);
