@@ -88,4 +88,3 @@ node scripts/fetch-concalls.js 2>&1 | tee scripts/fetch-concalls.log | awk '
 '
 #### How many symbols done so far
 tail -f scripts/fetch-concalls.log | grep "Saved"
-
