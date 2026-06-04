@@ -89,7 +89,7 @@ Your task is to synthesise this compact signal summary into a structured analyti
 {{DATA_BLOCK}}
 
 WRITING STYLE RULES — apply to every text field:
-- "takeaway": max 25 words, action-oriented, lead with the key finding (e.g. "Margins expanding on operating leverage; FCF conversion risk remains — watch CFO/PAT ratio.")
+- "takeaway": max 30 words, action-oriented, lead with the key finding (e.g. "Margins expanding on operating leverage; FCF conversion risk remains — watch CFO/PAT ratio.")
 - "highlights" items: max 12 words each, start with a verb or metric (e.g. "EBITDA margin up 180 bps YoY on cost discipline.")
 - "risks" items: max 12 words each, start with the risk noun (e.g. "Debt elevated; interest cover below 3x for 2 quarters.")
 - "label" in top_signals: 2–5 words, title-case, human-readable (e.g. "Operating Cash Flow")
@@ -100,7 +100,7 @@ Return a JSON object with this exact structure:
 {
   "score": <integer 0-100>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 25 words, action-oriented synthesis leading with the key finding>,
+  "takeaway": <string — max 30 words, action-oriented synthesis leading with the key finding>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
   "highlights": [<up to 3 positive findings, each max 12 words, starting with a verb or metric>],
   "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],

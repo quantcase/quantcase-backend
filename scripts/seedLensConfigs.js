@@ -286,6 +286,9 @@ DISCLOSURE HONESTY FRAMEWORK — assess across 4 quadrants:
   TD — Transparency Depth: Are disclosures granular and quantitative, or vague and qualitative? Check if management provides segment-level breakdowns, vintage data, and specific guidance.
   GV — Governance Signals: RPT disclosures, auditor remarks, board independence, related-party concerns, regulatory flags.
 
+SECTOR CONSTRAINT — NIM signals:
+  NIM (Net Interest Margin) is a BFSI-specific metric (banks, NBFCs, HFCs, MFIs). Do NOT generate NIM-related signals, bullets, callouts, or commentary for non-BFSI companies. If the subject company is not in the BFSI sector, skip any NIM references entirely.
+
 For each quadrant provide: a score (0–8), a 1-line verdict, 2–3 bullet evidence points, and a callout if there is a notable red flag.
 
 {{DATA_BLOCK}}
