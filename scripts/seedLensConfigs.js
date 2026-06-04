@@ -784,7 +784,7 @@ Return a JSON object with this exact structure:
     category:     'deal',
     description:  'Scenario-based earnings forecast — bull/base/bear EPS trajectory driven by revenue growth, margin expansion, and volume-mix dynamics',
     force_config: true,
-    version:      '1.3.0',
+    version:      '1.4.0',
     config: {
       signal_filters: {
         signal_types:       ['kpi', 'financial_health', 'milestone'],
@@ -820,9 +820,9 @@ Output a 3-column (Bull / Base / Bear), 5-row scenario matrix in your analysis. 
    Bear: Industry CAGR − 50–100 bps market share loss.
 
 3. Margin Assumptions — Use the adjusted last-4-quarter average EBITDA_MARGIN as the base. Cite the primary margin driver (operating leverage / pricing power / input costs / utilisation).
-   Bull: Margin expansion from operating leverage, pricing power, or lower input costs.
-   Base: Flat margins, in line with recent trend.
-   Bear: Margin compression from cost pressure, lower utilisation, or competitive pricing.
+   Bull: Margin expansion from operating leverage, pricing power, or lower input costs. Express as an absolute % level (e.g. "22%") OR a signed bps change (e.g. "+150bps").
+   Base: Flat margins, in line with recent trend. Express as an absolute % level or "flat" with the current % (e.g. "flat 19%").
+   Bear: Margin compression from cost pressure, lower utilisation, or competitive pricing. Express as a signed bps change (e.g. "-200bps") or absolute % level.
 
 4. Earnings / PAT CAGR — Project using the waterfall:
    Future Revenue = Current REV_OP × (1 + Revenue CAGR)^3
@@ -835,10 +835,22 @@ Output a 3-column (Bull / Base / Bear), 5-row scenario matrix in your analysis. 
 
 OUTPUT FIELD RULES — strictly enforced:
 
-highlights[] — exactly 3 items in this fixed order:
-  highlights[0]: Bull scenario narrative. MUST start with "Bull:" prefix. MUST contain the bull-case EPS/PAT CAGR as a % figure followed by the word CAGR (e.g. "Bull: 28% PAT CAGR driven by...").
-  highlights[1]: Base scenario narrative. MUST start with "Base:" prefix. MUST contain the base-case EPS/PAT CAGR as a % figure followed by CAGR.
-  highlights[2]: Bear scenario narrative. MUST start with "Bear:" prefix. MUST contain the bear-case EPS/PAT CAGR as a % figure followed by CAGR.
+highlights[] — exactly 3 items in this fixed order. Each highlight MUST embed three machine-readable tokens as a structured prefix before the narrative, using EXACTLY this format:
+  "Bull: RevCAGR=X–Y%, Margin=<value>, EPS CAGR=Z%; <narrative>"
+  "Base: RevCAGR=X–Y%, Margin=<value>, EPS CAGR=Z%; <narrative>"
+  "Bear: RevCAGR=X–Y%, Margin=<value>, EPS CAGR=Z%; <narrative>"
+
+  Token rules:
+  • RevCAGR= — a % range or single % (e.g. "12–14%" or "8%"). Use the 3Y company revenue CAGR for that scenario.
+  • Margin= — an absolute EBITDA margin % (e.g. "22%") OR a signed bps change from base (e.g. "+150bps", "-200bps") OR "flat <X>%" for base case. Always include a number.
+  • EPS CAGR= — a single signed % figure (e.g. "15%", "-3%"). This is the 3Y PAT/EPS CAGR for that scenario.
+  • Tokens are separated by ", " and the narrative follows after "; ".
+  • Do NOT reorder or rename the tokens. The parser depends on prefix position.
+
+  Examples (adapt values to the actual company):
+  highlights[0]: "Bull: RevCAGR=12–14%, Margin=+150bps, EPS CAGR=18%; AI spend unlocks new demand driving market share and margin expansion."
+  highlights[1]: "Base: RevCAGR=7–9%, Margin=flat 19%, EPS CAGR=11%; management guidance with steady volume growth and stable margins."
+  highlights[2]: "Bear: RevCAGR=2–4%, Margin=-200bps, EPS CAGR=-3%; macro slowdown and wage inflation compress margins below operating leverage threshold."
 
 takeaway — MUST include:
   • The bull-case 3-year target price range in ₹X–₹Y format (first range in the string).
@@ -853,8 +865,8 @@ top_signals[] — every signal MUST have actual_value populated (non-null). Sign
     - statement: one sentence on sector context.
 
 WRITING STYLE RULES — apply to every text field:
-- "takeaway": max 25 words, action-oriented, lead with the key finding.
-- "highlights" items: max 20 words each (longer allowed to fit Bull:/Base:/Bear: prefix with CAGR).
+- "takeaway": max 30 words, action-oriented, lead with the key finding.
+- "highlights" items: structured prefix (RevCAGR=, Margin=, EPS CAGR=) followed by a concise narrative of up to 20 words.
 - "risks" items: max 12 words each, start with the risk noun.
 - "label" in top_signals: 2–5 words, title-case, human-readable.
 - "statement" in top_signals: ≤80 chars, verbatim or tightly paraphrased evidence.
@@ -864,9 +876,9 @@ Return a JSON object with this exact structure:
 {
   "score": <integer 0-100>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 25 words, MUST include bull ₹X–₹Y range, base ₹X–₹Y range, and Nx risk/reward>,
+  "takeaway": <string — max 30 words, MUST include bull ₹X–₹Y range, base ₹X–₹Y range, and Nx risk/reward>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
-  "highlights": [<exactly 3 items: highlights[0] starts "Bull:" with % PAT CAGR, highlights[1] starts "Base:" with % CAGR, highlights[2] starts "Bear:" with % CAGR>],
+  "highlights": [<exactly 3 items, each starting with "Bull:"/"Base:"/"Bear:" and containing RevCAGR=, Margin=, EPS CAGR= tokens before "; narrative">],
   "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
   "top_signals": [<8–10 signals, ALL must have non-null actual_value; MUST include exactly one metric:"industry_growth" signal with numeric actual_value; populate guided_value wherever management guidance exists>]
 }`,

@@ -22,6 +22,7 @@ const portfolioRouter     = require('./portfolio.routes');
 const signalsRouter       = require('./signals.routes');
 const lensesRouter        = require('./lenses.routes');
 const analysisRouter      = require('./analysis.routes');
+const dealRouter          = require('./deal.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -68,6 +69,7 @@ router.use('/api/portfolio', portfolioRouter);
 router.use('/api/signals',  signalsRouter);
 router.use('/api/lenses',   lensesRouter);
 router.use('/api/analysis', analysisRouter);
+router.use('/api/deal',     dealRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);

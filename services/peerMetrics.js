@@ -237,10 +237,10 @@ async function fetchEquityMetrics(callId) {
   });
   const allTickers = peerRows.map(r => r.company);
 
-  // Latest PE + mcap per ticker from nse_equity
+  // Latest PE + mcap + close per ticker from nse_equity
   const equityRows = await prisma.nse_equity.findMany({
     where:    { symbol: { in: allTickers }, pe: { not: null } },
-    select:   { symbol: true, pe: true, market_cap_cr: true, datetime: true },
+    select:   { symbol: true, pe: true, market_cap_cr: true, close: true, datetime: true },
     orderBy:  [{ symbol: 'asc' }, { datetime: 'desc' }],
     distinct: ['symbol'],
   });
@@ -292,6 +292,7 @@ async function fetchEquityMetrics(callId) {
     equityMap[row.symbol] = {
       pe:            row.pe            != null ? parseFloat(row.pe.toFixed(1))            : null,
       market_cap_cr: row.market_cap_cr != null ? parseFloat(row.market_cap_cr.toFixed(0)) : null,
+      close:         row.close         != null ? parseFloat(parseFloat(row.close).toFixed(2)) : null,
       as_of:         row.datetime,
     };
   }
@@ -358,7 +359,8 @@ function formatEquityMetricsBlock(em) {
   const lines = [
     '',
     `EQUITY VALUATION CONTEXT — Industry: ${em.industry}`,
-    `Subject (${em.subject_ticker}): PE=${fmt(em.subject?.pe, 'x')} | EPS=₹${em.subject?.eps ?? 'N/A'} | Market Cap=${fmt(em.subject?.market_cap_cr, ' Cr')}`,
+    `Subject (${em.subject_ticker}): CMP=₹${em.subject?.close ?? 'N/A'} | PE=${fmt(em.subject?.pe, 'x')} | EPS=₹${em.subject?.eps ?? 'N/A'} | Market Cap=${fmt(em.subject?.market_cap_cr, ' Cr')}`,
+    `IMPORTANT: All target price calculations MUST be anchored to the subject CMP above. Target Price = FY EPS × Exit P/E. Do NOT use peer EPS values as a proxy for the subject's EPS scale.`,
     `Industry (${em.industry_agg.peer_count_with_pe} peers): Avg PE=${fmt(em.industry_agg.avg_pe, 'x')} | Median PE=${fmt(em.industry_agg.median_pe, 'x')} | Avg EPS=₹${em.industry_agg.avg_eps ?? 'N/A'} | Median EPS=₹${em.industry_agg.median_eps ?? 'N/A'} | Total MCap=${fmt(em.industry_agg.total_market_cap_cr, ' Cr')}`,
     '',
     'Peer PE, EPS & Market Cap:',
