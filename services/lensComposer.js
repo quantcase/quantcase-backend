@@ -9,7 +9,7 @@ const { computeSourceHash } = require('../utils/sourceHash');
 const { fetchPeerMetrics, formatPeerMetricsBlock, fetchEquityMetrics, formatEquityMetricsBlock } = require('./peerMetrics');
 const prowess = require('../lib/prowess');
 
-const PEER_LENS_SLUGS = new Set(['industry-analysis', 'competition']);
+const PEER_LENS_SLUGS = new Set(['competition']);
 
 // ─── Shareholding block for promoter-activity lens ───────────────────────────
 
@@ -325,12 +325,196 @@ async function buildPeerSignalsBlock(callId, subjectTicker) {
   return lines.join('\n');
 }
 
+// ─── composeIndustryLens ─────────────────────────────────────────────────────
+// industry-analysis is a shared lens: all peers in the same industry receive
+// identical lens_data from one LLM call. Steps:
+//   1. Build the industry-wide prompt (peer KPIs + peer L1 signals).
+//   2. Derive a hash of that shared input.
+//   3. If any peer already has a fresh score with the same hash, copy it and return.
+//   4. Otherwise call the LLM once, then fan-out to every peer call_id.
+
+const INDUSTRY_LENS_SLUGS = new Set(['industry-analysis']);
+
+async function composeIndustryLens(callId, lensSlug, lensConfig) {
+  const {
+    model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
+  } = lensConfig.config;
+
+  const call = await prisma.earnings_calls.findUnique({
+    where:  { id: callId },
+    select: { company: true, basic_industry: true },
+  });
+  if (!call?.basic_industry) {
+    console.log(`[lensComposer] "${lensSlug}" — no basic_industry for ${callId}, falling through to per-call compute`);
+    return null;
+  }
+
+  const { basic_industry: industry } = call;
+
+  const allRows = await prisma.earnings_calls.findMany({
+    where:   { basic_industry: industry },
+    select:  { id: true, company: true, fiscal_year: true, quarter: true },
+    orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
+  });
+  const latestCallByTicker = new Map();
+  for (const r of allRows) {
+    if (!latestCallByTicker.has(r.company)) latestCallByTicker.set(r.company, r);
+  }
+  const peerCallIds = [...latestCallByTicker.values()].map(r => r.id);
+
+  const pm = await fetchPeerMetrics(callId);
+  const peerBlock = formatPeerMetricsBlock(pm);
+
+  const industrySignalLines = ['\nINDUSTRY L1 SIGNALS (all peer earnings calls):'];
+  for (const [ticker, peerCall] of latestCallByTicker) {
+    const raw = await prisma.extractedSignal.findMany({
+      where: {
+        call_id:        peerCall.id,
+        signal_type:    { in: PEER_SIGNAL_TYPES },
+        is_invalidated: false,
+        NOT:            { metric: 'person' },
+      },
+    });
+    if (raw.length === 0) continue;
+    const sorted = raw.sort((a, b) => {
+      const ia = PEER_IMPACT_ORDER[a.impact] ?? 3;
+      const ib = PEER_IMPACT_ORDER[b.impact] ?? 3;
+      if (ia !== ib) return ia - ib;
+      return (b.statement ? 1 : 0) - (a.statement ? 1 : 0);
+    }).slice(0, PEER_SIGNALS_CAP);
+    industrySignalLines.push(`\n  [${ticker} — ${peerCall.fiscal_year} ${peerCall.quarter}]`);
+    for (const s of sorted) {
+      const stmt = s.statement ? ` — "${s.statement}"` : '';
+      industrySignalLines.push(`    [id=${s.id}] ${s.metric}: ${s.raw_value ?? s.value ?? 'N/A'} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
+    }
+  }
+  const peerSignalsBlock = industrySignalLines.length > 1 ? industrySignalLines.join('\n') + '\n' : '';
+
+  const em = await fetchEquityMetrics(callId);
+  const equityBlock = formatEquityMetricsBlock(em);
+
+  const sharedDataBlock = peerBlock + peerSignalsBlock + equityBlock;
+  const industryHash = computeSourceHash(sharedDataBlock + lensConfig.version);
+
+  const existingPeerScore = await prisma.lensScore.findFirst({
+    where: {
+      call_id:       { in: peerCallIds },
+      lens_slug:     lensSlug,
+      signals_hash:  industryHash,
+      lens_config_v: lensConfig.version,
+      is_stale:      false,
+    },
+  });
+
+  if (existingPeerScore?.lens_data && Array.isArray(existingPeerScore.lens_data.top_signals)) {
+    console.log(`[lensComposer] Industry cache hit for "${lensSlug}" / "${industry}" — copying from ${existingPeerScore.call_id}`);
+    const cachedData = existingPeerScore.lens_data;
+    const missingPeerIds = await _getPeerCallIdsWithoutScore(peerCallIds, lensSlug, industryHash, lensConfig.version);
+    await _fanOutIndustryScore(missingPeerIds, lensSlug, lensConfig.version, industryHash, cachedData, latestCallByTicker);
+    return { ...cachedData, z_score: existingPeerScore.z_score, signals_snapshot: existingPeerScore.signals_snapshot ?? [] };
+  }
+
+  const promptTemplate = cfgPromptTemplate || L2_DEFAULT_PROMPT;
+  const prompt = promptTemplate
+    .replace('{{LENS_NAME}}', lensConfig.name)
+    .replace('{{LENS_INSTRUCTIONS}}', '')
+    .replace('{{DATA_BLOCK}}', `LENS: ${lensConfig.name}\nINDUSTRY-WIDE ANALYSIS — ${industry}\n` + sharedDataBlock);
+
+  const model     = cfgModel     ?? '~anthropic/claude-haiku-latest';
+  const maxTokens = cfgMaxTokens ?? 8000;
+  const outputSchema = lensConfig.config.output_schema ?? lensOutputSchema;
+
+  console.log(`[lensComposer] Industry LLM call for "${lensSlug}" / "${industry}" (${peerCallIds.length} peers, prompt: ${prompt.length} chars)`);
+  const responseText = await llmStream({
+    model,
+    max_tokens:      maxTokens,
+    messages:        [{ role: 'user', content: prompt }],
+    response_format: outputSchema,
+  });
+
+  let lensResult;
+  try {
+    lensResult = parseJson(responseText);
+  } catch (e) {
+    console.error(`[lensComposer] Failed to parse industry LLM response for "${lensSlug}":`, e.message);
+    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [] };
+  }
+
+  const numericScore = typeof lensResult.score === 'number' ? lensResult.score / 100 : 0;
+  await _fanOutIndustryScore(peerCallIds, lensSlug, lensConfig.version, industryHash, lensResult, latestCallByTicker, numericScore);
+
+  return { ...lensResult, z_score: numericScore, signals_snapshot: [] };
+}
+
+async function _getPeerCallIdsWithoutScore(peerCallIds, lensSlug, industryHash, configVersion) {
+  const existing = await prisma.lensScore.findMany({
+    where: {
+      call_id:       { in: peerCallIds },
+      lens_slug:     lensSlug,
+      signals_hash:  industryHash,
+      lens_config_v: configVersion,
+      is_stale:      false,
+    },
+    select: { call_id: true },
+  });
+  const doneSet = new Set(existing.map(r => r.call_id));
+  return peerCallIds.filter(id => !doneSet.has(id));
+}
+
+async function _fanOutIndustryScore(callIds, lensSlug, configVersion, industryHash, lensResult, latestCallByTicker, numericScore) {
+  if (callIds.length === 0) return;
+  const callToTicker = new Map([...latestCallByTicker.values()].map(r => [r.id, r.company]));
+  const score = numericScore ?? (typeof lensResult.score === 'number' ? lensResult.score / 100 : 0);
+
+  await Promise.all(callIds.map(cid => {
+    const ticker = callToTicker.get(cid) ?? '';
+    return prisma.lensScore.upsert({
+      where:  { call_id_lens_slug: { call_id: cid, lens_slug: lensSlug } },
+      update: {
+        ticker,
+        z_score:          score,
+        confidence_lo:    score,
+        confidence_hi:    score,
+        signal_count:     0,
+        lens_config_v:    configVersion,
+        signals_snapshot: [],
+        lens_data:        lensResult,
+        signals_hash:     industryHash,
+        is_stale:         false,
+        computed_at:      new Date(),
+      },
+      create: {
+        call_id:          cid,
+        ticker,
+        lens_slug:        lensSlug,
+        z_score:          score,
+        confidence_lo:    score,
+        confidence_hi:    score,
+        signal_count:     0,
+        lens_config_v:    configVersion,
+        signals_snapshot: [],
+        lens_data:        lensResult,
+        signals_hash:     industryHash,
+      },
+    }).catch(err => console.error(`[lensComposer] Fan-out upsert failed for ${cid}:`, err.message));
+  }));
+
+  console.log(`[lensComposer] Fan-out complete for "${lensSlug}" — wrote to ${callIds.length} peers`);
+}
+
 // ─── composeLens ─────────────────────────────────────────────────────────────
 
 async function composeLens(callId, lensSlug) {
   const lensConfig = await prisma.lensConfig.findUnique({ where: { slug: lensSlug } });
   if (!lensConfig) throw new Error(`LensConfig "${lensSlug}" not found`);
   if (!lensConfig.is_active) throw new Error(`LensConfig "${lensSlug}" is inactive`);
+
+  // Industry-shared lenses: one LLM call for the whole industry, fanned out to all peers
+  if (INDUSTRY_LENS_SLUGS.has(lensSlug)) {
+    const result = await composeIndustryLens(callId, lensSlug, lensConfig);
+    if (result !== null) return result;
+    // null = no basic_industry found; fall through to normal per-call path
+  }
 
   const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
           model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,

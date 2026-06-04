@@ -23,7 +23,7 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.1.0',
+    version:      '1.2.0',
     config: {
       signal_filters: {
         signal_types:      ['milestone', 'governance'],
@@ -42,8 +42,28 @@ const LENS_CONFIGS = [
 
 Your task is to synthesise this signal summary into a structured guidance-credibility view. Do NOT invent data — work only from the signals provided.
 
+TODAY'S DATE: 2026-06-04
+
 GUIDANCE TIMELINE CONSTRUCTION:
-Review each guidance event in the signals. For each, determine: what was guided, what was delivered, the delta, and whether it was a beat / miss / in_line. Identify the single most important miss (the one with the largest magnitude or strategic significance) as the "major miss". Assess overall directional bias (Conservative / Balanced / Aggressive) based on the pattern of beats vs misses across all events.
+Review each guidance event in the signals. For each, determine: what was guided (guided_value + guided_date), what was actually delivered (actual_value), and whether the result is beat / miss / in_line / tracking. Identify the single most important RESOLVED miss as "major miss". Assess overall directional bias (Conservative / Balanced / Aggressive) based on resolved events only.
+
+DEDUPLICATION RULE — Same metric, different periods = SEPARATE rows (required).
+Example: CD_RATIO FY25, CD_RATIO FY26, CD_RATIO FY27 are three distinct guidance events — emit all three.
+Only collapse entries if the metric AND the time period are truly identical.
+
+DIRECTION TAGGING RULES — strictly enforced:
+1. If guided_date > 2026-06-04 (target deadline has NOT yet passed): direction = "tracking". NEVER "miss" for future targets.
+2. If guided_date ≤ 2026-06-04 AND actual_value is available:
+   - Beat: outperformed the guidance materially
+   - in_line: within ±2% relative tolerance of guided value
+   - miss: materially underdelivered vs guidance
+3. "miss" is ONLY valid when: (a) guided_date ≤ 2026-06-04 AND (b) actual_value confirms underdelivery.
+
+DELTA RULES — strictly enforced:
+- Populate delta (= actual_value − guided_value) ONLY when BOTH:
+  (a) guided_date ≤ 2026-06-04 (the milestone deadline has been reached or passed)
+  (b) actual_value is non-null and confirmed
+- If guided_date > 2026-06-04: set delta = 0 and delta_pct = 0 (use 0, not omit).
 
 {{DATA_BLOCK}}
 
@@ -55,22 +75,22 @@ top_signals[] — MUST follow this exact layout. No exceptions.
   These render as the 3 headline strip tiles at the top. ALL THREE are required.
 
   [0] metric: "HEADLINE_HIT_RATE"
-      label: fraction string, e.g. "4/7" (actual hits out of total guidance events)
-      statement: one sentence listing which metrics beat and which missed (≤80 chars)
-      actual_value: integer count of hits (numerator)
-      guided_value: integer count of total guidance events (denominator)
+      label: fraction string counting ONLY RESOLVED events (guided_date ≤ 2026-06-04), e.g. "5/7"
+      statement: one sentence naming which metrics beat/missed among resolved events (≤80 chars)
+      actual_value: count of hits among resolved events (numerator)
+      guided_value: total count of resolved guidance events (denominator)
       unit: "ratio"
       impact: "high"
       (omit direction — not applicable for this tile)
 
   [1] metric: "HEADLINE_MAJOR_MISS"
-      label: short descriptor of the biggest miss, e.g. "NIM −12%" or "Revenue −8%"
+      label: short descriptor of the biggest RESOLVED miss, e.g. "NIM −12%" or "HDB IPO"
       statement: what was guided, what was delivered, and the reset if any (≤80 chars)
       actual_value: delta as a signed number (e.g. -12 for a 12% shortfall)
       unit: "%" (or appropriate unit for that metric)
       direction: "major_miss"
       impact: "high"
-      (If no material miss exists, set label: "No Major Miss", actual_value: 0, direction: "beat")
+      (If no material resolved miss exists, set label: "No Major Miss", actual_value: 0, direction: "beat")
 
   [2] metric: "HEADLINE_GUIDANCE_BIAS"
       label: "Conservative" | "Balanced" | "Mixed" | "Aggressive"
@@ -79,33 +99,34 @@ top_signals[] — MUST follow this exact layout. No exceptions.
       (omit direction — not applicable for this tile)
 
   TIMELINE SIGNALS (positions 3 onward, one per guidance event):
-  Each represents one guidance vs. actual pair. ALL must have non-null direction.
-  • metric: the financial metric being guided (e.g. "NIM", "GNPA", "LOAN_GROWTH", "CASA", "ROE")
-  • label: period identifier, e.g. "FY25", "Q3 FY25", "9M FY26" (max 10 chars)
-  • statement: one sentence — what was guided and what was delivered (≤80 chars)
-  • actual_value: realized value (numeric)
+  Emit ALL guidance events — both resolved (past) and pending (future). Each is a separate row.
+  • signal_id: id of the source signal from the DATA_BLOCK (copy the [id=...] value exactly)
+  • metric: the financial metric being guided (e.g. "CD_RATIO", "LOAN_GROWTH", "ROA", "NIM")
+  • label: period identifier, e.g. "FY25", "FY27", "Q3 FY26" (max 10 chars)
+  • statement: ACTIONABLE sentence — state the metric, guided value, source period, and actual result or trajectory with numbers (≤80 chars)
+  • actual_value: realized value (numeric); if not yet reported use guided_value as placeholder
   • guided_value: management's forward commitment (numeric)
   • unit: "%" or "Cr" or appropriate unit
-  • delta: actual_value minus guided_value (signed)
-  • direction: "beat" | "miss" | "in_line" — MUST be non-null for every timeline signal
-  • actual_date: period end date in YYYY-MM-DD
+  • delta: apply DELTA RULES above — use 0 for future targets
+  • delta_pct: percentage delta — use 0 if delta is 0
+  • direction: MUST be non-null; apply DIRECTION TAGGING RULES above strictly
+  • guided_date: ISO 8601 last day of the guidance target period
+  • actual_date: ISO 8601 last day of the reported period (use guided_date if not yet reported)
   • impact: "high" | "medium" | "low"
 
-  SUMMARY SIGNALS (emit these at the end, after all timeline signals):
-  These encode the key_metrics values as top_signals so the frontend can read them.
-
+  SUMMARY SIGNALS (emit at the end, after all timeline signals):
   metric: "HEADLINE_ENTRY_COUNT"
-  • label: total count of timeline signals as "N entries", e.g. "7 entries"
+  • label: total count of ALL timeline signals as "N entries", e.g. "8 entries"
   • statement: short description of what the timeline covers (≤60 chars)
   • impact: "high"
   (omit direction — not applicable)
 
 WRITING STYLE RULES:
-- "takeaway": max 25 words, lead with hit rate fraction and bias verdict.
+- "statement" in TIMELINE signals must be ACTIONABLE: include the metric name, guided target, source period, and actual result or current status with numbers.
+- "takeaway": max 25 words, lead with hit rate fraction (resolved events only) and bias verdict.
 - "highlights": up to 3 items, max 15 words each, start with a verb or metric.
 - "risks": up to 2 items, max 12 words each, start with the risk noun.
 - "label" in top_signals: 2–8 chars for period labels, or short descriptor for headlines.
-- "statement" in top_signals: ≤80 chars.
 - Never pad with filler phrases.
 
 Return a JSON object with this exact structure:
@@ -116,7 +137,7 @@ Return a JSON object with this exact structure:
   "key_metrics": {},
   "highlights": [<up to 3 items, each max 15 words>],
   "risks": [<up to 2 items, each max 12 words, starting with risk noun>],
-  "top_signals": [<[0] HEADLINE_HIT_RATE, [1] HEADLINE_MAJOR_MISS, [2] HEADLINE_GUIDANCE_BIAS — all required; then timeline signals at [3+] one per guidance event each with non-null direction; then HEADLINE_ENTRY_COUNT at the end>]
+  "top_signals": [<[0] HEADLINE_HIT_RATE, [1] HEADLINE_MAJOR_MISS, [2] HEADLINE_GUIDANCE_BIAS — all required; then timeline signals at [3+] one per guidance event with non-null direction and delta=0 for future targets; then HEADLINE_ENTRY_COUNT>]
 }`,
     },
   },

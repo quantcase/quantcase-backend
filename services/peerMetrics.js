@@ -5,10 +5,13 @@ const { resolveProwess } = require('../utils/prowessResolver');
 const { isBFSI } = require('../utils/industryClassifier');
 
 // KPI abbrs needed for industry-analysis and competition peer context
-const PEER_ABBRS = ['REV_OP', 'EBITDA_MARGIN', 'ROCE', 'EPS_DILUTED', 'EPS_BASIC', 'DE'];
+// EBITDA_MARGIN is not stored — fetch its components (PBT, FIN_COST, DEP_AMORT) to derive it
+const PEER_ABBRS = ['REV_OP', 'EBITDA_MARGIN', 'ROCE', 'EPS_DILUTED', 'EPS_BASIC', 'DE', 'PBT', 'FIN_COST', 'DEP_AMORT'];
 
 // Additional BFSI-specific KPI abbrs
-const BFSI_PEER_ABBRS = ['NIM', 'ROA', 'AUM', 'GNPA_RATIO', 'CASA_RATIO', 'LOAN_ADVANCES', 'DEPOSITS', 'TOTAL_INCOME'];
+// NIM stored as NIM_PCT; LOAN_ADVANCES stored as LOAN_ADV_TOTAL; AUM stored as AUM_TOTAL; ROA derived from PAT/TOTAL_ASSETS
+// GNPA_RATIO, CASA_RATIO, DEPOSITS not in prowess schema — will be N/A
+const BFSI_PEER_ABBRS = ['NIM_PCT', 'AUM_TOTAL', 'GNPA_RATIO', 'CASA_RATIO', 'DEPOSITS', 'TOTAL_INCOME', 'PAT', 'TOTAL_ASSETS', 'LOAN_ADV_TOTAL'];
 
 /**
  * Fetch peer KPI metrics for all tickers in the same basic_industry as callId.
@@ -81,12 +84,38 @@ async function fetchPeerMetrics(callId) {
     ORDER  BY company, kpi_abbr, fiscal_year DESC, source_type ASC
   `;
 
+  // 3b. For BFSI: AUM_TOTAL is only in quarterly data — fetch it separately
+  const qtrRows = isBfsiIndustry ? await prisma.$queryRaw`
+    SELECT DISTINCT ON (company, kpi_abbr)
+           company, kpi_abbr, value, fiscal_year
+    FROM   prowess_values_new
+    WHERE  company  = ANY(${prowessNames}::text[])
+      AND  kpi_abbr = 'AUM_TOTAL'
+      AND  call_id LIKE 'prowess_qtr_%'
+    ORDER  BY company, kpi_abbr, fiscal_year DESC, quarter DESC
+  ` : [];
+
   // 4. Build per-ticker kpiMap (keyed by NSE ticker)
   const tickerMap = {};
-  for (const row of rows) {
+  for (const row of [...rows, ...qtrRows]) {
     const ticker = prowessToTicker[row.company] ?? row.company;
     if (!tickerMap[ticker]) tickerMap[ticker] = {};
-    tickerMap[ticker][row.kpi_abbr] = row.value != null ? parseFloat(row.value) : null;
+    // Annual rows take precedence; only fill if not already set
+    if (tickerMap[ticker][row.kpi_abbr] == null) {
+      tickerMap[ticker][row.kpi_abbr] = row.value != null ? parseFloat(row.value) : null;
+    }
+  }
+
+  // Derive computed metrics where not stored
+  for (const km of Object.values(tickerMap)) {
+    // EBITDA_MARGIN = (PBT + FIN_COST + DEP_AMORT) / REV_OP * 100
+    if (km['EBITDA_MARGIN'] == null && km['PBT'] != null && km['FIN_COST'] != null && km['DEP_AMORT'] != null && km['REV_OP']) {
+      km['EBITDA_MARGIN'] = parseFloat(((km['PBT'] + km['FIN_COST'] + km['DEP_AMORT']) / km['REV_OP'] * 100).toFixed(2));
+    }
+    // ROA = PAT / TOTAL_ASSETS * 100
+    if (km['ROA'] == null && km['PAT'] != null && km['TOTAL_ASSETS']) {
+      km['ROA'] = parseFloat((km['PAT'] / km['TOTAL_ASSETS'] * 100).toFixed(2));
+    }
   }
 
   // 5. Compute 3-year revenue CAGR per ticker from prowess annual time-series
@@ -136,14 +165,14 @@ async function fetchPeerMetrics(callId) {
         EPS:              eps,
       };
       if (isBfsiIndustry) {
-        base.NIM          = km['NIM']          ?? null;
-        base.ROA          = km['ROA']          ?? null;
-        base.AUM          = km['AUM']          ?? null;
-        base.GNPA_RATIO   = km['GNPA_RATIO']   ?? null;
-        base.CASA_RATIO   = km['CASA_RATIO']   ?? null;
-        base.LOAN_ADVANCES= km['LOAN_ADVANCES']?? null;
-        base.DEPOSITS     = km['DEPOSITS']     ?? null;
-        base.TOTAL_INCOME = km['TOTAL_INCOME'] ?? null;
+        base.NIM          = km['NIM_PCT']       ?? null;
+        base.ROA          = km['ROA']           ?? null;
+        base.AUM          = km['AUM_TOTAL']     ?? null;
+        base.GNPA_RATIO   = km['GNPA_RATIO']    ?? null;
+        base.CASA_RATIO   = km['CASA_RATIO']    ?? null;
+        base.LOAN_ADVANCES= km['LOAN_ADV_TOTAL']?? null;
+        base.DEPOSITS     = km['DEPOSITS']      ?? null;
+        base.TOTAL_INCOME = km['TOTAL_INCOME']  ?? null;
       }
       return base;
     })
