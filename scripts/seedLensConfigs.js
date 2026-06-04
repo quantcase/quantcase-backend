@@ -885,11 +885,11 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Client base growth, channel quality, and revenue concentration risk',
     force_config: true,
-    version:     '1.1.0',
+    version:     '1.2.0',
     config: {
       signal_filters: {
-        signal_types:       ['kpi', 'customer'],
-        metric_family:      ['customer', 'customer_kpis', 'growth'],
+        signal_types:       ['kpi', 'customer', 'milestone'],
+        metric_family:      ['customer'],
         include_historical: true,
       },
       weights: [

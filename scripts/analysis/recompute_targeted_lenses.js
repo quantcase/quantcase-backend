@@ -17,17 +17,17 @@
 require('dotenv').config();
 const prisma = require('../../config/prisma');
 
-const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT'];
-// const TARGET_TICKERS = ['AXISBANK'];
+// const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT'];
+const TARGET_TICKERS = ['AXISBANK', 'ASIANPAINT'];
 
 const TARGET_LENSES  = [
   // 'guidance-credibility',
   // 'disclosure-honesty',
   // 'capital-allocation',
   // 'promoter-activity',
-  'industry-analysis',
+  // 'industry-analysis',
   // 'financial-strength',
-  // 'customer-distribution',
+  'customer-distribution',
   // 'competition',
 ];
 
