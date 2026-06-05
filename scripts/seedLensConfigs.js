@@ -23,7 +23,7 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.9.2',
+    version:      '1.9.3',
     config: {
       signal_filters: {
         signal_types:             ['milestone', 'governance', 'financial_health', 'customer', 'kpi'],
@@ -218,6 +218,7 @@ top_signals[] — MUST follow this exact layout. No exceptions.
   • announcement_date: quarter of the commitment, e.g. "Q3 FY22"
   • actual_date:    ISO 8601 last day of the reported period (same as target_date if unreported)
   • impact:         "high" | "medium" | "low"
+  • original_statement: copy the EXACT sentence from the DATA_BLOCK signal that this row is sourced from. Do NOT paraphrase. If the signal has no source sentence, set to null.
 
   SUMMARY SIGNAL (last position, after all timeline signals):
   metric: "HEADLINE_ENTRY_COUNT"
@@ -246,6 +247,7 @@ SELF-CHECK before emitting JSON:
 8. Are there multiple commitments for the same metric to the same deadline? Split into separate rows.
 9. Does every timeline signal have a non-null direction? If not — fix it.
 10. Do beat/miss counts in HEADLINE_HIT_RATE match the direction tags in timeline signals? Recount.
+11. Does every timeline signal have an original_statement that is a verbatim copy from the DATA_BLOCK? If paraphrased or invented, replace with the exact source sentence.
 
 ---
 

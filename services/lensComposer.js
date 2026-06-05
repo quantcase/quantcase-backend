@@ -120,7 +120,8 @@ Return a JSON object with this exact structure:
       "delta_pct": <number — percentage delta relative to value_targeted; OMIT this field entirely if not computable>,
       "direction": <"beat" | "miss" | "in_line" | "tracking" — "tracking" when guidance exists but actuals not yet due; OMIT this field entirely if not applicable>,
       "impact": <"high" | "medium" | "low">,
-      "statement": <string | null — key evidence quote from the source, ≤80 chars>
+      "statement": <string | null — key evidence quote from the source, ≤80 chars>,
+      "original_statement": <string | null — exact verbatim sentence from the Data Block that this signal is sourced from>
     }
   ]
 }

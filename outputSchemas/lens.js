@@ -37,6 +37,7 @@ const lensOutputSchema = {
               'actual_value', 'actual_date',
               'unit', 'delta', 'delta_pct',
               'direction', 'impact', 'statement',
+              'original_statement',
             ],
             properties: {
               signal_id:             { type: ['string',  'null'] },
@@ -54,6 +55,7 @@ const lensOutputSchema = {
               direction:             { type: 'string', enum: ['beat', 'miss', 'in_line', 'tracking', 'major_miss'] },
               impact:                { type: 'string', enum: ['high', 'medium', 'low'] },
               statement:             { type: ['string',  'null'] },
+              original_statement:    { type: ['string',  'null'] },
             },
           },
         },
