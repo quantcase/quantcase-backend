@@ -29,8 +29,13 @@ async function llmStream(params) {
       stream: true,
     });
   } catch (err) {
-    const body = err?.error ?? err?.response?.data ?? err?.message;
-    console.error('[llmStream] API error:', JSON.stringify(body, null, 2));
+    const status = err?.status ?? err?.response?.status;
+    const body   = err?.error ?? err?.response?.data ?? err?.message;
+    console.error(`[llmStream] API error (HTTP ${status ?? '?'}):`, JSON.stringify(body, null, 2));
+    // Log the full response_format that was sent so schema issues are immediately visible
+    if (status === 400 && params.response_format) {
+      console.error('[llmStream] response_format sent:', JSON.stringify(params.response_format, null, 2));
+    }
     throw err;
   }
   let text = '';
