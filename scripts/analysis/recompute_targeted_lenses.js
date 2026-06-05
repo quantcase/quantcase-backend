@@ -17,17 +17,37 @@
 require('dotenv').config();
 const prisma = require('../../config/prisma');
 
-// const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT'];
-const TARGET_TICKERS = ['AXISBANK', 'ASIANPAINT'];
+const TARGET_TICKERS = [
+  'NMDC', 'MOIL', 'GRAVITA',
+  'BAJAJ-AUTO', 'TVSMOTOR', 'EICHERMOT',
+  'ASIANPAINT', 'BERGEPAINT', 'KANSAINER',
+  'RELIANCE', 'IOC', 'BPCL',
+  'HATSUN', 'HERITGFOOD', 'PARAGMILK',
+  'DABUR', 'GODREJCP', 'COLPAL',
+  'HDFCAMC', 'NAM-INDIA', 'UTIAMC',
+  'SBIN', 'BANKBARODA', 'CANBK',
+  'BAJFINANCE', 'SHRIRAMFIN', 'CHOLAFIN',
+  'APOLLOHOSP', 'MAXHEALTH', 'FORTIS',
+  'HAL', 'BEL', 'BDL',
+  'CUMMINSIND', 'KSB', 'KIRLOSBROS',
+  'MAZDOCK', 'COCHINSHIP', 'SWANDEF',
+  'TCS', 'INFY', 'HCLTECH',
+  'SCI', 'GESHIP', 'TRANSWORLD',
+  'BHARTIARTL', 'TATACOMM', 'TTML',
+  'INDUSTOWER', 'HFCL', 'VINDHYATEL',
+  'TATAPOWER', 'ADANIPOWER', 'TORNTPOWER',
+  'WABAG', 'IONEXCHANG', 'JITFINFRA'
+];
+// const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI'];
 
 const TARGET_LENSES  = [
-  // 'guidance-credibility',
+  'guidance-credibility',
   // 'disclosure-honesty',
   // 'capital-allocation',
   // 'promoter-activity',
   // 'industry-analysis',
   // 'financial-strength',
-  'customer-distribution',
+  // 'customer-distribution',
   // 'competition',
 ];
 

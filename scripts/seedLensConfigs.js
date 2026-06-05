@@ -23,7 +23,7 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.2.0',
+    version:      '1.3.0',
     config: {
       signal_filters: {
         signal_types:      ['milestone', 'governance'],
@@ -103,8 +103,40 @@ top_signals[] — MUST follow this exact layout. No exceptions.
   • signal_id: id of the source signal from the DATA_BLOCK (copy the [id=...] value exactly)
   • metric: the financial metric being guided (e.g. "CD_RATIO", "LOAN_GROWTH", "ROA", "NIM")
   • label: period identifier, e.g. "FY25", "FY27", "Q3 FY26" (max 10 chars)
-  • statement: ACTIONABLE sentence — state the metric, guided value, source period, and actual result or trajectory with numbers (≤80 chars)
-  • actual_value: realized value (numeric); if not yet reported use guided_value as placeholder
+
+  PERIOD-MATCHING RULE — strictly enforced, no exceptions:
+  The actual_value used to evaluate any guidance event MUST come from the EXACT same period that management specified as the target deadline. 
+  - If management guided "15% loan growth by Q3 FY25", you must look up the loan growth figure reported FOR Q3 FY25 specifically — not Q4 FY25, not FY25 full year, not any adjacent period.
+  - If management guided a full-year target (e.g. "NIM of 4.2% for FY25"), the actual must be the full-year FY25 reported figure — not a quarterly figure.
+  - If the exact period's actual is not available in the signals, set actual_value = guided_value (placeholder) and direction = "tracking". Do NOT substitute a different period's actual.
+  - Never infer, interpolate, or approximate from a nearby period. Period mismatch = no verdict.
+
+  • statement: A single plain-English sentence written as a track record entry. It must answer three questions in one breath: (1) what did management commit to, (2) by when, and (3) did they deliver — where "deliver" is checked against the same period's actual, not any other.
+
+    STATEMENT RULES — strictly enforced:
+    - Write in simple, direct English. No arrows (→), no semicolons, no jargon.
+    - Always state the guided target as a number or range. If management only gave a qualitative target (e.g. "in line with system"), you must still find and state the numeric benchmark — do not repeat the qualitative phrase.
+    - Always name the exact period management gave.
+    - Always state the actual result as a number. NEVER use words like "delivered", "achieved", "in line", "on track" as substitutes for a number.
+    - If the actual number for that exact period is not available in the signals, end with "— [period] actual not available."
+    - For resolved hits: "[Guided X% for FY2X — came in at Y%.]"
+    - For resolved misses: "[Guided X% for FY2X — came in at Y%.]" (same format; direction field carries the hit/miss verdict, not the statement)
+    - For pending: "[Guided X% by FY2X — result not yet reported.]"
+    - Max 90 chars. One thought only. No filler.
+
+    Good examples:
+      Resolved hit:  "Guided NIM at 4.2% for FY25 — came in at 4.4%."
+      Resolved miss: "Guided NIM at 4.2% for FY25 — came in at 3.8%."
+      Pending:       "Guided ROA at 1.8% by FY27 — result not yet reported."
+      No actual:     "Guided loan growth at 15% for FY26 — FY26 actual not available."
+      IPO miss:      "Guided HDB Financial IPO by Sept 2025 — not completed by Sept 2025."
+
+    Bad examples (never do this):
+      "Guided loan growth in line with system for FY26 — delivered in FY26."
+      "Guided faster-than-system growth — on track so far."
+      "Guided CD ratio to healthy levels — achieved."
+
+  • actual_value: realized value from THE EXACT SAME PERIOD as guided_date; if that period is not yet reported use guided_value as placeholder
   • guided_value: management's forward commitment (numeric)
   • unit: "%" or "Cr" or appropriate unit
   • delta: apply DELTA RULES above — use 0 for future targets
@@ -122,7 +154,7 @@ top_signals[] — MUST follow this exact layout. No exceptions.
   (omit direction — not applicable)
 
 WRITING STYLE RULES:
-- "statement" in TIMELINE signals must be ACTIONABLE: include the metric name, guided target, source period, and actual result or current status with numbers.
+- "statement" in TIMELINE signals: follow the STATEMENT RULES above exactly. Plain, direct, track-record style. No arrows, no semicolons.
 - "takeaway": max 25 words, lead with hit rate fraction (resolved events only) and bias verdict.
 - "highlights": up to 3 items, max 15 words each, start with a verb or metric.
 - "risks": up to 2 items, max 12 words each, start with the risk noun.
