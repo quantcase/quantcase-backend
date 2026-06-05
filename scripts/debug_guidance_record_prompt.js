@@ -227,13 +227,14 @@ async function main() {
     console.log(`  ✓ max_tokens: ${lensConfig.config.max_tokens ?? '(default 8000)'}`);
     console.log(`  ✓ balance   : ${JSON.stringify(lensConfig.config.balance ?? '(default 15)' )}`);
     console.log(`  ✓ prefilter : ${JSON.stringify(lensConfig.config.prefilter ?? '(none)')}`);
+    console.log(`  ✓ current_call_only_types: ${JSON.stringify(lensConfig.config.signal_filters?.current_call_only_types ?? [])}`);
     console.log(`  ✓ prompt_template: ${lensConfig.config.prompt_template ? `${lensConfig.config.prompt_template.length} chars` : '(null — using L2_DEFAULT_PROMPT)'}`);
 
     const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
             model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
             balance: cfgBalance, prefilter: cfgPrefilter } = lensConfig.config;
 
-    const { include_historical, ...signalFilters } = filters ?? {};
+    const { include_historical, current_call_only_types, ...signalFilters } = filters ?? {};
 
     // ── Step 2: Find latest call for ticker ───────────────────────────────────
     banner(`Step 2 — Latest earnings call for ${TICKER}`);
@@ -269,7 +270,7 @@ async function main() {
     Object.entries(byType).forEach(([t, n]) => console.log(`    ${t.padEnd(22)} : ${n}`));
 
     // ── Step 4: Historical signals ────────────────────────────────────────────
-    banner(`Step 4 — Historical signals (include_historical=${include_historical ?? false})`);
+    banner(`Step 4 — Historical signals (include_historical=${include_historical ?? false}, current_call_only_types=${JSON.stringify(current_call_only_types ?? [])})`);
 
     let signals = currentSignals;
     if (include_historical) {
@@ -279,12 +280,21 @@ async function main() {
         ticker = anySignal?.ticker;
       }
       if (ticker) {
-        const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...signalFilters });
-        console.log(`  Historical signals: ${historicalSignals.length} (ticker=${ticker})`);
-        if (historicalSignals.length > 0) {
-          const histCalls = [...new Set(historicalSignals.map(s => `${s.call_id} (${s.fiscal_year} ${s.quarter ?? ''})`))];
-          console.log(`  Historical calls: ${histCalls.slice(0, 5).join(', ')}${histCalls.length > 5 ? ` … +${histCalls.length - 5} more` : ''}`);
-          signals = [...currentSignals, ...historicalSignals];
+        const historicalFilters = { ...signalFilters };
+        if (current_call_only_types?.length > 0 && historicalFilters.signal_types) {
+          historicalFilters.signal_types = historicalFilters.signal_types.filter(
+            t => !current_call_only_types.includes(t)
+          );
+          console.log(`  Excluding ${current_call_only_types.join(', ')} from historical query → signal_types: ${JSON.stringify(historicalFilters.signal_types)}`);
+        }
+        if (!historicalFilters.signal_types || historicalFilters.signal_types.length > 0) {
+          const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...historicalFilters });
+          console.log(`  Historical signals: ${historicalSignals.length} (ticker=${ticker})`);
+          if (historicalSignals.length > 0) {
+            const histCalls = [...new Set(historicalSignals.map(s => `${s.call_id} (${s.fiscal_year} ${s.quarter ?? ''})`))];
+            console.log(`  Historical calls: ${histCalls.slice(0, 5).join(', ')}${histCalls.length > 5 ? ` … +${histCalls.length - 5} more` : ''}`);
+            signals = [...currentSignals, ...historicalSignals];
+          }
         }
       } else {
         console.log('  (could not resolve ticker — skipping historical)');
@@ -335,11 +345,13 @@ async function main() {
     // ── Step 7: Signal analysis ───────────────────────────────────────────────
     banner('Step 7 — Signal analysis');
 
-    const milestoneSignals  = signals.filter(s => s.signal_type === 'milestone');
-    const governanceSignals = signals.filter(s => s.signal_type === 'governance');
-    const withEndDate       = milestoneSignals.filter(s => s.end_date != null);
-    const withTimeHorizon   = milestoneSignals.filter(s => s.time_horizon != null);
-    const trackable         = milestoneSignals.filter(s => s.end_date != null || s.time_horizon != null);
+    const milestoneSignals      = signals.filter(s => s.signal_type === 'milestone');
+    const governanceSignals     = signals.filter(s => s.signal_type === 'governance');
+    const financialHealthSignals = signals.filter(s => s.signal_type === 'financial_health');
+    const customerSignals       = signals.filter(s => s.signal_type === 'customer');
+    const withEndDate           = milestoneSignals.filter(s => s.end_date != null);
+    const withTimeHorizon       = milestoneSignals.filter(s => s.time_horizon != null);
+    const trackable             = milestoneSignals.filter(s => s.end_date != null || s.time_horizon != null);
 
     console.log(`  MILESTONE signals    : ${milestoneSignals.length}`);
     console.log(`    → with end_date    : ${withEndDate.length}`);
@@ -350,6 +362,20 @@ async function main() {
     console.log(`    → guidance_given   : ${governanceSignals.filter(s => s.metric === 'guidance_given').length}`);
     console.log(`    → guidance_missed  : ${governanceSignals.filter(s => s.metric === 'guidance_missed').length}`);
     console.log(`    → proactive_discl. : ${governanceSignals.filter(s => s.metric === 'proactive_disclosure').length}`);
+    console.log(`  FINANCIAL_HEALTH signals: ${financialHealthSignals.length}`);
+    if (financialHealthSignals.length > 0) {
+      const fhByMetric = {};
+      for (const s of financialHealthSignals) fhByMetric[s.metric] = (fhByMetric[s.metric] || 0) + 1;
+      Object.entries(fhByMetric).slice(0, 10).forEach(([m, n]) => console.log(`    → ${m.padEnd(28)}: ${n}`));
+      if (Object.keys(fhByMetric).length > 10) console.log(`    → ... +${Object.keys(fhByMetric).length - 10} more metrics`);
+    }
+    console.log(`  CUSTOMER signals     : ${customerSignals.length}`);
+    if (customerSignals.length > 0) {
+      const custByMetric = {};
+      for (const s of customerSignals) custByMetric[s.metric] = (custByMetric[s.metric] || 0) + 1;
+      Object.entries(custByMetric).slice(0, 10).forEach(([m, n]) => console.log(`    → ${m.padEnd(28)}: ${n}`));
+      if (Object.keys(custByMetric).length > 10) console.log(`    → ... +${Object.keys(custByMetric).length - 10} more metrics`);
+    }
 
     if (withEndDate.length > 0) {
       console.log('\n  Trackable milestones (end_date set):');

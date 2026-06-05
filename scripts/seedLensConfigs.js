@@ -23,11 +23,11 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.9.0',
+    version:      '1.9.2',
     config: {
       signal_filters: {
-        signal_types:      ['milestone', 'governance', 'financial_health', 'customer'],
-        metric_family:     ['milestone', 'governance', 'financial_health', 'customer'],
+        signal_types:             ['milestone', 'governance', 'financial_health', 'customer', 'kpi'],
+        current_call_only_types:  ['kpi'],
         include_historical: true,
       },
       weights: [
@@ -77,7 +77,7 @@ This number will frequently be non-zero. A flat delta (delta = 0) should be rare
 
 DELTA RULES:
 - Populate delta ONLY when guided_date ≤ 2026-06-04 AND actual_value is confirmed non-null
-- If guided_date > 2026-06-04: delta = 0, delta_pct = 0
+- If guided_date > 2026-06-04: OMIT delta and delta_pct entirely (do not include these fields)
 - delta_pct = (delta / guided_value) × 100, rounded to 1 decimal place
 
 ---
@@ -206,11 +206,11 @@ top_signals[] — MUST follow this exact layout. No exceptions.
     ❌ WRONG:    "Guided loan growth matching system — on track so far."
     ❌ WRONG:    Any statement missing either the guided number or the actual number.
 
-  • guided_value: the numeric target from the signal. Use null — NOT 0, NOT "undefined" — when no numeric target exists (e.g. binary milestones like "demerger will happen in November" have no guided_value; use null).
-  • actual_value: the numeric result for the exact same period. Use null — NOT 0 — when not yet reported or not applicable. NEVER emit 0 as a placeholder for a missing value.
-  • unit:         "%" | "Cr" | "bps" | "x" | "million" | "stores" | "timing" (for date-based milestones) | null when no unit applies
-  • delta:        actual_value − guided_value. Use null whenever guided_value or actual_value is null. NEVER emit 0 as a placeholder delta.
-  • delta_pct:    (delta / guided_value) × 100 rounded to 1dp. null whenever delta is null.
+  • guided_value: the numeric target from the signal. OMIT this field entirely — do NOT include it — when no numeric target exists (e.g. binary milestones like "demerger will happen in November" have no guided_value). Never use 0 or "undefined" as placeholders.
+  • actual_value: the numeric result for the exact same period. OMIT this field entirely — do NOT include it — when not yet reported or not applicable. Never use 0 as a placeholder.
+  • unit:         "%" | "Cr" | "bps" | "x" | "million" | "stores" | "timing" (for date-based milestones); OMIT this field entirely when no unit applies
+  • delta:        actual_value − guided_value. OMIT this field entirely whenever guided_value or actual_value is absent. Never use 0 as a placeholder delta.
+  • delta_pct:    (delta / guided_value) × 100 rounded to 1dp. OMIT this field entirely whenever delta is absent.
   • direction:    one of beat / miss / in_line / tracking — apply Step 3 rules exactly. For binary milestones with no numeric delta, use "tracking" if not yet confirmed, "beat" if confirmed completed.
   • guided_date:  ISO 8601 last day of the target period (e.g. 2025-03-31 for FY25)
   • guided_on:    quarter of the commitment, e.g. "Q3 FY22"
@@ -234,10 +234,10 @@ WRITING RULES (non-timeline fields):
 ---
 
 SELF-CHECK before emitting JSON:
-1. Does any field contain the string "undefined"? That is NEVER valid JSON — replace with null immediately.
-2. Is any guided_value or actual_value set to 0 as a placeholder for "unknown"? Use null instead. 0 means the actual number zero.
-3. Is any delta set to 0 for a resolved event where guided_value and actual_value are both non-null and different? Re-read — you may be echoing guided_value as actual_value.
-4. Is any delta set to 0 (not null) when guided_value or actual_value is null? Use null for delta in that case.
+1. Does any field contain the string "undefined"? That is NEVER valid JSON — remove the field entirely instead.
+2. Is any guided_value or actual_value set to 0 as a placeholder for "unknown"? Remove the field entirely instead. 0 means the actual number zero.
+3. Is any delta set to 0 for a resolved event where guided_value and actual_value are both present and different? Re-read — you may be echoing guided_value as actual_value.
+4. When guided_value or actual_value is absent, is delta also absent (not 0)? If delta is present as 0 but one side is missing, remove delta entirely.
 5. Does any statement lack a guided number (for numeric commitments)? Rewrite it.
 6. Does any statement lack an actual number (for resolved events)? Rewrite it.
 7. Does every timeline signal include guided_on? If not — add it.
@@ -579,6 +579,7 @@ top_signals[] — MUST follow this layout. No exceptions.
   • unit: "%"
   • direction: "beat" if stake increased / pledge fell, "miss" if stake fell / pledge rose, "in_line" if stable, "tracking" if mixed/uncertain
   • actual_date: period end date in YYYY-MM-DD
+  • guided_date: period end date in YYYY-MM-DD
   • impact: "high" | "medium" | "low"
 
   PROMOTER_INSIGHT — 3 insight cards at the bottom:

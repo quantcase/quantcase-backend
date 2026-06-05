@@ -109,14 +109,14 @@ Return a JSON object with this exact structure:
       "signal_id": <string — id of the signal from the data block>,
       "metric": <string — metric name exactly as provided>,
       "label": <string — 2–5 word title-case human-readable label>,
-      "guided_value": <number | null — management's forward-looking commitment or guidance, if present>,
-      "guided_date": <string | null — ISO 8601 date YYYY-MM-DD, last day of the guidance target period, e.g. "2027-03-31" for FY2027, "2026-09-30" for FY2026 Q3>,
-      "actual_value": <number | null — realised/reported value>,
-      "actual_date": <string | null — ISO 8601 date YYYY-MM-DD, last day of the reported period, e.g. "2026-09-30" for FY2026 Q3, "2026-03-31" for FY2026>,
-      "unit": <string | null — e.g. "Cr", "%", "x">,
-      "delta": <number | null — actual_value minus guided_value; positive means beat, negative means miss; null if only one side available>,
-      "delta_pct": <number | null — percentage delta relative to guided_value; null if not computable>,
-      "direction": <"beat" | "miss" | "in_line" | "tracking" | null — "tracking" when guidance exists but actuals not yet due>,
+      "guided_value": <number — management's forward-looking commitment or guidance; OMIT this field entirely if not applicable>,
+      "guided_date": <string — ISO 8601 date YYYY-MM-DD, last day of the guidance target period, e.g. "2027-03-31" for FY2027, "2026-09-30" for FY2026 Q3; OMIT this field entirely if no guidance deadline exists>,
+      "actual_value": <number — realised/reported value; OMIT this field entirely if not yet reported>,
+      "actual_date": <string — ISO 8601 date YYYY-MM-DD, last day of the reported period, e.g. "2026-09-30" for FY2026 Q3, "2026-03-31" for FY2026; OMIT this field entirely if actuals not yet available>,
+      "unit": <string — e.g. "Cr", "%", "x"; OMIT this field entirely if no unit applies>,
+      "delta": <number — actual_value minus guided_value; positive means beat, negative means miss; OMIT this field entirely if only one side available>,
+      "delta_pct": <number — percentage delta relative to guided_value; OMIT this field entirely if not computable>,
+      "direction": <"beat" | "miss" | "in_line" | "tracking" — "tracking" when guidance exists but actuals not yet due; OMIT this field entirely if not applicable>,
       "impact": <"high" | "medium" | "low">,
       "statement": <string | null — key evidence quote from the source, ≤80 chars>
     }
@@ -540,7 +540,7 @@ async function composeLens(callId, lensSlug) {
           model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
           balance: cfgBalance, prefilter: cfgPrefilter } = lensConfig.config;
 
-  const { include_historical, ...signalFilters } = filters ?? {};
+  const { include_historical, current_call_only_types, ...signalFilters } = filters ?? {};
 
   const currentSignals = await querySignals({ callId, ...signalFilters });
 
@@ -553,10 +553,20 @@ async function composeLens(callId, lensSlug) {
       ticker = anySignal?.ticker;
     }
     if (ticker) {
-      const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...signalFilters });
-      if (historicalSignals.length > 0) {
-        console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
-        signals = [...currentSignals, ...historicalSignals];
+      // current_call_only_types are excluded from the historical query (e.g. 'kpi' prowess data
+      // spans all periods — only the current call's kpis are relevant for guidance tracking)
+      const historicalFilters = { ...signalFilters };
+      if (current_call_only_types?.length > 0 && historicalFilters.signal_types) {
+        historicalFilters.signal_types = historicalFilters.signal_types.filter(
+          t => !current_call_only_types.includes(t)
+        );
+      }
+      if (!historicalFilters.signal_types || historicalFilters.signal_types.length > 0) {
+        const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...historicalFilters });
+        if (historicalSignals.length > 0) {
+          console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
+          signals = [...currentSignals, ...historicalSignals];
+        }
       }
     }
   }
