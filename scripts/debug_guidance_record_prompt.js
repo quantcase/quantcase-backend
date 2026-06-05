@@ -2,23 +2,26 @@
 'use strict';
 
 /**
- * Debug: build the guidance-credibility (guidance record) L2 prompt for any ticker and save it to a file.
- * No LLM call is made.
+ * Debug: build the guidance-credibility L2 prompt for any ticker and save it to a file.
+ * Mirrors the exact flow of composeLens() in services/lensComposer.js — no LLM call made.
  *
  * Usage:
- *   node scripts/debug_guidance_record_prompt.js MSUMI
- *   node scripts/debug_guidance_record_prompt.js MSUMI /tmp/my_output.txt
+ *   node scripts/debug_guidance_record_prompt.js RELIANCE
+ *   node scripts/debug_guidance_record_prompt.js RELIANCE /tmp/my_output.txt
+ *   node scripts/debug_guidance_record_prompt.js RELIANCE - growth-momentum   # different lens
  */
 
 require('dotenv').config();
 const fs               = require('fs');
-const path             = require('path');
 const { PrismaClient } = require('@prisma/client');
+const { querySignals } = require('../services/db/signals.db');
+const { fetchEquityMetrics, formatEquityMetricsBlock } = require('../services/peerMetrics');
 
-const TICKER      = process.argv[2] || 'MSUMI';
-const OUTPUT_FILE = process.argv[3] || `/tmp/guidance_record_prompt_${TICKER}.txt`;
+const TICKER      = process.argv[2] || 'RELIANCE';
+const OUTPUT_FILE = process.argv[3] && process.argv[3] !== '-' ? process.argv[3] : `/tmp/guidance_prompt_${TICKER}.txt`;
+const LENS_SLUG   = process.argv[4] || 'guidance-credibility';
 
-// ─── Inlined from lensComposer (not exported) ─────────────────────────────────
+// ─── Helpers (inlined from lensComposer — keep in sync) ──────────────────────
 
 const NORM_RANGES = {
   growth:        { min: -50, max: 50  },
@@ -46,8 +49,7 @@ function computeConfidenceInterval(signals, effectiveWeights) {
     const uncertainty = 1 - conf;
     return acc + Math.pow(Math.abs(w) / totalW, 2) * Math.pow(uncertainty, 2);
   }, 0);
-  const stdDev = Math.sqrt(variance);
-  return { lo: -stdDev, hi: stdDev };
+  return { lo: -Math.sqrt(variance), hi: Math.sqrt(variance) };
 }
 
 const SOURCE_PRIORITY = { prowess: 0, qe: 1, transcript: 2 };
@@ -68,9 +70,10 @@ function deduplicateSignals(signals) {
   return [...best.values()];
 }
 
-const IMPACT_ORDER = { high: 0, medium: 1, low: 2 };
+const IMPACT_ORDER     = { high: 0, medium: 1, low: 2 };
+const QUALITATIVE_TYPES = new Set(['milestone', 'industry', 'financial_health', 'customer']);
 
-function buildSignalSummary(lensName, signals, mathResult, balance) {
+function buildSignalSummary(lensName, signals, mathResult, balance, prefilter) {
   const lines = [
     `LENS: ${lensName}`,
     `SIGNAL SUMMARY (${signals.length} signals, weighted aggregate z=${mathResult.z_score.toFixed(4)}):`,
@@ -91,28 +94,31 @@ function buildSignalSummary(lensName, signals, mathResult, balance) {
     const dates      = [s.start_date && `start=${s.start_date}`, s.end_date && `end=${s.end_date}`].filter(Boolean).join(' ');
     const datesStr   = dates ? ` (${dates})` : '';
     const impact     = s.impact ? ` impact=${s.impact}` : '';
+    const horizon    = s.time_horizon ? ` horizon=${s.time_horizon}` : '';
     const stmt       = s.statement ? ` — "${s.statement}"` : '';
-    return `  [id=${s.id}] ${s.metric}: ${s.value}${s.unit ? ' ' + s.unit : ''}${periodStr}${datesStr} (${s.signal_type}${periodType}${impact})${stmt}`;
+    const displayVal = s.raw_value ?? s.value;
+    const unitStr    = s.unit && String(displayVal).includes(s.unit) ? '' : (s.unit ? ' ' + s.unit : '');
+    return `  [id=${s.id}] ${s.metric}: ${displayVal}${unitStr}${periodStr}${datesStr} (${s.signal_type}${periodType}${impact}${horizon})${stmt}`;
   };
 
   for (const [type, groupSignals] of groups) {
-    const cap = balance?.[type] ?? balance?.default ?? 15;
+    const cap = balance?.[type] ?? balance?.default ?? 100;
 
-    // For milestone signals: include all (even null-value) so the LLM sees guidance text.
-    // Sort: concrete values (value != null) first, then null-value signals; within each group by impact.
-    // For other signal types: keep existing behaviour (value != null filter, sort by impact then end_date).
+    let eligibleSignals = groupSignals;
+    if (prefilter?.[type] === 'trackable_only') {
+      eligibleSignals = groupSignals.filter(s => s.end_date != null || s.time_horizon != null);
+    }
+
     let sorted;
-    if (type === 'milestone') {
-      sorted = [...groupSignals].sort((a, b) => {
-        const aHasVal = a.value != null ? 0 : 1;
-        const bHasVal = b.value != null ? 0 : 1;
-        if (aHasVal !== bHasVal) return aHasVal - bHasVal;
-        const ia = IMPACT_ORDER[a.impact] ?? 3;
-        const ib = IMPACT_ORDER[b.impact] ?? 3;
-        return ia - ib;
+    if (QUALITATIVE_TYPES.has(type)) {
+      sorted = [...eligibleSignals].sort((a, b) => {
+        const aHasDate = a.end_date != null ? 0 : 1;
+        const bHasDate = b.end_date != null ? 0 : 1;
+        if (aHasDate !== bHasDate) return aHasDate - bHasDate;
+        return (IMPACT_ORDER[a.impact] ?? 3) - (IMPACT_ORDER[b.impact] ?? 3);
       });
     } else {
-      sorted = groupSignals
+      sorted = eligibleSignals
         .filter(s => s.value != null)
         .sort((a, b) => {
           const ia = IMPACT_ORDER[a.impact] ?? 3;
@@ -126,7 +132,7 @@ function buildSignalSummary(lensName, signals, mathResult, balance) {
     const rest  = sorted.slice(cap);
 
     if (shown.length > 0) {
-      lines.push(`  --- ${type.toUpperCase()} signals (${groupSignals.length} total, showing ${shown.length}) ---`);
+      lines.push(`  --- ${type.toUpperCase()} signals (${groupSignals.length} total, showing ${shown.length}${eligibleSignals.length < groupSignals.length ? `, prefiltered from ${eligibleSignals.length}` : ''}) ---`);
       for (const s of shown) lines.push(formatLine(s));
     }
 
@@ -144,7 +150,14 @@ function buildSignalSummary(lensName, signals, mathResult, balance) {
   return lines.join('\n');
 }
 
-// ─── L2 default prompt (copied from lensComposer) ────────────────────────────
+// ─── Banner ───────────────────────────────────────────────────────────────────
+
+function banner(title) {
+  const line = '═'.repeat(70);
+  console.log(`\n${line}\n  ${title}\n${line}`);
+}
+
+// ─── L2 default prompt (kept in sync with lensComposer.js) ───────────────────
 
 const L2_DEFAULT_PROMPT = `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management analysis using a rigorous L1 extraction pipeline.
 
@@ -153,7 +166,7 @@ Your task is to synthesise this compact signal summary into a structured analyti
 {{DATA_BLOCK}}
 
 WRITING STYLE RULES — apply to every text field:
-- "takeaway": max 25 words, action-oriented, lead with the key finding (e.g. "Margins expanding on operating leverage; FCF conversion risk remains — watch CFO/PAT ratio.")
+- "takeaway": max 30 words, action-oriented, lead with the key finding (e.g. "Margins expanding on operating leverage; FCF conversion risk remains — watch CFO/PAT ratio.")
 - "highlights" items: max 12 words each, start with a verb or metric (e.g. "EBITDA margin up 180 bps YoY on cost discipline.")
 - "risks" items: max 12 words each, start with the risk noun (e.g. "Debt elevated; interest cover below 3x for 2 quarters.")
 - "label" in top_signals: 2–5 words, title-case, human-readable (e.g. "Operating Cash Flow")
@@ -164,7 +177,7 @@ Return a JSON object with this exact structure:
 {
   "score": <integer 0-100>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 25 words, action-oriented synthesis leading with the key finding>,
+  "takeaway": <string — max 30 words, action-oriented synthesis leading with the key finding>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
   "highlights": [<up to 3 positive findings, each max 12 words, starting with a verb or metric>],
   "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
@@ -189,49 +202,48 @@ Return a JSON object with this exact structure:
 
 For top_signals: select 8–10 signals that most influenced this lens score — include ALL signals that have meaningful analytical value for this lens, not just the top few. For signals where management gave a forward-looking promise (guidance), populate guided_value/guided_date and compare against actual_value if the period has passed. If no actual is available yet, set direction to "tracking". For all dates use strict ISO 8601 format (YYYY-MM-DD) resolved to the last day of the implied period — never use free-text period labels like "FY2026 Q3".`;
 
-// ─── Guidance-credibility lens config (from seedLensConfigs) ─────────────────
-
-const GUIDANCE_CREDIBILITY_CONFIG = {
-  signal_filters: {
-    signal_types:       ['milestone', 'governance'],
-    metric_family:      ['milestone', 'governance'],
-    include_historical: true,
-  },
-  weights: [
-    { metric: 'guidance_given',       w: 0.5  },
-    { metric: 'guidance_missed',      w: -0.8 },
-    { metric: 'proactive_disclosure', w:  0.3 },
-  ],
-  aggregation:     'weighted_sum',
-  balance:         { milestone: 20, default: 12 },
-  // NOTE: lensConfig.config.lens_instructions is not set → falls back to ''
-  lens_instructions: '',
-};
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function banner(title) {
-  const line = '═'.repeat(70);
-  console.log(`\n${line}`);
-  console.log(`  ${title}`);
-  console.log(line);
-}
-
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
   const prisma = new PrismaClient();
 
   try {
-    // ── Step 1: Find latest call for MSUMI ───────────────────────────────────
-    banner(`Step 1 — Latest earnings call for ${TICKER}`);
+    // ── Step 1: Load lens config from DB ─────────────────────────────────────
+    banner(`Step 1 — Load lens config "${LENS_SLUG}" from DB`);
+
+    const lensConfig = await prisma.lensConfig.findUnique({ where: { slug: LENS_SLUG } });
+    if (!lensConfig) {
+      console.error(`  ✗ LensConfig "${LENS_SLUG}" not found in DB`);
+      process.exit(1);
+    }
+    if (!lensConfig.is_active) {
+      console.error(`  ✗ LensConfig "${LENS_SLUG}" is inactive`);
+      process.exit(1);
+    }
+
+    console.log(`  ✓ name      : ${lensConfig.name}`);
+    console.log(`  ✓ version   : ${lensConfig.version}`);
+    console.log(`  ✓ model     : ${lensConfig.config.model ?? '(default)'}`);
+    console.log(`  ✓ max_tokens: ${lensConfig.config.max_tokens ?? '(default 8000)'}`);
+    console.log(`  ✓ balance   : ${JSON.stringify(lensConfig.config.balance ?? '(default 15)' )}`);
+    console.log(`  ✓ prefilter : ${JSON.stringify(lensConfig.config.prefilter ?? '(none)')}`);
+    console.log(`  ✓ prompt_template: ${lensConfig.config.prompt_template ? `${lensConfig.config.prompt_template.length} chars` : '(null — using L2_DEFAULT_PROMPT)'}`);
+
+    const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
+            model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
+            balance: cfgBalance, prefilter: cfgPrefilter } = lensConfig.config;
+
+    const { include_historical, ...signalFilters } = filters ?? {};
+
+    // ── Step 2: Find latest call for ticker ───────────────────────────────────
+    banner(`Step 2 — Latest earnings call for ${TICKER}`);
 
     const latestCall = await prisma.earnings_calls.findFirst({
       where: {
         company: TICKER,
         OR: [
           { transcript_text: { not: null }, NOT: { transcript_text: '' } },
-          { ppt_text:        { not: null }, NOT: { ppt_text:        '' } },
+          { ppt_text:        { not: null }, NOT: { ppt_text: ''        } },
         ],
       },
       orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
@@ -243,73 +255,54 @@ async function main() {
     }
 
     const callId = latestCall.id;
-    console.log(`  ✓ callId   : ${callId}`);
-    console.log(`  ✓ company  : ${latestCall.company_name ?? TICKER}`);
-    console.log(`  ✓ period   : ${latestCall.fiscal_year} ${latestCall.quarter}`);
-    console.log(`  ✓ callDate : ${latestCall.call_date}`);
+    console.log(`  ✓ callId    : ${callId}`);
+    console.log(`  ✓ period    : ${latestCall.fiscal_year} ${latestCall.quarter}`);
+    console.log(`  ✓ call_date : ${latestCall.call_date}`);
 
-    // ── Step 2: Query current signals ────────────────────────────────────────
-    banner(`Step 2 — Current call signals (milestone + governance)`);
+    // ── Step 3: Query signals (same as composeLens) ───────────────────────────
+    banner(`Step 3 — Query signals (current call)`);
 
-    const filters = GUIDANCE_CREDIBILITY_CONFIG.signal_filters;
-    const currentSignals = await prisma.extractedSignal.findMany({
-      where: {
-        call_id:       callId,
-        signal_type:   { in: filters.signal_types },
-        metric_family: { in: filters.metric_family },
-        is_invalidated: false,
-      },
-      orderBy: [{ call_date: 'desc' }, { created_at: 'desc' }],
-    });
-
-    console.log(`  Current call signals found: ${currentSignals.length}`);
+    const currentSignals = await querySignals({ callId, ...signalFilters });
+    console.log(`  Current call signals: ${currentSignals.length}`);
     const byType = {};
-    for (const s of currentSignals) {
-      byType[s.signal_type] = (byType[s.signal_type] || 0) + 1;
-    }
-    Object.entries(byType).forEach(([t, n]) => console.log(`    ${t.padEnd(20)} : ${n}`));
+    for (const s of currentSignals) byType[s.signal_type] = (byType[s.signal_type] || 0) + 1;
+    Object.entries(byType).forEach(([t, n]) => console.log(`    ${t.padEnd(22)} : ${n}`));
 
-    if (currentSignals.length === 0) {
-      console.log(`  ⚠️  No signals found for callId "${callId}". The prompt will be empty.`);
-      console.log(`     Have you run the L1 summarization job for this call?`);
-    }
-
-    // ── Step 3: Historical signals (include_historical) ───────────────────────
-    banner(`Step 3 — Historical signals for ${TICKER} (excl. current call)`);
+    // ── Step 4: Historical signals ────────────────────────────────────────────
+    banner(`Step 4 — Historical signals (include_historical=${include_historical ?? false})`);
 
     let signals = currentSignals;
-    if (filters.include_historical && currentSignals.length > 0) {
-      const historicalSignals = await prisma.extractedSignal.findMany({
-        where: {
-          ticker:        TICKER,
-          call_id:       { not: callId },
-          signal_type:   { in: filters.signal_types },
-          metric_family: { in: filters.metric_family },
-          is_invalidated: false,
-        },
-        orderBy: [{ call_date: 'desc' }, { created_at: 'desc' }],
-      });
-      console.log(`  Historical signals found: ${historicalSignals.length}`);
-      if (historicalSignals.length > 0) {
-        const histCalls = [...new Set(historicalSignals.map(s => `${s.call_id} (${s.fiscal_year} ${s.quarter ?? ''})`))];
-        console.log(`  Historical calls: ${histCalls.slice(0, 5).join(', ')}${histCalls.length > 5 ? ` … +${histCalls.length - 5} more` : ''}`);
-        signals = [...currentSignals, ...historicalSignals];
+    if (include_historical) {
+      let ticker = currentSignals[0]?.ticker;
+      if (!ticker) {
+        const anySignal = await prisma.extractedSignal.findFirst({ where: { call_id: callId, is_invalidated: false } });
+        ticker = anySignal?.ticker;
+      }
+      if (ticker) {
+        const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...signalFilters });
+        console.log(`  Historical signals: ${historicalSignals.length} (ticker=${ticker})`);
+        if (historicalSignals.length > 0) {
+          const histCalls = [...new Set(historicalSignals.map(s => `${s.call_id} (${s.fiscal_year} ${s.quarter ?? ''})`))];
+          console.log(`  Historical calls: ${histCalls.slice(0, 5).join(', ')}${histCalls.length > 5 ? ` … +${histCalls.length - 5} more` : ''}`);
+          signals = [...currentSignals, ...historicalSignals];
+        }
+      } else {
+        console.log('  (could not resolve ticker — skipping historical)');
       }
     } else {
-      console.log('  (include_historical=false or no current signals — skipped)');
+      console.log('  (include_historical=false — skipped)');
     }
 
-    // ── Step 4: Deduplicate ──────────────────────────────────────────────────
-    banner('Step 4 — Deduplication (prowess > qe > transcript)');
+    // ── Step 5: Deduplicate ───────────────────────────────────────────────────
+    banner('Step 5 — Deduplication (prowess > qe > transcript)');
     const deduped = deduplicateSignals(signals);
     console.log(`  Before: ${signals.length}  →  After: ${deduped.length}  (dropped: ${signals.length - deduped.length})`);
     signals = deduped;
 
-    // ── Step 5: Math step ────────────────────────────────────────────────────
-    banner('Step 5 — Math (weighted sum)');
+    // ── Step 6: Math step ─────────────────────────────────────────────────────
+    banner('Step 6 — Math (weighted sum)');
 
-    const weights = GUIDANCE_CREDIBILITY_CONFIG.weights;
-    const weightMap = new Map(weights.map(o => [o.metric, { w: o.w ?? 1.0, b: o.b ?? 0.0 }]));
+    const weightMap = new Map((weightOverrides || []).map(o => [o.metric, { w: o.w ?? 1.0, b: o.b ?? 0.0 }]));
     const effectiveWeights = [];
     let z = 0;
     const snapshot = [];
@@ -318,11 +311,13 @@ async function main() {
       if (sig.value == null || isNaN(sig.value)) continue;
       const override     = weightMap.get(sig.metric) ?? { w: sig.w, b: sig.b };
       const normalized   = normalizeValue(sig.value, sig.metric_family);
-      const contribution = override.w * normalized + override.b;
+      const contribution = override.w * normalized + (override.b ?? 0);
       z += contribution;
       effectiveWeights.push(override.w);
       snapshot.push({ metric: sig.metric, value: sig.value, normalized, w: override.w, contribution });
     }
+
+    if (aggregation === 'avg' && snapshot.length > 0) z = z / snapshot.length;
 
     const { lo, hi } = computeConfidenceInterval(signals.filter(s => s.value != null), effectiveWeights);
     const mathResult = { z_score: z, confidence_lo: z + lo, confidence_hi: z + hi };
@@ -330,7 +325,6 @@ async function main() {
     console.log(`  z_score      : ${z.toFixed(4)}`);
     console.log(`  CI           : [${mathResult.confidence_lo.toFixed(3)}, ${mathResult.confidence_hi.toFixed(3)}]`);
     console.log(`  n (numeric)  : ${snapshot.length}`);
-
     if (snapshot.length > 0) {
       console.log('\n  Weight contributions:');
       snapshot.forEach(s =>
@@ -338,107 +332,87 @@ async function main() {
       );
     }
 
-    // ── Step 6: Key guidance-related signal counts ───────────────────────────
-    banner('Step 6 — Guidance record signal analysis');
+    // ── Step 7: Signal analysis ───────────────────────────────────────────────
+    banner('Step 7 — Signal analysis');
 
     const milestoneSignals  = signals.filter(s => s.signal_type === 'milestone');
     const governanceSignals = signals.filter(s => s.signal_type === 'governance');
     const withEndDate       = milestoneSignals.filter(s => s.end_date != null);
-    const withoutEndDate    = milestoneSignals.filter(s => s.end_date == null);
-    const guidanceGiven     = governanceSignals.filter(s => s.metric === 'guidance_given');
-    const guidanceMissed    = governanceSignals.filter(s => s.metric === 'guidance_missed');
-    const proactiveDisc     = governanceSignals.filter(s => s.metric === 'proactive_disclosure');
-    const futureGoals       = milestoneSignals.filter(s => s.milestone_category === 'future_goal');
-    const successDisc       = milestoneSignals.filter(s => s.milestone_category === 'success_disclosure');
-    const failureDisc       = milestoneSignals.filter(s => s.milestone_category === 'failure_disclosure');
+    const withTimeHorizon   = milestoneSignals.filter(s => s.time_horizon != null);
+    const trackable         = milestoneSignals.filter(s => s.end_date != null || s.time_horizon != null);
 
     console.log(`  MILESTONE signals    : ${milestoneSignals.length}`);
-    console.log(`    → with end_date    : ${withEndDate.length}  (trackable as guidance record)`);
-    console.log(`    → no end_date      : ${withoutEndDate.length}  (qualitative only)`);
-    console.log(`    → future_goal      : ${futureGoals.length}`);
-    console.log(`    → success_disc.    : ${successDisc.length}`);
-    console.log(`    → failure_disc.    : ${failureDisc.length}`);
+    console.log(`    → with end_date    : ${withEndDate.length}`);
+    console.log(`    → with time_horizon: ${withTimeHorizon.length}`);
+    console.log(`    → trackable (either): ${trackable.length}  ← prefilter will keep these`);
+    console.log(`    → dropped by prefilter: ${milestoneSignals.length - trackable.length}`);
     console.log(`  GOVERNANCE signals   : ${governanceSignals.length}`);
-    console.log(`    → guidance_given   : ${guidanceGiven.length}`);
-    console.log(`    → guidance_missed  : ${guidanceMissed.length}`);
-    console.log(`    → proactive_discl. : ${proactiveDisc.length}`);
+    console.log(`    → guidance_given   : ${governanceSignals.filter(s => s.metric === 'guidance_given').length}`);
+    console.log(`    → guidance_missed  : ${governanceSignals.filter(s => s.metric === 'guidance_missed').length}`);
+    console.log(`    → proactive_discl. : ${governanceSignals.filter(s => s.metric === 'proactive_disclosure').length}`);
 
     if (withEndDate.length > 0) {
-      console.log('\n  Trackable milestones (with end_date):');
+      console.log('\n  Trackable milestones (end_date set):');
       withEndDate.slice(0, 10).forEach(s =>
-        console.log(`    [${s.milestone_category ?? 'n/a'}] ${s.metric.padEnd(20)} end=${s.end_date}  value=${s.value ?? 'n/a'} ${s.unit ?? ''}`)
+        console.log(`    ${s.metric.padEnd(22)} end=${s.end_date}  horizon=${s.time_horizon ?? 'n/a'}  value=${s.value ?? 'n/a'} ${s.unit ?? ''}`)
       );
       if (withEndDate.length > 10) console.log(`    ... +${withEndDate.length - 10} more`);
     }
 
-    // ── Step 7: Build signal summary ─────────────────────────────────────────
-    banner('Step 7 — Building signal summary (DATA_BLOCK)');
-    const signalSummary = buildSignalSummary('Guidance Credibility', signals, mathResult, GUIDANCE_CREDIBILITY_CONFIG.balance);
+    // ── Step 8: Build signal summary (DATA_BLOCK) ─────────────────────────────
+    banner('Step 8 — Building signal summary (DATA_BLOCK)');
+    const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance, cfgPrefilter);
     console.log(`  Signal summary length : ${signalSummary.length} chars`);
 
-    // ── Step 8: Build full L2 prompt ─────────────────────────────────────────
-    banner('Step 8 — Building full L2 prompt');
+    // ── Step 9: Equity metrics block (appended in live flow) ──────────────────
+    banner('Step 9 — Equity metrics block');
+    let equityBlock = '';
+    try {
+      const em = await fetchEquityMetrics(callId);
+      equityBlock = formatEquityMetricsBlock(em);
+      console.log(`  Equity block length  : ${equityBlock.length} chars`);
+    } catch (err) {
+      console.log(`  (equity metrics unavailable: ${err.message})`);
+    }
 
-    // NOTE: lensComposer.js line 260 has a bug — it references `lensInstructions`
-    // which is never declared in scope. This script fixes it by using
-    // lensConfig.config.lens_instructions ?? '' (which is '' for guidance-credibility).
-    const lensInstructions = GUIDANCE_CREDIBILITY_CONFIG.lens_instructions;
+    // ── Step 10: Build final prompt ───────────────────────────────────────────
+    banner('Step 10 — Building final L2 prompt');
 
-    const prompt = L2_DEFAULT_PROMPT
-      .replace('{{LENS_NAME}}',         'Guidance Credibility')
+    const promptTemplate   = cfgPromptTemplate || L2_DEFAULT_PROMPT;
+    const lensInstructions = '';   // lensComposer.js line 634: always '' regardless of branch
+
+    const prompt = promptTemplate
+      .replace('{{LENS_NAME}}',         lensConfig.name)
       .replace('{{LENS_INSTRUCTIONS}}', lensInstructions)
-      .replace('{{DATA_BLOCK}}',        signalSummary);
+      .replace('{{DATA_BLOCK}}',        signalSummary + equityBlock);
 
+    const unresolvedPlaceholders = (prompt.match(/\{\{[A-Z_]+\}\}/g) || []);
+    console.log(`  Template source      : ${cfgPromptTemplate ? 'DB prompt_template' : 'L2_DEFAULT_PROMPT'}`);
     console.log(`  Final prompt length  : ${prompt.length} chars`);
     console.log(`  Estimated tokens     : ~${Math.round(prompt.length / 4)}`);
+    console.log(`  Unresolved placeholders: ${unresolvedPlaceholders.length === 0 ? 'none' : unresolvedPlaceholders.join(', ')}`);
+    console.log(`  Model                : ${cfgModel ?? 'anthropic/claude-haiku-4.5'}`);
+    console.log(`  Max tokens           : ${cfgMaxTokens ?? 8000}`);
 
-    // Prompt sections check
-    console.log('\n  Prompt section check:');
-    console.log(`    Has {{LENS_NAME}} placeholder resolved   : ${!prompt.includes('{{LENS_NAME}}')}`);
-    console.log(`    Has {{LENS_INSTRUCTIONS}} resolved       : ${!prompt.includes('{{LENS_INSTRUCTIONS}}')}`);
-    console.log(`    Has {{DATA_BLOCK}} resolved              : ${!prompt.includes('{{DATA_BLOCK}}')}`);
-    console.log(`    Contains SIGNAL SUMMARY                  : ${prompt.includes('SIGNAL SUMMARY')}`);
-    console.log(`    Contains MATH line                       : ${prompt.includes('MATH: z=')}`);
-    console.log(`    Contains guided_value field definition   : ${prompt.includes('"guided_value"')}`);
-    console.log(`    Contains guided_date field definition    : ${prompt.includes('"guided_date"')}`);
-    console.log(`    Contains direction field definition      : ${prompt.includes('"direction"')}`);
-
-    // ── Step 9: Save to file ─────────────────────────────────────────────────
-    banner(`Step 9 — Saving prompt to ${OUTPUT_FILE}`);
+    // ── Step 11: Save to file ─────────────────────────────────────────────────
+    banner(`Step 11 — Saving prompt to ${OUTPUT_FILE}`);
     fs.writeFileSync(OUTPUT_FILE, prompt, 'utf8');
     console.log(`  ✓ Saved to: ${OUTPUT_FILE}`);
 
-    // ── Step 10: Summary ─────────────────────────────────────────────────────
+    // ── Summary ───────────────────────────────────────────────────────────────
     banner('Summary');
     console.log(`  Ticker          : ${TICKER}`);
+    console.log(`  Lens            : ${LENS_SLUG} (${lensConfig.name} v${lensConfig.version})`);
     console.log(`  Latest call     : ${callId} (${latestCall.fiscal_year} ${latestCall.quarter})`);
     console.log(`  Total signals   : ${signals.length} (current + historical, deduped)`);
-    console.log(`    milestone      : ${milestoneSignals.length}`);
-    console.log(`    governance     : ${governanceSignals.length}`);
     console.log(`  z_score         : ${z.toFixed(4)}`);
-    console.log(`  Prompt length   : ${prompt.length} chars (~${Math.round(prompt.length / 4)} tokens)`);
+    console.log(`  Prompt chars    : ${prompt.length} (~${Math.round(prompt.length / 4)} tokens)`);
+    console.log(`  Prompt source   : ${cfgPromptTemplate ? 'DB prompt_template' : 'L2_DEFAULT_PROMPT (fallback)'}`);
     console.log(`  Output file     : ${OUTPUT_FILE}`);
 
-    // Warnings
     if (signals.length === 0) {
-      console.log('\n  ⚠️  WARNING: No signals found — the L2 prompt data block will be empty.');
-      console.log('     Run the L1 summarization job first: POST /api/calls/:callId/summarize');
+      console.log('\n  ⚠  No signals found — DATA_BLOCK will be empty. Run L1 extraction first.');
     }
-    if (guidanceMissed.length > 0) {
-      console.log(`\n  ⚠️  ${guidanceMissed.length} guidance_missed signal(s) detected — management credibility concern.`);
-    }
-    if (guidanceGiven.length === 0 && milestoneSignals.length === 0) {
-      console.log('\n  ⚠️  No guidance signals found — this may score poorly on guidance-credibility lens.');
-    }
-
-    // Bug note
-    console.log('\n  ── Bug note ──────────────────────────────────────────────────────────');
-    console.log('  lensComposer.js:260 references `lensInstructions` which is never declared');
-    console.log('  in scope. This will throw a ReferenceError at runtime when the lens is');
-    console.log('  computed (since the DB prompt_template for guidance-credibility is null,');
-    console.log('  triggering the code path that uses L2_DEFAULT_PROMPT with the replace call).');
-    console.log('  Fix: declare `const lensInstructions = lensConfig.config.lens_instructions ?? \'\';`');
-    console.log('  before the .replace() calls (around line 255 in lensComposer.js).');
 
   } finally {
     await prisma.$disconnect();

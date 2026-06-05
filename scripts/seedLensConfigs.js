@@ -23,11 +23,11 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.3.0',
+    version:      '1.9.0',
     config: {
       signal_filters: {
-        signal_types:      ['milestone', 'governance'],
-        metric_family:     ['milestone', 'governance'],
+        signal_types:      ['milestone', 'governance', 'financial_health', 'customer'],
+        metric_family:     ['milestone', 'governance', 'financial_health', 'customer'],
         include_historical: true,
       },
       weights: [
@@ -36,141 +36,229 @@ const LENS_CONFIGS = [
         { metric: 'proactive_disclosure', w: 0.3 },
       ],
       aggregation:     'weighted_sum',
+      balance:         { default: 9999 },
       model:           HAIKU,
-      max_tokens:      MAX_TOKENS,
+      max_tokens:      32000,
       prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts and management commentary using a rigorous L1 extraction pipeline.
 
 Your task is to synthesise this signal summary into a structured guidance-credibility view. Do NOT invent data — work only from the signals provided.
 
 TODAY'S DATE: 2026-06-04
 
-GUIDANCE TIMELINE CONSTRUCTION:
-Review each guidance event in the signals. For each, determine: what was guided (guided_value + guided_date), what was actually delivered (actual_value), and whether the result is beat / miss / in_line / tracking. Identify the single most important RESOLVED miss as "major miss". Assess overall directional bias (Conservative / Balanced / Aggressive) based on resolved events only.
+---
 
-DEDUPLICATION RULE — Same metric, different periods = SEPARATE rows (required).
-Example: CD_RATIO FY25, CD_RATIO FY26, CD_RATIO FY27 are three distinct guidance events — emit all three.
-Only collapse entries if the metric AND the time period are truly identical.
+STEP 1 — READ THE L1 SIGNALS CAREFULLY BEFORE WRITING ANYTHING
 
-DIRECTION TAGGING RULES — strictly enforced:
-1. If guided_date > 2026-06-04 (target deadline has NOT yet passed): direction = "tracking". NEVER "miss" for future targets.
-2. If guided_date ≤ 2026-06-04 AND actual_value is available:
-   - Beat: outperformed the guidance materially
-   - in_line: within ±2% relative tolerance of guided value
-   - miss: materially underdelivered vs guidance
-3. "miss" is ONLY valid when: (a) guided_date ≤ 2026-06-04 AND (b) actual_value confirms underdelivery.
+Each signal in the DATA_BLOCK contains at minimum:
+  - guided_on:    the quarter management made this statement (e.g. "Q3 FY22") — WHEN the commitment was made
+  - guided_value: the number management committed to
+  - guided_date:  the deadline they set for achieving the target (e.g. Q4 FY25) — WHEN it must be achieved by
+  - actual_value: the number actually reported for that same deadline period (null if not yet reported)
+  - actual_date:  the period the actual belongs to
 
-DELTA RULES — strictly enforced:
-- Populate delta (= actual_value − guided_value) ONLY when BOTH:
-  (a) guided_date ≤ 2026-06-04 (the milestone deadline has been reached or passed)
-  (b) actual_value is non-null and confirmed
-- If guided_date > 2026-06-04: set delta = 0 and delta_pct = 0 (use 0, not omit).
+guided_on and guided_date are TWO DIFFERENT FIELDS and can be years apart.
+  - guided_on   = Q3 FY22 (management spoke on this date)
+  - guided_date = Q4 FY25 (management said this target will be met by this date)
+  Read both independently. Never confuse them.
+
+actual_value and guided_value are also TWO DIFFERENT FIELDS and will frequently differ.
+  Do NOT copy guided_value into actual_value. Read each field independently from the signal.
+
+If actual_value is null → period not yet reported → direction = "tracking".
+If actual_value is non-null → use it exactly to compute delta and direction.
+
+---
+
+STEP 2 — COMPUTE DELTA FOR EVERY RESOLVED EVENT
+
+delta = actual_value − guided_value
+
+This number will frequently be non-zero. A flat delta (delta = 0) should be rare — only when actual literally equals guided to the digit. If you are producing mostly flat deltas, you are echoing guided_value as actual_value — stop and re-read the signals.
+
+DELTA RULES:
+- Populate delta ONLY when guided_date ≤ 2026-06-04 AND actual_value is confirmed non-null
+- If guided_date > 2026-06-04: delta = 0, delta_pct = 0
+- delta_pct = (delta / guided_value) × 100, rounded to 1 decimal place
+
+---
+
+STEP 3 — DIRECTION TAGGING (strictly enforced)
+
+1. guided_date > 2026-06-04 → direction = "tracking" regardless of anything else
+2. guided_date ≤ 2026-06-04 AND actual_value is null → direction = "tracking"
+3. guided_date ≤ 2026-06-04 AND actual_value is confirmed:
+   - delta_pct > +2%  → direction = "beat"
+   - delta_pct < −2%  → direction = "miss"
+   - −2% ≤ delta_pct ≤ +2% → direction = "in_line"
+
+direction must NEVER be null. Every timeline signal must be one of: beat / miss / in_line / tracking.
+
+---
+
+STEP 4 — PERIOD-MATCHING (strictly enforced)
+
+The actual_value used to evaluate any guidance event MUST come from the EXACT same period as guided_date.
+- "15% loan growth by Q3 FY25" → only Q3 FY25 actuals count. Not Q4 FY25, not FY25 full year.
+- "NIM of 4.2% for FY25" → only full-year FY25 actuals count. Not Q4 FY25.
+- If the exact period's actual is not in the signals → actual_value = null → direction = "tracking"
+- Never substitute or approximate from a nearby period.
+
+---
+
+STEP 5 — REVISION TRACKING (same metric, multiple commitments)
+
+Management often guides the same metric multiple times across different quarters, sometimes revising targets up or down. Each distinct commitment is a SEPARATE row — do not collapse them.
+
+Example: NIM guided on Q3 FY22 (target: 4.5% by FY25) and then revised on Q2 FY24 (target: 4.2% by FY25) → emit both rows. This lets the reader see the original commitment, the revision, and what actually happened.
+
+Deduplication rule: only collapse if guided_on, metric, AND guided_date are all identical.
+
+How to label revisions in the statement:
+- Original commitment: write normally
+- Revised commitment: start with "Revised guidance:" so the reader can see it was a change
+
+---
+
+STEP 6 — DEDUPLICATION
+
+Same metric + different guided_date = SEPARATE rows. Always.
+Same metric + same guided_date but different guided_on = SEPARATE rows (revision).
+Only collapse if metric, guided_date, AND guided_on are all truly identical.
+
+---
 
 {{DATA_BLOCK}}
+
+---
 
 OUTPUT FIELD RULES — strictly enforced:
 
 top_signals[] — MUST follow this exact layout. No exceptions.
 
-  HEADLINE SIGNALS (positions 0–2, mandatory, consumed positionally by the UI):
-  These render as the 3 headline strip tiles at the top. ALL THREE are required.
+  HEADLINE SIGNALS (positions 0–2, mandatory):
 
   [0] metric: "HEADLINE_HIT_RATE"
-      label: fraction string counting ONLY RESOLVED events (guided_date ≤ 2026-06-04), e.g. "5/7"
-      statement: one sentence naming which metrics beat/missed among resolved events (≤80 chars)
-      actual_value: count of hits among resolved events (numerator)
-      guided_value: total count of resolved guidance events (denominator)
+      label: fraction of RESOLVED events that beat or came in_line, e.g. "5/7"
+        — numerator: count of resolved events where direction = beat or in_line
+        — denominator: count of ALL resolved events (guided_date ≤ 2026-06-04 with confirmed actual)
+      statement: one sentence listing which key metrics hit and which missed (≤80 chars, use metric names)
+      actual_value: numerator
+      guided_value: denominator
       unit: "ratio"
       impact: "high"
-      (omit direction — not applicable for this tile)
 
   [1] metric: "HEADLINE_MAJOR_MISS"
-      label: short descriptor of the biggest RESOLVED miss, e.g. "NIM −12%" or "HDB IPO"
-      statement: what was guided, what was delivered, and the reset if any (≤80 chars)
-      actual_value: delta as a signed number (e.g. -12 for a 12% shortfall)
-      unit: "%" (or appropriate unit for that metric)
+      label: short name of the biggest resolved miss with its delta, e.g. "NIM −40bps"
+      statement: "Guided [X] for [period] (committed [guided_on]) — came in at [Y], shortfall of [Z]." (≤90 chars, all numbers)
+      actual_value: the actual_value of the missed metric
+      guided_value: the guided_value of the missed metric
+      unit: appropriate unit
       direction: "major_miss"
       impact: "high"
-      (If no material resolved miss exists, set label: "No Major Miss", actual_value: 0, direction: "beat")
+      — If no material resolved miss: label = "No Major Miss", actual_value = 0, direction = "beat"
 
   [2] metric: "HEADLINE_GUIDANCE_BIAS"
       label: "Conservative" | "Balanced" | "Mixed" | "Aggressive"
-      statement: one sentence explaining the directional pattern (≤80 chars)
+        — Conservative: management regularly guides below what they deliver (beats dominate)
+        — Aggressive: management regularly guides above what they deliver (misses dominate)
+        — Balanced: roughly equal beats and misses
+        — Mixed: no clear pattern
+      statement: one sentence with the beat/miss count split to justify the label (≤80 chars)
       impact: "high"
-      (omit direction — not applicable for this tile)
 
-  TIMELINE SIGNALS (positions 3 onward, one per guidance event):
-  Emit ALL guidance events — both resolved (past) and pending (future). Each is a separate row.
-  • signal_id: id of the source signal from the DATA_BLOCK (copy the [id=...] value exactly)
-  • metric: the financial metric being guided (e.g. "CD_RATIO", "LOAN_GROWTH", "ROA", "NIM")
-  • label: period identifier, e.g. "FY25", "FY27", "Q3 FY26" (max 10 chars)
+  TIMELINE SIGNALS (positions 3 onward — one row per QUALIFYING guidance commitment only):
 
-  PERIOD-MATCHING RULE — strictly enforced, no exceptions:
-  The actual_value used to evaluate any guidance event MUST come from the EXACT same period that management specified as the target deadline. 
-  - If management guided "15% loan growth by Q3 FY25", you must look up the loan growth figure reported FOR Q3 FY25 specifically — not Q4 FY25, not FY25 full year, not any adjacent period.
-  - If management guided a full-year target (e.g. "NIM of 4.2% for FY25"), the actual must be the full-year FY25 reported figure — not a quarterly figure.
-  - If the exact period's actual is not available in the signals, set actual_value = guided_value (placeholder) and direction = "tracking". Do NOT substitute a different period's actual.
-  - Never infer, interpolate, or approximate from a nearby period. Period mismatch = no verdict.
+  QUALIFYING CRITERIA — a signal must meet ALL THREE to get a timeline row:
+    1. Management made a specific, measurable commitment (a number, a milestone, a date, a rate)
+    2. The signal has a guided_date (end_date in the data block) OR an explicit time_horizon
+    3. The commitment is trackable — you can determine whether it was met, missed, or is still pending
 
-  • statement: A single plain-English sentence written as a track record entry. It must answer three questions in one breath: (1) what did management commit to, (2) by when, and (3) did they deliver — where "deliver" is checked against the same period's actual, not any other.
+  DO NOT emit timeline rows for:
+    - Operational achievements reported as facts (e.g. "506M subscribers this quarter")
+    - Product launches or partnerships with no stated target or deadline
+    - General strategy statements without measurable outcomes
+    - Success disclosures of past events with no forward commitment
+  These belong only as evidence in HEADLINE fields — not as individual timeline rows.
 
-    STATEMENT RULES — strictly enforced:
-    - Write in simple, direct English. No arrows (→), no semicolons, no jargon.
-    - Always state the guided target as a number or range. If management only gave a qualitative target (e.g. "in line with system"), you must still find and state the numeric benchmark — do not repeat the qualitative phrase.
-    - Always name the exact period management gave.
-    - Always state the actual result as a number. NEVER use words like "delivered", "achieved", "in line", "on track" as substitutes for a number.
-    - If the actual number for that exact period is not available in the signals, end with "— [period] actual not available."
-    - For resolved hits: "[Guided X% for FY2X — came in at Y%.]"
-    - For resolved misses: "[Guided X% for FY2X — came in at Y%.]" (same format; direction field carries the hit/miss verdict, not the statement)
-    - For pending: "[Guided X% by FY2X — result not yet reported.]"
-    - Max 90 chars. One thought only. No filler.
+  Each row = one specific commitment management made on a specific date about a specific target deadline.
 
-    Good examples:
-      Resolved hit:  "Guided NIM at 4.2% for FY25 — came in at 4.4%."
-      Resolved miss: "Guided NIM at 4.2% for FY25 — came in at 3.8%."
-      Pending:       "Guided ROA at 1.8% by FY27 — result not yet reported."
-      No actual:     "Guided loan growth at 15% for FY26 — FY26 actual not available."
-      IPO miss:      "Guided HDB Financial IPO by Sept 2025 — not completed by Sept 2025."
+  • signal_id:    copy the [id=...] value exactly from the DATA_BLOCK
+  • metric:       the financial metric (e.g. "NIM", "LOAN_GROWTH", "ROA", "CD_RATIO")
+  • label:        target period, e.g. "FY25", "Q3 FY26" (max 10 chars) — this is the guided_date period
+  • guided_on:    the quarter management made this commitment, e.g. "Q3 FY22" — copy from signal exactly
 
-    Bad examples (never do this):
-      "Guided loan growth in line with system for FY26 — delivered in FY26."
-      "Guided faster-than-system growth — on track so far."
-      "Guided CD ratio to healthy levels — achieved."
+  • statement: ONE sentence. Must contain four facts: (1) what was guided, (2) the number, (3) the deadline, (4) the actual result with its number. Format: "[Metric] guided at [X] by [period] (said in [guided_on]) — [period] came in at [Y]."
+    STATEMENT RULES — non-negotiable:
+    - Always include guided_on so the reader knows how old the commitment was.
+    - Use the actual guided number. Never paraphrase as "strong growth" or "healthy levels".
+    - Use the actual reported number. Never substitute words like "delivered", "achieved", "on track".
+    - Both the guided number AND the actual number must appear. No exceptions.
+    - If actual is not yet reported: end with "— [period] result not yet reported."
+    - For revised guidance: start statement with "Revised in [guided_on]:"
+    - Max 100 chars. No arrows. No semicolons. One fact only.
 
-  • actual_value: realized value from THE EXACT SAME PERIOD as guided_date; if that period is not yet reported use guided_value as placeholder
-  • guided_value: management's forward commitment (numeric)
-  • unit: "%" or "Cr" or appropriate unit
-  • delta: apply DELTA RULES above — use 0 for future targets
-  • delta_pct: percentage delta — use 0 if delta is 0
-  • direction: MUST be non-null; apply DIRECTION TAGGING RULES above strictly
-  • guided_date: ISO 8601 last day of the guidance target period
-  • actual_date: ISO 8601 last day of the reported period (use guided_date if not yet reported)
-  • impact: "high" | "medium" | "low"
+    ✅ CORRECT:  "NIM guided at 4.2% by FY25 (said Q3 FY22) — FY25 came in at 3.8%."
+    ✅ CORRECT:  "Loan growth guided at 18% by FY26 (said Q1 FY24) — FY26 came in at 21%."
+    ✅ CORRECT:  "ROA guided at 1.8% by FY27 (said Q2 FY25) — FY27 result not yet reported."
+    ✅ CORRECT:  "Revised in Q2 FY24: NIM guided at 4.0% by FY25 — FY25 came in at 3.8%."
+    ❌ WRONG:    "Guided strong loan growth for FY26 — delivered in FY26."
+    ❌ WRONG:    "Guided NIM improvement — achieved as guided."
+    ❌ WRONG:    "Guided loan growth matching system — on track so far."
+    ❌ WRONG:    Any statement missing either the guided number or the actual number.
 
-  SUMMARY SIGNALS (emit at the end, after all timeline signals):
+  • guided_value: the numeric target from the signal. Use null — NOT 0, NOT "undefined" — when no numeric target exists (e.g. binary milestones like "demerger will happen in November" have no guided_value; use null).
+  • actual_value: the numeric result for the exact same period. Use null — NOT 0 — when not yet reported or not applicable. NEVER emit 0 as a placeholder for a missing value.
+  • unit:         "%" | "Cr" | "bps" | "x" | "million" | "stores" | "timing" (for date-based milestones) | null when no unit applies
+  • delta:        actual_value − guided_value. Use null whenever guided_value or actual_value is null. NEVER emit 0 as a placeholder delta.
+  • delta_pct:    (delta / guided_value) × 100 rounded to 1dp. null whenever delta is null.
+  • direction:    one of beat / miss / in_line / tracking — apply Step 3 rules exactly. For binary milestones with no numeric delta, use "tracking" if not yet confirmed, "beat" if confirmed completed.
+  • guided_date:  ISO 8601 last day of the target period (e.g. 2025-03-31 for FY25)
+  • guided_on:    quarter of the commitment, e.g. "Q3 FY22"
+  • actual_date:  ISO 8601 last day of the reported period (same as guided_date if unreported)
+  • impact:       "high" | "medium" | "low"
+
+  SUMMARY SIGNAL (last position, after all timeline signals):
   metric: "HEADLINE_ENTRY_COUNT"
-  • label: total count of ALL timeline signals as "N entries", e.g. "8 entries"
-  • statement: short description of what the timeline covers (≤60 chars)
+  • label: "N entries" where N = total count of timeline signals
+  • statement: what the timeline spans (earliest guided_on to latest guided_date) in ≤60 chars
   • impact: "high"
-  (omit direction — not applicable)
 
-WRITING STYLE RULES:
-- "statement" in TIMELINE signals: follow the STATEMENT RULES above exactly. Plain, direct, track-record style. No arrows, no semicolons.
-- "takeaway": max 25 words, lead with hit rate fraction (resolved events only) and bias verdict.
-- "highlights": up to 3 items, max 15 words each, start with a verb or metric.
-- "risks": up to 2 items, max 12 words each, start with the risk noun.
-- "label" in top_signals: 2–8 chars for period labels, or short descriptor for headlines.
-- Never pad with filler phrases.
+---
+
+WRITING RULES (non-timeline fields):
+- "takeaway": max 25 words. Lead with hit rate (e.g. "6/9 resolved") and bias label. No filler.
+- "highlights": up to 3 items, max 15 words each, start with a verb or metric name, include numbers.
+- "risks": up to 2 items, max 12 words each, start with the risk noun, include numbers where possible.
+- Never pad. Never use vague qualifiers where numbers exist.
+
+---
+
+SELF-CHECK before emitting JSON:
+1. Does any field contain the string "undefined"? That is NEVER valid JSON — replace with null immediately.
+2. Is any guided_value or actual_value set to 0 as a placeholder for "unknown"? Use null instead. 0 means the actual number zero.
+3. Is any delta set to 0 for a resolved event where guided_value and actual_value are both non-null and different? Re-read — you may be echoing guided_value as actual_value.
+4. Is any delta set to 0 (not null) when guided_value or actual_value is null? Use null for delta in that case.
+5. Does any statement lack a guided number (for numeric commitments)? Rewrite it.
+6. Does any statement lack an actual number (for resolved events)? Rewrite it.
+7. Does every timeline signal include guided_on? If not — add it.
+8. Are there multiple commitments for the same metric to the same deadline? Split into separate rows.
+9. Does every timeline signal have a non-null direction? If not — fix it.
+10. Do beat/miss counts in HEADLINE_HIT_RATE match the direction tags in timeline signals? Recount.
+
+---
 
 Return a JSON object with this exact structure:
 {
   "score": <integer 0-100>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 25 words, lead with hit rate and bias verdict>,
+  "takeaway": <string — max 25 words>,
   "key_metrics": {},
-  "highlights": [<up to 3 items, each max 15 words>],
-  "risks": [<up to 2 items, each max 12 words, starting with risk noun>],
-  "top_signals": [<[0] HEADLINE_HIT_RATE, [1] HEADLINE_MAJOR_MISS, [2] HEADLINE_GUIDANCE_BIAS — all required; then timeline signals at [3+] one per guidance event with non-null direction and delta=0 for future targets; then HEADLINE_ENTRY_COUNT>]
-}`,
+  "highlights": [<up to 3 items>],
+  "risks": [<up to 2 items>],
+  "top_signals": [<HEADLINE_HIT_RATE, HEADLINE_MAJOR_MISS, HEADLINE_GUIDANCE_BIAS, ...timeline signals..., HEADLINE_ENTRY_COUNT>]
+}
+
+`,
     },
   },
   {

@@ -162,8 +162,10 @@ function computeConfidenceInterval(signals, effectiveWeights) {
 // Pure math — no LLM.
 
 // balance: optional object from LensConfig.config.balance, e.g. { milestone: 8, governance: 3, default: 3 }
-// Within each signal_type group, signals with end_date are shown first (most trackable).
-function buildSignalSummary(lensName, signals, mathResult, balance) {
+// prefilter: optional object controlling per-type signal filtering before the cap is applied.
+//   { milestone: "trackable_only" } — for milestone signals, only include rows with end_date or time_horizon set.
+//   This is used by guidance-credibility to drop pure success/failure disclosures that have no target deadline.
+function buildSignalSummary(lensName, signals, mathResult, balance, prefilter) {
   const lines = [
     `LENS: ${lensName}`,
     `SIGNAL SUMMARY (${signals.length} signals, weighted aggregate z=${mathResult.z_score.toFixed(4)}):`,
@@ -187,29 +189,40 @@ function buildSignalSummary(lensName, signals, mathResult, balance) {
     const dates      = [s.start_date && `start=${s.start_date}`, s.end_date && `end=${s.end_date}`].filter(Boolean).join(' ');
     const datesStr   = dates ? ` (${dates})` : '';
     const impact     = s.impact ? ` impact=${s.impact}` : '';
+    const horizon    = s.time_horizon ? ` horizon=${s.time_horizon}` : '';
     const stmt       = s.statement ? ` — "${s.statement}"` : '';
-    return `  [id=${s.id}] ${s.metric}: ${s.value}${s.unit ? ' ' + s.unit : ''}${periodStr}${datesStr} (${s.signal_type}${periodType}${impact})${stmt}`;
+    const displayVal = s.raw_value ?? s.value;
+    const unitStr    = s.unit && String(displayVal).includes(s.unit) ? '' : (s.unit ? ' ' + s.unit : '');
+    return `  [id=${s.id}] ${s.metric}: ${displayVal}${unitStr}${periodStr}${datesStr} (${s.signal_type}${periodType}${impact}${horizon})${stmt}`;
   };
 
   for (const [type, groupSignals] of groups) {
-    const cap = balance?.[type] ?? balance?.default ?? 15;
+    const cap = balance?.[type] ?? balance?.default ?? 100;
+
+    // Apply prefilter before sorting/capping.
+    // "trackable_only" keeps only signals with end_date or time_horizon (a target deadline).
+    // Signals without either are pure disclosures with no trackable commitment — irrelevant for guidance lenses.
+    let eligibleSignals = groupSignals;
+    if (prefilter?.[type] === 'trackable_only') {
+      eligibleSignals = groupSignals.filter(s => s.end_date != null || s.time_horizon != null);
+    }
 
     // For qualitative signal types (milestone, industry, financial_health): include all signals
-    // even when value is null, so the LLM sees the statement text. Sort: valued signals first,
-    // then null-value signals; within each group by impact.
+    // even when value is null, so the LLM sees the statement text. Sort: signals with end_date first
+    // (most trackable), then by impact.
     // For other signal types: keep existing behaviour (value != null filter, sort by impact then end_date).
     let sorted;
     if (QUALITATIVE_TYPES.has(type)) {
-      sorted = [...groupSignals].sort((a, b) => {
-        const aHasVal = a.value != null ? 0 : 1;
-        const bHasVal = b.value != null ? 0 : 1;
-        if (aHasVal !== bHasVal) return aHasVal - bHasVal;
+      sorted = [...eligibleSignals].sort((a, b) => {
+        const aHasDate = a.end_date != null ? 0 : 1;
+        const bHasDate = b.end_date != null ? 0 : 1;
+        if (aHasDate !== bHasDate) return aHasDate - bHasDate;
         const ia = IMPACT_ORDER[a.impact] ?? 3;
         const ib = IMPACT_ORDER[b.impact] ?? 3;
         return ia - ib;
       });
     } else {
-      sorted = groupSignals
+      sorted = eligibleSignals
         .filter(s => s.value != null)
         .sort((a, b) => {
           const ia = IMPACT_ORDER[a.impact] ?? 3;
@@ -525,7 +538,7 @@ async function composeLens(callId, lensSlug) {
 
   const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
           model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
-          balance: cfgBalance } = lensConfig.config;
+          balance: cfgBalance, prefilter: cfgPrefilter } = lensConfig.config;
 
   const { include_historical, ...signalFilters } = filters ?? {};
 
@@ -615,7 +628,7 @@ async function composeLens(callId, lensSlug) {
   }
 
   // ── Build compact signal summary → L2 LLM call ───────────────────────────
-  const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance);
+  const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance, cfgPrefilter);
   const promptTemplate = cfgPromptTemplate || L2_DEFAULT_PROMPT;
 
   const lensInstructions = cfgPromptTemplate ? '' : '';
