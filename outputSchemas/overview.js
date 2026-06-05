@@ -109,13 +109,11 @@ const overviewOutputSchema = {
           description: '≤8 words — taken from technicals currentRegime.label, shorten if needed. null if technicals unavailable.',
         },
         ideal_for: {
-          type:        ['string', 'null'],
-          enum:        ['Investment', 'Swing', 'Positional', null],
+          anyOf:       [{ type: 'string', enum: ['Investment', 'Swing', 'Positional'] }, { type: 'null' }],
           description: 'From technicals — null if unavailable.',
         },
         timeframe: {
-          type:        ['string', 'null'],
-          enum:        ['6M+', '3-6M', '0-3M', null],
+          anyOf:       [{ type: 'string', enum: ['6M+', '3-6M', '0-3M'] }, { type: 'null' }],
           description: 'From technicals — null if unavailable.',
         },
         ic_metrics: {

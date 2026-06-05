@@ -62,21 +62,19 @@ const enqueueAnalysis = asyncHandler(async (req, res) => {
 });
 
 /**
- * GET /api/analysis/overview?callId=X
- * Returns the stored overview AiInsight for the ticker derived from callId.
+ * GET /api/analysis/overview?ticker=X
+ * Returns the stored overview AiInsight for the given ticker.
  */
 const getOverview = asyncHandler(async (req, res) => {
-  const { callId } = req.query;
-  if (!callId) return res.status(400).json({ success: false, error: 'callId is required' });
+  const { ticker } = req.query;
+  if (!ticker) return res.status(400).json({ success: false, error: 'ticker is required' });
 
-  const ticker = callId.includes('_FY') ? callId.slice(0, callId.indexOf('_FY')) : callId;
   const record = await getOverviewInsight(ticker);
 
   res.json({
     success: true,
     data: {
       ticker,
-      callId,
       available: !!record,
       ...(record?.insight ?? {}),
       analyzed_at: record?.updated_at ?? null,
@@ -86,20 +84,18 @@ const getOverview = asyncHandler(async (req, res) => {
 
 /**
  * POST /api/analysis/overview
- * Body: { callId, forceRefresh?: boolean }
+ * Body: { ticker, forceRefresh?: boolean }
  * Enqueues an overview synthesis job and returns the jobId for polling.
  */
 const enqueueOverview = asyncHandler(async (req, res) => {
-  const { callId, forceRefresh } = req.body;
-  if (!callId) return res.status(400).json({ success: false, error: 'callId is required' });
+  const { ticker, forceRefresh } = req.body;
+  if (!ticker) return res.status(400).json({ success: false, error: 'ticker is required' });
 
-  const ticker = callId.includes('_FY') ? callId.slice(0, callId.indexOf('_FY')) : callId;
   const { jobId } = await enqueueOverviewSynthesisJob(ticker, { forceRefresh: !!forceRefresh });
 
   res.json({
     success: true,
     message: 'Overview synthesis job enqueued',
-    callId,
     ticker,
     jobId,
   });
