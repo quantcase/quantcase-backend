@@ -109,13 +109,15 @@ Return a JSON object with this exact structure:
       "signal_id": <string — id of the signal from the data block>,
       "metric": <string — metric name exactly as provided>,
       "label": <string — 2–5 word title-case human-readable label>,
-      "guided_value": <number — management's forward-looking commitment or guidance; OMIT this field entirely if not applicable>,
-      "guided_date": <string — ISO 8601 date YYYY-MM-DD, last day of the guidance target period, e.g. "2027-03-31" for FY2027, "2026-09-30" for FY2026 Q3; OMIT this field entirely if no guidance deadline exists>,
+      "announcement_date": <string — ISO 8601 date YYYY-MM-DD when management made this statement; OMIT this field entirely if not applicable>,
+      "value_at_announcement": <number — the actual metric value at the time management made the statement (what things looked like when they said it); OMIT this field entirely if not available>,
+      "value_targeted": <number — the number management committed to achieving; OMIT this field entirely if not applicable>,
+      "target_date": <string — ISO 8601 date YYYY-MM-DD, last day of the period by which the target must be achieved, e.g. "2027-03-31" for FY2027, "2026-09-30" for FY2026 Q3; OMIT this field entirely if no deadline exists>,
       "actual_value": <number — realised/reported value; OMIT this field entirely if not yet reported>,
       "actual_date": <string — ISO 8601 date YYYY-MM-DD, last day of the reported period, e.g. "2026-09-30" for FY2026 Q3, "2026-03-31" for FY2026; OMIT this field entirely if actuals not yet available>,
       "unit": <string — e.g. "Cr", "%", "x"; OMIT this field entirely if no unit applies>,
-      "delta": <number — actual_value minus guided_value; positive means beat, negative means miss; OMIT this field entirely if only one side available>,
-      "delta_pct": <number — percentage delta relative to guided_value; OMIT this field entirely if not computable>,
+      "delta": <number — actual_value minus value_targeted; positive means beat, negative means miss; OMIT this field entirely if only one side available>,
+      "delta_pct": <number — percentage delta relative to value_targeted; OMIT this field entirely if not computable>,
       "direction": <"beat" | "miss" | "in_line" | "tracking" — "tracking" when guidance exists but actuals not yet due; OMIT this field entirely if not applicable>,
       "impact": <"high" | "medium" | "low">,
       "statement": <string | null — key evidence quote from the source, ≤80 chars>
@@ -123,7 +125,7 @@ Return a JSON object with this exact structure:
   ]
 }
 
-For top_signals: select 8–10 signals that most influenced this lens score — include ALL signals that have meaningful analytical value for this lens, not just the top few. For signals where management gave a forward-looking promise (guidance), populate guided_value/guided_date and compare against actual_value if the period has passed. If no actual is available yet, set direction to "tracking". For all dates use strict ISO 8601 format (YYYY-MM-DD) resolved to the last day of the implied period — never use free-text period labels like "FY2026 Q3".`;
+For top_signals: select 8–10 signals that most influenced this lens score — include ALL signals that have meaningful analytical value for this lens, not just the top few. For signals where management gave a forward-looking promise (guidance), populate value_targeted/target_date and compare against actual_value if the period has passed. If no actual is available yet, set direction to "tracking". For all dates use strict ISO 8601 format (YYYY-MM-DD) resolved to the last day of the implied period — never use free-text period labels like "FY2026 Q3".`;
 
 // ─── Per metric_family normalization ranges ───────────────────────────────────
 
