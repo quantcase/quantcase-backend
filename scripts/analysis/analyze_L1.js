@@ -21,11 +21,12 @@
 require('dotenv').config();
 const prisma = require('../../config/prisma');
 
-const args     = process.argv.slice(2);
-const symbol   = args[0];
-const dispatch = args.includes('--dispatch');
-const buIdx    = args.indexOf('--base-url');
-const baseUrl  = buIdx !== -1 ? args[buIdx + 1] : 'http://localhost:8000';
+const args          = process.argv.slice(2);
+const symbol        = args[0];
+const dispatch      = args.includes('--dispatch');
+const summarizeOnly = args.includes('--summarize-only');
+const buIdx         = args.indexOf('--base-url');
+const baseUrl       = buIdx !== -1 ? args[buIdx + 1] : 'http://localhost:8000';
 
 if (!symbol) {
   console.error('Usage: node scripts/analysis/analyze_L1.js <SYMBOL> [--dispatch] [--base-url <url>]');
@@ -98,11 +99,9 @@ async function main() {
 
   for (let i = 0; i < calls.length; i++) {
     const { id: callId } = calls[i];
-    // Fire both jobs in parallel for this callId
-    await Promise.all([
-      postJob(callId, 'summarize'),
-      postJob(callId, 'extract-prowess'),
-    ]);
+    const jobs = [postJob(callId, 'summarize')];
+    if (!summarizeOnly) jobs.push(postJob(callId, 'extract-prowess'));
+    await Promise.all(jobs);
     // Wait 2 s before queuing the next callId (skip delay after last one)
     if (i < calls.length - 1) await sleep(2000);
   }

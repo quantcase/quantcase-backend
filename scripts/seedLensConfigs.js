@@ -23,7 +23,7 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.9.3',
+    version:      '1.10.0',
     config: {
       signal_filters: {
         signal_types:             ['milestone', 'governance', 'financial_health', 'customer', 'kpi'],
@@ -128,6 +128,40 @@ Only collapse if metric, target_date, AND announcement_date are all truly identi
 
 ---
 
+STEP 7 — SIGNAL PRIORITY HIERARCHY (apply when selecting timeline rows)
+
+Not all trackable signals are equal. Prioritize in this strict order:
+
+  TIER 1 — Multi-quarter trackable commitments (MUST include ALL available, up to the 20-signal cap):
+  A signal where management made a specific, measurable promise on one announcement_date and the
+  target_date is at least 2 quarters later. These span fiscal years or several quarters.
+  Examples:
+    • "Jio subscribers to cross 500M by FY26" — announced Q1 FY24, target FY26 (8 quarters later)
+    • "KG-D6 first gas by mid-2020" — announced Q3 FY19, target Q1 FY21 (6 quarters later)
+    • "Retail stores to reach 10,000 by Dec 2019" — announced Q4 FY19, target Q3 FY20
+  These are the most valuable signals for guidance credibility — they reveal whether management
+  sets long-range targets and then delivers. Include ALL of them, ordered oldest announcement_date first.
+
+  TIER 2 — Single-quarter forward guidance (include after all Tier 1, within the 20-signal cap):
+  A signal with a target_date in the immediately following quarter or within 1 quarter of announcement.
+  Examples: "We expect to add 25 stores next quarter", "NIM should improve by 10bps next quarter".
+  Include these only after all Tier 1 signals have been included.
+
+  TIER 3 — Success disclosures (DO NOT emit as timeline rows — EXCLUDE entirely):
+  Statements reporting what happened in the SAME quarter as the announcement — achievements, records,
+  accomplishments with no forward commitment. These are facts, not guidance.
+  Examples:
+    • "Jio reached 160M subscribers this quarter" — fact, not a commitment
+    • "GRM at a 7-year high this quarter" — fact disclosure, no target
+    • "We opened 813 new stores in Q2" — achievement report, not a forward promise
+  DO NOT emit these as timeline rows even if the signal has an end_date matching the same quarter.
+  Use them only as supporting context when computing the HEADLINE signals.
+
+ORDERING RULE: Within Tier 1, sort chronologically by announcement_date (oldest first) so the reader
+sees the full arc of management's track record from earliest commitment to latest.
+
+---
+
 {{DATA_BLOCK}}
 
 ---
@@ -167,18 +201,22 @@ top_signals[] — MUST follow this exact layout. No exceptions.
       statement: one sentence with the beat/miss count split to justify the label (≤80 chars)
       impact: "high"
 
-  TIMELINE SIGNALS (positions 3 onward — one row per QUALIFYING guidance commitment only):
+  TIMELINE SIGNALS (positions 3 onward — one row per QUALIFYING guidance commitment, up to 20 total):
 
   QUALIFYING CRITERIA — a signal must meet ALL THREE to get a timeline row:
     1. Management made a specific, measurable commitment (a number, a milestone, a date, a rate)
     2. The signal has a target_date (end_date in the data block) OR an explicit time_horizon
     3. The commitment is trackable — you can determine whether it was met, missed, or is still pending
 
+  SELECTION ORDER — fill slots 3 to 22 (max 20 signals) strictly in this priority:
+    First: ALL Tier 1 signals (multi-quarter commitments, oldest announcement_date first)
+    Then:  Tier 2 signals (single-quarter guidance) until the 20-signal cap is reached
+
   DO NOT emit timeline rows for:
     - Operational achievements reported as facts (e.g. "506M subscribers this quarter")
     - Product launches or partnerships with no stated target or deadline
     - General strategy statements without measurable outcomes
-    - Success disclosures of past events with no forward commitment
+    - Success disclosures of past events with no forward commitment (Tier 3)
   These belong only as evidence in HEADLINE fields — not as individual timeline rows.
 
   Each row = one specific commitment management made on a specific announcement_date about a specific target_date.
@@ -222,7 +260,7 @@ top_signals[] — MUST follow this exact layout. No exceptions.
 
   SUMMARY SIGNAL (last position, after all timeline signals):
   metric: "HEADLINE_ENTRY_COUNT"
-  • label: "N entries" where N = total count of timeline signals
+  • label: "N entries" where N = total count of timeline signals emitted (max 20)
   • statement: what the timeline spans (earliest announcement_date to latest target_date) in ≤60 chars
   • impact: "high"
 
@@ -259,7 +297,7 @@ Return a JSON object with this exact structure:
   "key_metrics": {},
   "highlights": [<up to 3 items>],
   "risks": [<up to 2 items>],
-  "top_signals": [<HEADLINE_HIT_RATE, HEADLINE_MAJOR_MISS, HEADLINE_GUIDANCE_BIAS, ...timeline signals..., HEADLINE_ENTRY_COUNT>]
+  "top_signals": [<HEADLINE_HIT_RATE, HEADLINE_MAJOR_MISS, HEADLINE_GUIDANCE_BIAS, ...up to 20 timeline signals (Tier 1 oldest-first, then Tier 2)..., HEADLINE_ENTRY_COUNT>]
 }
 
 `,

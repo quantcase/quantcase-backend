@@ -75,7 +75,6 @@ async function main() {
         basic_industry: true,
       },
       orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
-      take: 12,
     });
     calls.sort((a, b) => a.fiscal_year - b.fiscal_year || a.quarter.localeCompare(b.quarter));
 
