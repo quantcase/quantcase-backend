@@ -49,9 +49,13 @@ const TARGET_LENSES  = [
   // 'capital-allocation',
   // 'promoter-activity',
   // 'industry-analysis',
-  'financial-strength',
+  // 'financial-strength',
   // 'customer-distribution',
   // 'competition',
+  "earning-quality",
+  // "earnings-forecast",
+  // "pe-rerating-potential",
+  // "target-price-matrix"
 ];
 
 const args     = process.argv.slice(2);

@@ -1120,7 +1120,7 @@ Return a JSON object with this exact structure:
     category:     'deal',
     description:  'Scenario-based earnings forecast — bull/base/bear EPS trajectory driven by revenue growth, margin expansion, and volume-mix dynamics',
     force_config: true,
-    version:      '1.4.0',
+    version:      '1.5.0',
     config: {
       signal_filters: {
         signal_types:       ['kpi', 'financial_health', 'milestone'],
@@ -1143,80 +1143,123 @@ Return a JSON object with this exact structure:
 Your task is to synthesise this compact signal summary into a structured analytical view. Do NOT invent data — work only from the signals provided.
 
 SCENARIO MATRIX CONSTRUCTION:
-Output a 3-column (Bull / Base / Bear), 5-row scenario matrix in your analysis. Rows: (1) Scenario Condition/Assumptions, (2) Industry Growth CAGR (3Y), (3) Company Revenue CAGR (3Y), (4) Margin Assumption, (5) Earnings/PAT CAGR (3Y). For every number include a one-line "because" rationale.
+Build a 3-column (Bull / Base / Bear), 5-row scenario matrix. Rows: Industry Growth CAGR (3Y), Company Revenue CAGR (3Y), Margin Assumption, EPS/PAT CAGR (3Y), Analyst View. For every number include a one-line "because" rationale.
 
-1. Industry Growth CAGR — Use historical industry CAGR from signals as the base anchor.
-   Bull: Historical CAGR × 1.15–1.3 (sector tailwinds, capacity utilisation rising).
-   Base: Historical CAGR (steady-state, no structural shift).
-   Bear: Historical CAGR × 0.6–0.8 (demand slowdown, pricing pressure).
+1. Industry Growth CAGR (3Y) — Use historical industry CAGR from signals as the base anchor. Express as a single % number for each scenario.
+   Bull: Historical CAGR × 1.15–1.3 (sector tailwinds).
+   Base: Historical CAGR (steady-state).
+   Bear: Historical CAGR × 0.6–0.8 (demand slowdown).
 
-2. Company Revenue CAGR — Start with the industry CAGR and adjust for market share movement, drawing on management revenue guidance, order book commentary, and new segment signals.
-   Bull: Industry CAGR + 50–100 bps market share gain.
-   Base: Management-guided revenue growth (cite the specific guidance signal).
-   Bear: Industry CAGR − 50–100 bps market share loss.
+2. Company Revenue CAGR (3Y) — Adjust from industry CAGR for market share, guidance, and order book.
+   Bull: Industry CAGR + market share gain. Express as a low–high % range (e.g. "12–14") or single %.
+   Base: Management-guided revenue growth. Express as a low–high % range or single %.
+   Bear: Industry CAGR − market share loss. Express as a low–high % range or single %.
 
-3. Margin Assumptions — Use the adjusted last-4-quarter average EBITDA_MARGIN as the base. Cite the primary margin driver (operating leverage / pricing power / input costs / utilisation).
-   Bull: Margin expansion from operating leverage, pricing power, or lower input costs. Express as an absolute % level (e.g. "22%") OR a signed bps change (e.g. "+150bps").
-   Base: Flat margins, in line with recent trend. Express as an absolute % level or "flat" with the current % (e.g. "flat 19%").
-   Bear: Margin compression from cost pressure, lower utilisation, or competitive pricing. Express as a signed bps change (e.g. "-200bps") or absolute % level.
+3. Margin Assumption — Use last-4-quarter average EBITDA_MARGIN as the base. Express as absolute EBITDA margin % for each scenario (e.g. 22.5 for 22.5%). Never use bps — always use absolute %.
 
-4. Earnings / PAT CAGR — Project using the waterfall:
-   Future Revenue = Current REV_OP × (1 + Revenue CAGR)^3
-   Future EBITDA  = Future Revenue × Scenario Margin %
-   Future PAT     = Future EBITDA − Historical Interest (proxy: DEBT_LT × avg rate) − Depreciation (from signals) − Tax (effective rate from signals)
-   PAT CAGR       = CAGR(Current PAT → Future PAT, 3Y)
-   Show the arithmetic step-by-step in the "because" statement. If any input is unavailable, state the assumption explicitly.
+4. EPS/PAT CAGR (3Y) — Project via the revenue/margin/tax waterfall. Express as a single signed % number.
 
 {{DATA_BLOCK}}
 
 OUTPUT FIELD RULES — strictly enforced:
 
-highlights[] — exactly 3 items in this fixed order. Each highlight MUST embed three machine-readable tokens as a structured prefix before the narrative, using EXACTLY this format:
-  "Bull: RevCAGR=X–Y%, Margin=<value>, EPS CAGR=Z%; <narrative>"
-  "Base: RevCAGR=X–Y%, Margin=<value>, EPS CAGR=Z%; <narrative>"
-  "Bear: RevCAGR=X–Y%, Margin=<value>, EPS CAGR=Z%; <narrative>"
+highlights[] — exactly 3 items in this fixed order. Used for the Analyst View row.
+  highlights[0]: "Bull: <narrative of up to 25 words explaining the bull scenario drivers>"
+  highlights[1]: "Base: <narrative of up to 25 words explaining the base scenario>"
+  highlights[2]: "Bear: <narrative of up to 25 words explaining the bear scenario risks>"
 
-  Token rules:
-  • RevCAGR= — a % range or single % (e.g. "12–14%" or "8%"). Use the 3Y company revenue CAGR for that scenario.
-  • Margin= — an absolute EBITDA margin % (e.g. "22%") OR a signed bps change from base (e.g. "+150bps", "-200bps") OR "flat <X>%" for base case. Always include a number.
-  • EPS CAGR= — a single signed % figure (e.g. "15%", "-3%"). This is the 3Y PAT/EPS CAGR for that scenario.
-  • Tokens are separated by ", " and the narrative follows after "; ".
-  • Do NOT reorder or rename the tokens. The parser depends on prefix position.
+takeaway — MUST include ALL THREE price ranges in ₹X–₹Y format in this order, then risk/reward:
+  1. Bull-case 3-year target price range (highest values).
+  2. Base-case 3-year target price range (middle values).
+  3. Bear-case 3-year target price range (lowest values).
+  4. Risk/reward ratio as Nx immediately followed by "risk/reward" (e.g. "1.9x risk/reward").
+  Example: "Bull ₹520–₹580, Base ₹420–₹480, Bear ₹280–₹340. RTM +37% YoY drives 18% PAT CAGR. 1.9x risk/reward."
 
-  Examples (adapt values to the actual company):
-  highlights[0]: "Bull: RevCAGR=12–14%, Margin=+150bps, EPS CAGR=18%; AI spend unlocks new demand driving market share and margin expansion."
-  highlights[1]: "Base: RevCAGR=7–9%, Margin=flat 19%, EPS CAGR=11%; management guidance with steady volume growth and stable margins."
-  highlights[2]: "Bear: RevCAGR=2–4%, Margin=-200bps, EPS CAGR=-3%; macro slowdown and wage inflation compress margins below operating leverage threshold."
+top_signals[] — ALL signals MUST have non-null actual_value. MANDATORY layout (in this exact order):
 
-takeaway — MUST include:
-  • The bull-case 3-year target price range in ₹X–₹Y format (first range in the string).
-  • The base-case 3-year target price range in ₹X–₹Y format (second range in the string).
-  • The risk/reward ratio as Nx immediately followed by the word risk (e.g. "1.8x risk/reward").
+  ── INDUSTRY GROWTH SIGNAL (1 signal, required) ──
+  metric: "INDUSTRY_GROWTH_BASE", unit: "%"
+  • actual_value: base-case industry CAGR (numeric only, e.g. 9). NEVER a word.
+  • label: short sector descriptor, e.g. "Industry Revenue CAGR"
+  • statement: one sentence on sector context (≤80 chars)
+  • direction: "tracking" | "beat" | "miss"
 
-top_signals[] — every signal MUST have actual_value populated (non-null). Signals with no numeric anchor must be omitted rather than included with actual_value: null.
-  • Every signal MUST have guided_value populated where management guidance exists. Do NOT leave guided_value: null if the signal is about a guidance metric.
-  • MUST include exactly one signal with metric: "industry_growth", unit: "%", actual_value set to the industry/sector revenue or EPS CAGR as a signed number (e.g. -2 for contraction, 8 for growth) — NEVER a word, numeric only. This single signal drives all three columns of the Industry Growth row.
-    - direction: "tracking" if stable, "beat" if company outperforms sector, "miss" if sector is declining.
-    - label: short descriptor e.g. "Industry Revenue CAGR" or "Sector PAT Growth".
-    - statement: one sentence on sector context.
+  ── SCENARIO SIGNALS (9 signals, ALL required) ──
+  Emit EXACTLY these 9, in this order. ALL must have non-null actual_value. No exceptions.
 
-WRITING STYLE RULES — apply to every text field:
-- "takeaway": max 30 words, action-oriented, lead with the key finding.
-- "highlights" items: structured prefix (RevCAGR=, Margin=, EPS CAGR=) followed by a concise narrative of up to 20 words.
-- "risks" items: max 12 words each, start with the risk noun.
-- "label" in top_signals: 2–5 words, title-case, human-readable.
-- "statement" in top_signals: ≤80 chars, verbatim or tightly paraphrased evidence.
-- Never pad with filler phrases like "It is important to note that…" or "Overall, the company…"
+  [1]  metric: "SCENARIO_BULL_INDUSTRY_GROWTH", unit: "%"
+       actual_value: bull-case industry CAGR (e.g. 10.8). label: "Bull Industry Growth"
+
+  [2]  metric: "SCENARIO_BASE_INDUSTRY_GROWTH", unit: "%"
+       actual_value: base-case industry CAGR (e.g. 9.0). label: "Base Industry Growth"
+
+  [3]  metric: "SCENARIO_BEAR_INDUSTRY_GROWTH", unit: "%"
+       actual_value: bear-case industry CAGR (e.g. 6.3). label: "Bear Industry Growth"
+
+  [4]  metric: "SCENARIO_BULL_REV_CAGR_LOW", unit: "%"
+       actual_value: bull-case company revenue CAGR low end (e.g. 12). label: "Bull Rev CAGR Low"
+  [5]  metric: "SCENARIO_BULL_REV_CAGR_HIGH", unit: "%"
+       actual_value: bull-case company revenue CAGR high end (e.g. 14). label: "Bull Rev CAGR High"
+       — If a single value (not a range), set both LOW and HIGH to the same number.
+
+  [6]  metric: "SCENARIO_BASE_REV_CAGR_LOW", unit: "%"
+       actual_value: base-case company revenue CAGR low end (e.g. 7). label: "Base Rev CAGR Low"
+  [7]  metric: "SCENARIO_BASE_REV_CAGR_HIGH", unit: "%"
+       actual_value: base-case company revenue CAGR high end (e.g. 9). label: "Base Rev CAGR High"
+       — If single value, set both to same number.
+
+  [8]  metric: "SCENARIO_BEAR_REV_CAGR_LOW", unit: "%"
+       actual_value: bear-case company revenue CAGR low end (e.g. 2). label: "Bear Rev CAGR Low"
+  [9]  metric: "SCENARIO_BEAR_REV_CAGR_HIGH", unit: "%"
+       actual_value: bear-case company revenue CAGR high end (e.g. 4). label: "Bear Rev CAGR High"
+       — If single value, set both to same number.
+
+  [10] metric: "SCENARIO_BULL_MARGIN_PCT", unit: "%"
+       actual_value: bull-case EBITDA margin as absolute % (e.g. 22.5). label: "Bull EBITDA Margin"
+       direction: "beat"
+
+  [11] metric: "SCENARIO_BASE_MARGIN_PCT", unit: "%"
+       actual_value: base-case EBITDA margin as absolute % (e.g. 19.0). label: "Base EBITDA Margin"
+       direction: "in_line"
+
+  [12] metric: "SCENARIO_BEAR_MARGIN_PCT", unit: "%"
+       actual_value: bear-case EBITDA margin as absolute % (e.g. 16.5). label: "Bear EBITDA Margin"
+       direction: "miss"
+
+  [13] metric: "SCENARIO_BULL_EPS_CAGR", unit: "%"
+       actual_value: bull-case 3Y PAT/EPS CAGR % (e.g. 18). label: "Bull EPS CAGR"
+       statement: one-line EPS driver (≤60 chars). direction: "beat"
+
+  [14] metric: "SCENARIO_BASE_EPS_CAGR", unit: "%"
+       actual_value: base-case 3Y PAT/EPS CAGR % (e.g. 12). label: "Base EPS CAGR"
+       statement: one-line EPS context (≤60 chars). direction: "in_line"
+
+  [15] metric: "SCENARIO_BEAR_EPS_CAGR", unit: "%"
+       actual_value: bear-case 3Y PAT/EPS CAGR % (e.g. -3). label: "Bear EPS CAGR"
+       statement: one-line EPS risk (≤60 chars). direction: "miss"
+
+  VALIDATION — count your SCENARIO_* signals before outputting. You MUST have exactly 15 (indices 1–15).
+  Any null actual_value is a hard failure — go back and compute it using the scenario matrix arithmetic.
+
+  ── SUPPORTING FINANCIALS (4–6 signals after the scenario block) ──
+  Include the most recent values for: REV_OP, EBITDA_MARGIN (or PBDIT_MARGIN), PAT, and optionally CAPEX, DEBT_LT, EPS_BASIC.
+  All must have non-null actual_value.
+
+WRITING STYLE RULES:
+- "takeaway": max 35 words, MUST include bull/base/bear ₹X–₹Y ranges and Nx risk/reward.
+- "highlights": Bull:/Base:/Bear: prefix + narrative up to 25 words.
+- "risks": max 12 words each, start with risk noun.
+- "statement" in signals: ≤80 chars.
 
 Return a JSON object with this exact structure:
 {
   "score": <integer 0-100>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 30 words, MUST include bull ₹X–₹Y range, base ₹X–₹Y range, and Nx risk/reward>,
+  "takeaway": <string — bull ₹X–₹Y, base ₹X–₹Y, bear ₹X–₹Y, Nx risk/reward>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
-  "highlights": [<exactly 3 items, each starting with "Bull:"/"Base:"/"Bear:" and containing RevCAGR=, Margin=, EPS CAGR= tokens before "; narrative">],
-  "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
-  "top_signals": [<8–10 signals, ALL must have non-null actual_value; MUST include exactly one metric:"industry_growth" signal with numeric actual_value; populate guided_value wherever management guidance exists>]
+  "highlights": [<exactly 3 items: highlights[0] "Bull: ...", highlights[1] "Base: ...", highlights[2] "Bear: ...">],
+  "risks": [<up to 2 concerns, max 12 words, starting with risk noun>],
+  "top_signals": [<INDUSTRY_GROWTH_BASE; then 15 SCENARIO_* signals [1–15]; then 4–6 supporting financials — ALL non-null actual_value>]
 }`,
     },
   },
@@ -1226,7 +1269,7 @@ Return a JSON object with this exact structure:
     category:     'deal',
     description:  'EPS growth trajectory and quality — company vs industry, beat rate, consistency score, and growth trend over rolling 5-year window',
     force_config: true,
-    version:      '1.3.0',
+    version:      '1.4.0',
     config: {
       signal_filters: {
         signal_types:       ['kpi', 'financial_health'],
@@ -1248,59 +1291,86 @@ Return a JSON object with this exact structure:
       max_tokens:      MAX_TOKENS,
       prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management analysis using a rigorous L1 extraction pipeline.
 
-Your task is to synthesise this compact signal summary into a structured analytical view. Do NOT invent data — work only from the signals provided.
-
-QUALITY TABLE CONSTRUCTION:
-Assess earning quality across 5 dimensions. For each provide: Verdict (Strong/Neutral/Weak), 2-3 line reasoning, key supporting metrics/signals, and red flags if any.
-
-1. Cash Conversion Quality — Assess whether PAT converts to real cash using CFO/PAT ratio and FCF (CFO minus CAPEX). Flag as Weak if CFO/PAT <0.5x for 2+ consecutive periods. Benchmark: >0.8x is healthy.
-2. Revenue Quality — Assess whether revenue is recurring, diversified, and organically driven. Look for customer concentration risk, segment mix shifts, and acquisition-driven vs organic growth signals.
-3. Margin Authenticity — Check if margin expansion is operational or driven by one-offs (cost deferrals, reclassification, temporary efficiencies, unusually low COGS/opex). Use EBITDA_MARGIN trend.
-4. Non-Operating/One-Time Dependence — Evaluate how much PBT/PAT depends on other income, exceptional items, or tax distortions. Flag as Weak if other income >25% of PBT or exceptional items are large.
-5. Provisioning & Accounting Quality — Assess whether risks are conservatively recognised using depreciation trends (D&A % of gross block), provisions, write-offs, and deferred tax signals. For BFSI use PCR trends.
+Your task is to synthesise this signal summary into a structured earnings quality view. Do NOT invent company financial data — work only from the signals provided. You MAY use sector knowledge to estimate industry benchmarks where not present in signals.
 
 {{DATA_BLOCK}}
 
 OUTPUT FIELD RULES — strictly enforced:
 
-top_signals[] — MUST follow this exact positional layout (positions 0–3 are the 4 fixed tiles; positions 4+ are bar chart time-series):
+top_signals[] — the service computes company CAGR, YoY growth bars, and outperformance from Prowess timeseries. You only need to supply what the service CANNOT compute:
 
-  TILE SIGNALS (positions 0–3, mandatory, consumed positionally by the UI):
-  • [0] metric: "EPS_CAGR_COMPANY", unit: "%", actual_value: company's 3Y trailing EPS CAGR (use PAT CAGR as proxy if EPS unavailable). label: "Company EPS CAGR".
-  • [1] metric: "EPS_CAGR_INDUSTRY", unit: "%", actual_value: industry/sector 3Y trailing EPS CAGR (numeric, not a word). label: "Industry EPS CAGR".
-  • [2] metric: "EPS_RELATIVE_OUTPERFORMANCE", unit: "%", actual_value: position[0].actual_value minus position[1].actual_value (arithmetic difference, signed). direction: "beat" if positive, "miss" if negative. label: "Relative Outperformance". — the frontend does NOT compute this; you must calculate it.
-  • [3] metric: "EPS_GROWTH_ESTIMATE", unit: "%", actual_value: forward 1Y or 3Y EPS growth estimate, guided_value: management-guided figure if available. label: "EPS Growth (Est.)".
-  All four MUST have non-null actual_value. If a precise figure is unavailable, use the best available proxy and note the assumption in statement.
+  REQUIRED SIGNALS (emit all 6, all with non-null actual_value):
 
-  BAR CHART SIGNALS (positions 4 onward, 4–6 entries, time-series):
-  • metric: use "EPS_GROWTH_PERIOD" or "PAT_GROWTH_YOY" consistently across all period entries — do NOT mix metric names.
-  • unit: "%", actual_value: growth % for that period (signed).
-  • guided_value: management-guided or consensus estimate for that period if available (renders as dashed trend line — null removes the line).
-  • label: period identifier used as x-axis label, e.g. "FY2023", "FY2024", "H1 FY25" — max 10 chars.
-  • actual_date: period end date in YYYY-MM-DD format (used for ascending sort order on the chart).
+  [0] metric: "EPS_CAGR_INDUSTRY"
+      unit: "%"
+      actual_value: industry/sector trailing 5Y EPS CAGR — a NUMERIC value, e.g. -13.4. Estimate from sector knowledge if not in signals. Must not be null.
+      label: "Industry EPS CAGR (5Y)"
+      statement: ≤80 chars — source or basis (e.g. "Indian IT sector composite, 2 peers")
 
-  ALSO REQUIRED (may appear at position 4+ or interspersed, but must be present):
-  • Profitability signal: metric: "PAT" or "NET_PROFIT", unit: "Cr", actual_value populated.
-  • ROA signal: metric: "ROA", unit: "%", actual_value populated.
-  • ROE or capital quality signal: metric: "ROE" (or "CAPITAL_ADEQUACY_TIER1" / "CRAR_RATIO" for banking), unit: "%", actual_value populated.
+  [1] metric: "EPS_GROWTH_ESTIMATE"
+      unit: "%"
+      actual_value: forward 1Y EPS/PAT growth estimate as a NUMBER (e.g. 5.5). Use management guidance or consensus estimate. Must not be null.
+      guided_value: management-guided figure if explicitly stated, else null.
+      label: "FY25E EPS Growth (Est.)"  (or FY26E if more current)
+      statement: ≤80 chars — basis for estimate
 
-WRITING STYLE RULES — apply to every text field:
+  [2] metric: "EPS_BEAT_RATE"
+      unit: "yrs"
+      actual_value: integer — number of years (out of last 5–6) where company EPS/PAT growth beat industry. E.g. 5 means "beat 5 of 6 years". Must not be null.
+      total_periods: integer — total periods evaluated (denominator), e.g. 6.
+      label: "Beat Industry X of Y Yrs"  (fill X and Y with actual numbers)
+      statement: ≤80 chars — brief characterisation of beat consistency
+
+  [3] metric: "EPS_CONSISTENCY_SCORE"
+      unit: "/5"
+      actual_value: integer 0–5 — quality/consistency score: 5=highly consistent positive growth, 0=highly erratic or declining. Use PAT/EPS trend consistency, beat rate, and volatility.
+      label: "Growth Consistency"
+      status: one of "Strong" | "Moderate" | "Weak"
+      statement: ≤80 chars — key factor driving the score
+
+  [4..N] metric: "INDUSTRY_GROWTH_PERIOD" — one entry per year matching the company bar chart window (4–6 entries).
+      unit: "%"
+      actual_value: industry EPS growth for that year (numeric, signed). Estimate from sector knowledge if needed.
+      label: same period label as the company bar (e.g. "FY20", "FY21") — must match what the service emits for the bars.
+      actual_date: period end date YYYY-MM-DD (used for chart x-axis alignment).
+
+  INSIGHT CARD SIGNALS (emit 4 — one per bottom card):
+  [N+1] metric: "INSIGHT_BEAT_RATE"
+        actual_value: same integer as EPS_BEAT_RATE.actual_value
+        label: short headline ≤40 chars, e.g. "Beat industry 5 of 6 years"
+        statement: ≤80 chars description shown under the headline card
+        status: "Positive" | "Neutral" | "Negative"
+
+  [N+2] metric: "INSIGHT_CAGR_ASSESSMENT"
+        label: short headline ≤40 chars describing the 5Y CAGR finding
+        statement: ≤80 chars — 1-sentence explanation (e.g. "Base effect drag from FY21 trough reduces CAGR")
+        status: "Positive" | "Watch" | "Negative"
+
+  [N+3] metric: "INSIGHT_FORWARD_ESTIMATE"
+        label: short headline ≤40 chars, e.g. "FY25E recovery — 5.5% growth est."
+        statement: ≤80 chars — context for the forward estimate
+        status: one of "Positive" | "Stable" | "Negative"
+
+  [N+4] metric: "INSIGHT_CONSISTENCY"
+        label: short headline ≤40 chars, e.g. "Growth Consistency — Moderate"
+        statement: ≤80 chars — key driver of consistency assessment
+        status: one of "Strong" | "Moderate" | "Weak"
+
+WRITING STYLE RULES:
 - "takeaway": max 25 words, action-oriented, lead with the key finding.
 - "highlights" items: max 12 words each, start with a verb or metric.
 - "risks" items: max 12 words each, start with the risk noun.
-- "label" in top_signals: 2–5 words, title-case, human-readable.
-- "statement" in top_signals: ≤80 chars, verbatim or tightly paraphrased evidence.
-- Never pad with filler phrases like "It is important to note that…" or "Overall, the company…"
+- "statement" in top_signals: ≤80 chars, evidence-based, no padding phrases.
 
 Return a JSON object with this exact structure:
 {
   "score": <integer 0-100>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 25 words, action-oriented synthesis leading with the key finding>,
+  "takeaway": <string — max 25 words>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
-  "highlights": [<up to 3 positive findings, each max 12 words, starting with a verb or metric>],
-  "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
-  "top_signals": [<positions 0–3: EPS_CAGR_COMPANY, EPS_CAGR_INDUSTRY, EPS_RELATIVE_OUTPERFORMANCE, EPS_GROWTH_ESTIMATE (all non-null actual_value); positions 4+: 4–6 time-series EPS_GROWTH_PERIOD or PAT_GROWTH_YOY entries with actual_date; plus PAT/Cr, ROA/%, ROE/% signals>]
+  "highlights": [<up to 3 items, each max 12 words>],
+  "risks": [<up to 2 items, each max 12 words>],
+  "top_signals": [EPS_CAGR_INDUSTRY, EPS_GROWTH_ESTIMATE, EPS_BEAT_RATE, EPS_CONSISTENCY_SCORE, then INDUSTRY_GROWTH_PERIOD entries (one per year), then INSIGHT_BEAT_RATE, INSIGHT_CAGR_ASSESSMENT, INSIGHT_FORWARD_ESTIMATE, INSIGHT_CONSISTENCY]
 }`,
     },
   },
