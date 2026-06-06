@@ -4,7 +4,8 @@ const { Router } = require('express');
 const asyncHandler = require('../middleware/asyncHandler');
 const { getTargetPriceMatrix } = require('../services/targetPriceMatrix.service');
 const { getEarningsForecast }  = require('../services/earningsForecast.service');
-const { getEarningsQuality }   = require('../services/earningsQuality.service');
+const { getEarningsQuality }       = require('../services/earningsQuality.service');
+const { getPeReratingPotential }   = require('../services/peReratingPotential.service');
 
 const router = Router();
 
@@ -41,6 +42,16 @@ router.get('/earnings-quality', asyncHandler(async (req, res) => {
   if (!data.available) {
     return res.status(404).json({ success: false, ...data });
   }
+  res.json({ success: true, data });
+}));
+
+// GET /api/deal/pe-rerating-potential?ticker=TCS
+router.get('/pe-rerating-potential', asyncHandler(async (req, res) => {
+  const { ticker } = req.query;
+  if (!ticker) return res.status(400).json({ success: false, error: 'ticker is required' });
+
+  const data = await getPeReratingPotential(ticker);
+  if (!data.available) return res.status(404).json({ success: false, ...data });
   res.json({ success: true, data });
 }));
 

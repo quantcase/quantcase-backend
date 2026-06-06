@@ -333,83 +333,48 @@ async function fetchEquityMetrics(callId) {
   });
   const allTickers = peerRows.map(r => r.company);
 
-  // Latest PE + mcap + close per ticker from nse_equity
-  const equityRows = await prisma.nse_equity.findMany({
-    where:    { symbol: { in: allTickers }, pe: { not: null } },
-    select:   { symbol: true, pe: true, market_cap_cr: true, close: true, datetime: true },
-    orderBy:  [{ symbol: 'asc' }, { datetime: 'desc' }],
-    distinct: ['symbol'],
-  });
+  // Latest PE + EPS + close per ticker from nse_equity_new (has both PE and TTM EPS, weekly updated)
+  const escaped = allTickers.map(t => `'${t.replace(/'/g, "''")}'`).join(',');
+  const equityRows = allTickers.length > 0
+    ? await prisma.$queryRawUnsafe(`
+        SELECT DISTINCT ON (symbol)
+               symbol,
+               pe::float           AS pe,
+               eps::float          AS eps,
+               close::float        AS close,
+               market_cap_cr::float AS market_cap_cr,
+               datetime            AS as_of
+        FROM   nse_equity_new
+        WHERE  symbol = ANY(ARRAY[${escaped}])
+          AND  pe IS NOT NULL
+        ORDER  BY symbol, datetime DESC
+      `)
+    : [];
 
-  // Build ticker → prowess name map for EPS lookup
-  const tickerToProwess = {};
-  for (const ticker of allTickers) {
-    const resolved = resolveProwess(ticker);
-    if (resolved) tickerToProwess[ticker] = resolved.prowessName;
-  }
-  const prowessNames = Object.values(tickerToProwess);
+  if (equityRows.length === 0) return null;
 
-  // Latest EPS per prowess company (prefer EPS_DILUTED, fallback EPS_BASIC)
-  const epsAbbrs = ['EPS_DILUTED', 'EPS_BASIC'];
-  let prowessEpsRows = [];
-  if (prowessNames.length > 0) {
-    prowessEpsRows = await prisma.$queryRaw`
-      SELECT DISTINCT ON (company, kpi_abbr)
-             company, kpi_abbr, value, fiscal_year
-      FROM   prowess_values_new
-      WHERE  company  = ANY(${prowessNames}::text[])
-        AND  kpi_abbr = ANY(${epsAbbrs}::text[])
-        AND  call_id LIKE 'prowess_new_%'
-      ORDER  BY company, kpi_abbr, fiscal_year DESC, source_type ASC
-    `;
-  }
-
-  // Build prowess name → EPS map (prefer EPS_DILUTED over EPS_BASIC)
-  const prowessEpsMap = {};
-  for (const row of prowessEpsRows) {
-    const val = row.value != null ? parseFloat(row.value) : null;
-    if (val == null) continue;
-    if (!prowessEpsMap[row.company] || row.kpi_abbr === 'EPS_DILUTED') {
-      prowessEpsMap[row.company] = { eps: val, fiscal_year: row.fiscal_year };
-    }
-  }
-
-  // Build ticker → EPS by reversing the prowess name lookup
-  const tickerEpsMap = {};
-  for (const [ticker, prowessName] of Object.entries(tickerToProwess)) {
-    if (prowessEpsMap[prowessName]) tickerEpsMap[ticker] = prowessEpsMap[prowessName];
-  }
-
-  if (equityRows.length === 0 && Object.keys(tickerEpsMap).length === 0) return null;
-
-  // Build per-ticker map from nse_equity
+  // Build per-ticker map
   const equityMap = {};
   for (const row of equityRows) {
     equityMap[row.symbol] = {
       pe:            row.pe            != null ? parseFloat(row.pe.toFixed(1))            : null,
+      eps:           row.eps           != null ? parseFloat(row.eps.toFixed(2))           : null,
       market_cap_cr: row.market_cap_cr != null ? parseFloat(row.market_cap_cr.toFixed(0)) : null,
-      close:         row.close         != null ? parseFloat(parseFloat(row.close).toFixed(2)) : null,
-      as_of:         row.datetime,
+      close:         row.close         != null ? parseFloat(row.close.toFixed(2))         : null,
+      as_of:         row.as_of,
     };
-  }
-
-  // Merge EPS into equityMap keyed by NSE ticker
-  for (const [ticker, data] of Object.entries(tickerEpsMap)) {
-    if (!equityMap[ticker]) equityMap[ticker] = { pe: null, market_cap_cr: null, as_of: null };
-    equityMap[ticker].eps           = data.eps;
-    equityMap[ticker].eps_fiscal_yr = data.fiscal_year;
   }
 
   // Industry aggregates — exclude PE > 200x (negative earnings distortion)
   const validPeRows   = equityRows.filter(r => r.pe != null && r.pe > 0 && r.pe <= 200);
   const validMcapRows = equityRows.filter(r => r.market_cap_cr != null);
-  const validEpsPeers = Object.values(tickerEpsMap);
+  const validEpsRows  = equityRows.filter(r => r.eps != null);
 
-  const avgPe     = validPeRows.length  ? parseFloat((validPeRows.reduce((s, r)  => s + r.pe, 0)  / validPeRows.length).toFixed(1))  : null;
+  const avgPe     = validPeRows.length   ? parseFloat((validPeRows.reduce((s, r)  => s + r.pe, 0)  / validPeRows.length).toFixed(1))  : null;
   const medianPe  = _median(validPeRows.map(r => r.pe));
   const totalMcap = validMcapRows.length ? parseFloat(validMcapRows.reduce((s, r) => s + r.market_cap_cr, 0).toFixed(0)) : null;
-  const avgEps    = validEpsPeers.length ? parseFloat((validEpsPeers.reduce((s, r) => s + r.eps, 0) / validEpsPeers.length).toFixed(1)) : null;
-  const medianEps = _median(validEpsPeers.map(r => r.eps));
+  const avgEps    = validEpsRows.length  ? parseFloat((validEpsRows.reduce((s, r) => s + r.eps, 0) / validEpsRows.length).toFixed(1)) : null;
+  const medianEps = _median(validEpsRows.map(r => r.eps));
 
   const subject = equityMap[subjectTicker] ?? null;
 
@@ -431,7 +396,7 @@ async function fetchEquityMetrics(callId) {
       avg_eps:             avgEps,
       median_eps:          medianEps,
       peer_count_with_pe:  validPeRows.length,
-      peer_count_with_eps: validEpsPeers.length,
+      peer_count_with_eps: validEpsRows.length,
     },
   };
 }

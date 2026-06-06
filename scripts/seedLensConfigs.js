@@ -1380,7 +1380,7 @@ Return a JSON object with this exact structure:
     category:     'deal',
     description:  'Likelihood of multiple expansion driven by improving fundamentals, guidance clarity, and sector tailwinds',
     force_config: true,
-    version:      '1.4.0',
+    version:      '1.5.0',
     config: {
       signal_filters: {
         signal_types:       ['kpi', 'financial_health', 'milestone', 'governance'],
@@ -1403,21 +1403,21 @@ Return a JSON object with this exact structure:
       max_tokens:      MAX_TOKENS,
       prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management analysis using a rigorous L1 extraction pipeline.
 
-Your task is to synthesise this signal summary into a structured valuation view. Use signal data where available. For P/E scenario ranges — which are NEVER present in L1 signals — you MUST estimate them using sector norms and the fundamental data in the signals (ROE, PAT growth, AUM growth). This is mandatory estimation, not invention. Do not leave scenario signal values null.
+Your task is to synthesise this signal summary into a structured P/E re-rating view that powers a frontend dashboard. All numeric fields in top_signals MUST be actual numbers — never null, never text.
 
 VALUATION ANALYSIS CONSTRUCTION:
 Perform the following reasoning steps before composing the JSON output:
 
 1. IDENTIFY SECTOR — Infer sector from available signals (e.g. AUM/NIM/GNPA → NBFC/Banking; EBITDA/order book → Capital Goods; gross margin >50% → FMCG/Consumer). Use sector to anchor P/E norms.
 
-2. SECTOR P/E ANCHOR (use these norms — mandatory):
-   Banking/NBFC:    Bear 8–14x  | Base 14–20x  | Bull 20–28x
-   Capital Goods:   Bear 18–26x | Base 26–36x  | Bull 36–50x
-   FMCG/Consumer:   Bear 28–38x | Base 38–52x  | Bull 52–70x
-   IT Services:     Bear 16–22x | Base 22–30x  | Bull 30–42x
-   Pharma/Healthcare: Bear 18–26x | Base 26–36x | Bull 36–50x
-   Auto/Auto Ancil: Bear 12–18x | Base 18–26x  | Bull 26–36x
-   Default (generic): Bear 12–18x | Base 18–26x | Bull 26–38x
+2. SECTOR P/E ANCHOR (mandatory — use these ranges):
+   Banking/NBFC:      Bear 8–14x  | Base 14–20x  | Bull 20–28x
+   Capital Goods:     Bear 18–26x | Base 26–36x  | Bull 36–50x
+   FMCG/Consumer:     Bear 28–38x | Base 38–52x  | Bull 52–70x
+   IT Services:       Bear 16–22x | Base 22–30x  | Bull 30–42x
+   Pharma/Healthcare: Bear 18–26x | Base 26–36x  | Bull 36–50x
+   Auto/Auto Ancil:   Bear 12–18x | Base 18–26x  | Bull 26–36x
+   Default (generic): Bear 12–18x | Base 18–26x  | Bull 26–38x
 
 3. QUALITY ADJUSTMENT — Apply ROE premium/discount to the sector anchor:
    ROE >20%: shift all ranges +2x. ROE 15–20%: no adjustment. ROE <15%: shift all ranges −2x.
@@ -1425,89 +1425,99 @@ Perform the following reasoning steps before composing the JSON output:
    Governance red flags or guidance misses: shift Bear range −2x.
 
 4. RE-RATING TAG — Based on PAT growth, ROE trajectory, and catalyst strength, assign: Strong / Moderate / Weak.
-   Strong:   Bull = upper half of Bull anchor + quality adj. Bear = floor of Bear anchor.
-   Moderate: Bull = midpoint of Bull anchor.              Bear = midpoint of Bear anchor.
-   Weak:     Bull = lower half of Bull anchor.            Bear = extended below Bear anchor.
 
 5. RETURN ESTIMATION — Estimate implied returns from current valuation:
    If CMP is available from signals, compute: Return = (FutureEPS × ExitPE − CMP) / CMP × 100.
    If no CMP: estimate returns directionally from P/E expansion/compression vs sector norm.
    Bear return: typically −10% to −30%. Base return: 10%–30%. Bull return: 30%–70%.
-   These are ranges: actual_value = low end, guided_value = high end.
+
+6. NARRATIVE SCORE — assign an integer 0–100 reflecting re-rating momentum:
+   Strong re-rating potential + improving fundamentals → 70–90.
+   Neutral / fair-valued → 40–60.
+   De-rating risk dominant → 10–35.
+
+7. CATALYSTS — identify the 2–3 strongest positive drivers and 1–2 biggest downside risks.
+   Each catalyst needs a short title (3–6 words, title-case) and a one-sentence explanation (max 80 chars).
 
 {{DATA_BLOCK}}
 
 OUTPUT FIELD RULES — strictly enforced:
 
-takeaway — the first sentence (before the first ".") is used as the headline in the UI panel — it must be a short actionable phrase of 2–4 words only, e.g. "Re-rating candidate." / "Premium multiple justified." / "Execution watch needed." / "De-rating risk elevated." The detailed supporting text follows in subsequent sentences.
+takeaway — first sentence (before the first ".") must be a 2–4 word actionable headline:
+  e.g. "Re-rating candidate." / "Premium multiple justified." / "Execution watch needed." / "De-rating risk elevated."
+  Subsequent sentences provide supporting detail.
 
-highlights[] — exactly 3 items in this fixed order:
-  highlights[0]: Bull catalyst — the single strongest re-rating driver. Max 20 words.
-  highlights[1]: Base/current narrative — primary fundamental supporting current valuation. Max 20 words.
-  highlights[2]: Bear/risk — the single biggest de-rating risk. Max 20 words.
+highlights[] — exactly 3 items, fixed order:
+  [0] Bull catalyst — single strongest re-rating driver. Max 20 words.
+  [1] Base narrative — primary fundamental supporting current valuation. Max 20 words.
+  [2] Bear risk — single biggest de-rating risk. Max 20 words.
 
-top_signals[] — MANDATORY: you MUST emit ALL of the following signals with non-null actual_value and guided_value where specified. No exceptions.
+top_signals[] — emit ALL signals below, in this order. EVERY numeric field is REQUIRED (no nulls).
 
-  FUNDAMENTAL SIGNALS (emit these from L1 data):
-  • metric: "ROA",  unit: "%",  actual_value: current ROA (numeric, non-null)
-  • metric: "ROE",  unit: "%",  actual_value: current ROE (numeric, non-null)
-  • metric: "PAT",  unit: "Cr", actual_value: latest PAT (numeric, non-null)
+  FUNDAMENTALS (3 signals):
+  [0] { metric: "ROA",  unit: "%",  actual_value: <number>, label: "Return On Assets",  statement: "<≤80 chars>" }
+  [1] { metric: "ROE",  unit: "%",  actual_value: <number>, label: "Return On Equity",  statement: "<≤80 chars>" }
+  [2] { metric: "PAT",  unit: "Cr", actual_value: <number>, label: "Net Profit",         statement: "<≤80 chars>" }
 
-  SCENARIO SIGNALS — emit EXACTLY these 6, in this order (positions 3–8):
-  ALL 6 are REQUIRED. ALL 6 must have both actual_value AND guided_value as numbers (never null).
-  Use your sector norm reasoning from steps 1–5 above. If uncertain, use the sector Default range.
+  SCENARIO P/E RANGES (3 signals — actual_value = low end, guided_value = high end, both REQUIRED as numbers):
+  [3] { metric: "SCENARIO_BEAR_PE_RANGE", unit: "x",  actual_value: <low>, guided_value: <high>, label: "Bear Case P/E", impact: "high", statement: "<bear thesis ≤80 chars>" }
+  [4] { metric: "SCENARIO_BASE_PE_RANGE", unit: "x",  actual_value: <low>, guided_value: <high>, label: "Base Case P/E", impact: "high", statement: "<base thesis ≤80 chars>" }
+  [5] { metric: "SCENARIO_BULL_PE_RANGE", unit: "x",  actual_value: <low>, guided_value: <high>, label: "Bull Case P/E", impact: "high", statement: "<bull thesis ≤80 chars>" }
 
-  [3] metric: "SCENARIO_BEAR_PE_RANGE", unit: "x",
-      actual_value: bear P/E low (e.g. 12), guided_value: bear P/E high (e.g. 16)
-      label: "Bear Case P/E", impact: "high"
+  SCENARIO RETURNS (3 signals — actual_value = low end %, guided_value = high end %, both REQUIRED):
+  [6] { metric: "SCENARIO_BEAR_RETURN",   unit: "%",  actual_value: <low>, guided_value: <high>, label: "Bear Return",   impact: "high", statement: "<≤80 chars>" }
+  [7] { metric: "SCENARIO_BASE_RETURN",   unit: "%",  actual_value: <low>, guided_value: <high>, label: "Base Return",   impact: "high", statement: "<≤80 chars>" }
+  [8] { metric: "SCENARIO_BULL_RETURN",   unit: "%",  actual_value: <low>, guided_value: <high>, label: "Bull Return",   impact: "high", statement: "<≤80 chars>" }
 
-  [4] metric: "SCENARIO_BASE_PE_RANGE", unit: "x",
-      actual_value: base P/E low (e.g. 16), guided_value: base P/E high (e.g. 22)
-      label: "Base Case P/E", impact: "high"
+  SCENARIO NARRATIVES (3 signals — the "What happens?" text for each scenario card):
+  [9]  { metric: "SCENARIO_BEAR_WHAT_HAPPENS", statement: "<2 sentences: what causes de-rating and what investors feel>", label: "Bear What Happens" }
+  [10] { metric: "SCENARIO_BASE_WHAT_HAPPENS", statement: "<2 sentences: base case outcome and market narrative>",        label: "Base What Happens" }
+  [11] { metric: "SCENARIO_BULL_WHAT_HAPPENS", statement: "<2 sentences: bull catalyst and re-rating trigger>",           label: "Bull What Happens" }
 
-  [5] metric: "SCENARIO_BULL_PE_RANGE", unit: "x",
-      actual_value: bull P/E low (e.g. 22), guided_value: bull P/E high (e.g. 28)
-      label: "Bull Case P/E", impact: "high"
+  NARRATIVE PANEL (2 signals):
+  [12] { metric: "NARRATIVE_SCORE", actual_value: <integer 0-100>, label: "<3–6 word narrative label, e.g. 'Defensive quality, growth laggard'>", statement: "<1-sentence description of what would shift the narrative positively>" }
+  [13] { metric: "NARRATIVE_LABEL", label: "<same 3–6 word label as NARRATIVE_SCORE>", statement: "<same 1-sentence shift description>" }
 
-  [6] metric: "SCENARIO_BEAR_RETURN", unit: "%",
-      actual_value: bear return low (e.g. -25), guided_value: bear return high (e.g. -10)
-      label: "Bear Return", impact: "high"
+  POSITIVE CATALYSTS (2–3 signals, metric = "CATALYST_POSITIVE_1", "CATALYST_POSITIVE_2", "CATALYST_POSITIVE_3"):
+  { metric: "CATALYST_POSITIVE_1", label: "<3–6 word title-case title>", statement: "<1 sentence, max 80 chars>" }
+  { metric: "CATALYST_POSITIVE_2", label: "<3–6 word title-case title>", statement: "<1 sentence, max 80 chars>" }
+  { metric: "CATALYST_POSITIVE_3", label: "<3–6 word title-case title>", statement: "<1 sentence, max 80 chars>" }  ← omit if only 2 catalysts
 
-  [7] metric: "SCENARIO_BASE_RETURN", unit: "%",
-      actual_value: base return low (e.g. 10), guided_value: base return high (e.g. 25)
-      label: "Base Return", impact: "high"
+  NEGATIVE CATALYSTS (1–2 signals, metric = "CATALYST_NEGATIVE_1", "CATALYST_NEGATIVE_2"):
+  { metric: "CATALYST_NEGATIVE_1", label: "<3–6 word title-case title>", statement: "<1 sentence, max 80 chars>" }
+  { metric: "CATALYST_NEGATIVE_2", label: "<3–6 word title-case title>", statement: "<1 sentence, max 80 chars>" }  ← omit if only 1
 
-  [8] metric: "SCENARIO_BULL_RETURN", unit: "%",
-      actual_value: bull return low (e.g. 30), guided_value: bull return high (e.g. 55)
-      label: "Bull Return", impact: "high"
+CONCRETE EXAMPLE — IT Services company, ROE ~22%, moderate growth:
+  SCENARIO_BEAR_PE_RANGE: actual_value=16, guided_value=20
+  SCENARIO_BASE_PE_RANGE: actual_value=22, guided_value=27
+  SCENARIO_BULL_PE_RANGE: actual_value=28, guided_value=35
+  SCENARIO_BEAR_RETURN:   actual_value=-15, guided_value=-5
+  SCENARIO_BASE_RETURN:   actual_value=8,   guided_value=20
+  SCENARIO_BULL_RETURN:   actual_value=25,  guided_value=45
+  NARRATIVE_SCORE:        actual_value=62
+  CATALYST_POSITIVE_1:    label="AI Monetization at Scale", statement="..."
+  CATALYST_NEGATIVE_1:    label="Structural Growth Slowdown", statement="..."
 
-  CONCRETE EXAMPLE — NBFC company, ROE ~20%, moderate growth:
-    SCENARIO_BEAR_PE_RANGE: actual=12, guided=16
-    SCENARIO_BASE_PE_RANGE: actual=16, guided=22
-    SCENARIO_BULL_PE_RANGE: actual=22, guided=28
-    SCENARIO_BEAR_RETURN:   actual=-20, guided=-10
-    SCENARIO_BASE_RETURN:   actual=10, guided=25
-    SCENARIO_BULL_RETURN:   actual=30, guided=50
+VALIDATION — before outputting, confirm:
+  ✓ All 9 scenario signals present (3 PE_RANGE + 3 RETURN + 3 WHAT_HAPPENS)
+  ✓ Every actual_value and guided_value in PE_RANGE and RETURN signals is a number (not null, not a string)
+  ✓ NARRATIVE_SCORE.actual_value is an integer 0–100
+  ✓ At least 2 CATALYST_POSITIVE and 1 CATALYST_NEGATIVE signals present
 
-  VALIDATION CHECK before outputting: count your scenario signals. If you have fewer than 6, or any has actual_value=null or guided_value=null, go back and fill them using the sector norm table. A null in any scenario field is a hard failure.
-
-WRITING STYLE RULES — apply to every text field:
-- "takeaway": first sentence = 2–4 word headline phrase ending with "."; rest = supporting detail (full sentences).
-- "highlights" items: max 20 words each.
-- "risks" items: max 12 words each, start with the risk noun.
-- "label" in top_signals: 2–5 words, title-case, human-readable.
-- "statement" in top_signals: ≤80 chars, verbatim or tightly paraphrased evidence.
-- Never pad with filler phrases like "It is important to note that…" or "Overall, the company…"
+WRITING STYLE:
+- statement fields: ≤80 chars, factual, no filler phrases.
+- label fields: 2–6 words, title-case.
+- Never write "It is important to note that…" or "Overall, the company…"
 
 Return a JSON object with this exact structure:
 {
   "score": <integer 0-100>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — first sentence is 2–4 word headline (e.g. "Re-rating candidate."), followed by supporting detail>,
+  "takeaway": <string — 2–4 word headline first sentence, then supporting detail>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
-  "highlights": [<exactly 3 items: highlights[0] = bull catalyst, highlights[1] = base narrative, highlights[2] = bear risk>],
-  "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
-  "top_signals": [<MUST include ROA/%, ROE/%, PAT/Cr as fundamentals, then all 6 SCENARIO_*_PE_RANGE / SCENARIO_*_RETURN signals — all with non-null actual_value AND guided_value>]
+  "highlights": [<exactly 3: bull catalyst, base narrative, bear risk>],
+  "risks": [<1–2 concerns, max 12 words each, starting with risk noun>],
+  "top_signals": [<all signals in order: ROA, ROE, PAT, 3×PE_RANGE, 3×RETURN, 3×WHAT_HAPPENS, NARRATIVE_SCORE, NARRATIVE_LABEL, CATALYST_POSITIVE_1..3, CATALYST_NEGATIVE_1..2>]
 }`,
     },
   },

@@ -52,9 +52,9 @@ const TARGET_LENSES  = [
   // 'financial-strength',
   // 'customer-distribution',
   // 'competition',
-  "earning-quality",
+  // "earning-quality",
   // "earnings-forecast",
-  // "pe-rerating-potential",
+  "pe-rerating-potential",
   // "target-price-matrix"
 ];
 
