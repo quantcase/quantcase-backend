@@ -115,6 +115,7 @@ model nse_equity {
   market_cap_cr Float?
 
   @@unique([symbol, datetime], map: "unique_symbol_datetime")
+  @@index([symbol], map: "nse_equity_symbol_idx")
 }
 
 model nse_index {
@@ -275,12 +276,14 @@ model ProwessValueNew {
   source_type String    @default("C") @map("source_type")
 
   @@unique([callId, kpi_abbr], map: "pnv_call_kpi_unique")
-  @@index([callId], map: "idx_pnv_call_id")
   @@index([company, fiscal_year, quarter], map: "idx_pnv_company_fy_q")
   @@index([company, kpi_abbr], map: "idx_pnv_company_kpi")
   @@index([kpi_abbr], map: "idx_pnv_kpi")
   @@index([kpi_abbr, period_type], map: "idx_pnv_kpi_period")
   @@index([company, source_type], map: "idx_pnv_company_srctype")
+  // Partial indexes for the two call_id namespaces — annual (prowess_new_*) vs quarterly (prowess_qtr_*)
+  @@index([company, fiscal_year, quarter], map: "idx_pnv_company_fy_q_annual")
+  @@index([company, fiscal_year, quarter], map: "idx_pnv_company_fy_q_qtr")
   @@map("prowess_values_new")
 }
 
@@ -1060,13 +1063,10 @@ model ExtractedSignal {
   @@index([ticker])
   @@index([call_id])
   @@index([ticker, metric_family])
-  @@index([call_id, signal_type])
-  @@index([impact])
-  @@index([severity])
   @@index([source_hash])
-  @@index([prompt_v])
-  @@index([lineage_id])
-  @@index([is_invalidated])
+  // Partial indexes covering the is_invalidated=false hot path (100% of active rows)
+  @@index([call_id, signal_type], map: "extracted_signals_call_id_type_active_idx")
+  @@index([ticker, signal_type], map: "extracted_signals_ticker_type_active_idx")
   @@map("extracted_signals")
 }
 
@@ -1107,5 +1107,8 @@ model LensScore {
   @@unique([call_id, lens_slug])
   @@index([ticker, lens_slug])
   @@index([call_id])
+  // Partial indexes for is_stale=false hot path (~89% of rows)
+  @@index([ticker, lens_slug], map: "lens_scores_ticker_slug_active_idx")
+  @@index([call_id], map: "lens_scores_call_id_active_idx")
   @@map("lens_scores")
 }
