@@ -45,14 +45,15 @@ async function enrichHoldings(tickers) {
       ORDER BY ticker, week_date DESC
     `,
 
-    // All ai_insights rows for these tickers (management / opportunity / deal)
-    prisma.aiInsight.findMany({
-      where: {
-        ticker: { in: symbols },
-        type:   { in: ['management', 'opportunity', 'deal'] },
-      },
-      select: { ticker: true, type: true, insight: true },
-    }),
+    // Latest ai_insights verdict_band per ticker (management / opportunity / deal)
+    prisma.$queryRaw`
+      SELECT DISTINCT ON (ticker, type) ticker, type,
+             insight->>'verdict_band' AS verdict_band
+      FROM ai_insights
+      WHERE ticker = ANY(${symbols})
+        AND type IN ('management', 'opportunity', 'deal')
+      ORDER BY ticker, type, updated_at DESC NULLS LAST
+    `,
   ]);
 
   // Build per-symbol price map: symbol → [row1 (latest), row2 (prev)]
@@ -69,12 +70,12 @@ async function enrichHoldings(tickers) {
     scoreMap[row.ticker.toUpperCase()] = row.composite_score != null ? parseFloat(row.composite_score) : null;
   }
 
-  // ai_insights map: symbol → { management?, opportunity?, deal? }
+  // ai_insights map: symbol → { management?, opportunity?, deal? } with just verdict_band
   const insightMap = {};
   for (const row of insightRows) {
     const sym = row.ticker.toUpperCase();
     if (!insightMap[sym]) insightMap[sym] = {};
-    insightMap[sym][row.type] = row.insight;
+    insightMap[sym][row.type] = { verdict_band: row.verdict_band ?? null };
   }
 
   const result = {};

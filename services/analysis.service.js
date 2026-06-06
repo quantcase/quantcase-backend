@@ -37,30 +37,27 @@ async function latestCallIdFromLensScores(ticker) {
  * @returns {Promise<object>}
  */
 async function getAnalysis(ticker, types) {
-  // Resolve the latest call_id for this ticker from lens_scores
-  const callId = await latestCallIdFromLensScores(ticker);
-
-  // Fetch all requested AiInsight rows in one query
-  const insights = await prisma.aiInsight.findMany({
-    where: { ticker, type: { in: types } },
-    orderBy: { type: 'asc' },
-  });
-
   // Collect all relevant lens slugs across all requested types
   const allLensSlugs = [...new Set(types.flatMap(t => INSIGHT_LENSES[t] ?? []))];
 
-  // Fetch all relevant LensScores for this call in one query (only if we have a callId)
+  // Fire callId lookup, insights, and lensConfigs in parallel; lensScores depend on callId
+  const [callId, insights, lensConfigs] = await Promise.all([
+    latestCallIdFromLensScores(ticker),
+    prisma.aiInsight.findMany({
+      where:   { ticker, type: { in: types } },
+      orderBy: { type: 'asc' },
+    }),
+    prisma.lensConfig.findMany({
+      where:  { slug: { in: allLensSlugs } },
+      select: { slug: true, name: true },
+    }),
+  ]);
+
   const lensScores = callId ? await prisma.lensScore.findMany({
-    where: { call_id: callId, lens_slug: { in: allLensSlugs }, is_stale: false },
+    where:   { call_id: callId, lens_slug: { in: allLensSlugs }, is_stale: false },
     orderBy: { lens_slug: 'asc' },
   }) : [];
-  const lensMap = new Map(lensScores.map(ls => [ls.lens_slug, ls]));
-
-  // Fetch LensConfig names for display
-  const lensConfigs = await prisma.lensConfig.findMany({
-    where:  { slug: { in: allLensSlugs } },
-    select: { slug: true, name: true },
-  });
+  const lensMap     = new Map(lensScores.map(ls => [ls.lens_slug, ls]));
   const lensNameMap = new Map(lensConfigs.map(lc => [lc.slug, lc.name]));
 
   // Build the standard response per insight type

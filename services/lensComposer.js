@@ -777,18 +777,19 @@ async function getLensScores(callId) {
  * @returns {Promise<object>}  { callId, categories: { management: [...], opportunity: [...], deal: [...] } }
  */
 async function getLensesByCategory(callId, category) {
-  // Fetch active lens configs (optionally filtered by category)
   const configWhere = { is_active: true };
   if (category) configWhere.category = category;
-  const configs = await prisma.lensConfig.findMany({ where: configWhere, orderBy: { slug: 'asc' } });
+
+  // Fetch configs and scores in parallel; scores need the slugs list but we can query all
+  // non-stale scores for this callId without filtering by slug and intersect in-memory
+  const [configs, allScores] = await Promise.all([
+    prisma.lensConfig.findMany({ where: configWhere, orderBy: { slug: 'asc' } }),
+    prisma.lensScore.findMany({ where: { call_id: callId, is_stale: false }, orderBy: { lens_slug: 'asc' } }),
+  ]);
 
   if (configs.length === 0) return { callId, categories: {} };
 
-  const slugs = configs.map(c => c.slug);
-  const scores = await prisma.lensScore.findMany({
-    where:   { call_id: callId, lens_slug: { in: slugs }, is_stale: false },
-    orderBy: { lens_slug: 'asc' },
-  });
+  const scores = allScores.filter(s => configs.some(c => c.slug === s.lens_slug));
   const scoreMap = new Map(scores.map(s => [s.lens_slug, s]));
 
   const categories = {};

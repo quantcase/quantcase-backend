@@ -4,12 +4,6 @@ const prisma        = require('../../config/prisma');
 const { enrichHoldings } = require('./market-data.service');
 
 async function getShadowPortfolio(userId) {
-  await prisma.shadowPortfolio.upsert({
-    where:  { user_id: userId },
-    update: {},
-    create: { user_id: userId },
-  });
-
   const portfolio = await prisma.shadowPortfolio.findUnique({
     where:   { user_id: userId },
     include: {
@@ -19,6 +13,10 @@ async function getShadowPortfolio(userId) {
       },
     },
   });
+
+  if (!portfolio) {
+    return { user_id: userId, holdings: [] };
+  }
 
   const tickers    = [...new Set(portfolio.holdings.map(h => h.ticker))];
   const marketData = await enrichHoldings(tickers);

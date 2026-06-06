@@ -12,6 +12,17 @@ const { resolveMetric, resolveIndicatorSeries } = require('../utils/formulaRegis
 const prisma    = require('../config/prisma');
 const jobQueue  = require('../lib/jobQueue');
 
+// ── Cache helpers ────────────────────────────────────────────────────────────
+
+function setCacheTillMidnightIst(res) {
+  const nowUtc = new Date();
+  const midnight = new Date(nowUtc);
+  midnight.setUTCHours(18, 30, 0, 0); // midnight IST = 18:30 UTC
+  if (midnight <= nowUtc) midnight.setUTCDate(midnight.getUTCDate() + 1);
+  const maxAge = Math.floor((midnight - nowUtc) / 1000);
+  res.set('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=60`);
+}
+
 // ── Peer comparison helpers (reuse Prowess CSV data) ────────────────────────
 
 const peerIdentity = require('../lib/peerIdentity');
@@ -228,7 +239,7 @@ async function getTickerInfo(req, res, next) {
         ORDER BY datetime DESC
         LIMIT 1
       `,
-      // Annual KPI values — audited full-year figures for ratios, YoY, balance sheet
+      // Annual KPI values — last 6 fiscal years covers YoY, 3Y CAGR, and all ratio lookbacks
       companyName
         ? prisma.$queryRaw`
             SELECT kpi_abbr, value, raw_value, unit, multiplier, fiscal_year, quarter, period_type
@@ -236,6 +247,7 @@ async function getTickerInfo(req, res, next) {
             WHERE company = ${companyName}
               AND call_id LIKE 'prowess_new_%'
             ORDER BY fiscal_year DESC, quarter DESC, source_type ASC
+            LIMIT 500
           `
         : Promise.resolve([]),
       // Quarterly KPI values — P&L (period_type='quarterly') + balance sheet snapshots ('snapshot')
@@ -714,6 +726,7 @@ async function getTickerInfo(req, res, next) {
     }
 
     // ── 9. Build response ──────────────────────────────────────────────────
+    setCacheTillMidnightIst(res);
     res.json({
       symbol: sym,
 
@@ -959,6 +972,7 @@ async function getPrices(req, res, next) {
 
     const indicators = resolveIndicatorSeries(prices);
 
+    setCacheTillMidnightIst(res);
     res.json({ symbol, count: prices.length, prices, indicators });
   } catch (err) {
     next(err);
@@ -1496,6 +1510,7 @@ async function getPeers(req, res, next) {
       return (b.marketCapCr ?? 0) - (a.marketCapCr ?? 0);
     });
 
+    setCacheTillMidnightIst(res);
     res.json({
       symbol,
       basicIndustry: subjectBasicInd,
