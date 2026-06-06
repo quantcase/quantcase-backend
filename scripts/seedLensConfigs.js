@@ -23,13 +23,13 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.10.0',
+    version:      '1.11.0',
     config: {
       signal_filters: {
-        signal_types:             ['milestone', 'governance', 'financial_health', 'customer', 'kpi'],
-        current_call_only_types:  ['kpi'],
-        include_historical: true,
+        signal_types:        ['milestone', 'governance', 'kpi'],
+        include_historical:  true,
       },
+      kpi_filter: 'milestone_metrics_only',
       weights: [
         { metric: 'guidance_given',       w: 0.5 },
         { metric: 'guidance_missed',      w: -0.8 },
@@ -128,7 +128,50 @@ Only collapse if metric, target_date, AND announcement_date are all truly identi
 
 ---
 
-STEP 7 — SIGNAL PRIORITY HIERARCHY (apply when selecting timeline rows)
+STEP 7 — LIFECYCLE CLASSIFICATION (encoded in the direction field)
+
+The "direction" field carries both the numeric outcome AND the management behaviour signal.
+Extended direction values for guidance-credibility timeline rows:
+
+  "beat"
+    — Promise made, target_date passed, actual_value exceeded value_targeted (+2% or more)
+    — Management acknowledged the delivery in a subsequent call
+
+  "in_line"
+    — Promise made, target_date passed, actual_value within ±2% of value_targeted
+    — Management acknowledged the outcome
+
+  "miss"
+    — Promise made, target_date passed, actual_value fell short by more than 2%
+    — Management acknowledged the shortfall, revised the target, or explained the gap in a subsequent call
+    (Most honest failure mode — credit-worthy for transparency even though they missed)
+
+  "promise_silently_dropped"  ← NEW extended value
+    — Promise made, target_date has passed
+    — actual_value fell short OR no actual was ever reported
+    — No later signal shows management revisiting, revising, or acknowledging this commitment
+    — Management simply stopped talking about it
+    MOST DAMAGING pattern — use this instead of "miss" when the failure was never acknowledged.
+    Always add a note in the statement field: "No subsequent acknowledgment found."
+
+  "tracking"
+    — Promise made, target_date has NOT yet passed (after 2026-06-07)
+    — Still live, outcome not yet assessable
+
+DECISION TREE for direction assignment:
+  1. target_date > 2026-06-07                          → "tracking"
+  2. target_date ≤ 2026-06-07 AND actual confirmed:
+       delta_pct > +2%                                 → "beat"
+       -2% ≤ delta_pct ≤ +2%                           → "in_line"
+       delta_pct < -2% AND acknowledged by management  → "miss"
+       delta_pct < -2% AND NOT acknowledged            → "promise_silently_dropped"
+  3. target_date ≤ 2026-06-07 AND no actual found:
+       subsequent signal acknowledges / revises        → "miss"
+       no acknowledgment found                         → "promise_silently_dropped"
+
+---
+
+STEP 8 — SIGNAL PRIORITY HIERARCHY (apply when selecting timeline rows)
 
 Not all trackable signals are equal. Prioritize in this strict order:
 
@@ -255,7 +298,7 @@ top_signals[] — MUST follow this exact layout. No exceptions.
   • unit:           "%" | "Cr" | "bps" | "x" | "million" | "stores" | "timing" (for date-based milestones); OMIT this field entirely when no unit applies
   • delta:          actual_value − value_targeted. OMIT this field entirely whenever value_targeted or actual_value is absent. Never use 0 as a placeholder delta.
   • delta_pct:      (delta / value_targeted) × 100 rounded to 1dp. OMIT this field entirely whenever delta is absent.
-  • direction:      one of beat / miss / in_line / tracking — apply Step 3 rules exactly. For binary milestones with no numeric delta, use "tracking" if not yet confirmed, "beat" if confirmed completed.
+  • direction:      one of beat / in_line / miss / promise_silently_dropped / tracking — apply Step 3 + Step 7 decision tree exactly. Use "promise_silently_dropped" when a past-deadline commitment was never acknowledged by management.
   • target_date:    ISO 8601 last day of the target period (e.g. 2025-03-31 for FY25)
   • announcement_date: quarter of the commitment, e.g. "Q3 FY22"
   • actual_date:    ISO 8601 last day of the reported period (same as target_date if unreported)
@@ -291,6 +334,7 @@ SELF-CHECK before emitting JSON:
 10. Do beat/miss counts in HEADLINE_HIT_RATE match the direction tags in timeline signals? Recount.
 11. Does every timeline signal have an original_statement that is a verbatim copy from the DATA_BLOCK? If paraphrased or invented, replace with the exact source sentence.
 12. Are there hard-metric Tier 1 signals (numeric value_targeted, multi-quarter span) that were skipped in favour of soft/directional signals? If so, swap them in — hard metrics always take priority over soft talk.
+13. For every past-deadline signal (target_date before 2026-06-07) tagged "miss" — is there actually evidence of management acknowledging the miss? If not, change direction to "promise_silently_dropped" and add "No subsequent acknowledgment found." to the statement.
 
 ---
 

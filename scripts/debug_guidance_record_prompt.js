@@ -54,6 +54,41 @@ function computeConfidenceInterval(signals, effectiveWeights) {
 
 const SOURCE_PRIORITY = { prowess: 0, qe: 1, transcript: 2 };
 
+function endDateToFiscalPeriod(endDate) {
+  const d = new Date(endDate), mon = d.getMonth() + 1, year = d.getFullYear();
+  if (mon <= 3) return { fy: `FY${year}`,     quarter: 'Q4' };
+  if (mon <= 6) return { fy: `FY${year + 1}`, quarter: 'Q1' };
+  if (mon <= 9) return { fy: `FY${year + 1}`, quarter: 'Q2' };
+  return             { fy: `FY${year + 1}`, quarter: 'Q3' };
+}
+
+function applyKpiFilter(signals) {
+  const milestoneSignals  = signals.filter(s => s.signal_type === 'milestone');
+  const milestoneMetrics  = new Set(milestoneSignals.map(s => s.metric));
+  const milestoneEndPeriods = new Set();
+  for (const m of milestoneSignals) {
+    if (!m.end_date || !m.metric) continue;
+    const { fy, quarter } = endDateToFiscalPeriod(m.end_date);
+    if (fy && quarter) milestoneEndPeriods.add(`${m.metric}|${fy}|${quarter}`);
+  }
+  const before = signals.length;
+  const filtered = signals.filter(s => {
+    if (s.signal_type !== 'kpi') return true;
+    if (!milestoneMetrics.has(s.metric)) return false;
+    if (s.source_type !== 'prowess') return true;
+    return milestoneEndPeriods.has(`${s.metric}|${s.fiscal_year}|${s.quarter}`);
+  });
+  const kpiBefore = signals.filter(s => s.signal_type === 'kpi').length;
+  const kpiAfter  = filtered.filter(s => s.signal_type === 'kpi').length;
+  console.log(`  kpi_filter=milestone_metrics_only`);
+  console.log(`    Milestone metrics : ${milestoneMetrics.size} unique`);
+  console.log(`    Milestone periods : ${milestoneEndPeriods.size} end_date periods`);
+  console.log(`    KPI before filter : ${kpiBefore}`);
+  console.log(`    KPI after filter  : ${kpiAfter}  (transcript: all matching, prowess: period-matched only)`);
+  console.log(`    Total signals     : ${before} → ${filtered.length}`);
+  return filtered;
+}
+
 function deduplicateSignals(signals) {
   const best = new Map();
   for (const sig of signals) {
@@ -232,7 +267,7 @@ async function main() {
 
     const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
             model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
-            balance: cfgBalance, prefilter: cfgPrefilter } = lensConfig.config;
+            balance: cfgBalance, prefilter: cfgPrefilter, kpi_filter: cfgKpiFilter } = lensConfig.config;
 
     const { include_historical, current_call_only_types, ...signalFilters } = filters ?? {};
 
@@ -308,6 +343,12 @@ async function main() {
     const deduped = deduplicateSignals(signals);
     console.log(`  Before: ${signals.length}  →  After: ${deduped.length}  (dropped: ${signals.length - deduped.length})`);
     signals = deduped;
+
+    // ── Step 5b: KPI filter ───────────────────────────────────────────────────
+    if (cfgKpiFilter === 'milestone_metrics_only') {
+      banner('Step 5b — KPI filter (milestone_metrics_only + surgical prowess)');
+      signals = applyKpiFilter(signals);
+    }
 
     // ── Step 6: Math step ─────────────────────────────────────────────────────
     banner('Step 6 — Math (weighted sum)');

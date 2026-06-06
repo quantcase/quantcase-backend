@@ -12,7 +12,7 @@ const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash
 const { writeSignals, cacheHit } = require('../services/db/signals.db');
 const { normalizeSignal } = require('../utils/signalShape');
 
-const TRANSCRIPT_CHAR_LIMIT = 50000;
+const TRANSCRIPT_CHAR_LIMIT = 150000;
 const FISCAL_YEAR_END = process.env.FISCAL_YEAR_END || '03-31';
 
 async function getExistingKpisForPrompt(basicIndustry) {

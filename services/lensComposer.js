@@ -258,6 +258,19 @@ function buildSignalSummary(lensName, signals, mathResult, balance, prefilter) {
   return lines.join('\n');
 }
 
+// ─── end_date → fiscal period mapping ────────────────────────────────────────
+// Maps any calendar date to the Indian fiscal quarter it falls in.
+// FY convention: FY2026 = Apr 2025 – Mar 2026 (Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar)
+function endDateToFiscalPeriod(endDate) {
+  const d    = new Date(endDate);
+  const mon  = d.getMonth() + 1; // 1–12
+  const year = d.getFullYear();
+  if (mon <= 3) return { fy: `FY${year}`,     quarter: 'Q4' }; // Jan–Mar
+  if (mon <= 6) return { fy: `FY${year + 1}`, quarter: 'Q1' }; // Apr–Jun
+  if (mon <= 9) return { fy: `FY${year + 1}`, quarter: 'Q2' }; // Jul–Sep
+  return             { fy: `FY${year + 1}`, quarter: 'Q3' };   // Oct–Dec
+}
+
 // ─── Source priority deduplication ───────────────────────────────────────────
 // When the same metric/period appears from multiple sources, keep the most
 // authoritative one. prowess = audited financials > qe = interim PDF > transcript = LLM extract.
@@ -541,7 +554,8 @@ async function composeLens(callId, lensSlug) {
 
   const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
           model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
-          balance: cfgBalance, prefilter: cfgPrefilter } = lensConfig.config;
+          balance: cfgBalance, prefilter: cfgPrefilter, kpi_filter: cfgKpiFilter } = lensConfig.config;
+
 
   const { include_historical, current_call_only_types, ...signalFilters } = filters ?? {};
 
@@ -579,6 +593,34 @@ async function composeLens(callId, lensSlug) {
     console.log(`[lensComposer] "${lensSlug}" — dropped ${signals.length - deduped.length} duplicate signals (prowess > qe > transcript)`);
   }
   signals = deduped;
+
+  // After dedup: surgical KPI filter.
+  // - Transcript KPIs: keep all whose metric appears in any milestone signal.
+  // - Prowess KPIs:    keep only where (metric, fiscal_year, quarter) matches a milestone end_date period.
+  //   This gives exact actuals for the quarter management was targeting — no historical sprawl.
+  if (cfgKpiFilter === 'milestone_metrics_only') {
+    const milestoneSignals = signals.filter(s => s.signal_type === 'milestone');
+    const milestoneMetrics = new Set(milestoneSignals.map(s => s.metric));
+
+    // Build set of "METRIC|FY2025|Q4" keys from milestone end_dates for surgical prowess matching
+    const milestoneEndPeriods = new Set();
+    for (const m of milestoneSignals) {
+      if (!m.end_date || !m.metric) continue;
+      const { fy, quarter } = endDateToFiscalPeriod(m.end_date);
+      if (fy && quarter) milestoneEndPeriods.add(`${m.metric}|${fy}|${quarter}`);
+    }
+
+    const before = signals.length;
+    signals = signals.filter(s => {
+      if (s.signal_type !== 'kpi') return true;                         // non-KPI: unchanged
+      if (!milestoneMetrics.has(s.metric)) return false;               // metric not in milestones: drop
+      if (s.source_type !== 'prowess') return true;                    // transcript/qe KPI: keep all
+      // prowess KPI: only keep if its period matches a milestone end_date
+      return milestoneEndPeriods.has(`${s.metric}|${s.fiscal_year}|${s.quarter}`);
+    });
+
+    console.log(`[lensComposer] "${lensSlug}" kpi_filter=milestone_metrics_only — kept ${signals.length} / ${before} KPI signals (transcript: all matching, prowess: end_date-period only)`);
+  }
 
   if (signals.length === 0) {
     const empty = {
