@@ -902,7 +902,7 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Balance sheet strength, FCF generation, and margin quality',
     force_config: true,
-    version:     '1.1.0',
+    version:     '1.5.0',
     config: {
       signal_filters: {
         signal_types:  ['kpi', 'financial_health'],
@@ -945,50 +945,72 @@ Assess across these dimensions:
 
 OUTPUT FIELD RULES — strictly enforced:
 
-data_block PRIORITIZATION — when building top_signals, strictly prioritize these metrics by sector:
-
-  BFSI priority order (include ALL available, in this order):
-    1. NIM (Net Interest Margin)
-    2. INTEREST_INCOME / NII (Interest Revenue / Net Interest Income)
-    3. TOTAL_INCOME / REV_OP (Total Revenue)
-    4. LOAN_ADVANCES / ADVANCES (Loan Book / Advances)
-    5. DEPOSITS (Total Deposits)
-    6. CASA / CASA_RATIO (CASA Ratio %)
-    7. ROA (Return on Assets)
-    8. GNPA / GNPA_RATIO (Gross NPA %)
-    9. NPA / NET_NPA / NET_NPA_RATIO (Net NPA %)
-    10. PAT (Profit After Tax)
-    11. OPEX / COST_TO_INCOME (Operating Expenses / Cost-to-Income)
-    Secondary (include if space): PCR, CRAR, ROE, TIER1, EPS, CFO
-
-  Non-BFSI priority order:
-    1. REV_OP / REVENUE (Operating Revenue)
-    2. EBITDA / EBITDA_MARGIN (EBITDA & Margin %)
-    3. PAT / PAT_MARGIN (PAT & Margin %)
-    4. CFO (Operating Cash Flow)
-    5. CAPEX (Capital Expenditure)
-    6. DEBT_LT / DEBT_ST / DE (Debt levels & D/E ratio)
-    7. ROA / ROE / ROCE (Return ratios)
-    8. WORKING_CAPITAL / RECEIVABLE_DAYS / INVENTORY_DAYS (Efficiency)
-    9. FCF (Free Cash Flow)
-    10. EPS (Earnings per Share)
-
 top_signals[] — include 8–12 signals. ALL must have non-null actual_value.
+The "metric" field MUST be the exact canonical identifier from the tables below — it is used directly as a database lookup key.
+
+  BFSI — include ALL available in this exact order:
+    metric: "NIM_PCT"        | label: "Net Interest Margin"       | unit: "%"
+    metric: "REV_OP"         | label: "Interest Revenue"          | unit: "Cr"
+    metric: "TOTAL_INCOME"   | label: "Total Revenue"             | unit: "Cr"
+    metric: "LOAN_ADV_TOTAL" | label: "Loan / Advances"           | unit: "Cr"
+    metric: "DEP_TOTAL"      | label: "Total Deposits"            | unit: "Cr"
+    metric: "CASA"           | label: "CASA Ratio"                | unit: "%"
+    metric: "ROA"            | label: "Return on Assets"          | unit: "%"
+    metric: "GNPA"           | label: "Gross NPA Ratio"           | unit: "%"
+    metric: "NPA"            | label: "Net NPA Ratio"             | unit: "%"
+    metric: "PAT"            | label: "Profit After Tax"          | unit: "Cr"
+    metric: "TOTAL_OPEX"     | label: "Operating Expenses"        | unit: "Cr"
+    Secondary (include if data available):
+    metric: "ROE"            | label: "Return on Equity"          | unit: "%"
+    metric: "EPS_BASIC"      | label: "Earnings Per Share"        | unit: "₹"
+    metric: "CFO"            | label: "Operating Cash Flow"       | unit: "Cr"
+
+  Non-BFSI — include ALL available in this exact order:
+    metric: "REV_OP"         | label: "Operating Revenue"          | unit: "Cr"
+    metric: "EBITDA"         | label: "EBITDA"                     | unit: "Cr"
+    metric: "EBITDA_MARGIN"  | label: "EBITDA Margin"              | unit: "%"
+    metric: "PAT"            | label: "Profit After Tax"           | unit: "Cr"
+    metric: "PAT_MARGIN"     | label: "PAT Margin"                 | unit: "%"
+    metric: "CFO"            | label: "Operating Cash Flow"        | unit: "Cr"
+    metric: "CAPEX"          | label: "Capital Expenditure"        | unit: "Cr"
+    metric: "DEBT_LT"        | label: "Long-Term Debt"             | unit: "Cr"
+    metric: "DEBT_ST"        | label: "Short-Term Debt"            | unit: "Cr"
+    metric: "DE"             | label: "Debt / Equity"              | unit: "x"
+    metric: "ROCE"           | label: "Return on Capital Employed" | unit: "%"
+    metric: "ROE"            | label: "Return on Equity"           | unit: "%"
+    Secondary (include if data available):
+    metric: "EPS_BASIC"      | label: "Earnings Per Share"         | unit: "₹"
+    metric: "IC"             | label: "Interest Coverage"          | unit: "x"
+    metric: "TRADE_RECV"     | label: "Trade Receivables"          | unit: "Cr"
+    metric: "INVENTORY"      | label: "Inventory"                  | unit: "Cr"
+
   For each signal:
-  • metric: use the exact metric name from the data block
-  • label: human-readable name (e.g. "Net Interest Margin", "Gross NPA Ratio", "Operating Revenue", "EBITDA Margin")
-  • actual_value: numeric value (non-null)
-  • unit: "%" for ratios/margins, "Cr" for absolute amounts, "x" for multiples
+  • metric: MUST be the exact identifier from the table above — do NOT use free-form names from the data block
+  • label: use the exact label from the table above
+  • actual_value: numeric value (non-null) — use the MOST RECENT period value available
+  • unit: use the exact unit from the table above
   • direction: "beat" if improving YoY, "miss" if deteriorating, "in_line" if stable, "tracking" if forward-looking
   • impact: "high" for the 4 most important signals for this sector, "medium" for next tier, "low" for supporting
-  • statement: ≤80 chars — key context (YoY change, quarter, comparison vs guidance)
-  • actual_date: ISO 8601 date YYYY-MM-DD of the period end
+  • actual_date: ISO 8601 date YYYY-MM-DD of the period end — MUST reflect the latest period in the data block
   • guided_value: management guidance if available, else null
   • guided_date: guidance target date if available, else null
 
+  • statement: ≤80 chars — STRICT FORMAT RULES (pick the best pattern that applies):
+      PATTERN A — Cross-signal derived insight (preferred when two metrics can be combined):
+        Examples: "CFO/PAT 88% — near-full cash conversion" | "Recv. +38.8% vs Rev +12.1% — WC stress" | "ROCE 54% on zero debt — capital-lite model" | "No equity dilution; EPS CAGR 18% FY20–25"
+      PATTERN B — Latest period fact + YoY delta (when no cross-signal insight applies):
+        Examples: "₹206 Cr CFO in FY25, up 43% YoY" | "DE 0.00x — debt-free through full cycle" | "EPS ₹29 in FY26-Q4, flat YoY"
+      PATTERN C — Trend with period anchors (for multi-year directional moves):
+        Examples: "EBITDA margin 38→44% over FY22–25" | "ROCE compressing: 54%→42% FY18→FY23"
+      RULES:
+        - ALWAYS reference the latest available period (e.g. "FY25", "FY26-Q4") — NEVER use old periods like FY15/FY16 as the anchor
+        - NEVER just restate the label ("PAT grew consistently") — must include a number
+        - NEVER use generic history summaries like "consistent growth to X by FY21"
+        - For ratios/derived insights: state the ratio value and what it implies (e.g. "88% cash conversion" not just "high CFO")
+
 WRITING STYLE RULES:
-- "takeaway": max 25 words, lead with the dominant financial strength or weakness verdict.
-- "highlights": up to 3 items, max 12 words each, start with a verb or metric.
+- "takeaway": max 25 words, lead with the dominant financial strength or weakness verdict — reference the latest period.
+- "highlights": up to 3 items, max 12 words each, start with a verb or metric — latest period numbers only.
 - "risks": up to 2 items, max 12 words each, start with the risk noun.
 - Never pad with filler phrases.
 
@@ -1000,7 +1022,7 @@ Return a JSON object with this exact structure:
   "key_metrics": { <metric_name>: <formatted_value_string> },
   "highlights": [<up to 3 positive findings, each max 12 words, starting with a verb or metric>],
   "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
-  "top_signals": [<8–12 signals; ALL must have non-null actual_value; BFSI: prioritise NIM, Interest Revenue, Total Revenue, Loan/Advances, Deposits, CASA, ROA, GNPA, NPA, PAT, OpEx in that order; Non-BFSI: prioritise Revenue, EBITDA, PAT, CFO, CAPEX, Debt, Return ratios>]
+  "top_signals": [<8–12 signals per priority tables above; metric MUST be the exact canonical identifier from the table (e.g. "NIM_PCT", "REV_OP", "PAT"); each signal has: metric, label, actual_value (non-null numeric), unit, direction, impact, statement, actual_date, guided_value, guided_date>]
 }`,
     },
   },

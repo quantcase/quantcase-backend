@@ -39,17 +39,17 @@ const prisma = require('../../config/prisma');
 //   'WABAG', 'IONEXCHANG', 'JITFINFRA'
 // ];
 
-const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT', 'RELIANCE'];
-// const TARGET_TICKERS = ['CANBK', 'MSUMI', 'IEX'];
+// const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT', 'RELIANCE'];
+const TARGET_TICKERS = ['CANBK', 'MSUMI', 'IEX'];
 // const TARGET_TICKERS = ['IEX'];
 
 const TARGET_LENSES  = [
-  'guidance-credibility',
+  // 'guidance-credibility',
   // 'disclosure-honesty',
   // 'capital-allocation',
   // 'promoter-activity',
   // 'industry-analysis',
-  // 'financial-strength',
+  'financial-strength',
   // 'customer-distribution',
   // 'competition',
 ];

@@ -23,6 +23,7 @@ const signalsRouter       = require('./signals.routes');
 const lensesRouter        = require('./lenses.routes');
 const analysisRouter      = require('./analysis.routes');
 const dealRouter          = require('./deal.routes');
+const opportunityRouter   = require('./opportunity.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -69,7 +70,8 @@ router.use('/api/portfolio', portfolioRouter);
 router.use('/api/signals',  signalsRouter);
 router.use('/api/lenses',   lensesRouter);
 router.use('/api/analysis', analysisRouter);
-router.use('/api/deal',     dealRouter);
+router.use('/api/deal',        dealRouter);
+router.use('/api/opportunity', opportunityRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);
