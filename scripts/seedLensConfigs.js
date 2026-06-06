@@ -157,8 +157,12 @@ Not all trackable signals are equal. Prioritize in this strict order:
   DO NOT emit these as timeline rows even if the signal has an end_date matching the same quarter.
   Use them only as supporting context when computing the HEADLINE signals.
 
-ORDERING RULE: Within Tier 1, sort chronologically by announcement_date (oldest first) so the reader
-sees the full arc of management's track record from earliest commitment to latest.
+ORDERING RULE: Within each tier, apply this secondary sort:
+  1. Hard-metric signals first — signal has a numeric value_targeted (e.g. "500M subscribers", "30 MMSCMD gas", "18% loan growth"). These are the most trackable and most meaningful for credibility scoring.
+  2. Binary milestone signals second — signal has a target_date but no numeric target (e.g. "demerger by November", "first gas by mid-2020"). Still trackable but directional only.
+  3. Soft/directional signals last — signal uses only vague language like "will improve", "expect to grow", "near-term improvement", "medium-term target" with no concrete number attached. These add little analytical value. If the 20-signal cap is reached and only soft signals remain, drop them — do not fill slots with vague talk.
+
+Within each sub-group above, sort by announcement_date oldest first.
 
 ---
 
@@ -286,6 +290,7 @@ SELF-CHECK before emitting JSON:
 9. Does every timeline signal have a non-null direction? If not — fix it.
 10. Do beat/miss counts in HEADLINE_HIT_RATE match the direction tags in timeline signals? Recount.
 11. Does every timeline signal have an original_statement that is a verbatim copy from the DATA_BLOCK? If paraphrased or invented, replace with the exact source sentence.
+12. Are there hard-metric Tier 1 signals (numeric value_targeted, multi-quarter span) that were skipped in favour of soft/directional signals? If so, swap them in — hard metrics always take priority over soft talk.
 
 ---
 
