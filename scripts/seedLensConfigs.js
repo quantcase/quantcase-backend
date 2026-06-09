@@ -23,13 +23,20 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.11.0',
+    version:      '1.16.0',
     config: {
       signal_filters: {
         signal_types:        ['milestone', 'governance', 'kpi'],
         include_historical:  true,
       },
-      kpi_filter: 'milestone_metrics_only',
+      kpi_filter:          'milestone_metrics_only',
+      milestone_prefilter: 'trackable_forward_only',
+      prefilter:           { milestone: 'trackable_only' },
+      governance_metric_allowlist: [
+        'GUIDANCE_GIVEN', 'GUIDANCE_MISSED',
+        'PROACTIVE_DISCLOSURE', 'TRANSPARENT', 'DEFENSIVE_LANGUAGE',
+      ],
+      show_math_block: false,
       weights: [
         { metric: 'guidance_given',       w: 0.5 },
         { metric: 'guidance_missed',      w: -0.8 },
@@ -190,15 +197,45 @@ Not all trackable signals are equal. Prioritize in this strict order:
   Examples: "We expect to add 25 stores next quarter", "NIM should improve by 10bps next quarter".
   Include these only after all Tier 1 signals have been included.
 
-  TIER 3 — Success disclosures (DO NOT emit as timeline rows — EXCLUDE entirely):
-  Statements reporting what happened in the SAME quarter as the announcement — achievements, records,
-  accomplishments with no forward commitment. These are facts, not guidance.
-  Examples:
-    • "Jio reached 160M subscribers this quarter" — fact, not a commitment
-    • "GRM at a 7-year high this quarter" — fact disclosure, no target
-    • "We opened 813 new stores in Q2" — achievement report, not a forward promise
-  DO NOT emit these as timeline rows even if the signal has an end_date matching the same quarter.
-  Use them only as supporting context when computing the HEADLINE signals.
+  TIER 3 — Current-state reports and near-term single-quarter updates (DO NOT emit as timeline rows — EXCLUDE entirely):
+
+  DATE PRE-FILTER (apply mechanically to every signal — no exceptions):
+
+    Step 1 — From the signal's period label [FYYYY QX], advance one quarter to get the NEXT quarter's last day:
+      Call [FY____ Q1] → next quarter ends Sep 30  → exclude if end_date ≤ Sep 30
+      Call [FY____ Q2] → next quarter ends Dec 31  → exclude if end_date ≤ Dec 31
+      Call [FY____ Q3] → next quarter ends Mar 31  → exclude if end_date ≤ Mar 31
+      Call [FY____ Q4] → next quarter ends Jun 30  → exclude if end_date ≤ Jun 30
+
+    Step 2 — Compare the signal's end_date to the NEXT quarter's last day:
+      IF end_date ≤ next_quarter_last_day  →  same-quarter report or trivial near-term update → EXCLUDE
+      IF end_date > next_quarter_last_day  →  multi-quarter commitment → continue to language check
+
+    Worked examples (apply this exact logic — no estimation):
+      [FY2026 Q2] end=2025-09-30 → next=Dec 31 → Sep 30 ≤ Dec 31 → EXCLUDE
+      [FY2026 Q2] end=2025-12-31 → next=Dec 31 → Dec 31 ≤ Dec 31 → EXCLUDE
+      [FY2026 Q2] end=2026-01-15 → next=Dec 31 → Jan 15 > Dec 31 → continue
+      [FY2026 Q3] end=2025-12-31 → next=Mar 31 → Dec 31 ≤ Mar 31 → EXCLUDE
+      [FY2026 Q3] end=2026-03-31 → next=Mar 31 → Mar 31 ≤ Mar 31 → EXCLUDE
+      [FY2026 Q3] end=2026-06-30 → next=Mar 31 → Jun 30 > Mar 31 → continue
+      [FY2026 Q4] end=2026-03-31 → next=Jun 30 → Mar 31 ≤ Jun 30 → EXCLUDE
+      [FY2026 Q4] end=2026-09-30 → next=Jun 30 → Sep 30 > Jun 30 → continue
+
+    Signals with NO end_date: cannot be assigned a target_date → EXCLUDE.
+
+  LANGUAGE CHECK (apply only to signals that pass the DATE PRE-FILTER):
+    If the original_statement has no forward commitment element — no future date, no forward verb
+    ("will", "expect", "target", "plan", "on track for") — it is still Tier 3. EXCLUDE.
+
+  Examples of signals that pass DATE PRE-FILTER but fail LANGUAGE CHECK (EXCLUDE):
+    • end_date is 2 quarters out but statement says "we have X" or "X stands at Y" — no forward verb
+
+  Examples that pass both (INCLUDE):
+    • "Plant at Kurnool will be ready by March" — forward verb + future date ✓
+    • "We target 500M subscribers by FY26" — forward verb + future date ✓
+    • "On track for 30 MMSCMD by FY24" — forward commitment to future period ✓
+
+  Use Tier 3 signals only as supporting context for HEADLINE fields — never as timeline rows.
 
 ORDERING RULE: Within each tier, apply this secondary sort:
   1. Hard-metric signals first — signal has a numeric value_targeted (e.g. "500M subscribers", "30 MMSCMD gas", "18% loan growth"). These are the most trackable and most meaningful for credibility scoring.
@@ -250,14 +287,20 @@ top_signals[] — MUST follow this exact layout. No exceptions.
 
   TIMELINE SIGNALS (positions 3 onward — one row per QUALIFYING guidance commitment, up to 20 total):
 
-  QUALIFYING CRITERIA — a signal must meet ALL THREE to get a timeline row:
+  QUALIFYING CRITERIA — a signal must meet ALL FOUR to get a timeline row:
     1. Management made a specific, measurable commitment (a number, a milestone, a date, a rate)
     2. The signal has a target_date (end_date in the data block) OR an explicit time_horizon
     3. The commitment is trackable — you can determine whether it was met, missed, or is still pending
+    4. The signal passes the Tier 3 DATE PRE-FILTER: end_date must be STRICTLY AFTER the last day of
+       the quarter following the call quarter. Advance one quarter from [FYYYY QX]:
+       Call Q1 → next=Q2 → exclude if end_date ≤ Sep 30
+       Call Q2 → next=Q3 → exclude if end_date ≤ Dec 31
+       Call Q3 → next=Q4 → exclude if end_date ≤ Mar 31
+       Call Q4 → next=Q1 → exclude if end_date ≤ Jun 30
 
   SELECTION ORDER — fill slots 3 to 22 (max 20 signals) strictly in this priority:
-    First: ALL Tier 1 signals (multi-quarter commitments, oldest announcement_date first)
-    Then:  Tier 2 signals (single-quarter guidance) until the 20-signal cap is reached
+    First: ALL Tier 1 signals (multi-quarter commitments, ≥2 quarters ahead, oldest announcement_date first)
+    Then:  remaining signals with end_date > next-quarter cutoff, until the 20-signal cap is reached
 
   DO NOT emit timeline rows for:
     - Operational achievements reported as facts (e.g. "506M subscribers this quarter")
@@ -335,6 +378,13 @@ SELF-CHECK before emitting JSON:
 11. Does every timeline signal have an original_statement that is a verbatim copy from the DATA_BLOCK? If paraphrased or invented, replace with the exact source sentence.
 12. Are there hard-metric Tier 1 signals (numeric value_targeted, multi-quarter span) that were skipped in favour of soft/directional signals? If so, swap them in — hard metrics always take priority over soft talk.
 13. For every past-deadline signal (target_date before 2026-06-07) tagged "miss" — is there actually evidence of management acknowledging the miss? If not, change direction to "promise_silently_dropped" and add "No subsequent acknowledgment found." to the statement.
+14. For every timeline row: apply the DATE PRE-FILTER. Look up the source signal's period label [FYYYY QX]
+    and its end_date. Advance one quarter to get the NEXT quarter's last day:
+      Call Q1 → next ends Sep 30 | Call Q2 → next ends Dec 31 | Call Q3 → next ends Mar 31 | Call Q4 → next ends Jun 30
+    If end_date ≤ that next-quarter last day → remove the row. This is non-negotiable.
+    Examples: [FY2026 Q2] end=2025-12-31 → next=Dec 31 → Dec 31 ≤ Dec 31 → remove.
+              [FY2026 Q2] end=2026-01-15 → next=Dec 31 → Jan 15 > Dec 31 → keep.
+              [FY2026 Q3] end=2026-03-31 → next=Mar 31 → Mar 31 ≤ Mar 31 → remove.
 
 ---
 

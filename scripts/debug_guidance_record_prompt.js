@@ -62,6 +62,21 @@ function endDateToFiscalPeriod(endDate) {
   return             { fy: `FY${year + 1}`, quarter: 'Q3' };
 }
 
+function milestoneExclusionCutoff(fiscalYear, quarter) {
+  const fy = parseInt((fiscalYear ?? '').replace('FY', ''));
+  if (!fy || !quarter) return null;
+  const NEXT_Q = { Q1: 'Q2', Q2: 'Q3', Q3: 'Q4', Q4: 'Q1' };
+  const nextQ  = NEXT_Q[quarter];
+  if (!nextQ) return null;
+  const nextFY  = (quarter === 'Q4') ? fy + 1 : fy;
+  const calYear = (nextQ === 'Q4') ? nextFY : nextFY - 1;
+  if (nextQ === 'Q1') return new Date(Date.UTC(calYear, 5,  30)); // Jun 30
+  if (nextQ === 'Q2') return new Date(Date.UTC(calYear, 8,  30)); // Sep 30
+  if (nextQ === 'Q3') return new Date(Date.UTC(calYear, 11, 31)); // Dec 31
+  if (nextQ === 'Q4') return new Date(Date.UTC(calYear, 2,  31)); // Mar 31
+  return null;
+}
+
 function applyKpiFilter(signals) {
   const milestoneSignals  = signals.filter(s => s.signal_type === 'milestone');
   const milestoneMetrics  = new Set(milestoneSignals.map(s => s.metric));
@@ -108,10 +123,14 @@ function deduplicateSignals(signals) {
 const IMPACT_ORDER     = { high: 0, medium: 1, low: 2 };
 const QUALITATIVE_TYPES = new Set(['milestone', 'industry', 'financial_health', 'customer']);
 
-function buildSignalSummary(lensName, signals, mathResult, balance, prefilter) {
+function buildSignalSummary(lensName, signals, mathResult, balance, prefilter, opts = {}) {
+  const showMath = opts.show_math_block !== false;
+  const header   = showMath
+    ? `SIGNAL SUMMARY (${signals.length} signals, weighted aggregate z=${mathResult.z_score.toFixed(4)}):`
+    : `SIGNAL SUMMARY (${signals.length} signals):`;
   const lines = [
     `LENS: ${lensName}`,
-    `SIGNAL SUMMARY (${signals.length} signals, weighted aggregate z=${mathResult.z_score.toFixed(4)}):`,
+    header,
     '',
   ];
 
@@ -180,8 +199,10 @@ function buildSignalSummary(lensName, signals, mathResult, balance, prefilter) {
     }
   }
 
-  lines.push('');
-  lines.push(`MATH: z=${mathResult.z_score.toFixed(4)}, CI=[${mathResult.confidence_lo.toFixed(3)}, ${mathResult.confidence_hi.toFixed(3)}], n=${signals.filter(s => s.value != null).length}`);
+  if (showMath) {
+    lines.push('');
+    lines.push(`MATH: z=${mathResult.z_score.toFixed(4)}, CI=[${mathResult.confidence_lo.toFixed(3)}, ${mathResult.confidence_hi.toFixed(3)}], n=${signals.filter(s => s.value != null).length}`);
+  }
   return lines.join('\n');
 }
 
@@ -267,7 +288,10 @@ async function main() {
 
     const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
             model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
-            balance: cfgBalance, prefilter: cfgPrefilter, kpi_filter: cfgKpiFilter } = lensConfig.config;
+            balance: cfgBalance, prefilter: cfgPrefilter, kpi_filter: cfgKpiFilter,
+            milestone_prefilter: cfgMilestonePrefilter,
+            governance_metric_allowlist: cfgGovernanceMetricAllowlist,
+            show_math_block: cfgShowMathBlock } = lensConfig.config;
 
     const { include_historical, current_call_only_types, ...signalFilters } = filters ?? {};
 
@@ -344,7 +368,37 @@ async function main() {
     console.log(`  Before: ${signals.length}  →  After: ${deduped.length}  (dropped: ${signals.length - deduped.length})`);
     signals = deduped;
 
-    // ── Step 5b: KPI filter ───────────────────────────────────────────────────
+    // ── Step 5a: Milestone pre-filter ─────────────────────────────────────────
+    if (cfgMilestonePrefilter === 'trackable_forward_only') {
+      banner(`Step 5a — Milestone pre-filter (trackable_forward_only)`);
+      const msBefore    = signals.filter(s => s.signal_type === 'milestone').length;
+      const totalBefore = signals.length;
+      signals = signals.filter(s => {
+        if (s.signal_type !== 'milestone') return true;
+        if (s.end_date == null && s.time_horizon == null) return false;
+        if (s.end_date != null) {
+          const lastDay = milestoneExclusionCutoff(s.fiscal_year, s.quarter);
+          if (lastDay && new Date(s.end_date) <= lastDay) return false;
+        }
+        return true;
+      });
+      const msAfter    = signals.filter(s => s.signal_type === 'milestone').length;
+      const msDropped  = msBefore - msAfter;
+      console.log(`  Milestones before : ${msBefore}`);
+      console.log(`  Milestones after  : ${msAfter}  (dropped ${msDropped})`);
+      console.log(`  Total             : ${totalBefore} → ${signals.length}`);
+    }
+
+    // ── Step 5b-gov: Governance metric allowlist ──────────────────────────────
+    if (cfgGovernanceMetricAllowlist?.length > 0) {
+      const allowSet  = new Set(cfgGovernanceMetricAllowlist.map(m => m.toUpperCase()));
+      const govBefore = signals.filter(s => s.signal_type === 'governance').length;
+      signals = signals.filter(s => s.signal_type !== 'governance' || allowSet.has((s.metric ?? '').toUpperCase()));
+      const govAfter  = signals.filter(s => s.signal_type === 'governance').length;
+      console.log(`\n  governance_metric_allowlist: ${govBefore} → ${govAfter} (dropped ${govBefore - govAfter})`);
+    }
+
+    // ── Step 5d: KPI filter ───────────────────────────────────────────────────
     if (cfgKpiFilter === 'milestone_metrics_only') {
       banner('Step 5b — KPI filter (milestone_metrics_only + surgical prowess)');
       signals = applyKpiFilter(signals);
@@ -399,10 +453,14 @@ async function main() {
     console.log(`    → with time_horizon: ${withTimeHorizon.length}`);
     console.log(`    → trackable (either): ${trackable.length}  ← prefilter will keep these`);
     console.log(`    → dropped by prefilter: ${milestoneSignals.length - trackable.length}`);
+    const govByMetric = {};
+    for (const s of governanceSignals) {
+      const k = s.metric?.toUpperCase() ?? 'UNKNOWN';
+      govByMetric[k] = (govByMetric[k] || 0) + 1;
+    }
     console.log(`  GOVERNANCE signals   : ${governanceSignals.length}`);
-    console.log(`    → guidance_given   : ${governanceSignals.filter(s => s.metric === 'guidance_given').length}`);
-    console.log(`    → guidance_missed  : ${governanceSignals.filter(s => s.metric === 'guidance_missed').length}`);
-    console.log(`    → proactive_discl. : ${governanceSignals.filter(s => s.metric === 'proactive_disclosure').length}`);
+    Object.entries(govByMetric).sort((a,b) => b[1]-a[1])
+      .forEach(([m, n]) => console.log(`    → ${m.padEnd(30)}: ${n}`));
     console.log(`  FINANCIAL_HEALTH signals: ${financialHealthSignals.length}`);
     if (financialHealthSignals.length > 0) {
       const fhByMetric = {};
@@ -428,7 +486,7 @@ async function main() {
 
     // ── Step 8: Build signal summary (DATA_BLOCK) ─────────────────────────────
     banner('Step 8 — Building signal summary (DATA_BLOCK)');
-    const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance, cfgPrefilter);
+    const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance, cfgPrefilter, { show_math_block: cfgShowMathBlock });
     console.log(`  Signal summary length : ${signalSummary.length} chars`);
 
     // ── Step 9: Equity metrics block (appended in live flow) ──────────────────

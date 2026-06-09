@@ -168,10 +168,14 @@ function computeConfidenceInterval(signals, effectiveWeights) {
 // prefilter: optional object controlling per-type signal filtering before the cap is applied.
 //   { milestone: "trackable_only" } — for milestone signals, only include rows with end_date or time_horizon set.
 //   This is used by guidance-credibility to drop pure success/failure disclosures that have no target deadline.
-function buildSignalSummary(lensName, signals, mathResult, balance, prefilter) {
+function buildSignalSummary(lensName, signals, mathResult, balance, prefilter, opts = {}) {
+  const showMath = opts.show_math_block !== false;
+  const header   = showMath
+    ? `SIGNAL SUMMARY (${signals.length} signals, weighted aggregate z=${mathResult.z_score.toFixed(4)}):`
+    : `SIGNAL SUMMARY (${signals.length} signals):`;
   const lines = [
     `LENS: ${lensName}`,
-    `SIGNAL SUMMARY (${signals.length} signals, weighted aggregate z=${mathResult.z_score.toFixed(4)}):`,
+    header,
     '',
   ];
 
@@ -252,8 +256,10 @@ function buildSignalSummary(lensName, signals, mathResult, balance, prefilter) {
     }
   }
 
-  lines.push('');
-  lines.push(`MATH: z=${mathResult.z_score.toFixed(4)}, CI=[${mathResult.confidence_lo.toFixed(3)}, ${mathResult.confidence_hi.toFixed(3)}], n=${signals.filter(s => s.value != null).length}`);
+  if (showMath) {
+    lines.push('');
+    lines.push(`MATH: z=${mathResult.z_score.toFixed(4)}, CI=[${mathResult.confidence_lo.toFixed(3)}, ${mathResult.confidence_hi.toFixed(3)}], n=${signals.filter(s => s.value != null).length}`);
+  }
 
   return lines.join('\n');
 }
@@ -269,6 +275,30 @@ function endDateToFiscalPeriod(endDate) {
   if (mon <= 6) return { fy: `FY${year + 1}`, quarter: 'Q1' }; // Apr–Jun
   if (mon <= 9) return { fy: `FY${year + 1}`, quarter: 'Q2' }; // Jul–Sep
   return             { fy: `FY${year + 1}`, quarter: 'Q3' };   // Oct–Dec
+}
+
+// Returns the UTC last day of the quarter AFTER the call's own quarter.
+// A milestone with end_date <= this value is either a same-quarter disclosure (Tier 3)
+// or a single-quarter-ahead near-term update — neither is a meaningful multi-period commitment.
+// Using the following quarter's last day (not the call quarter's) avoids exact-boundary
+// timezone issues and trims low-value single-step guidance in one step.
+// Indian FY: Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar.
+// Examples: call=FY2026 Q2 → cutoff = Dec 31 2025 (Q3 last day)
+//           call=FY2026 Q4 → cutoff = Jun 30 2026 (Q1 FY2027 last day)
+function milestoneExclusionCutoff(fiscalYear, quarter) {
+  const fy = parseInt((fiscalYear ?? '').replace('FY', ''));
+  if (!fy || !quarter) return null;
+  // Advance one quarter, carrying FY forward at Q4→Q1 boundary
+  const NEXT_Q = { Q1: 'Q2', Q2: 'Q3', Q3: 'Q4', Q4: 'Q1' };
+  const nextQ  = NEXT_Q[quarter];
+  if (!nextQ) return null;
+  const nextFY = (quarter === 'Q4') ? fy + 1 : fy;
+  const calYear = (nextQ === 'Q4') ? nextFY : nextFY - 1;
+  if (nextQ === 'Q1') return new Date(Date.UTC(calYear, 5,  30)); // Jun 30
+  if (nextQ === 'Q2') return new Date(Date.UTC(calYear, 8,  30)); // Sep 30
+  if (nextQ === 'Q3') return new Date(Date.UTC(calYear, 11, 31)); // Dec 31
+  if (nextQ === 'Q4') return new Date(Date.UTC(calYear, 2,  31)); // Mar 31
+  return null;
 }
 
 // ─── Source priority deduplication ───────────────────────────────────────────
@@ -554,7 +584,10 @@ async function composeLens(callId, lensSlug) {
 
   const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
           model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
-          balance: cfgBalance, prefilter: cfgPrefilter, kpi_filter: cfgKpiFilter } = lensConfig.config;
+          balance: cfgBalance, prefilter: cfgPrefilter, kpi_filter: cfgKpiFilter,
+          milestone_prefilter: cfgMilestonePrefilter,
+          governance_metric_allowlist: cfgGovernanceMetricAllowlist,
+          show_math_block: cfgShowMathBlock } = lensConfig.config;
 
 
   const { include_historical, current_call_only_types, ...signalFilters } = filters ?? {};
@@ -593,6 +626,40 @@ async function composeLens(callId, lensSlug) {
     console.log(`[lensComposer] "${lensSlug}" — dropped ${signals.length - deduped.length} duplicate signals (prowess > qe > transcript)`);
   }
   signals = deduped;
+
+  // Milestone pre-filter: drop milestones that are not forward-looking commitments.
+  // "trackable_forward_only" keeps only milestones that have:
+  //   (a) end_date strictly after the signal's own call-quarter last day (true forward guidance), OR
+  //   (b) time_horizon set but no end_date (soft forward commitment, no hard deadline).
+  // Drops: pure disclosure milestones (no end_date, no time_horizon) and same-quarter snapshots (Tier 3).
+  // Runs BEFORE kpi_filter so the reduced milestone set also trims which KPI actuals are pulled in.
+  if (cfgMilestonePrefilter === 'trackable_forward_only') {
+    const msBefore = signals.filter(s => s.signal_type === 'milestone').length;
+    const totalBefore = signals.length;
+    signals = signals.filter(s => {
+      if (s.signal_type !== 'milestone') return true;
+      if (s.end_date == null && s.time_horizon == null) return false;
+      if (s.end_date != null) {
+        const lastDay = milestoneExclusionCutoff(s.fiscal_year, s.quarter);
+        if (lastDay && new Date(s.end_date) <= lastDay) return false;
+      }
+      return true;
+    });
+    const msAfter = signals.filter(s => s.signal_type === 'milestone').length;
+    console.log(`[lensComposer] "${lensSlug}" milestone_prefilter=trackable_forward_only — milestones ${msBefore} → ${msAfter}, total ${totalBefore} → ${signals.length}`);
+  }
+
+  // Governance metric allowlist: drop governance signals whose metric is not in the approved list.
+  // Keeps signal_types intact for other lenses — only activates when the config key is present.
+  if (cfgGovernanceMetricAllowlist?.length > 0) {
+    const allowSet = new Set(cfgGovernanceMetricAllowlist.map(m => m.toUpperCase()));
+    const govBefore = signals.filter(s => s.signal_type === 'governance').length;
+    signals = signals.filter(s => s.signal_type !== 'governance' || allowSet.has((s.metric ?? '').toUpperCase()));
+    const govAfter = signals.filter(s => s.signal_type === 'governance').length;
+    if (govBefore !== govAfter) {
+      console.log(`[lensComposer] "${lensSlug}" governance_metric_allowlist — dropped ${govBefore - govAfter} governance signals`);
+    }
+  }
 
   // After dedup: surgical KPI filter.
   // - Transcript KPIs: keep all whose metric appears in any milestone signal.
@@ -683,7 +750,7 @@ async function composeLens(callId, lensSlug) {
   }
 
   // ── Build compact signal summary → L2 LLM call ───────────────────────────
-  const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance, cfgPrefilter);
+  const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance, cfgPrefilter, { show_math_block: cfgShowMathBlock });
   const promptTemplate = cfgPromptTemplate || L2_DEFAULT_PROMPT;
 
   const lensInstructions = cfgPromptTemplate ? '' : '';
