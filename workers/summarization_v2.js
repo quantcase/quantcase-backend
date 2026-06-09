@@ -68,7 +68,7 @@ function extractMetric(sig) {
     case 'growth_forecast':       return sig.forecast_metric ?? null;
     case 'earnings_quality':      return sig.metric_affected ?? sig.eq_category ?? null;
     case 'kpi':                   return sig.metric ?? null;
-    case 'mgmt_tone':             return 'overall_tone';
+    case 'mgmt_tone':             return 'dominant_tone';
     case 'analyst_questions':     return sig.question_topic ?? null;
     case 'guidance_revision':     return sig.prior_guidance?.metric ?? sig.revised_guidance?.metric ?? null;
     case 'pricing_power':         return 'pricing_realization';

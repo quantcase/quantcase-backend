@@ -144,11 +144,12 @@ Use for: How management handles bad news.
 Central question: is management proactively transparent, or do they only admit problems when pressed?
 
 disclosure_category
-  proactive_bad_news     — management volunteers a negative without being asked
-  reactive_bad_news      — management acknowledges an issue only when directly questioned
-  proactive_good_news    — management highlights a genuine positive
-  selective_omission     — material negative visible in KPIs but not addressed by management
-  auditor_or_regulatory_flag — SEBI/regulatory action, auditor comments, or legal acts
+  proactive_bad_news          — management volunteers a negative without being asked
+  reactive_bad_news           — management acknowledges an issue only when directly questioned
+  proactive_good_news         — management highlights a genuine positive
+  selective_omission          — material negative visible in KPIs but not addressed by management
+  auditor_or_regulatory_flag  — SEBI/regulatory action, auditor comments, or legal acts
+  key_mgmt_change             — management changes / key person risk (CFO departure, new CEO, promoter pledge, etc.)
 
 Fields:
   disclosure_category  string — from list above
@@ -223,7 +224,11 @@ Fields:
   eq_category            string — from list above
   metric_affected        (KPI abbr) — use AVAILABLE KPIs; register new in new_kpis
   description            string — what is happening and why it matters (max 25 words)
-  value_raw              string | null — verbatim figure if available
+  value_current_raw      string | null — current period figure as stated; null if not available
+  value_prior_raw        string | null — prior period / base figure as stated; null if not available
+  value_current          decimal | null — numeric extract of current period; null if qualitative
+  value_prior            decimal | null — numeric extract of prior period; null if qualitative
+  trend_direction        "improving" | "deteriorating" | "stable" | "uncertain"
   impact_on_reported_earnings "overstates" | "understates" | "negative" | "positive" | null
   statement              string — verbatim quote, exact words, no paraphrasing
 
@@ -234,7 +239,7 @@ NOT guidance. NOT claims. Just the reported numbers.
 
 Fields:
   metric          (KPI abbr) — use AVAILABLE KPIs; register new in new_kpis
-  metric_family   "profitability" | "growth" | "capital" | "asset_quality" | "customer" | "industry"
+  metric_family   "profitability" | "growth" | "capital" | "asset_quality" | "customer" | "order_pipeline" | "industry"
   value           decimal — no units, no commas
   value_raw       string — verbatim figure exactly as stated
   unit            "Cr" | "%" | "x" | "₹" | null
@@ -248,12 +253,21 @@ Fields:
 
 
 ### SIGNAL TYPE 9: mgmt_tone
-Use for: Overall management communication tone. Emit exactly ONE per call.
+Use for: Overall management communication tone. Emit exactly ONE per call — the dominant tone
+plus any notable contrast if tone shifts.
 
 Fields:
-  overall_tone     "confident" | "cautious" | "defensive" | "promotional" | "neutral"
-  evidence         string[] — 2–3 specific observations supporting the tone assessment
-  notable_contrast string | null — if tone shifts mid-call, describe it
+  dominant_tone    "confident" | "cautious" | "defensive" | "promotional" | "neutral"
+  evidence         string[] — 2–3 verbatim observations supporting the dominant tone
+  notable_contrast object | null — null if tone is consistent throughout; if tone shifts, populate:
+    {
+      "exists":            boolean,
+      "primary_tone":      "confident" | "cautious" | "defensive" | "promotional" | "neutral",
+      "contrasting_tone":  "confident" | "cautious" | "defensive" | "promotional" | "neutral",
+      "primary_topic":     string — topic on which dominant tone was observed,
+      "contrasting_topic": string — topic that triggered the tone shift,
+      "statement":         string — verbatim quote best evidencing the contrasting tone
+    }
 
 
 ### SIGNAL TYPE 10: analyst_questions
