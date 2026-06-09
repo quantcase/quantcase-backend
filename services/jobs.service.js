@@ -1,8 +1,13 @@
 'use strict';
 
-const prisma         = require('../config/prisma');
-const jobQueue       = require('../lib/jobQueue');
+const { randomUUID }    = require('crypto');
+const { PDFDocument }   = require('pdf-lib');
+const prisma            = require('../config/prisma');
+const jobQueue          = require('../lib/jobQueue');
 const { ProwessHelper } = require('../utils/prowessHelper');
+
+const V2_PAGES_PER_CHUNK = 15;
+const V2_MAX_CHUNKS      = 4;
 
 const STATE_TO_STATUS = {
   waiting:   'pending',
@@ -125,10 +130,51 @@ async function addLensComputationJob(callId, lensSlug) {
   return jobQueue.addJob('lens_computation', { callId, lensSlug, type: 'lens_computation' });
 }
 
+async function addSummarizationV2Jobs(callId) {
+  const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
+  if (!call) {
+    const err = new Error('Call not found'); err.status = 404; throw err;
+  }
+  if (!call.transcript_url?.trim()) {
+    const err = new Error('No transcript URL for this call'); err.status = 400; throw err;
+  }
+
+  const res = await fetch(call.transcript_url);
+  if (!res.ok) {
+    const err = new Error(`PDF download failed (${res.status})`); err.status = 502; throw err;
+  }
+  const arrayBuffer = await res.arrayBuffer();
+  const srcDoc      = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const pageCount   = srcDoc.getPageCount();
+
+  const numChunks = Math.min(V2_MAX_CHUNKS, Math.max(1, Math.ceil(pageCount / V2_PAGES_PER_CHUNK)));
+  const perChunk  = Math.ceil(pageCount / numChunks);
+  const lineageId = randomUUID();
+  const jobs      = [];
+
+  for (let i = 0; i < numChunks; i++) {
+    const pageStart = i * perChunk;
+    const pageEnd   = Math.min(pageStart + perChunk, pageCount);
+    const job = await jobQueue.addJob('summarization_v2', {
+      callId,
+      transcriptUrl: call.transcript_url,
+      pageStart,
+      pageEnd,
+      lineageId,
+      chunkIndex:  i + 1,
+      totalChunks: numChunks,
+    });
+    jobs.push({ id: job.id, pages: `${pageStart + 1}-${pageEnd}` });
+  }
+
+  return { callId, lineageId, pageCount, chunks: numChunks, jobs };
+}
+
 module.exports = {
   addSummarizationJob,
   addQeExtractionJob,
   addProwessExtractionJob,
   addLensComputationJob,
+  addSummarizationV2Jobs,
   findJob,
 };

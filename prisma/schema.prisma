@@ -1070,6 +1070,44 @@ model ExtractedSignal {
   @@map("extracted_signals")
 }
 
+// ─── V2 Signal Store ─────────────────────────────────────────────────────────
+// Parallel pipeline running the richer 14-type extraction schema.
+// Provenance fields are proper columns; all type-specific payload lives in `data`.
+
+model TranscriptSignalV2 {
+  id              String   @id @default(uuid())
+  call_id         String
+  ticker          String
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  signal_type     String   // v2 vocab: guidance | claim | industry_signal | capital_allocation | etc.
+  source_context  String?  // "opening_remarks" | "management_presentation" | "analyst_qa"
+  source_stmt_id  String?  // LLM-assigned source_statement_id (links signals sharing one quote)
+  signal_seq_id   String?  // LLM-assigned signal_id within the run
+  metric          String?  // derived key field — see worker mapping comment
+  impact          String?  // "high" | "medium" | "low"
+  severity        String?  // "critical" | "high" | "medium" | "low" | "informational"
+  statement       String?  // verbatim quote
+  data            Json     // full type-specific payload from LLM
+  source_hash     String
+  prompt_v        String
+  extractor_model String
+  lineage_id      String
+  is_invalidated  Boolean  @default(false)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@index([call_id])
+  @@index([ticker])
+  @@index([call_id, signal_type])
+  @@index([ticker, signal_type])
+  @@index([source_hash])
+  @@index([lineage_id])
+  @@map("transcript_signals_v2")
+}
+
 model LensConfig {
   id          String   @id @default(uuid())
   slug        String   @unique

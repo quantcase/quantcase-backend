@@ -31,6 +31,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "openai": "^6.19.0",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
     "xlsx": "^0.18.5",
     "yahoo-finance2": "^3.13.2",
