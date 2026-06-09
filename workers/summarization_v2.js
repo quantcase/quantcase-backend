@@ -65,7 +65,7 @@ function extractMetric(sig) {
     case 'capital_allocation':    return sig.allocation_category ?? null;
     case 'disclosure_quality':    return sig.topic ?? null;
     case 'distribution_customer': return sig.segment_or_channel ?? sig.distribution_category ?? null;
-    case 'growth_forecast':       return sig.forecast_metric ?? null;
+    case 'company_growth_forecast': return sig.forecast_metric ?? null;
     case 'earnings_quality':      return sig.metric_affected ?? sig.eq_category ?? null;
     case 'kpi':                   return sig.metric ?? null;
     case 'mgmt_tone':             return 'dominant_tone';

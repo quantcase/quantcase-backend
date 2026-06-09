@@ -9,7 +9,7 @@
  *   - TRANSCRIPT text
  *
  * KPI reference list is injected for 6 signal types that carry a named metric:
- *   guidance, growth_forecast, kpi, earnings_quality, guidance_revision, claim.
+ *   guidance, company_growth_forecast, kpi, earnings_quality, guidance_revision, claim.
  * The other 8 types use controlled enums or free-text labels — no KPI list needed.
  */
 
@@ -69,11 +69,12 @@ These rules apply to every field marked "(KPI abbr)" in the signal type definiti
 Every signal must have: signal_id (unique within this run), source_statement_id,
 source_context, impact, and severity.
 One statement can emit multiple signals — link them with the same source_statement_id.
-No statement should be extracted twice as the same signal type.
+Example- If one statement contains both a growth target and a capital
+   allocation plan, extract two separate signals in two separate rows with the same source_statement_id and different signal id.
 
 
 ### SIGNAL TYPE 1: guidance
-Use for: Any forward-looking statement management makes about the future.
+Use for: Any forward-looking statement about the future only made by management. Don't include analyst or third party future statements. Don't mention anything which is already or currently achieved or in place.
 
 guidance_category
   quantitative       — specific number, range, or ratio (e.g. "15–16% margins", "₹5,000 Cr revenue")
@@ -181,9 +182,9 @@ Fields:
   statement             string — verbatim quote, exact words, no paraphrasing
 
 
-### SIGNAL TYPE 6: growth_forecast
+### SIGNAL TYPE 6: company_growth_forecast
 Use for: Specific growth guidance feeding the earnings model.
-Every numeric and qualitative growth statement about company revenue, margins, or key metrics must be captured.
+Every numeric and qualitative statement about future growth of company revenue, margins, or key metrics must be captured.
 Priority extraction — do not miss any stated or strongly implied growth rate.
 
 Fields:
@@ -202,11 +203,11 @@ Fields:
                          directional  — qualitative only
   statement            string — verbatim quote, exact words, no paraphrasing
 
-Overlap rule: if a growth_forecast signal is also a guidance signal (same statement), emit BOTH.
+Overlap rule: if a company_growth_forecast signal is also a guidance signal (same statement), emit BOTH.
 
 
 ### SIGNAL TYPE 7: earnings_quality
-Use for: Sustainability and reliability of reported earnings.
+Use for: Sustainability and reliability of reported earnings. Capture all statements containing numeric and qualitative data regarding the following categories
 
 eq_category
   cash_conversion       — operating cash flow vs. reported profits (OCF/PAT ratio)
@@ -235,7 +236,7 @@ Fields:
 
 ### SIGNAL TYPE 8: kpi
 Use for: Reported numeric financial or operational KPIs — actual numbers for current or completed periods.
-NOT guidance. NOT claims. Just the reported numbers.
+NOT guidance. Just the reported and claimed numbers
 
 Fields:
   metric          (KPI abbr) — use AVAILABLE KPIs; register new in new_kpis
@@ -253,8 +254,8 @@ Fields:
 
 
 ### SIGNAL TYPE 9: mgmt_tone
-Use for: Overall management communication tone. Emit exactly ONE per call — the dominant tone
-plus any notable contrast if tone shifts.
+Use for: Overall management communication tone. Emit one the dominant tone
+plus any notable contrast if tone shifts per call.
 
 Fields:
   dominant_tone    "confident" | "cautious" | "defensive" | "promotional" | "neutral"
@@ -271,7 +272,7 @@ Fields:
 
 
 ### SIGNAL TYPE 10: analyst_questions
-Use for: Questions asked by analysts during Q&A.
+Use for: Questions asked by only analysts during Q&A.
 
 question_nature classification:
   routine     — asks for a number, update, or explanation with no negative framing
@@ -323,23 +324,7 @@ Fields:
   statement            string — verbatim quote, no paraphrasing
 
 ### SIGNAL TYPE 14: claim
-Use for: LAST RESORT ONLY. Management assertions about past/current achievements that do not fit
-any of the 13 types above.
-
-DO NOT use claim for:
-  - Reported KPI numbers → use kpi
-  - Forward-looking statements → use guidance
-  - Growth rates or targets → use growth_forecast
-  - Earnings sustainability / quality concerns → use earnings_quality
-  - Management tone / sentiment → use mgmt_tone
-  - Industry or market observations → use industry_signal
-  - Capital deployment decisions → use capital_allocation
-  - Pricing decisions → use pricing_power
-  - Competitive positioning → use competitive_position
-  - Distribution / go-to-market → use distribution_customer
-  - Disclosure transparency → use disclosure_quality
-  - Prior guidance walkbacks → use guidance_revision
-  - Analyst questions → use analyst_questions
+Management assertions about already achieved/past and current achievements. These are management's statements about their own performance, nothing about future comes here.
 
 claim_category
   financial_performance   — revenue, margins, PAT, ROE reported achievement not captured as kpi
@@ -390,7 +375,7 @@ severity — risk level:
    CLAIM    = present/past:  "we achieved", "we delivered", "our margins were", "we grew"
    When in doubt: if the period hasn't happened yet at call time, it is GUIDANCE.
 
-3. growth_forecast is a priority extraction. Every numeric and qualitative growth statement must appear here.
+3. company_growth_forecast is a priority extraction. Every numeric and qualitative growth statement must appear here.
    If it is also a guidance signal, emit BOTH — they serve different workflows.
 
 4. No inference on numbers. If management says "double-digit growth", set guided_growth_rate: null
@@ -402,15 +387,12 @@ severity — risk level:
 6. Conditions must be captured. If guidance is conditional, set is_conditional: true and
    capture the full condition text.
 
-7. One quote, multiple signals. If one statement contains both a growth target and a capital
-   allocation plan, extract two separate signals with the same source_statement_id.
-
-8. Before completing extraction, review kpi signals for material negatives (GNPA up, NIM
+7. Before completing extraction, review kpi signals for material negatives (GNPA up, NIM
    compressing, margins declining). If any material negative appears in KPIs but management
    did not address it, create a disclosure_quality signal with
    disclosure_category: "selective_omission".
 
-9. Do not extract: boilerplate legal disclaimers, safe harbour language, housekeeping
+8. Do not extract: boilerplate legal disclaimers, safe harbour language, housekeeping
    announcements, timestamps, or context-free numbers without management commentary.
 
 ----------------------
@@ -426,7 +408,7 @@ No markdown fences. No explanation. JSON only.
       "signal_id":          string,
       "source_statement_id": string,
       "source_context":     "opening_remarks" | "management_presentation" | "analyst_qa",
-      "signal_type":        "guidance" | "industry_signal" | "capital_allocation" | "disclosure_quality" | "distribution_customer" | "growth_forecast" | "earnings_quality" | "kpi" | "mgmt_tone" | "analyst_questions" | "guidance_revision" | "pricing_power" | "competitive_position" | "claim",
+      "signal_type":        "guidance" | "industry_signal" | "capital_allocation" | "disclosure_quality" | "distribution_customer" | "company_growth_forecast" | "earnings_quality" | "kpi" | "mgmt_tone" | "analyst_questions" | "guidance_revision" | "pricing_power" | "competitive_position" | "claim",
       "impact":             "high" | "medium" | "low",
       "severity":           "critical" | "high" | "medium" | "low" | "informational",
       ...all type-specific fields for this signal_type

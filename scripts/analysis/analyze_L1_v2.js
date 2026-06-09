@@ -7,11 +7,12 @@
  * transcript URL and no existing v2 signals.
  *
  * Usage:
- *   node scripts/analysis/analyze_L1_v2.js <SYMBOL> [--dispatch] [--limit <n>]
+ *   node scripts/analysis/analyze_L1_v2.js <SYMBOL> [--dispatch] [--limit <n>] [--force]
  *
  * Flags:
  *   --dispatch        Actually call the API (dry-run without this flag)
  *   --limit <n>       Only process the n most recent calls (default: all)
+ *   --force           Invalidate existing v2 signals and reprocess
  *
  * Env:
  *   API_URL           Base URL of the API server (default: http://localhost:8000)
@@ -25,6 +26,7 @@ const API_URL = process.env.API_URL || 'http://localhost:8000';
 const args     = process.argv.slice(2);
 const symbol   = args[0];
 const dispatch = args.includes('--dispatch');
+const force    = args.includes('--force');
 const limIdx   = args.indexOf('--limit');
 const limit    = limIdx !== -1 ? parseInt(args[limIdx + 1], 10) : null;
 
@@ -40,6 +42,14 @@ async function hasV2Signals(callId) {
     where: { call_id: callId, is_invalidated: false },
   });
   return count > 0;
+}
+
+async function invalidateV2Signals(callId) {
+  const result = await prisma.transcriptSignalV2.updateMany({
+    where: { call_id: callId, is_invalidated: false },
+    data:  { is_invalidated: true },
+  });
+  return result.count;
 }
 
 async function dispatchV2(callId) {
@@ -102,9 +112,13 @@ async function main() {
 
     const already = await hasV2Signals(c.id);
     if (already) {
-      console.log(`  [SKIP] ${c.id}  — v2 signals already exist`);
-      skipped++;
-      continue;
+      if (!force) {
+        console.log(`  [SKIP] ${c.id}  — v2 signals already exist (use --force to reprocess)`);
+        skipped++;
+        continue;
+      }
+      const invalidated = await invalidateV2Signals(c.id);
+      console.log(`  [FORCE] ${c.id}  — invalidated ${invalidated} existing signals`);
     }
 
     try {
