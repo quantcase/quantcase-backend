@@ -4,7 +4,7 @@ const { Worker }        = require('bullmq');
 const { PDFDocument }   = require('pdf-lib');
 const connection        = require('../config/redis');
 const prisma            = require('../config/prisma');
-const { llmStream, parseJson }          = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { transcriptExtractorPromptV2 }   = require('../prompts/transcript_call_v2');
 const { upsertNewKpis }                 = require('../services/db/kpis.db');
 const { loadSkillConfig }               = require('../utils/skillConfig');
@@ -149,7 +149,8 @@ async function processSummarizationV2Job(job) {
   if (outputSchema) llmParams.response_format = outputSchema;
 
   console.log(`[summarization-v2] Calling LLM for chunk ${chunkIndex}/${totalChunks}...`);
-  const responseText = await llmStream(llmParams);
+  const { text: responseText, usage } = await llmStream(llmParams);
+  logUsage('summarization-v2', usage);
   if (!responseText) throw new Error(`Empty LLM response for chunk ${chunkIndex}`);
   await job.updateProgress(80);
 

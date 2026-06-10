@@ -7,7 +7,7 @@ const technicalAnalysis = require('../lib/technicalAnalysis');
 const financials = require('../lib/financials');
 const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_intelligence');
 const { loadSkillConfig } = require('../utils/skillConfig');
-const { llmStream, parseJson } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { resolveMetric, resolveIndicatorSeries } = require('../utils/formulaRegistry/index');
 const prisma    = require('../config/prisma');
 const jobQueue  = require('../lib/jobQueue');
@@ -899,7 +899,8 @@ async function generateFundamentalsIntelligence(symbol, finResult) {
   try {
     const { model, maxTokens, promptTemplate } = await loadSkillConfig('fundamentals-intelligence');
     const prompt = fundamentalsIntelligencePrompt(symbol, finResult, promptTemplate);
-    const text = await llmStream({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
+    const { text, usage } = await llmStream({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
+    logUsage('screener/fundamentals', usage);
     if (!text) return null;
     return parseJson(text);
   } catch (err) {

@@ -3,7 +3,7 @@
 const { Worker } = require('bullmq');
 const connection         = require('../config/redis');
 const prisma             = require('../config/prisma');
-const { llmStream, parseJson } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { loadSkillConfig }      = require('../utils/skillConfig');
 const financials               = require('../lib/financials');
 const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_intelligence');
@@ -37,9 +37,10 @@ async function processFundamentalsJob(job) {
     const prompt = fundamentalsIntelligencePrompt(symbol, finResult, promptTemplate);
     console.log(`[Fundamentals] Prompt length for ${symbol}: ${prompt.length} chars`);
 
-    const responseText = await llmStream(
+    const { text: responseText, usage } = await llmStream(
       { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] },
     );
+    logUsage('Fundamentals', usage);
     await job.updateProgress(85);
 
     if (!responseText) throw new Error('Empty response from LLM');

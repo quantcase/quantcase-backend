@@ -4,7 +4,7 @@ const { Worker }  = require('bullmq');
 const { randomUUID } = require('crypto');
 const connection   = require('../config/redis');
 const prisma       = require('../config/prisma');
-const { llmStream, parseJson } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { transcriptExtractorPrompt } = require('../prompts/transcript_call');
 const { upsertNewKpis } = require('../services/db/kpis.db');
 const { loadSkillConfig } = require('../utils/skillConfig');
@@ -110,7 +110,8 @@ async function processSummarizationJob(job) {
   console.log('[summarization] Calling LLM...');
   const llmParams = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: userMessageContent }] };
   if (outputSchema) llmParams.response_format = outputSchema;
-  const responseText = await llmStream(llmParams);
+  const { text: responseText, usage } = await llmStream(llmParams);
+  logUsage('summarization', usage);
   await job.updateProgress(70);
 
   if (!responseText) throw new Error('Empty response from LLM');

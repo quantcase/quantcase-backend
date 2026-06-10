@@ -5,7 +5,7 @@ const { randomUUID } = require('crypto');
 const connection     = require('../config/redis');
 const prisma         = require('../config/prisma');
 const openRouter     = require('../config/llm');
-const { parseJson }  = require('../utils/workerUtils');
+const { parseJson, logUsage } = require('../utils/workerUtils');
 const { quarterlyEarningsPrompt } = require('../prompts/quarterly_earnings');
 const { upsertNewKpis } = require('../services/db/kpis.db');
 const { loadSkillConfig } = require('../utils/skillConfig');
@@ -110,7 +110,12 @@ async function processQeJob(job) {
   if (outputSchema) qeParams.response_format = outputSchema;
   const stream = await openRouter.chat.completions.create(qeParams);
   let responseText = '';
-  for await (const chunk of stream) responseText += chunk.choices[0]?.delta?.content ?? '';
+  let qeUsage = null;
+  for await (const chunk of stream) {
+    responseText += chunk.choices[0]?.delta?.content ?? '';
+    if (chunk.usage) qeUsage = chunk.usage;
+  }
+  logUsage('qe', qeUsage);
   await job.updateProgress(75);
 
   if (!responseText) throw new Error('Empty response from LLM');

@@ -3,7 +3,7 @@
 const prisma = require('../config/prisma');
 const { querySignals } = require('./db/signals.db');
 const { sortLensesByConfig } = require('../lib/insightLenses');
-const { llmStream, parseJson } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { lensOutputSchema } = require('../outputSchemas/lens');
 const { computeSourceHash } = require('../utils/sourceHash');
 const { fetchPeerMetrics, formatPeerMetricsBlock, fetchEquityMetrics, formatEquityMetricsBlock } = require('./peerMetrics');
@@ -491,12 +491,13 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
   const outputSchema = lensConfig.config.output_schema ?? lensOutputSchema;
 
   console.log(`[lensComposer] Industry LLM call for "${lensSlug}" / "${industry}" (${peerCallIds.length} peers, prompt: ${prompt.length} chars)`);
-  const responseText = await llmStream({
+  const { text: responseText, usage: industryUsage } = await llmStream({
     model,
     max_tokens:      maxTokens,
     messages:        [{ role: 'user', content: prompt }],
     response_format: outputSchema,
   });
+  logUsage(`lensComposer/industry/${lensSlug}`, industryUsage);
 
   let lensResult;
   try {
@@ -786,12 +787,13 @@ async function composeLens(callId, lensSlug) {
   const outputSchema   = lensConfig.config.output_schema ?? lensOutputSchema;
 
   console.log(`[lensComposer] Calling L2 LLM for lens "${lensSlug}" (${signals.length} signals, prompt: ${prompt.length} chars)`);
-  const responseText = await llmStream({
+  const { text: responseText, usage: l2Usage } = await llmStream({
     model,
     max_tokens:      maxTokens,
     messages:        [{ role: 'user', content: prompt }],
     response_format: outputSchema,
   });
+  logUsage(`lensComposer/L2/${lensSlug}`, l2Usage);
 
   let lensResult;
   try {

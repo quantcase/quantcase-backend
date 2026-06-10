@@ -40,10 +40,12 @@ async function llmStream(params) {
   }
   let text = '';
   let finishReason;
+  let usage = null;
   try {
     for await (const chunk of stream) {
       text += chunk.choices[0]?.delta?.content ?? '';
       if (chunk.choices[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
+      if (chunk.usage) usage = chunk.usage;
     }
   } catch (err) {
     const body = err?.error ?? err?.response?.data ?? err?.message;
@@ -53,7 +55,7 @@ async function llmStream(params) {
   if (finishReason === 'length') {
     throw new Error(`[llmStream] Response truncated at token limit (finish_reason=length, ${text.length} chars). Increase maxTokens or reduce input.`);
   }
-  return text;
+  return { text, usage };
 }
 
 /**
@@ -77,4 +79,14 @@ function computePeriodType(startDate, endDate) {
   return 'multi_year';
 }
 
-module.exports = { parseJson, llmStream, applyMultiplier, computePeriodType };
+/**
+ * Log OpenRouter usage stats (tokens + cost) returned in the final stream chunk.
+ */
+function logUsage(tag, usage) {
+  if (!usage) return;
+  const { prompt_tokens, completion_tokens, total_tokens, cost } = usage;
+  const costStr = cost != null ? ` | cost: $${Number(cost).toFixed(6)}` : '';
+  console.log(`[${tag}] tokens: ${prompt_tokens ?? '?'} in / ${completion_tokens ?? '?'} out / ${total_tokens ?? '?'} total${costStr}`);
+}
+
+module.exports = { parseJson, llmStream, logUsage, applyMultiplier, computePeriodType };

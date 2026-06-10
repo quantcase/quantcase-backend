@@ -1,6 +1,6 @@
 'use strict';
 
-const { llmStream, parseJson } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { loadSkillConfig }      = require('../utils/skillConfig');
 const { getPromptFn }          = require('../lib/skillsRegistry');
 const { chunkPdf }             = require('../utils/pdfChunker');
@@ -185,7 +185,8 @@ async function analyseChunk(chunk) {
   };
   if (outputSchema) llmParams.response_format = outputSchema;
 
-  const responseText = await llmStream(llmParams);
+  const { text: responseText, usage: chunkUsage } = await llmStream(llmParams);
+  logUsage('privateEquity/chunk', chunkUsage);
 
   if (!responseText) throw new Error(`Empty LLM response for chunk "${chunk.title}"`);
   return parseJson(responseText);
@@ -277,7 +278,8 @@ async function analyseDrhp(fileBuffer, mimeType) {
       messages:   [{ role: 'user', content: prompt }],
     };
     if (outputSchema) llmParams.response_format = outputSchema;
-    const intelligenceText = await llmStream(llmParams);
+    const { text: intelligenceText, usage: intelligenceUsage } = await llmStream(llmParams);
+    logUsage('privateEquity/intelligence', intelligenceUsage);
     if (intelligenceText) {
       result.intelligence = parseJson(intelligenceText);
     }

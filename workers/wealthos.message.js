@@ -3,7 +3,7 @@
 const { Worker }    = require('bullmq');
 const connection    = require('../config/redis');
 const prisma        = require('../config/prisma');
-const { llmStream, parseJson } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { messageGenerationPrompt } = require('../prompts/wealthos/message_generation');
 const { validateMessageOutput }   = require('../services/wealthos/compliance.service');
 const { loadSkillConfig }         = require('../utils/skillConfig');
@@ -18,12 +18,13 @@ async function processMessageJob(job) {
   const prompt = messageGenerationPrompt(client, portfolio, interactions ?? [], channel, context, promptTemplate);
 
   await job.updateProgress(30);
-  const responseText = await llmStream({
+  const { text: responseText, usage } = await llmStream({
     model,
     max_tokens:      maxTokens,
     messages:        [{ role: 'user', content: prompt }],
     ...(outputSchema && { response_format: outputSchema }),
   });
+  logUsage('wealthos_message', usage);
 
   await job.updateProgress(70);
 
