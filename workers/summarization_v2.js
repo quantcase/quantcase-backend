@@ -9,16 +9,11 @@ const { transcriptExtractorPromptV2 }   = require('../prompts/transcript_call_v2
 const { upsertNewKpis }                 = require('../services/db/kpis.db');
 const { loadSkillConfig }               = require('../utils/skillConfig');
 const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash');
+const { downloadPdfCached }             = require('../utils/pdfCache');
 
 const FISCAL_YEAR_END = process.env.FISCAL_YEAR_END || '03-31';
 
 // ─── PDF helpers ──────────────────────────────────────────────────────────────
-
-async function downloadPdf(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to download PDF (${res.status}): ${url}`);
-  return res.arrayBuffer();
-}
 
 async function extractPageRange(arrayBuffer, pageStart, pageEnd) {
   const srcDoc = await PDFDocument.load(arrayBuffer);
@@ -141,8 +136,8 @@ async function processSummarizationV2Job(job) {
   console.log(`[summarization-v2] ${existingKpis.length} KPIs loaded`);
   await job.updateProgress(20);
 
-  console.log(`[summarization-v2] Downloading PDF...`);
-  const arrayBuffer = await downloadPdf(transcriptUrl);
+  console.log(`[summarization-v2] Downloading PDF (cached)...`);
+  const arrayBuffer = await downloadPdfCached(transcriptUrl);
   const base64      = await extractPageRange(arrayBuffer, pageStart, pageEnd);
   await job.updateProgress(40);
 
