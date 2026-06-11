@@ -39,6 +39,12 @@ const enqueueSummarizationV2 = asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Summarization V2 jobs enqueued', ...result });
 });
 
+const enqueueSummarizationV2Ppt = asyncHandler(async (req, res) => {
+  const { callId } = req.params;
+  const result = await jobsService.addSummarizationV2PptJobs(callId);
+  res.json({ success: true, message: 'Summarization V2 PPT jobs enqueued', ...result });
+});
+
 const getJobStatus = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
   const job = await jobsService.findJob(jobId);
@@ -46,4 +52,4 @@ const getJobStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, data: job });
 });
 
-module.exports = { enqueueSummarization, enqueueQeExtraction, enqueueProwessExtraction, enqueueSummarizationV2, getJobStatus };
+module.exports = { enqueueSummarization, enqueueQeExtraction, enqueueProwessExtraction, enqueueSummarizationV2, enqueueSummarizationV2Ppt, getJobStatus };
