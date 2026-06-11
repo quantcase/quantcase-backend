@@ -34,6 +34,10 @@ SECTION BOUNDARY RULES
 - management_presentation: everything between opening_remarks and analyst_qa.
 - If boundary is unclear, default to management_presentation.
 
+BEFORE EXTRACTION: Ensure the following context is available:
+CALL_DATE: ISO date of the earnings call (YYYY-MM-DD)
+Remember fiscal year end date for companies ends in [YYYY-03-31]
+
 {{DATA_BLOCK}}
 
 ----------------------
@@ -42,14 +46,14 @@ SECTION BOUNDARY RULES
 
 Every signal — regardless of type — uses the SAME object shape. You do not
 emit a different field-set per type. You emit the common envelope, fill the
-common fields that apply, list any numeric facts in \`measures[]\`, and put the
-few type-specific extras in \`details{}\`.
+common fields that apply, list any numeric facts in "measures[]", and put the
+few type-specific extras in "details{}".
 
 ENVELOPE (always present)
   signal_id            unique within this run
   source_statement_id  links signals that came from the same statement
   source_context       "opening_remarks" | "management_presentation" | "analyst_qa"
-  signal_type          one of the 14 types below
+  signal_type          one of the 15 types below
   impact               "high" | "medium" | "low"            (see IMPACT & SEVERITY RULES)
   severity             "critical" | "high" | "medium" | "low" | "informational"
   statement            verbatim quote, exact words, no paraphrasing (null only where a type permits)
@@ -57,7 +61,7 @@ ENVELOPE (always present)
 COMMON FIELDS (fill the ones the type uses; otherwise null)
   category        the single sub-classification for this signal_type (the allowed
                   values are listed under each type — this replaces the old
-                  guidance_category / industry_category / eq_category / claim_category /
+                  guidance_category / industry_category / eq_category / milestone_category /
                   comparison_dimension / question_nature / revision_nature / dominant_tone, etc.)
   metric          KPI abbr (see KPI ABBREVIATION RULES) where the type names a metric
   topic           short descriptive label (e.g. "housing_demand_recovery", "NIM_trajectory")
@@ -93,7 +97,7 @@ measures[] — list of numeric facts. Use this for EVERY value/figure/unit/perio
     prior             prior-period / base figure
     revised           a revised guidance figure
     actual            the realized outcome of a prior guidance
-    claimed           a figure management claims as already achieved
+    milestone         a figure management stated as already achieved
     pass_through      fraction of cost increases passed to customers (0.60 = 60%)
 
 details{} — type-specific extras only (open object). Keys are listed per type.
@@ -116,7 +120,7 @@ details{} — type-specific extras only (open object). Keys are listed per type.
 ----------------------
 
 ## KPI ABBREVIATION RULES
-These rules apply to every \`metric\` field and to any measure that references a metric.
+These rules apply to every "metric" field and to any measure that references a metric.
 
 1. Always check AVAILABLE KPIs first. Use the exact abbr from that list.
 2. If the metric is not in the list → add it to new_kpis and use the abbr you assign there.
@@ -138,16 +142,16 @@ source_statement_id. Example: if one statement contains both a growth target and
 a capital allocation plan, extract two separate signals (two rows) with the same
 source_statement_id and different signal_id.
 
-For each type below: \`category\` values are the allowed sub-classifications;
+For each type below: "category" values are the allowed sub-classifications;
 listed measure roles are the numbers to emit; listed details keys are the only
 type-specific extras.
 
 
 ### SIGNAL TYPE 1: guidance
-Use for: Forward-looking TARGET or COMMITMENT with a future delivery/achievement
-timeline that is NOT yet realised. Management statements only — exclude analyst
+Use for: Forward-looking TARGET or COMMITMENT with a future delivery
+that is NOT yet realised. Management statements only — exclude analyst
 or third-party future statements. Exclude anything already achieved or currently
-in progress (use milestone or ongoing instead).
+in progress.
 
 CHECK TENSE FIRST.
 REJECT: past/past-perfect tense (grew, have grown, has seen, was poised, had grown),
@@ -160,10 +164,9 @@ PRIORITY: quantitative guidance has highest priority. Any forward-looking numeri
 range, ratio, capacity, revenue, margin, volume, store count, capex, or similar metric
 must be captured as guidance.
 
-category: "quantitative" | "qualitative_directional" | "timeline_milestone"
-  quantitative            — specific number, range, or ratio ("15–16% margins", "₹5,000 Cr revenue")
-  qualitative_directional — directional but no number ("margins will improve")
-  timeline_milestone      — event expected by a specific date or period
+category: "timebound_guidance" | "open_ended_guidance"
+  timebound_guidance  — has end target or deadline (e.g. "we will add 300 stores by FY27")
+  open_ended_guidance — no stated deadline (e.g. "we expect to invest in AI")
 metric:   yes (KPI abbr)
 measures: role=guided  (value, value_raw, unit, period{start,end}) ;
           role=baseline (value_raw) if a current/base value is stated
@@ -197,7 +200,7 @@ category: "capex" | "ma" | "debt_management" | "shareholder_returns" | "r_and_d"
   capex               — expansion, maintenance, new facilities, technology
   ma                  — acquisitions, divestments, JVs, stake purchases/sales
   debt_management     — fresh borrowings, repayments, refinancing, leverage targets
-  shareholder_returns — dividends, buybacks, payout ratio guidance
+  shareholder_returns — dividends, buybacks
   r_and_d             — product, brand, or technology investment
 description: yes (what is being allocated, max 20 words)
 timeline:    yes (when deployed; null if not stated)
@@ -206,23 +209,28 @@ details:     return_expectation (string | null — stated return metric; null if
 
 
 ### SIGNAL TYPE 4: disclosure_quality
-Use for: How management handles bad news.
-Central question: is management proactively transparent, or do they only admit problems when pressed?
+Use for: Management explicitly states that they are disclosing something new or 
+clarifying something previously opaque.
 
-category: "proactive_bad_news" | "reactive_bad_news" | "proactive_good_news" |
-          "selective_omission" | "auditor_or_regulatory_flag" | "key_mgmt_change"
-  proactive_bad_news         — management volunteers a negative without being asked
-  reactive_bad_news          — management acknowledges an issue only when directly questioned
-  proactive_good_news        — management highlights a genuine positive
-  selective_omission         — material negative visible in KPIs but not addressed by management
-  auditor_or_regulatory_flag — SEBI/regulatory action, auditor comments, or legal acts
-  key_mgmt_change            — management changes / key person risk (CFO departure, new CEO, promoter pledge, etc.)
-topic:    yes (what is being disclosed, e.g. "NIM compression", "order book slippage")
-statement: may be null
+category: "new_disclosure" | "clarification_on_prior" | "methodology_change" | "auditor_or_regulatory_flag" | "key_mgmt_change"
+  new_disclosure              — "We're now disclosing X for the first time"
+  clarification_on_prior      — "We previously didn't break out X; here's the number"
+  methodology_change          — Management clarifies how they calculate a metric differently
+  auditor_or_regulatory_flag  — SEBI/regulatory action, auditor comments, or legal acts
+  key_mgmt_change             — Management changes / key person risk (CFO departure, new CEO, promoter pledge, etc.)
+
+EXAMPLES (all from THIS call only):
+✓ "We've started disclosing segment EBITDA"
+✓ "We previously didn't break out Retail margins"
+✓ "Our tax calculation changed this year"
+✓ "Our auditor flagged working capital controls"
+✓ "Our CFO is stepping down; new CFO takes over next month"
+
+metric:   yes (KPI abbr) if the disclosure involves a metric
+topic:    yes (short label, e.g. "segment_ebitda_disclosure", "tax_methodology", "cfo_departure")
+measures: if a numeric disclosure, one role=disclosed (value, value_raw, unit, period{start,end})
 details:  trigger ("unsolicited" | "analyst_question" | "inferred_from_data"),
-          management_framing (string — one sentence: how management described/framed this),
-          severity_of_issue ("critical" | "high" | "medium" | "low" — the underlying
-            business issue; this is SEPARATE from the envelope \`severity\`)
+          management_framing (string — one sentence: how management described/framed this)
 
 
 ### SIGNAL TYPE 5: distribution_customer
@@ -251,13 +259,14 @@ miss any stated or strongly implied growth rate with respect to the company's
 own performance.
 
 metric:   yes — KPI abbr for financial metrics (REV, EBITDA, PAT, EPS, ROE, NII, AUM, …).
-          For operational metrics not in AVAILABLE KPIs (stores, capacity, subscribers,
-          order_book), use a short descriptive label or register in new_kpis.
+          For operational metrics (stores, capacity, subscribers, order_book), 
+          use a short descriptive label or register in new_kpis.
 direction: set when qualitative (e.g. "grow", "improve", "expand"); null if numeric measure covers it
 measures: role=growth_rate (value as decimal, 0.15 = 15%; value_raw; unit) — null value if only an absolute figure ;
           role=absolute_target (value; value_raw; unit) — null value if only a growth rate ;
           use period.type="base" for the period being grown FROM and
               period.type="target" for the period being grown TO.
+
 details:  confidence_level ("committed" | "aspirational" | "directional")
             committed    — repeated or formally stated target
             aspirational — stated once as a target
@@ -287,13 +296,14 @@ category: "cash_conversion" | "working_capital" | "one_time_item" | "accounting_
 metric:      yes (the metric affected; KPI abbr)
 description: yes (what is happening and why it matters, max 25 words)
 direction:   "improving" | "deteriorating" | "stable" | "uncertain"   (the trend)
-measures:    role=current (value, value_raw) ; role=prior (value, value_raw)
+measures:    role=current (value, value_raw, unit, period{start, end, type}) ; 
+             role=prior (value, value_raw, unit, period{start, end, type})
 details:     impact_on_reported_earnings ("overstates" | "understates" | "negative" | "positive" | null)
 
 
 ### SIGNAL TYPE 8: kpi
 Use for: Reported numeric financial or operational KPIs — actual numbers for current
-or completed periods. NOT guidance. Just the reported and claimed numbers.
+or completed periods. NOT guidance. Just the reported numbers.
 
 metric:           yes (KPI abbr)
 is_segment_level: true if segment/subsidiary KPI, not consolidated
@@ -301,36 +311,76 @@ segment_name:     segment name if is_segment_level is true
 measures:         role=reported (value, value_raw, unit, multiplier,
                   period{start, end, type="quarterly"|"half_yearly"|"annual"|"ttm"|"snapshot"})
 details:          metric_family ("profitability" | "growth" | "capital" | "asset_quality" |
-                    "customer" | "order_pipeline" | "industry")
+                    "customer" | "order_pipeline" | "industry"),
+                  is_correction (boolean — true if management is correcting an analyst's assumption 
+                                or prior statement; e.g. "Our tax rate is 22%, not 20% as you assumed").
+                  is_hypothetical (boolean — true if the KPI is prefixed with "if", "assuming", "scenario", 
+                                  or other conditional framing; indicates the number is not a stated position 
+                                  but a stress case or illustration),
+                  analyst_assumption_corrected (string | null — the prior assumption mgmt is correcting, 
+                                               if is_correction=true; e.g. "analyst assumed 20% tax rate")
 
 
 ### SIGNAL TYPE 9: mgmt_tone
-Use for: Overall management communication tone. Emit one dominant tone plus any
-notable contrast if tone shifts during the call.
+Use for: The overall sentiment and confidence level in management's commentary. Tone is scored 
+at the *statement level* — each guidance, statement, or outlook receives a tone marker.
 
-category: "confident" | "cautious" | "defensive" | "promotional" | "neutral"   (the dominant tone)
-details:  evidence (string[] — 2–3 verbatim observations supporting the dominant tone),
-          notable_contrast (object | null — null if tone is consistent; if tone shifts:
-            {
-              "exists":            boolean,
-              "primary_tone":      "confident" | "cautious" | "defensive" | "promotional" | "neutral",
-              "contrasting_tone":  "confident" | "cautious" | "defensive" | "promotional" | "neutral",
-              "primary_topic":     string — topic on which dominant tone was observed,
-              "contrasting_topic": string — topic that triggered the tone shift,
-              "statement":         string — verbatim quote best evidencing the contrasting tone
-            })
+Tone scoring is deterministic, not subjective. Apply these markers:
+
+direction: "optimistic" | "cautious" | "defensive" | "neutral"
+
+TONE MARKER RULES:
+
+OPTIMISTIC:
+  Triggers: "confident", "strong", "ahead of", "outpace", "gaining share", "accelerating", 
+           "record", "leading position", "well-positioned", "expect strong", "momentum building"
+  Example: "We expect strong demand recovery and are well-positioned to outpace the market"
+  
+CAUTIOUS:
+  Triggers: "uncertain", "watch", "headwinds", "if", "should", "may", "might", "challenging", 
+           "pressure", "cautious", "moderation expected", "assume", "unless", conditional framing
+  Example: "If cost inflation moderates, we could see margin recovery, but we're watching closely"
+  
+DEFENSIVE:
+  Triggers: "not our control", "external", "not responsible", "forced by", "have no choice", 
+           "blamed on", negating accountability, shifting causality outward
+  Example: "The margin miss was entirely due to external input costs; we did what we could"
+  
+NEUTRAL:
+  No tone markers present, or equal mix of optimistic and cautious phrases.
+  Example: "We delivered 12% growth; we expect 10–12% next year"
+
+SCORING RULE — MIXED TONE:
+  If a single statement contains multiple tone markers (e.g. "We're confident in our strategy 
+  despite near-term headwinds"), assign the tone that *dominates the conclusion or action*.
+  - If the statement ends with a risk/caveat ("...but challenges remain"), use cautious.
+  - If the statement ends with conviction ("...and we're confident"), use optimistic.
+  
+metric:   null
+topic:    null (tone is a property of a statement, not a specific business topic)
+measures: null
+details:  tone_markers (array of strings — the 1–3 specific words/phrases that triggered this 
+                        tone; helps downstream verify the score is justified)
 
 
 ### SIGNAL TYPE 10: analyst_questions
 Use for: Questions asked by analysts only during Q&A.
 
-category: "routine" | "probing" | "challenging"   (the question nature)
-  routine     — asks for a number, update, or explanation with no negative framing
-  probing     — explicitly references a negative trend, concern, or weak data point
-  challenging — directly contradicts a management claim or references a gap between guidance and delivery
+category: "clarification" | "challenge" | "topic_expansion" | "forecast_probe"
+  clarification     — asks for a number, update, or explanation with no negative framing
+  challenge         — directly contradicts a management statement or references a gap between guidance and delivery
+  topic_expansion   — explicitly probes a negative trend, concern, or weak data point
+  forecast_probe    — seeks forward guidance or management outlook detail
+  
 topic:     yes (short label, e.g. "NIM_trajectory", "capex_guidance")
 statement: yes — verbatim question, no paraphrasing
-details:   analyst_firm (string | null)
+details:   analyst_firm (string | null),
+           is_reiteration (boolean — true if the answer repeats a statement from opening_remarks 
+                          or management_presentation verbatim or near-verbatim; indicates 
+                          confirmation, not new information),
+           new_information (boolean — true if management volunteers detail NOT mentioned in 
+                          prior sections; use this to flag analyst_qa signals that materially 
+                          change a prior statement or add material new color)
 
 
 ### SIGNAL TYPE 11: guidance_revision
@@ -338,14 +388,30 @@ Use for: Management walking back, improving, or withdrawing a prior guidance.
 
 category: "walkdown" | "improvement" | "withdrawal"   (the revision nature)
 metric:   yes (KPI abbr — the metric being revised)
-measures: role=prior   (value, period{type}) — the prior guidance ;
-          role=revised (value, period{type}) — omit if withdrawn ;
-          role=actual  (value, period{type}) — omit if not yet reported
-details:  reason (string — verbatim explanation)
+measures: role=revised (value, value_raw, unit, period{start,end,type="guidance"})
+          role=baseline (value, value_raw, unit, period{start,end,type="guidance"} — the prior guided figure, if stated in this call)
+          
+          BASELINE EXTRACTION RULE:
+          - If management states the old target verbatim ("previously guided ₹10,000 Cr, now ₹10,500 Cr"), 
+            emit baseline measure with value and value_raw.
+          - If prior target was a range ("₹9,800–10,000 Cr"), use the midpoint as baseline value 
+            (e.g. value: 9900, value_raw: "₹9,800–10,000 Cr (midpoint)").
+          - If management says "raising guidance" but does not quote the old figure, emit revised only; 
+            do NOT infer or hallucinate a baseline. Set prior_guidance_quoted: false.
+
+details:  reason (string — verbatim explanation),
+          prior_guidance_quoted (boolean — true if management explicitly stated the old/prior 
+                                guidance figure in this call; false if the delta is inferrable 
+                                only from context or prior calls)
 
 
 ### SIGNAL TYPE 12: pricing_power
-Use for: Anything management says about pricing decisions, pass-through, or realization.
+Use for: Everything management says about any prices they chose not to pass forward or absorb or anything they expect to change due to pricing.
+
+EXAMPLES:
+* "We've passed 60% of cost increases to customers"
+* "Pricing realization lagged volume by 200bps"
+* "We expect margin accretion from price increases starting Q3"
 
 measures: role=pass_through (value as decimal 0.60 = 60%, value_raw e.g. "60% of cost increases")
 details:  realization_gap (string | null — gap between volume and price realization),
@@ -353,7 +419,7 @@ details:  realization_gap (string | null — gap between volume and price realiz
 
 
 ### SIGNAL TYPE 13: competitive_position
-Use for: Management commentary on their position relative to competitors.
+Use for: Management commentary on their company position relative to competitors.
 
 category: "pricing_power" | "cost_structure" | "distribution" | "product" | "brand" | "market_share"
 direction: "improving" | "stable" | "declining"
@@ -367,17 +433,37 @@ These are management's statements about their own performance which is already
 finished and achieved — nothing about future goals, targets, or ongoing initiatives.
 All past/past-perfect statements belong here. Nothing ongoing belongs here.
 
+PAST-TENSE DETECTION — STRICT RULES:
+These tenses → milestone:
+  ✓ Simple past: "We grew 12%", "We delivered ₹X Cr", "We launched 50 stores"
+  ✓ Present perfect (recent completion): "We have achieved record margins", "We've added 3 GW"
+  ✓ Past continuous (completed period): "Over FY25, we were scaling infrastructure"
+  ✓ Superlatives with past-completion: "We achieved our best quarter", "Record profitability"
+
+These tenses → guidance or ongoing, NOT milestone:
+  ✗ Present tense (current state, ongoing): "We are adding stores", "We continue to invest"
+     → Use ongoing type.
+  ✗ Future tense: "We will grow", "We expect to deliver", "We plan to achieve"
+     → Use guidance type.
+  ✗ Conditional past: "We could have achieved X if Y" (counterfactual, not actual)
+     → Do NOT extract.
+  ✗ Aspiration: "We want to become", "We aim to be" (without evidence of completion)
+     → Use guidance type (future intent), not milestone.
+
+SELF-CHECK: Does the statement describe something management *did* or something they *stated as already done*? If yes, it's a milestone. Does it describe something they *are doing* or *will do*? 
+Does not belong here.
+
 category: "financial_performance" | "operational_achievement" | "strategic_progress" |
-          "comparative_claim" | "other"
+          "comparative_milestone" | "other"
   financial_performance   — revenue, margins, PAT, ROE reported achievement not captured as kpi
   operational_achievement — capacity added, market share gained, products launched
   strategic_progress      — stated milestone completed
-  comparative_claim       — claim relative to peers, industry, or prior period
+  comparative_milestone   — milestone relative to peers, industry, or prior period
   other
 metric:   yes (KPI abbr)
-measures: one role=claimed per claimed number (value; value_raw; unit;
+measures: one role=milestone per milestone number (value; value_raw; unit;
           period{start, end, type="quarterly"|"annual"|"ttm"|"snapshot"}).
-          If management claims several figures, emit several \`claimed\` measures.
+          If management states several milestone figures, emit several "milestone" measures.
 
 
 ### SIGNAL TYPE 15: ongoing
@@ -442,9 +528,8 @@ severity — risk level:
 6. Conditions must be captured. If guidance is conditional, set details.is_conditional: true
    and capture the full condition text in details.condition.
 
-7. Before completing extraction, review kpi signals for material negatives (GNPA up, NIM
-   compressing, margins declining). If any material negative appears in KPIs but management
-   did not address it, create a disclosure_quality signal with category: "selective_omission".
+7. Tone scoring: Apply the TONE MARKER RULES above. Tone is deterministic—look for the specific 
+   markers (optimistic/cautious/defensive/neutral) and assign based on which dominates the conclusion.
 
 8. Do not extract: boilerplate legal disclaimers, safe harbour language, housekeeping
    announcements, timestamps, or context-free numbers without management commentary.
@@ -503,7 +588,8 @@ No markdown fences. No explanation. JSON only.
       "denomination": "rupee" | "percentage" | "ratio" | "other"
     }
   ]
-}`;
+}
+`;
 
 // ─── Runtime data block ───────────────────────────────────────────────────────
 
