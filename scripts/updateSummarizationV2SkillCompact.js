@@ -52,7 +52,7 @@ const OUTPUT_SCHEMA = {
                   'guidance', 'industry_signal', 'capital_allocation', 'disclosure_quality',
                   'distribution_customer', 'growth_forecast', 'earnings_quality', 'kpi',
                   'mgmt_tone', 'analyst_questions', 'guidance_revision', 'pricing_power',
-                  'competitive_position', 'claim',
+                  'competitive_position', 'milestone', 'ongoing',
                 ],
               },
               impact:           { type: 'string', enum: ['high', 'medium', 'low'] },

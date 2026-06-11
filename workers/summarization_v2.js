@@ -55,19 +55,20 @@ async function getExistingKpisForPrompt(basicIndustry) {
 function extractMetric(sig) {
   switch (sig.signal_type) {
     case 'guidance':              return sig.metric ?? null;
-    case 'claim':                 return sig.metric ?? null;
+    case 'milestone':             return sig.metric ?? null;
+    case 'ongoing':               return sig.metric ?? null;
     case 'industry_signal':       return sig.topic ?? null;
-    case 'capital_allocation':    return sig.allocation_category ?? null;
+    case 'capital_allocation':    return sig.category ?? sig.allocation_category ?? null;
     case 'disclosure_quality':    return sig.topic ?? null;
-    case 'distribution_customer': return sig.segment_or_channel ?? sig.distribution_category ?? null;
-    case 'company_growth_forecast': return sig.forecast_metric ?? null;
-    case 'earnings_quality':      return sig.metric_affected ?? sig.eq_category ?? null;
+    case 'distribution_customer': return sig.topic ?? sig.segment_or_channel ?? null;
+    case 'growth_forecast':       return sig.metric ?? null;
+    case 'earnings_quality':      return sig.metric ?? sig.metric_affected ?? sig.eq_category ?? null;
     case 'kpi':                   return sig.metric ?? null;
     case 'mgmt_tone':             return 'dominant_tone';
-    case 'analyst_questions':     return sig.question_topic ?? null;
-    case 'guidance_revision':     return sig.prior_guidance?.metric ?? sig.revised_guidance?.metric ?? null;
+    case 'analyst_questions':     return sig.topic ?? null;
+    case 'guidance_revision':     return sig.metric ?? null;
     case 'pricing_power':         return 'pricing_realization';
-    case 'competitive_position':  return sig.comparison_dimension ?? null;
+    case 'competitive_position':  return sig.category ?? sig.comparison_dimension ?? null;
     default:                      return sig.metric ?? sig.topic ?? null;
   }
 }

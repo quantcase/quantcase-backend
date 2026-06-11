@@ -103,6 +103,7 @@ details{} — type-specific extras only (open object). Keys are listed per type.
 
 ## DATE FORMATTING RULES
 - All dates must be in YYYY-MM-DD format.
+- When calculating end dates for vague periods, always use CALL DATE as the start point.
 - If a date is vague, resolve it to the LAST DAY of the implied period:
   - "next fiscal year" → last day of next fiscal year based on FISCAL YEAR END
   - "by Q3" → last day of Q3 relative to fiscal year end
@@ -143,9 +144,21 @@ type-specific extras.
 
 
 ### SIGNAL TYPE 1: guidance
-Use for: Any forward-looking statement about the future, made by management only.
-Don't include analyst or third-party future statements. Don't include anything
-already achieved, currently achieved, or already in place.
+Use for: Forward-looking TARGET or COMMITMENT with a future delivery/achievement
+timeline that is NOT yet realised. Management statements only — exclude analyst
+or third-party future statements. Exclude anything already achieved or currently
+in progress (use milestone or ongoing instead).
+
+CHECK TENSE FIRST.
+REJECT: past/past-perfect tense (grew, have grown, has seen, was poised, had grown),
+        patterns like "have/has [verb]ed" or "[verb]ed by X%", completed achievements,
+        historical performance, or statements about what "has happened" / "was happening".
+ACCEPT: future commitments only — will, expect to, targeting, planning to, aiming for,
+        should, is expected to, we believe will.
+
+PRIORITY: quantitative guidance has highest priority. Any forward-looking numeric target,
+range, ratio, capacity, revenue, margin, volume, store count, capex, or similar metric
+must be captured as guidance.
 
 category: "quantitative" | "qualitative_directional" | "timeline_milestone"
   quantitative            — specific number, range, or ratio ("15–16% margins", "₹5,000 Cr revenue")
@@ -232,13 +245,15 @@ measures:  role=scale (value_raw — stated size/target, e.g. "₹500 Cr opportu
 
 ### SIGNAL TYPE 6: growth_forecast
 Use for: Specific growth guidance feeding the earnings model.
-Every numeric and qualitative statement about future growth of company revenue,
-margins, or key metrics must be captured. Priority extraction — do not miss any
-stated or strongly implied growth rate.
+Every numeric AND qualitative statement about future growth of the company's own
+revenue, margins, or key metrics must be captured. Priority extraction — do not
+miss any stated or strongly implied growth rate with respect to the company's
+own performance.
 
 metric:   yes — KPI abbr for financial metrics (REV, EBITDA, PAT, EPS, ROE, NII, AUM, …).
           For operational metrics not in AVAILABLE KPIs (stores, capacity, subscribers,
           order_book), use a short descriptive label or register in new_kpis.
+direction: set when qualitative (e.g. "grow", "improve", "expand"); null if numeric measure covers it
 measures: role=growth_rate (value as decimal, 0.15 = 15%; value_raw; unit) — null value if only an absolute figure ;
           role=absolute_target (value; value_raw; unit) — null value if only a growth rate ;
           use period.type="base" for the period being grown FROM and
@@ -253,21 +268,22 @@ Overlap rule: if a growth_forecast signal is also a guidance signal (same statem
 
 ### SIGNAL TYPE 7: earnings_quality
 Use for: Sustainability and reliability of reported earnings. Capture all statements
-containing numeric and qualitative data regarding the categories below.
+containing numeric or qualitative data regarding the categories below.
 
 category: "cash_conversion" | "working_capital" | "one_time_item" | "accounting_change" |
           "margin_sustainability" | "trend_financial" | "revenue_recognition" |
-          "contingent_liability" | "tax_anomaly" | "balance_sheet_health"
+          "contingent_liability" | "tax_anomaly" | "balance_sheet_health" | "seasonality"
   cash_conversion       — operating cash flow vs. reported profits (OCF/PAT ratio)
   working_capital       — receivables stretch, inventory build, creditor compression
   one_time_item         — exceptional gain or loss distorting headline numbers
-  accounting_change     — policy change, restatement, reclassification
+  accounting_change     — policy change, restatement, reclassification, depreciation/amortisation changes
   margin_sustainability — whether margin expansion is structural or one-time
   trend_financial       — multi-period trend in a key financial metric
   revenue_recognition   — aggressive or conservative topline recognition
   contingent_liability  — off-balance sheet exposure, guarantees, legal claims
   tax_anomaly           — effective tax rate significantly above/below statutory
   balance_sheet_health  — interest coverage, leverage targets, refinancing needs, liquidity
+  seasonality           — any statement capturing change in earnings due to cyclic factors
 metric:      yes (the metric affected; KPI abbr)
 description: yes (what is happening and why it matters, max 25 words)
 direction:   "improving" | "deteriorating" | "stable" | "uncertain"   (the trend)
@@ -345,9 +361,11 @@ details:   relative_to ("peers" | "historical" | "market"),
            evidence_raw (string | null — stated data point, e.g. "gained 150bps in segment X")
 
 
-### SIGNAL TYPE 14: claim
-Use for: Management assertions about already-achieved/past and current achievements.
-These are management's statements about their own performance — nothing about the future.
+### SIGNAL TYPE 14: milestone
+Use for: Management statements about already achieved/completed past performance.
+These are management's statements about their own performance which is already
+finished and achieved — nothing about future goals, targets, or ongoing initiatives.
+All past/past-perfect statements belong here. Nothing ongoing belongs here.
 
 category: "financial_performance" | "operational_achievement" | "strategic_progress" |
           "comparative_claim" | "other"
@@ -360,6 +378,25 @@ metric:   yes (KPI abbr)
 measures: one role=claimed per claimed number (value; value_raw; unit;
           period{start, end, type="quarterly"|"annual"|"ttm"|"snapshot"}).
           If management claims several figures, emit several \`claimed\` measures.
+
+
+### SIGNAL TYPE 15: ongoing
+Use for: Management statements where an initiative is currently underway — not planned,
+not completed. Triggered by "we are", "we continue", "currently", "in the process of".
+May or may not be timebound.
+
+REJECT:
+  ✗ Boilerplate: "We remain committed to excellence", "We focus on value creation"
+  ✗ Future tense: "We will launch", "We expect to deliver" (use guidance instead)
+  ✗ Past tense: "We launched", "We achieved" (use milestone instead)
+
+category: "timebound" | "open_ended"
+  timebound  — initiative has a stated end target or deadline (e.g. "we are adding 300 stores by FY27")
+  open_ended — no stated deadline (e.g. "we continue to invest in AI")
+metric:   yes (the metric or resource being deployed, KPI abbr)
+topic:    yes (short label for the initiative, e.g. "store_expansion", "AI_investment")
+measures: role=scale (value, value_raw, unit — the scope/quantum of the initiative, e.g. "₹800 Cr capex")
+          period: start=null (ongoing), end=stated deadline | null (null if open_ended)
 
 ----------------------
 
@@ -386,10 +423,12 @@ severity — risk level:
 1. Verbatim is non-negotiable. The statement field must be the exact words from the source.
    Never paraphrase, summarize, or reword. If you cannot find the exact quote, do not create the signal.
 
-2. The guidance vs. claim distinction is critical.
-   GUIDANCE = future-facing: "we will", "we expect", "we target", "we aim", "by FY28", "next year"
-   CLAIM    = present/past:  "we achieved", "we delivered", "our margins were", "we grew"
-   When in doubt: if the period hasn't happened yet at call time, it is GUIDANCE.
+2. The guidance / ongoing / milestone distinction is critical. Check tense first.
+   GUIDANCE  = future-facing: "we will", "we expect", "we target", "we aim", "by FY28", "next year"
+   ONGOING   = currently in progress: "we are", "we continue", "currently", "in the process of"
+   MILESTONE = completed/past: "we achieved", "we delivered", "our margins were", "we grew",
+               past/past-perfect tense (grew, have grown, has seen, had grown)
+   When in doubt: future period → guidance; present action → ongoing; past period → milestone.
 
 3. growth_forecast is a priority extraction. Every numeric and qualitative growth statement must appear here.
    If it is also a guidance signal, emit BOTH — they serve different workflows.
@@ -426,7 +465,8 @@ No markdown fences. No explanation. JSON only.
       "signal_type":         "guidance" | "industry_signal" | "capital_allocation" |
                              "disclosure_quality" | "distribution_customer" | "growth_forecast" |
                              "earnings_quality" | "kpi" | "mgmt_tone" | "analyst_questions" |
-                             "guidance_revision" | "pricing_power" | "competitive_position" | "claim",
+                             "guidance_revision" | "pricing_power" | "competitive_position" |
+                             "milestone" | "ongoing",
       "impact":              "high" | "medium" | "low",
       "severity":            "critical" | "high" | "medium" | "low" | "informational",
       "statement":           string | null,
