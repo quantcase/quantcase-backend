@@ -491,6 +491,18 @@ model WealthFeatureStore {
   @@map("wealth_feature_store")
 }
 
+model annual_reports {
+  id                BigInt    @id @default(autoincrement())
+  company           String?
+  document_type     String?
+  fiscal_year       String?
+  call_date         String?
+  annual_report_url String?
+  created_at        DateTime? @db.Timestamp(6)
+
+  @@map("annual_reports")
+}
+
 model investor_presentations_ppt {
   id             String    @id
   company        String?

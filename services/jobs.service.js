@@ -6,8 +6,9 @@ const prisma            = require('../config/prisma');
 const jobQueue          = require('../lib/jobQueue');
 const { ProwessHelper } = require('../utils/prowessHelper');
 
-const V2_PAGES_PER_CHUNK = 15;
-const V2_MAX_CHUNKS      = 4;
+const V2_PAGES_PER_CHUNK    = 15;
+const V2_MAX_CHUNKS         = 4;
+const AR_V2_PAGES_PER_CHUNK = 20;
 
 const STATE_TO_STATUS = {
   waiting:   'pending',
@@ -210,6 +211,45 @@ async function addSummarizationV2PptJobs(callId) {
   return { callId, lineageId, pageCount, chunks: numChunks, jobs };
 }
 
+async function addSummarizationV2AnnualReportJobs(reportId) {
+  const report = await prisma.annual_reports.findUnique({ where: { id: BigInt(reportId) } });
+  if (!report) {
+    const err = new Error('Annual report not found'); err.status = 404; throw err;
+  }
+  if (!report.annual_report_url?.trim()) {
+    const err = new Error('No annual_report_url for this report'); err.status = 400; throw err;
+  }
+
+  const res = await fetch(report.annual_report_url);
+  if (!res.ok) {
+    const err = new Error(`Annual report PDF download failed (${res.status})`); err.status = 502; throw err;
+  }
+  const arrayBuffer = await res.arrayBuffer();
+  const srcDoc      = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const pageCount   = srcDoc.getPageCount();
+
+  const numChunks = Math.max(1, Math.ceil(pageCount / AR_V2_PAGES_PER_CHUNK));
+  const lineageId = randomUUID();
+  const jobs      = [];
+
+  for (let i = 0; i < numChunks; i++) {
+    const pageStart = i * AR_V2_PAGES_PER_CHUNK;
+    const pageEnd   = Math.min(pageStart + AR_V2_PAGES_PER_CHUNK, pageCount);
+    const job = await jobQueue.addJob('summarization_v2_annual_report', {
+      reportId:         reportId.toString(),
+      annualReportUrl:  report.annual_report_url,
+      pageStart,
+      pageEnd,
+      lineageId,
+      chunkIndex:  i + 1,
+      totalChunks: numChunks,
+    });
+    jobs.push({ id: job.id, pages: `${pageStart + 1}-${pageEnd}` });
+  }
+
+  return { reportId: reportId.toString(), lineageId, pageCount, chunks: numChunks, jobs };
+}
+
 module.exports = {
   addSummarizationJob,
   addQeExtractionJob,
@@ -217,5 +257,6 @@ module.exports = {
   addLensComputationJob,
   addSummarizationV2Jobs,
   addSummarizationV2PptJobs,
+  addSummarizationV2AnnualReportJobs,
   findJob,
 };

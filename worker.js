@@ -6,6 +6,7 @@ const prisma     = require('./config/prisma');
 require('./workers/summarization');
 require('./workers/summarization_v2');
 require('./workers/summarization_v2_ppt');
+require('./workers/summarization_v2_annual_report');
 require('./workers/qe');
 require('./workers/wealthos.suggestion');
 require('./workers/wealthos.message');
