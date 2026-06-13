@@ -88,6 +88,7 @@ async function writeSignals(lineageId, reportId, ticker, company, reportMeta, si
     quarter:         null,
     call_date:       reportMeta.call_date   ?? null,
     signal_type:     sig.signal_type        ?? 'unknown',
+    source_doc_type: 'annual_report',
     source_context:  sig.source_context     ?? null,
     source_stmt_id:  sig.source_statement_id ?? null,
     signal_seq_id:   sig.signal_id          ?? null,
@@ -225,8 +226,8 @@ async function processSummarizationV2AnnualReportJob(job) {
 
 const worker = new Worker('summarization_v2_annual_report', processSummarizationV2AnnualReportJob, {
   connection,
-  concurrency: 5,
-  limiter: { max: 10, duration: 1000 },
+  concurrency: 150,
+  limiter: { max: 150, duration: 1000 },
 });
 
 worker.on('completed', job       => console.log(`[${SKILL_SLUG}] Job ${job.id} completed`));

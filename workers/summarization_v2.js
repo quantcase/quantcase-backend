@@ -85,6 +85,7 @@ async function writeSignals(lineageId, callId, ticker, company, callMeta, signal
     quarter:         callMeta.quarter      ?? null,
     call_date:       callMeta.call_date    ?? null,
     signal_type:     sig.signal_type       ?? 'unknown',
+    source_doc_type: 'transcript',
     source_context:  sig.source_context    ?? null,
     source_stmt_id:  sig.source_statement_id ?? null,
     signal_seq_id:   sig.signal_id         ?? null,
@@ -181,8 +182,8 @@ async function processSummarizationV2Job(job) {
 
 const worker = new Worker('summarization_v2', processSummarizationV2Job, {
   connection,
-  concurrency: 10,
-  limiter: { max: 15, duration: 1000 },
+  concurrency: 100,
+  limiter: { max: 100, duration: 1000 },
 });
 
 worker.on('completed', job       => console.log(`[summarization-v2] Job ${job.id} completed`));

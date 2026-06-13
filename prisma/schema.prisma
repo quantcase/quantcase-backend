@@ -118,6 +118,23 @@ model nse_equity {
   @@index([symbol], map: "nse_equity_symbol_idx")
 }
 
+model nse_equity_new {
+  symbol        String    @db.VarChar
+  company_name  String    @db.VarChar
+  datetime      DateTime  @db.Date
+  open          Float?
+  high          Float?
+  low           Float?
+  close         Float?
+  volume        Int?
+  pe            Float?
+  eps           Float?
+  market_cap_cr Float?
+
+  @@id([symbol, datetime], map: "nse_equity_new_pkey")
+  @@map("nse_equity_new")
+}
+
 model nse_index {
   id       Int       @id @default(autoincrement())
   sector   String?
@@ -1095,6 +1112,7 @@ model TranscriptSignalV2 {
   quarter         String?
   call_date       String?
   signal_type     String   // v2 vocab: guidance | claim | industry_signal | capital_allocation | etc.
+  source_doc_type String?  // "transcript" | "ppt" | "annual_report" — which document this signal came from
   source_context  String?  // "opening_remarks" | "management_presentation" | "analyst_qa"
   source_stmt_id  String?  // LLM-assigned source_statement_id (links signals sharing one quote)
   signal_seq_id   String?  // LLM-assigned signal_id within the run
@@ -1117,6 +1135,7 @@ model TranscriptSignalV2 {
   @@index([ticker, signal_type])
   @@index([source_hash])
   @@index([lineage_id])
+  @@index([source_doc_type])
   @@map("transcript_signals_v2")
 }
 

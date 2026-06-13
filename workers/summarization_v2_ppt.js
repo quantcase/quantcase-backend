@@ -81,6 +81,7 @@ async function writeSignals(lineageId, callId, ticker, company, callMeta, signal
     quarter:         callMeta.quarter      ?? null,
     call_date:       callMeta.call_date    ?? null,
     signal_type:     sig.signal_type       ?? 'unknown',
+    source_doc_type: 'ppt',
     source_context:  sig.source_context    ?? null,
     source_stmt_id:  sig.source_statement_id ?? null,
     signal_seq_id:   sig.signal_id         ?? null,
@@ -177,8 +178,8 @@ async function processSummarizationV2PptJob(job) {
 
 const worker = new Worker('summarization_v2_ppt', processSummarizationV2PptJob, {
   connection,
-  concurrency: 10,
-  limiter: { max: 15, duration: 1000 },
+  concurrency: 100,
+  limiter: { max: 100, duration: 1000 },
 });
 
 worker.on('completed', job       => console.log(`[summarization-v2-ppt] Job ${job.id} completed`));
