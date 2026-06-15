@@ -17,45 +17,47 @@
 require('dotenv').config();
 const prisma = require('../../config/prisma');
 
-// const TARGET_TICKERS = [
-//   'NMDC', 'MOIL', 'GRAVITA',
-//   'BAJAJ-AUTO', 'TVSMOTOR', 'EICHERMOT',
-//   'ASIANPAINT', 'BERGEPAINT', 'KANSAINER',
-//   'RELIANCE', 'IOC', 'BPCL',
-//   'HATSUN', 'HERITGFOOD', 'PARAGMILK',
-//   'DABUR', 'GODREJCP', 'COLPAL',
-//   'HDFCAMC', 'NAM-INDIA', 'UTIAMC',
-//   'SBIN', 'BANKBARODA', 'CANBK',
-//   'BAJFINANCE', 'SHRIRAMFIN', 'CHOLAFIN',
-//   'APOLLOHOSP', 'MAXHEALTH', 'FORTIS',
-//   'HAL', 'BEL', 'BDL',
-//   'CUMMINSIND', 'KSB', 'KIRLOSBROS',
-//   'MAZDOCK', 'COCHINSHIP', 'SWANDEF',
-//   'TCS', 'INFY', 'HCLTECH',
-//   'SCI', 'GESHIP', 'TRANSWORLD',
-//   'BHARTIARTL', 'TATACOMM', 'TTML',
-//   'INDUSTOWER', 'HFCL', 'VINDHYATEL',
-//   'TATAPOWER', 'ADANIPOWER', 'TORNTPOWER',
-//   'WABAG', 'IONEXCHANG', 'JITFINFRA'
-// ];
+const TARGET_TICKERS = [
+  'NMDC', 'MOIL', 'GRAVITA',
+  'BAJAJ-AUTO', 'TVSMOTOR', 'EICHERMOT',
+  'ASIANPAINT', 'BERGEPAINT', 'KANSAINER',
+  'RELIANCE', 'IOC', 'BPCL',
+  'HATSUN', 'HERITGFOOD', 'PARAGMILK',
+  'DABUR', 'GODREJCP', 'COLPAL',
+  'HDFCAMC', 'NAM-INDIA', 'UTIAMC',
+  'SBIN', 'BANKBARODA', 'CANBK',
+  'BAJFINANCE', 'SHRIRAMFIN', 'CHOLAFIN',
+  'APOLLOHOSP', 'MAXHEALTH', 'FORTIS',
+  'HAL', 'BEL', 'BDL',
+  'CUMMINSIND', 'KSB', 'KIRLOSBROS',
+  'MAZDOCK', 'COCHINSHIP', 'SWANDEF',
+  'TCS', 'INFY', 'HCLTECH',
+  'SCI', 'GESHIP', 'TRANSWORLD',
+  'BHARTIARTL', 'TATACOMM', 'TTML',
+  'INDUSTOWER', 'HFCL', 'VINDHYATEL',
+  'TATAPOWER', 'ADANIPOWER', 'TORNTPOWER',
+  'WABAG', 'IONEXCHANG', 'JITFINFRA',
+  'HDFCBANK', 'AXISBANK', 'IDBI', 
+  'INDIGOPNTS', 'MSUMI', 'IEX'
+];
 
 // const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT', 'RELIANCE'];
-const TARGET_TICKERS = ['CANBK', 'MSUMI', 'IEX'];
+// const TARGET_TICKERS = ['CANBK', 'MSUMI', 'IEX'];
 // const TARGET_TICKERS = ['IEX'];
 
 const TARGET_LENSES  = [
-  // 'guidance-credibility',
-  // 'disclosure-honesty',
-  // 'capital-allocation',
-  // 'promoter-activity',
-  // 'industry-analysis',
-  // 'financial-strength',
-  // 'customer-distribution',
-  // 'competition',
-  // "earning-quality",
-  // "earnings-forecast",
+  'guidance-credibility',
+  'disclosure-honesty',
+  'capital-allocation',
+  'promoter-activity',
+  'industry-analysis',
+  'financial-strength',
+  'customer-distribution',
+  'competition',
+  "earning-quality",
+  "earnings-forecast",
   "pe-rerating-potential",
-  // "target-price-matrix"
+  "target-price-matrix"
 ];
 
 const args     = process.argv.slice(2);

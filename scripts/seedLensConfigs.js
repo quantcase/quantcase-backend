@@ -23,10 +23,15 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.16.0',
+    version:      '1.17.0',
     config: {
       signal_filters: {
-        signal_types:        ['milestone', 'governance', 'kpi'],
+        // guidance + guidance_revision: forward commitments and revisions — core credibility signal
+        // milestone: past achievements — actuals to compare against guidance targets
+        // ongoing: in-flight initiatives with an end-state target
+        // kpi: financial actuals for milestone period matching
+        // strategic_claim: soft promises that can be tracked over time
+        signal_types:        ['guidance', 'guidance_revision', 'milestone', 'ongoing', 'kpi', 'strategic_claim'],
         include_historical:  true,
       },
       kpi_filter:          'milestone_metrics_only',
@@ -408,10 +413,15 @@ Return a JSON object with this exact structure:
     category:     'management',
     description:  'Discipline in deploying capital — capex returns, debt management, FCF generation',
     force_config: true,
-    version:      '1.1.0',
+    version:      '1.2.0',
     config: {
       signal_filters: {
-        signal_types:      ['kpi', 'financial_health'],
+        // kpi: P&L and balance sheet actuals (EBITDA, CFO, CAPEX, DEBT, ROCE)
+        // financial_figure: reported line items from annual reports (dividends, capex schedules)
+        // capital_allocation: capex plans, M&A deployment, debt management decisions
+        // m_and_a: completed/announced deals and their capital deployed
+        // earnings_quality: exceptional items and one-offs that distort capital returns
+        signal_types:      ['kpi', 'financial_figure', 'capital_allocation', 'm_and_a', 'earnings_quality'],
         metric_family:     ['capital', 'profitability', 'growth', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity'],
         include_historical: true,
       },
@@ -542,10 +552,16 @@ Return a JSON object with this exact structure:
     category:     'management',
     description:  'Transparency and candour of management disclosures — proactive vs defensive communication',
     force_config: true,
-    version:      '1.1.0',
+    version:      '1.2.0',
     config: {
       signal_filters: {
-        signal_types:      ['governance'],
+        // disclosure_quality: auditor remarks, accounting uncertainties, proactive/defensive disclosures
+        // governance_signal: board policy approvals, committee structures, SEBI compliance facts
+        // risk_factor: disclosed business risks with mitigation — reveals how candid management is about downside
+        // contingent_liability: legal/tax disputes — whether surfaced proactively or buried in notes
+        // mgmt_tone: optimism/defensiveness patterns across calls — consistency signal
+        // analyst_questions: what analysts had to pry out signals gaps in voluntary disclosure
+        signal_types:      ['disclosure_quality', 'governance_signal', 'risk_factor', 'contingent_liability', 'mgmt_tone', 'analyst_questions'],
         metric_family:     ['governance'],
         include_historical: true,
       },
@@ -678,10 +694,14 @@ Return a JSON object with this exact structure:
     category:     'management',
     description:  'Promoter shareholding trends, pledging, and insider confidence signals',
     force_config: true,
-    version:      '1.1.0',
+    version:      '1.2.0',
     config: {
       signal_filters: {
-        signal_types:      ['governance'],
+        // governance_signal: shareholding filings, pledge disclosures, insider transactions
+        // disclosure_quality: auditor emphasis of matter on related-party or promoter-level issues
+        // m_and_a: promoter-driven acquisitions / OFS / block deals reveal capital deployment intent
+        // capital_allocation: promoter-backed capex decisions and equity dilution events
+        signal_types:      ['governance_signal', 'disclosure_quality', 'm_and_a', 'capital_allocation'],
         metric_family:     ['governance'],
         include_historical: true,
       },
@@ -789,10 +809,14 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Demand/supply dynamics and structural positioning within the industry',
     force_config: true,
-    version:     '1.1.0',
+    version:     '1.2.0',
     config: {
       signal_filters: {
-        signal_types:  ['kpi', 'industry'],
+        // industry_signal: TAM, sector CAGR, demand/supply environment, macro tailwinds from all peers
+        // kpi: peer financial KPIs for industry aggregate benchmarking
+        // growth_forecast: stated sector/company growth rates and projections
+        // competitive_position: market share and structural positioning signals from peers
+        signal_types:  ['industry_signal', 'kpi', 'growth_forecast', 'competitive_position'],
         metric_family: ['industry', 'growth', 'industry_specific'],
       },
       weights: [
@@ -876,10 +900,15 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Market moat, pricing power, and competitive differentiation vs peers',
     force_config: true,
-    version:     '1.1.0',
+    version:     '1.2.0',
     config: {
       signal_filters: {
-        signal_types:  ['kpi', 'industry'],
+        // competitive_position: moat claims, market share, peer comparison statements
+        // pricing_power: pass-through ability, realization trends, contract structure
+        // industry_signal: structural demand/supply that defines competitive intensity
+        // kpi: financial actuals to measure outperformance vs peers (margins, ROCE)
+        // strategic_claim: management's positioning claims that can be stress-tested vs peers
+        signal_types:  ['competitive_position', 'pricing_power', 'industry_signal', 'kpi', 'strategic_claim'],
         metric_family: ['growth', 'industry', 'profitability', 'industry_specific'],
       },
       weights: [
@@ -1039,10 +1068,15 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Balance sheet strength, FCF generation, and margin quality',
     force_config: true,
-    version:     '1.5.0',
+    version:     '1.6.0',
     config: {
       signal_filters: {
-        signal_types:  ['kpi', 'financial_health'],
+        // kpi: primary source — EBITDA, PAT, CFO, ROCE, NIM, GNPA, DE, all balance sheet metrics
+        // financial_figure: reported annual report line items not captured as KPIs (dividends, capex schedules)
+        // earnings_quality: exceptional items, working capital anomalies that distort reported strength
+        // contingent_liability: off-balance-sheet exposures that affect true financial strength
+        // growth_forecast: revenue/earnings trajectory signals management provides
+        signal_types:  ['kpi', 'financial_figure', 'earnings_quality', 'contingent_liability', 'growth_forecast'],
         metric_family: ['profitability', 'capital', 'growth', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity', 'industry_specific'],
       },
       weights: [
@@ -1169,10 +1203,15 @@ Return a JSON object with this exact structure:
     category:    'opportunity',
     description: 'Client base growth, channel quality, and revenue concentration risk',
     force_config: true,
-    version:     '1.2.0',
+    version:     '1.3.0',
     config: {
       signal_filters: {
-        signal_types:       ['kpi', 'customer', 'milestone'],
+        // distribution_customer: segment revenue mix, customer base, channel reach, retention signals
+        // kpi: customer count KPIs, AUM, order book, revenue per customer metrics
+        // milestone: achieved distribution milestones (outlet count, subscriber additions)
+        // guidance: management targets for customer/channel growth
+        // growth_forecast: stated revenue growth rates by segment
+        signal_types:       ['distribution_customer', 'kpi', 'milestone', 'guidance', 'growth_forecast'],
         metric_family:      ['customer'],
         include_historical: true,
       },
@@ -1257,10 +1296,17 @@ Return a JSON object with this exact structure:
     category:     'deal',
     description:  'Scenario-based earnings forecast — bull/base/bear EPS trajectory driven by revenue growth, margin expansion, and volume-mix dynamics',
     force_config: true,
-    version:      '1.5.0',
+    version:      '1.6.0',
     config: {
       signal_filters: {
-        signal_types:       ['kpi', 'financial_health', 'milestone'],
+        // kpi: historical P&L actuals — the base for all scenario projections
+        // financial_figure: reported annual report financials to anchor multi-year trend
+        // guidance: management's own forward revenue/margin targets inform base case
+        // growth_forecast: stated growth rates and trajectory signals
+        // industry_signal: sector growth CAGR anchors the bull/base/bear industry row
+        // earnings_quality: exceptional items that inflate/deflate the earnings base
+        // capital_allocation: capex plans that affect future depreciation and FCF
+        signal_types:       ['kpi', 'financial_figure', 'guidance', 'growth_forecast', 'industry_signal', 'earnings_quality', 'capital_allocation'],
         metric_family:      ['profitability', 'growth', 'capital', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity'],
         include_historical: true,
       },
@@ -1406,10 +1452,14 @@ Return a JSON object with this exact structure:
     category:     'deal',
     description:  'EPS growth trajectory and quality — company vs industry, beat rate, consistency score, and growth trend over rolling 5-year window',
     force_config: true,
-    version:      '1.4.0',
+    version:      '1.5.0',
     config: {
       signal_filters: {
-        signal_types:       ['kpi', 'financial_health'],
+        // kpi: EPS, PAT, CFO, EBITDA, ROCE — the core earnings quality metrics over time
+        // financial_figure: annual report P&L line items for multi-year trend reconstruction
+        // earnings_quality: exceptional items, working capital distortions, cash conversion signals
+        // growth_forecast: management's own view on earnings trajectory
+        signal_types:       ['kpi', 'financial_figure', 'earnings_quality', 'growth_forecast'],
         metric_family:      ['profitability', 'growth', 'capital', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity'],
         include_historical: true,
       },
@@ -1517,10 +1567,17 @@ Return a JSON object with this exact structure:
     category:     'deal',
     description:  'Likelihood of multiple expansion driven by improving fundamentals, guidance clarity, and sector tailwinds',
     force_config: true,
-    version:      '1.5.0',
+    version:      '1.6.0',
     config: {
       signal_filters: {
-        signal_types:       ['kpi', 'financial_health', 'milestone', 'governance'],
+        // kpi: ROE, ROCE, PAT, EBITDA_MARGIN — the fundamental drivers of multiple expansion
+        // guidance: management's forward targets — credible guidance raises the re-rating case
+        // guidance_revision: upgrades signal positive re-rating; downgrades signal de-rating risk
+        // milestone: delivered commitments validate management credibility → multiple expansion
+        // disclosure_quality: governance quality is a re-rating catalyst (auditor flags = de-rating risk)
+        // industry_signal: sector tailwinds that justify a higher multiple
+        // strategic_claim: positioning claims management uses to argue for a premium multiple
+        signal_types:       ['kpi', 'guidance', 'guidance_revision', 'milestone', 'disclosure_quality', 'industry_signal', 'strategic_claim'],
         metric_family:      ['profitability', 'growth', 'capital', 'governance', 'milestone'],
         include_historical: true,
       },
@@ -1664,10 +1721,17 @@ Return a JSON object with this exact structure:
     category:     'deal',
     description:  '3-year exit price matrix with bull/base/bear target ranges, EPS CAGR, exit P/E, probability-weighted outcome, and risk/reward ratio',
     force_config: true,
-    version:      '1.2.0',
+    version:      '1.3.0',
     config: {
       signal_filters: {
-        signal_types:       ['kpi', 'financial_health', 'milestone', 'governance'],
+        // kpi: EPS, PAT, EBITDA_MARGIN — the inputs to Future EPS × Exit P/E calculation
+        // financial_figure: annual report financials for multi-year EPS base reconstruction
+        // guidance: management's own forward PAT/EPS targets anchor the base-case scenario
+        // guidance_revision: upgrades/downgrades shift scenario probabilities
+        // growth_forecast: revenue and PAT growth rates for the 3Y CAGR waterfall
+        // earnings_quality: exceptional items that inflate the EPS base (must be stripped)
+        // milestone: delivered past targets establish management's track record for scenario weighting
+        signal_types:       ['kpi', 'financial_figure', 'guidance', 'guidance_revision', 'growth_forecast', 'earnings_quality', 'milestone'],
         metric_family:      ['profitability', 'growth', 'milestone', 'governance'],
         include_historical: true,
       },

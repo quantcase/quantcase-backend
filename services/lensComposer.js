@@ -1,7 +1,7 @@
 'use strict';
 
 const prisma = require('../config/prisma');
-const { querySignals } = require('./db/signals.db');
+const { querySignalsV2 } = require('./db/signals.db');
 const { sortLensesByConfig } = require('../lib/insightLenses');
 const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { lensOutputSchema } = require('../outputSchemas/lens');
@@ -327,7 +327,8 @@ function deduplicateSignals(signals) {
 // Fetches entity + industry L1 signals from each peer's latest call (same basic_industry)
 // and formats them as a compact text block for injection into the competition / industry-analysis prompt.
 
-const PEER_SIGNAL_TYPES  = ['entity', 'industry'];
+// V2 equivalents of old 'entity' + 'industry' signal types
+const PEER_SIGNAL_TYPES  = ['industry_signal', 'competitive_position'];
 const PEER_SIGNALS_CAP   = 10; // max signals shown per peer ticker (after filtering)
 const PEER_IMPACT_ORDER  = { high: 0, medium: 1, low: 2 };
 
@@ -354,12 +355,11 @@ async function buildPeerSignalsBlock(callId, subjectTicker) {
   const lines = ['\nPEER L1 SIGNALS (competitor + industry signals from peer earnings calls):'];
 
   for (const [peerTicker, peerCall] of latestByTicker) {
-    const raw = await prisma.extractedSignal.findMany({
+    const raw = await prisma.transcriptSignalV2.findMany({
       where: {
         call_id:        peerCall.id,
         signal_type:    { in: PEER_SIGNAL_TYPES },
         is_invalidated: false,
-        NOT:            { metric: 'person' }, // exclude analyst/presenter names
       },
     });
     if (raw.length === 0) continue;
@@ -374,8 +374,11 @@ async function buildPeerSignalsBlock(callId, subjectTicker) {
 
     lines.push(`\n  [${peerTicker} — ${peerCall.fiscal_year} ${peerCall.quarter}]`);
     for (const s of sorted) {
-      const stmt = s.statement ? ` — "${s.statement}"` : '';
-      lines.push(`    [id=${s.id}] ${s.metric}: ${s.raw_value ?? s.value ?? 'N/A'} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
+      const data    = s.data ?? {};
+      const primary = Array.isArray(data.measures) ? data.measures.find(m => m.value != null) : null;
+      const dispVal = primary?.value_raw ?? (primary?.value != null ? String(primary.value) : 'N/A');
+      const stmt    = s.statement ? ` — "${s.statement}"` : '';
+      lines.push(`    [id=${s.id}] ${s.metric ?? s.signal_type}: ${dispVal} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
     }
   }
 
@@ -413,14 +416,14 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
   // Use only transcript-based call_ids (exclude prowess synthetic ones) so that
   // the fan-out targets the same call_ids that have real L1 signals.
   const allRows = await prisma.$queryRaw`
-    SELECT DISTINCT ON (es.ticker) es.ticker AS company, es.call_id AS id, es.fiscal_year, es.quarter
-    FROM extracted_signals es
-    WHERE es.is_invalidated = false
-      AND es.call_id NOT LIKE 'prowess%'
-      AND es.call_id IN (
+    SELECT DISTINCT ON (sv.ticker) sv.ticker AS company, sv.call_id AS id, sv.fiscal_year, sv.quarter
+    FROM transcript_signals_v2 sv
+    WHERE sv.is_invalidated = false
+      AND sv.call_id NOT LIKE 'prowess%'
+      AND sv.call_id IN (
         SELECT id FROM earnings_calls WHERE basic_industry = ${industry}
       )
-    ORDER BY es.ticker, es.fiscal_year DESC, es.quarter DESC
+    ORDER BY sv.ticker, sv.fiscal_year DESC, sv.quarter DESC
   `;
   const latestCallByTicker = new Map();
   for (const r of allRows) {
@@ -433,12 +436,11 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
 
   const industrySignalLines = ['\nINDUSTRY L1 SIGNALS (all peer earnings calls):'];
   for (const [ticker, peerCall] of latestCallByTicker) {
-    const raw = await prisma.extractedSignal.findMany({
+    const raw = await prisma.transcriptSignalV2.findMany({
       where: {
         call_id:        peerCall.id,
         signal_type:    { in: PEER_SIGNAL_TYPES },
         is_invalidated: false,
-        NOT:            { metric: 'person' },
       },
     });
     if (raw.length === 0) continue;
@@ -450,8 +452,11 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
     }).slice(0, PEER_SIGNALS_CAP);
     industrySignalLines.push(`\n  [${ticker} — ${peerCall.fiscal_year} ${peerCall.quarter}]`);
     for (const s of sorted) {
-      const stmt = s.statement ? ` — "${s.statement}"` : '';
-      industrySignalLines.push(`    [id=${s.id}] ${s.metric}: ${s.raw_value ?? s.value ?? 'N/A'} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
+      const data    = s.data ?? {};
+      const primary = Array.isArray(data.measures) ? data.measures.find(m => m.value != null) : null;
+      const dispVal = primary?.value_raw ?? (primary?.value != null ? String(primary.value) : 'N/A');
+      const stmt    = s.statement ? ` — "${s.statement}"` : '';
+      industrySignalLines.push(`    [id=${s.id}] ${s.metric ?? s.signal_type}: ${dispVal} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
     }
   }
   const peerSignalsBlock = industrySignalLines.length > 1 ? industrySignalLines.join('\n') + '\n' : '';
@@ -593,14 +598,14 @@ async function composeLens(callId, lensSlug) {
 
   const { include_historical, current_call_only_types, ...signalFilters } = filters ?? {};
 
-  const currentSignals = await querySignals({ callId, ...signalFilters });
+  const currentSignals = await querySignalsV2({ callId, ...signalFilters });
 
   let signals = currentSignals;
   if (include_historical) {
     // Resolve ticker from current signals; if none matched the filter, fall back to any signal on this call
     let ticker = currentSignals[0]?.ticker;
     if (!ticker) {
-      const anySignal = await prisma.extractedSignal.findFirst({ where: { call_id: callId, is_invalidated: false } });
+      const anySignal = await prisma.transcriptSignalV2.findFirst({ where: { call_id: callId, is_invalidated: false } });
       ticker = anySignal?.ticker;
     }
     if (ticker) {
@@ -613,7 +618,7 @@ async function composeLens(callId, lensSlug) {
         );
       }
       if (!historicalFilters.signal_types || historicalFilters.signal_types.length > 0) {
-        const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...historicalFilters });
+        const historicalSignals = await querySignalsV2({ ticker, excludeCallId: callId, ...historicalFilters });
         if (historicalSignals.length > 0) {
           console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
           signals = [...currentSignals, ...historicalSignals];

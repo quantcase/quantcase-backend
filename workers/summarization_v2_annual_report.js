@@ -226,8 +226,8 @@ async function processSummarizationV2AnnualReportJob(job) {
 
 const worker = new Worker('summarization_v2_annual_report', processSummarizationV2AnnualReportJob, {
   connection,
-  concurrency: 150,
-  limiter: { max: 150, duration: 1000 },
+  concurrency: 100,
+  limiter: { max: 100, duration: 1000 },
 });
 
 worker.on('completed', job       => console.log(`[${SKILL_SLUG}] Job ${job.id} completed`));

@@ -152,10 +152,173 @@ async function getSignalLineage(lineageId) {
   });
 }
 
+// ─── V2 signal query ──────────────────────────────────────────────────────────
+// Maps TranscriptSignalV2 rows into the flat shape lensComposer.js expects.
+// V2 stores all numeric values inside data.measures[]; we promote the primary
+// measure (first whose value is non-null) to top-level value/raw_value/unit.
+// metric_family comes from data.details.metric_family (kpi signals) or is
+// inferred from the signal_type mapping below.
+
+const V2_TYPE_TO_METRIC_FAMILY = {
+  kpi:                   null,         // comes from data.details.metric_family
+  guidance:              'growth',
+  guidance_revision:     'growth',
+  growth_forecast:       'growth',
+  milestone:             'milestone',
+  ongoing:               'milestone',
+  industry_signal:       'industry',
+  capital_allocation:    'capital',
+  disclosure_quality:    'governance',
+  mgmt_tone:             'management',
+  analyst_questions:     'management',
+  distribution_customer: 'customer',
+  earnings_quality:      'profitability',
+  competitive_position:  'industry',
+  pricing_power:         'industry',
+};
+
+// Primary measure role by signal type — what value to promote to top-level
+const V2_PRIMARY_ROLE = {
+  guidance:              ['guided', 'growth_rate', 'absolute_target', 'value'],
+  guidance_revision:     ['revised', 'value'],
+  growth_forecast:       ['growth_rate', 'absolute_target', 'value'],
+  kpi:                   ['reported', 'current', 'value'],
+  milestone:             ['milestone', 'value'],
+  ongoing:               ['value', 'quantum'],
+  industry_signal:       ['value'],
+  capital_allocation:    ['quantum', 'value'],
+  earnings_quality:      ['current', 'value'],
+  distribution_customer: ['scale', 'value'],
+  competitive_position:  ['value'],
+  pricing_power:         ['pass_through', 'value'],
+};
+
+function pickPrimaryMeasure(data, signalType) {
+  const measures = data?.measures;
+  if (!Array.isArray(measures) || measures.length === 0) return null;
+  const rolePriority = V2_PRIMARY_ROLE[signalType] ?? ['value'];
+  for (const role of rolePriority) {
+    const m = measures.find(m => m.role === role && m.value != null);
+    if (m) return m;
+  }
+  // Fall back to any measure with a numeric value
+  return measures.find(m => m.value != null) ?? null;
+}
+
+function shapeV2Signal(row) {
+  const data        = row.data ?? {};
+  const measures    = Array.isArray(data.measures) ? data.measures : [];
+  const primary     = pickPrimaryMeasure(data, row.signal_type);
+  const metricFamily = row.signal_type === 'kpi'
+    ? (data.details?.metric_family ?? null)
+    : (V2_TYPE_TO_METRIC_FAMILY[row.signal_type] ?? null);
+
+  // Resolve period dates from the primary measure's period or from guidance details
+  const period     = primary?.period ?? data.details?.period ?? {};
+  const startDate  = period.start ?? data.details?.start_date ?? null;
+  const endDate    = period.end   ?? data.details?.end_date   ?? data.details?.target_date ?? null;
+  const periodType = period.type  ?? null;
+  const timeHorizon = data.details?.time_horizon ?? data.horizon ?? null;
+
+  return {
+    // identity
+    id:            row.id,
+    call_id:       row.call_id,
+    ticker:        row.ticker,
+    fiscal_year:   row.fiscal_year,
+    quarter:       row.quarter,
+    call_date:     row.call_date,
+    // signal classification
+    signal_type:   row.signal_type,
+    metric:        row.metric,
+    metric_family: metricFamily,
+    impact:        row.impact,
+    severity:      row.severity,
+    // promoted numeric fields
+    value:         primary?.value   ?? null,
+    raw_value:     primary?.value_raw ?? (primary?.value != null ? String(primary.value) : null),
+    unit:          primary?.unit    ?? null,
+    multiplier:    primary?.multiplier ?? 1,
+    // provenance (mapped from V2 cols)
+    source_type:   row.source_doc_type ?? 'transcript', // "transcript"|"ppt"|"annual_report"
+    source_doc_type: row.source_doc_type ?? null,
+    source_context:  row.source_context ?? null,
+    // date range
+    start_date:    startDate,
+    end_date:      endDate,
+    period_type:   periodType,
+    time_horizon:  timeHorizon,
+    // text
+    statement:     row.statement,
+    // scoring defaults (V2 has no w/b/confidence columns — use safe defaults)
+    w:             1.0,
+    b:             0.0,
+    confidence:    0.7,
+    // raw V2 payload (kept for debugging / prompt context)
+    data:          data,
+    measures:      measures,
+  };
+}
+
+/**
+ * Query signals from the V2 Signal Store (TranscriptSignalV2) with flexible filtering.
+ * Returns rows shaped to match the flat format that lensComposer.js expects
+ * (same fields as ExtractedSignal: value, raw_value, unit, metric_family, source_type, etc.).
+ *
+ * @param {object} filters
+ * @param {string}   [filters.callId]
+ * @param {string}   [filters.ticker]
+ * @param {string}   [filters.excludeCallId]
+ * @param {string[]} [filters.signal_types]   Array of V2 signal_type values
+ * @param {string[]} [filters.signalTypes]    Alias for signal_types (backward compat)
+ * @param {string|string[]} [filters.metric_family]  Filter by metric_family (derived on read)
+ * @param {string[]} [filters.source_doc_types]      Filter by source_doc_type ("transcript"|"ppt"|"annual_report")
+ * @param {boolean}  [filters.includeInvalidated]
+ * @returns {Promise<object[]>}
+ */
+async function querySignalsV2(filters = {}) {
+  const where = {};
+
+  if (filters.callId)        where.call_id = filters.callId;
+  if (filters.ticker)        where.ticker  = filters.ticker;
+  if (filters.excludeCallId) where.call_id = { not: filters.excludeCallId };
+
+  const signalTypeArr = filters.signal_types ?? filters.signalTypes;
+  if (signalTypeArr && signalTypeArr.length > 0) {
+    where.signal_type = { in: signalTypeArr };
+  }
+
+  if (filters.source_doc_types && filters.source_doc_types.length > 0) {
+    where.source_doc_type = { in: filters.source_doc_types };
+  }
+
+  if (!filters.includeInvalidated) {
+    where.is_invalidated = false;
+  }
+
+  const rows = await prisma.transcriptSignalV2.findMany({
+    where,
+    orderBy: [{ call_date: 'desc' }, { created_at: 'desc' }],
+  });
+
+  const shaped = rows.map(shapeV2Signal);
+
+  // Apply metric_family post-filter (derived during shaping, not a DB column)
+  const mf = filters.metric_family ?? filters.metricFamily;
+  if (mf) {
+    const mfSet = new Set(Array.isArray(mf) ? mf : [mf]);
+    return shaped.filter(s => s.metric_family && mfSet.has(s.metric_family));
+  }
+
+  return shaped;
+}
+
 module.exports = {
   writeSignals,
   cacheHit,
   querySignals,
+  querySignalsV2,
+  shapeV2Signal,
   invalidateBySourceHash,
   invalidateByPromptVersion,
   invalidateByCallId,
