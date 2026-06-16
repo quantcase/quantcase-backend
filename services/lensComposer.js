@@ -8,6 +8,7 @@ const { lensOutputSchema } = require('../outputSchemas/lens');
 const { computeSourceHash } = require('../utils/sourceHash');
 const { fetchPeerMetrics, formatPeerMetricsBlock, fetchEquityMetrics, formatEquityMetricsBlock } = require('./peerMetrics');
 const prowess = require('../lib/prowess');
+const { JSON_OUTPUT_CONTRACT } = require('../prompts/jsonOutputContract');
 
 const PEER_LENS_SLUGS = new Set(['competition']);
 
@@ -264,65 +265,6 @@ function buildSignalSummary(lensName, signals, mathResult, balance, prefilter, o
   return lines.join('\n');
 }
 
-// ─── end_date → fiscal period mapping ────────────────────────────────────────
-// Maps any calendar date to the Indian fiscal quarter it falls in.
-// FY convention: FY2026 = Apr 2025 – Mar 2026 (Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar)
-function endDateToFiscalPeriod(endDate) {
-  const d    = new Date(endDate);
-  const mon  = d.getMonth() + 1; // 1–12
-  const year = d.getFullYear();
-  if (mon <= 3) return { fy: `FY${year}`,     quarter: 'Q4' }; // Jan–Mar
-  if (mon <= 6) return { fy: `FY${year + 1}`, quarter: 'Q1' }; // Apr–Jun
-  if (mon <= 9) return { fy: `FY${year + 1}`, quarter: 'Q2' }; // Jul–Sep
-  return             { fy: `FY${year + 1}`, quarter: 'Q3' };   // Oct–Dec
-}
-
-// Returns the UTC last day of the quarter AFTER the call's own quarter.
-// A milestone with end_date <= this value is either a same-quarter disclosure (Tier 3)
-// or a single-quarter-ahead near-term update — neither is a meaningful multi-period commitment.
-// Using the following quarter's last day (not the call quarter's) avoids exact-boundary
-// timezone issues and trims low-value single-step guidance in one step.
-// Indian FY: Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar.
-// Examples: call=FY2026 Q2 → cutoff = Dec 31 2025 (Q3 last day)
-//           call=FY2026 Q4 → cutoff = Jun 30 2026 (Q1 FY2027 last day)
-function milestoneExclusionCutoff(fiscalYear, quarter) {
-  const fy = parseInt((fiscalYear ?? '').replace('FY', ''));
-  if (!fy || !quarter) return null;
-  // Advance one quarter, carrying FY forward at Q4→Q1 boundary
-  const NEXT_Q = { Q1: 'Q2', Q2: 'Q3', Q3: 'Q4', Q4: 'Q1' };
-  const nextQ  = NEXT_Q[quarter];
-  if (!nextQ) return null;
-  const nextFY = (quarter === 'Q4') ? fy + 1 : fy;
-  const calYear = (nextQ === 'Q4') ? nextFY : nextFY - 1;
-  if (nextQ === 'Q1') return new Date(Date.UTC(calYear, 5,  30)); // Jun 30
-  if (nextQ === 'Q2') return new Date(Date.UTC(calYear, 8,  30)); // Sep 30
-  if (nextQ === 'Q3') return new Date(Date.UTC(calYear, 11, 31)); // Dec 31
-  if (nextQ === 'Q4') return new Date(Date.UTC(calYear, 2,  31)); // Mar 31
-  return null;
-}
-
-// ─── Source priority deduplication ───────────────────────────────────────────
-// When the same metric/period appears from multiple sources, keep the most
-// authoritative one. prowess = audited financials > qe = interim PDF > transcript = LLM extract.
-
-const SOURCE_PRIORITY = { prowess: 0, qe: 1, transcript: 2 };
-
-function deduplicateSignals(signals) {
-  const best = new Map();
-  for (const sig of signals) {
-    const key = `${sig.metric}|${sig.fiscal_year ?? ''}|${sig.quarter ?? ''}|${sig.start_date ?? ''}|${sig.end_date ?? ''}`;
-    const existing = best.get(key);
-    if (!existing) {
-      best.set(key, sig);
-    } else {
-      const existingPrio = SOURCE_PRIORITY[existing.source_type] ?? 99;
-      const sigPrio      = SOURCE_PRIORITY[sig.source_type]      ?? 99;
-      if (sigPrio < existingPrio) best.set(key, sig);
-    }
-  }
-  return [...best.values()];
-}
-
 // ─── buildPeerSignalsBlock ────────────────────────────────────────────────────
 // Fetches entity + industry L1 signals from each peer's latest call (same basic_industry)
 // and formats them as a compact text block for injection into the competition / industry-analysis prompt.
@@ -509,7 +451,7 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
     lensResult = parseJson(responseText);
   } catch (e) {
     console.error(`[lensComposer] Failed to parse industry LLM response for "${lensSlug}":`, e.message);
-    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [] };
+    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [], patterns: [] };
   }
 
   const numericScore = typeof lensResult.score === 'number' ? lensResult.score / 100 : 0;
@@ -590,11 +532,8 @@ async function composeLens(callId, lensSlug) {
 
   const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
           model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
-          balance: cfgBalance, prefilter: cfgPrefilter, kpi_filter: cfgKpiFilter,
-          milestone_prefilter: cfgMilestonePrefilter,
-          governance_metric_allowlist: cfgGovernanceMetricAllowlist,
+          balance: cfgBalance, prefilter: cfgPrefilter,
           show_math_block: cfgShowMathBlock } = lensConfig.config;
-
 
   const { include_historical, current_call_only_types, ...signalFilters } = filters ?? {};
 
@@ -602,103 +541,30 @@ async function composeLens(callId, lensSlug) {
 
   let signals = currentSignals;
   if (include_historical) {
-    // Resolve ticker from current signals; if none matched the filter, fall back to any signal on this call
     let ticker = currentSignals[0]?.ticker;
     if (!ticker) {
       const anySignal = await prisma.transcriptSignalV2.findFirst({ where: { call_id: callId, is_invalidated: false } });
       ticker = anySignal?.ticker;
     }
     if (ticker) {
-      // current_call_only_types are excluded from the historical query (e.g. 'kpi' prowess data
-      // spans all periods — only the current call's kpis are relevant for guidance tracking)
-      const historicalFilters = { ...signalFilters };
-      if (current_call_only_types?.length > 0 && historicalFilters.signal_types) {
-        historicalFilters.signal_types = historicalFilters.signal_types.filter(
-          t => !current_call_only_types.includes(t)
-        );
-      }
-      if (!historicalFilters.signal_types || historicalFilters.signal_types.length > 0) {
-        const historicalSignals = await querySignalsV2({ ticker, excludeCallId: callId, ...historicalFilters });
-        if (historicalSignals.length > 0) {
-          console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
-          signals = [...currentSignals, ...historicalSignals];
-        }
+      const historicalSignals = await querySignalsV2({ ticker, excludeCallId: callId, ...signalFilters });
+      if (historicalSignals.length > 0) {
+        console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
+        signals = [...currentSignals, ...historicalSignals];
       }
     }
   }
 
-  const deduped = deduplicateSignals(signals);
-  if (deduped.length < signals.length) {
-    console.log(`[lensComposer] "${lensSlug}" — dropped ${signals.length - deduped.length} duplicate signals (prowess > qe > transcript)`);
-  }
-  signals = deduped;
-
-  // Milestone pre-filter: drop milestones that are not forward-looking commitments.
-  // "trackable_forward_only" keeps only milestones that have:
-  //   (a) end_date strictly after the signal's own call-quarter last day (true forward guidance), OR
-  //   (b) time_horizon set but no end_date (soft forward commitment, no hard deadline).
-  // Drops: pure disclosure milestones (no end_date, no time_horizon) and same-quarter snapshots (Tier 3).
-  // Runs BEFORE kpi_filter so the reduced milestone set also trims which KPI actuals are pulled in.
-  if (cfgMilestonePrefilter === 'trackable_forward_only') {
-    const msBefore = signals.filter(s => s.signal_type === 'milestone').length;
-    const totalBefore = signals.length;
-    signals = signals.filter(s => {
-      if (s.signal_type !== 'milestone') return true;
-      if (s.end_date == null && s.time_horizon == null) return false;
-      if (s.end_date != null) {
-        const lastDay = milestoneExclusionCutoff(s.fiscal_year, s.quarter);
-        if (lastDay && new Date(s.end_date) <= lastDay) return false;
-      }
-      return true;
-    });
-    const msAfter = signals.filter(s => s.signal_type === 'milestone').length;
-    console.log(`[lensComposer] "${lensSlug}" milestone_prefilter=trackable_forward_only — milestones ${msBefore} → ${msAfter}, total ${totalBefore} → ${signals.length}`);
-  }
-
-  // Governance metric allowlist: drop governance signals whose metric is not in the approved list.
-  // Keeps signal_types intact for other lenses — only activates when the config key is present.
-  if (cfgGovernanceMetricAllowlist?.length > 0) {
-    const allowSet = new Set(cfgGovernanceMetricAllowlist.map(m => m.toUpperCase()));
-    const govBefore = signals.filter(s => s.signal_type === 'governance').length;
-    signals = signals.filter(s => s.signal_type !== 'governance' || allowSet.has((s.metric ?? '').toUpperCase()));
-    const govAfter = signals.filter(s => s.signal_type === 'governance').length;
-    if (govBefore !== govAfter) {
-      console.log(`[lensComposer] "${lensSlug}" governance_metric_allowlist — dropped ${govBefore - govAfter} governance signals`);
-    }
-  }
-
-  // After dedup: surgical KPI filter.
-  // - Transcript KPIs: keep all whose metric appears in any milestone signal.
-  // - Prowess KPIs:    keep only where (metric, fiscal_year, quarter) matches a milestone end_date period.
-  //   This gives exact actuals for the quarter management was targeting — no historical sprawl.
-  if (cfgKpiFilter === 'milestone_metrics_only') {
-    const milestoneSignals = signals.filter(s => s.signal_type === 'milestone');
-    const milestoneMetrics = new Set(milestoneSignals.map(s => s.metric));
-
-    // Build set of "METRIC|FY2025|Q4" keys from milestone end_dates for surgical prowess matching
-    const milestoneEndPeriods = new Set();
-    for (const m of milestoneSignals) {
-      if (!m.end_date || !m.metric) continue;
-      const { fy, quarter } = endDateToFiscalPeriod(m.end_date);
-      if (fy && quarter) milestoneEndPeriods.add(`${m.metric}|${fy}|${quarter}`);
-    }
-
-    const before = signals.length;
-    signals = signals.filter(s => {
-      if (s.signal_type !== 'kpi') return true;                         // non-KPI: unchanged
-      if (!milestoneMetrics.has(s.metric)) return false;               // metric not in milestones: drop
-      if (s.source_type !== 'prowess') return true;                    // transcript/qe KPI: keep all
-      // prowess KPI: only keep if its period matches a milestone end_date
-      return milestoneEndPeriods.has(`${s.metric}|${s.fiscal_year}|${s.quarter}`);
-    });
-
-    console.log(`[lensComposer] "${lensSlug}" kpi_filter=milestone_metrics_only — kept ${signals.length} / ${before} KPI signals (transcript: all matching, prowess: end_date-period only)`);
+  const SIGNAL_CAP = 3000;
+  if (signals.length > SIGNAL_CAP) {
+    console.log(`[lensComposer] "${lensSlug}" — capping signals ${signals.length} → ${SIGNAL_CAP} (current call first)`);
+    signals = [...currentSignals, ...signals.filter(s => s.call_id !== callId)].slice(0, SIGNAL_CAP);
   }
 
   if (signals.length === 0) {
     const empty = {
       score: null, status: 'WEAK', takeaway: 'No signals available for this lens.',
-      key_metrics: {}, highlights: [], risks: [], top_signals: [],
+      key_metrics: {}, highlights: [], risks: [], top_signals: [], patterns: [],
       z_score: 0, confidence_lo: 0, confidence_hi: 0, signal_count: 0, signals_snapshot: [],
     };
     await prisma.lensScore.upsert({
@@ -749,7 +615,7 @@ async function composeLens(callId, lensSlug) {
     where: { call_id_lens_slug: { call_id: callId, lens_slug: lensSlug } },
   });
   const cachedLensData = existing?.lens_data;
-  const hasCachedTopSignals = Array.isArray(cachedLensData?.top_signals);
+  const hasCachedTopSignals = Array.isArray(cachedLensData?.top_signals) && Array.isArray(cachedLensData?.patterns);
   if (existing && existing.signals_hash === signalsHash && existing.lens_config_v === lensConfig.version && !existing.is_stale && cachedLensData && hasCachedTopSignals) {
     console.log(`[lensComposer] Cache hit for ${lensSlug}/${callId} — signals_hash match, skipping L2 LLM`);
     return { ...cachedLensData, z_score: existing.z_score, signals_snapshot: existing.signals_snapshot };
@@ -782,10 +648,14 @@ async function composeLens(callId, lensSlug) {
   const em = await fetchEquityMetrics(callId);
   const equityBlock = formatEquityMetricsBlock(em);
 
-  const prompt = promptTemplate
+  const cfgBridgePrompt = lensConfig.config.bridge_prompt ?? false;
+
+  let prompt = promptTemplate
     .replace('{{LENS_NAME}}', lensConfig.name)
     .replace('{{LENS_INSTRUCTIONS}}', lensInstructions)
     .replace('{{DATA_BLOCK}}', signalSummary + shareholdingBlock + peerBlock + equityBlock);
+
+  if (cfgBridgePrompt) prompt += JSON_OUTPUT_CONTRACT;
 
   const model          = cfgModel     ?? 'anthropic/claude-haiku-4.5';
   const maxTokens      = cfgMaxTokens ?? 8000;
@@ -805,7 +675,7 @@ async function composeLens(callId, lensSlug) {
     lensResult = parseJson(responseText);
   } catch (e) {
     console.error(`[lensComposer] Failed to parse L2 LLM response for "${lensSlug}":`, e.message);
-    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [] };
+    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [], patterns: [] };
   }
 
   // Normalize the score from 0-100 to a z_score; prefer math z_score if LLM score absent
@@ -927,6 +797,7 @@ async function getLensesByCategory(callId, category) {
       highlights:   ld.highlights   ?? [],
       risks:        ld.risks        ?? [],
       top_signals:  ld.top_signals  ?? [],
+      patterns:     ld.patterns     ?? [],
       z_score:      ls?.z_score     ?? null,
       signal_count: ls?.signal_count ?? 0,
       computed_at:  ls?.computed_at  ?? null,

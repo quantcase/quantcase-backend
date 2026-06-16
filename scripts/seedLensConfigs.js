@@ -23,7 +23,7 @@ const LENS_CONFIGS = [
     category:     'management',
     description:  'How consistently management delivers on its forward-looking promises',
     force_config: true,
-    version:      '1.17.0',
+    version:      '2.0.0',
     config: {
       signal_filters: {
         // guidance + guidance_revision: forward commitments and revisions — core credibility signal
@@ -31,16 +31,11 @@ const LENS_CONFIGS = [
         // ongoing: in-flight initiatives with an end-state target
         // kpi: financial actuals for milestone period matching
         // strategic_claim: soft promises that can be tracked over time
-        signal_types:        ['guidance', 'guidance_revision', 'milestone', 'ongoing', 'kpi', 'strategic_claim'],
+        // mgmt_tone: sentiment per quarter — needed for tone_divergence pattern
+        // analyst_questions: Q&A clustering — needed for narrative_gap + street_pressure patterns
+        signal_types:        ['guidance', 'guidance_revision', 'milestone', 'ongoing', 'kpi', 'strategic_claim', 'mgmt_tone', 'analyst_questions'],
         include_historical:  true,
       },
-      kpi_filter:          'milestone_metrics_only',
-      milestone_prefilter: 'trackable_forward_only',
-      prefilter:           { milestone: 'trackable_only' },
-      governance_metric_allowlist: [
-        'GUIDANCE_GIVEN', 'GUIDANCE_MISSED',
-        'PROACTIVE_DISCLOSURE', 'TRANSPARENT', 'DEFENSIVE_LANGUAGE',
-      ],
       show_math_block: false,
       weights: [
         { metric: 'guidance_given',       w: 0.5 },
@@ -51,358 +46,348 @@ const LENS_CONFIGS = [
       balance:         { default: 9999 },
       model:           HAIKU,
       max_tokens:      32000,
-      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts and management commentary using a rigorous L1 extraction pipeline.
+      bridge_prompt: true,
+      prompt_template: `# Management Credibility Skill
 
-Your task is to synthesise this signal summary into a structured guidance-credibility view. Do NOT invent data — work only from the signals provided.
+**Purpose:** Synthesize L1 signals from earnings transcripts, investor PPTs, and annual reports to surface management credibility patterns, strategic pivots, narrative inflation, and guidance execution track record. Extract the edge signal: what management is emphasizing that analysts haven't yet caught.
 
-TODAY'S DATE: 2026-06-04
-
----
-
-STEP 1 — READ THE L1 SIGNALS CAREFULLY BEFORE WRITING ANYTHING
-
-Each signal in the DATA_BLOCK contains at minimum:
-  - announcement_date:     the quarter management made this statement (e.g. "Q3 FY22") — WHEN the commitment was made
-  - value_at_announcement: the actual metric value at the time management made the statement (what things looked like when they said it)
-  - value_targeted:        the number management committed to achieving
-  - target_date:           the deadline they set for achieving the target (e.g. Q4 FY25) — WHEN it must be achieved by
-  - actual_value:          the number actually reported for that same deadline period (null if not yet reported)
-  - actual_date:           the period the actual result belongs to
-
-announcement_date and target_date are TWO DIFFERENT FIELDS and can be years apart.
-  - announcement_date = Q3 FY22 (management spoke on this date)
-  - target_date       = Q4 FY25 (management said this target will be met by this date)
-  Read both independently. Never confuse them.
-
-actual_value and value_targeted are also TWO DIFFERENT FIELDS and will frequently differ.
-  Do NOT copy value_targeted into actual_value. Read each field independently from the signal.
-
-If actual_value is null → period not yet reported → direction = "tracking".
-If actual_value is non-null → use it exactly to compute delta and direction.
+**When to use:** Whenever you have timebound guidance from management commentary, PPT actuals data, and multiple quarters of signals. Always trigger on requests like:
+- "What's management actually saying vs. what happened?"
+- "Where is management deflecting?"
+- "What patterns emerge across quarters?"
+- "Is this narrative inflation?"
+- "Guidance track record for [company]?"
+- "What's the drumbeat vs. analyst focus?"
 
 ---
 
-STEP 2 — COMPUTE DELTA FOR EVERY RESOLVED EVENT
+## Input Requirements
 
-delta = actual_value − value_targeted
+**You need all three:**
 
-This number will frequently be non-zero. A flat delta (delta = 0) should be rare — only when actual literally equals the target to the digit. If you are producing mostly flat deltas, you are echoing value_targeted as actual_value — stop and re-read the signals.
+1. **L1 Guidance Signals** from earnings transcripts
+   - \`guidance_timebound\`: Quantified targets with explicit dates ("Q3 FY25", "end of FY26")
+   - \`ongoing_timebound\`: Multi-quarter or ongoing initiatives management references repeatedly
+   - \`mgmt_tone\`: Sentiment classification (bullish/neutral/cautious) for each quarter
+   - Analyst question clusters + density (where the 100+ questions point)
 
-DELTA RULES:
-- Populate delta ONLY when target_date ≤ 2026-06-04 AND actual_value is confirmed non-null
-- If target_date > 2026-06-04: OMIT delta and delta_pct entirely (do not include these fields)
-- delta_pct = (delta / value_targeted) × 100, rounded to 1 decimal place
+2. **L1 Actuals from PPTs**
+   - Historical financial metrics (Revenue, PAT, Capex, EBITDA margins, volumes, store counts, etc.)
+   - Milestone achievements (factory commissioning, product launches, capacity additions)
+   - Each record has a unique Signal ID for traceability
 
----
-
-STEP 3 — DIRECTION TAGGING (strictly enforced)
-
-1. target_date > 2026-06-04 → direction = "tracking" regardless of anything else
-2. target_date ≤ 2026-06-04 AND actual_value is null → direction = "tracking"
-3. target_date ≤ 2026-06-04 AND actual_value is confirmed:
-   - delta_pct > +2%  → direction = "beat"
-   - delta_pct < −2%  → direction = "miss"
-   - −2% ≤ delta_pct ≤ +2% → direction = "in_line"
-
-direction must NEVER be null. Every timeline signal must be one of: beat / miss / in_line / tracking.
+3. **Cross-Quarter Signal Archive**
+   - Same metric tracked across 4+ consecutive quarters
+   - Keyword/phrase frequency by quarter (enables drumbeat + emergence detection)
+   - Management narrative text (verbatim quotes from each earnings call)
 
 ---
 
-STEP 4 — PERIOD-MATCHING (strictly enforced)
+## Core Analysis Pattern: Shape → Sentence → Evidence
 
-The actual_value used to evaluate any guidance event MUST come from the EXACT same period as target_date.
-- "15% loan growth by Q3 FY25" → only Q3 FY25 actuals count. Not Q4 FY25, not FY25 full year.
-- "NIM of 4.2% for FY25" → only full-year FY25 actuals count. Not Q4 FY25.
-- If the exact period's actual is not in the signals → actual_value = null → direction = "tracking"
-- Never substitute or approximate from a nearby period.
+**Every insight follows this three-layer structure:**
 
----
+1. **Shape** (Sparkline/Delta)
+   Visual representation of the change over time. Show *what moved*, not absolute levels.
 
-STEP 5 — REVISION TRACKING (same metric, multiple commitments)
+2. **Sentence** (One-line causal claim)
+   Plain language label of the pattern. Always lead with the delta.
+   Examples: "Silent for six quarters, now rising." "Bullish tone while KPI decelerates."
 
-Management often guides the same metric multiple times across different quarters, sometimes revising targets up or down. Each distinct commitment is a SEPARATE row — do not collapse them.
+3. **Evidence** (Tap-to-verify)
+   Exact quotes, dates, numbers, and Signal IDs. User can drill to source in one tap.
 
-Example: NIM guided on Q3 FY22 (target: 4.5% by FY25) and then revised on Q2 FY24 (target: 4.2% by FY25) → emit both rows. This lets the reader see the original commitment, the revision, and what actually happened.
-
-Deduplication rule: only collapse if announcement_date, metric, AND target_date are all identical.
-
-How to label revisions in the statement:
-- Original commitment: write normally
-- Revised commitment: start with "Revised guidance:" so the reader can see it was a change
+**Goal:** Glance in 2 seconds, read in 10, verify if they want.
 
 ---
 
-STEP 6 — DEDUPLICATION
+## Six Pattern Types to Extract
 
-Same metric + different target_date = SEPARATE rows. Always.
-Same metric + same target_date but different announcement_date = SEPARATE rows (revision).
-Only collapse if metric, target_date, AND announcement_date are all truly identical.
+### 1. **Drumbeat** (Theme Loudness Trajectory)
 
----
+**Definition:** A strategic theme gaining or losing management emphasis across quarters.
 
-STEP 7 — LIFECYCLE CLASSIFICATION (encoded in the direction field)
+**How to detect:**
+- Count keyword/phrase frequency across quarters (e.g., "data centre" mentions Q1→Q2→Q3→Q4)
+- Plot as frequency timeline
+- Identify inflection points (steep rise = new priority; collapse = deprioritized)
 
-The "direction" field carries both the numeric outcome AND the management behaviour signal.
-Extended direction values for guidance-credibility timeline rows:
+**Why it matters:** Strategic pivots often surface in language *before* financials reflect them.
 
-  "beat"
-    — Promise made, target_date passed, actual_value exceeded value_targeted (+2% or more)
-    — Management acknowledged the delivery in a subsequent call
-
-  "in_line"
-    — Promise made, target_date passed, actual_value within ±2% of value_targeted
-    — Management acknowledged the outcome
-
-  "miss"
-    — Promise made, target_date passed, actual_value fell short by more than 2%
-    — Management acknowledged the shortfall, revised the target, or explained the gap in a subsequent call
-    (Most honest failure mode — credit-worthy for transparency even though they missed)
-
-  "promise_silently_dropped"  ← NEW extended value
-    — Promise made, target_date has passed
-    — actual_value fell short OR no actual was ever reported
-    — No later signal shows management revisiting, revising, or acknowledging this commitment
-    — Management simply stopped talking about it
-    MOST DAMAGING pattern — use this instead of "miss" when the failure was never acknowledged.
-    Always add a note in the statement field: "No subsequent acknowledgment found."
-
-  "tracking"
-    — Promise made, target_date has NOT yet passed (after 2026-06-07)
-    — Still live, outcome not yet assessable
-
-DECISION TREE for direction assignment:
-  1. target_date > 2026-06-07                          → "tracking"
-  2. target_date ≤ 2026-06-07 AND actual confirmed:
-       delta_pct > +2%                                 → "beat"
-       -2% ≤ delta_pct ≤ +2%                           → "in_line"
-       delta_pct < -2% AND acknowledged by management  → "miss"
-       delta_pct < -2% AND NOT acknowledged            → "promise_silently_dropped"
-  3. target_date ≤ 2026-06-07 AND no actual found:
-       subsequent signal acknowledges / revises        → "miss"
-       no acknowledgment found                         → "promise_silently_dropped"
+**Output format:**
+- **Shape:** Sparkline of mention frequency (0, 1, 2, 5, 8, 12 mentions/quarter)
+- **Sentence:** "Data centre investment mentioned 0 times Q1, rising to 12 references by Q4 — signals capex pivot."
+- **Evidence:**
+  - Q1 FY26 call: [date], 0 mentions
+  - Q4 FY26 call: [date], 12 mentions (Quotes: "data centre capex", "infrastructure build", "DC expansion")
+  - Signal IDs: [PPT actual showing capex allocation trend]
 
 ---
 
-STEP 8 — SIGNAL PRIORITY HIERARCHY (apply when selecting timeline rows)
+### 2. **Emergence** (First-Ever Mention + Acceleration)
 
-Not all trackable signals are equal. Prioritize in this strict order:
+**Definition:** A new initiative or risk factor appears for the first time, then accelerates in subsequent quarters.
 
-  TIER 1 — Multi-quarter trackable commitments (MUST include ALL available, up to the 20-signal cap):
-  A signal where management made a specific, measurable promise on one announcement_date and the
-  target_date is at least 2 quarters later. These span fiscal years or several quarters.
-  Examples:
-    • "Jio subscribers to cross 500M by FY26" — announced Q1 FY24, target FY26 (8 quarters later)
-    • "KG-D6 first gas by mid-2020" — announced Q3 FY19, target Q1 FY21 (6 quarters later)
-    • "Retail stores to reach 10,000 by Dec 2019" — announced Q4 FY19, target Q3 FY20
-  These are the most valuable signals for guidance credibility — they reveal whether management
-  sets long-range targets and then delivers. Include ALL of them, ordered oldest announcement_date first.
+**How to detect:**
+- Keyword does not exist in Q1, Q2 archive
+- First surfacing occurs in Q3 (mark as "Emergence Quarter")
+- Frequency spikes in Q4, Q1 of next year
 
-  TIER 2 — Single-quarter forward guidance (include after all Tier 1, within the 20-signal cap):
-  A signal with a target_date in the immediately following quarter or within 1 quarter of announcement.
-  Examples: "We expect to add 25 stores next quarter", "NIM should improve by 10bps next quarter".
-  Include these only after all Tier 1 signals have been included.
+**Why it matters:** Management typically bury new challenges. Emergence timing reveals urgency and scale.
 
-  TIER 3 — Current-state reports and near-term single-quarter updates (DO NOT emit as timeline rows — EXCLUDE entirely):
+**Output format:**
+- **Shape:** Timeline showing [none] → [1st appearance] → [climbing mentions]
+- **Sentence:** "AI/GPU demand first mentioned Apr 2026 call; surged to 15 references by Jul 2026 — category pivot."
+- **Evidence:**
+  - Pre-emergence: Q1–Q2 FY26 archive shows zero AI/GPU mentions
+  - First mention: Q3 FY26 call, [date], "emerging AI GPU demand in data centre workloads"
+  - Acceleration: Q4 FY26 (5 refs), Q1 FY27 (15 refs)
+  - Verbatim: [Quotes from each call]
 
-  DATE PRE-FILTER (apply mechanically to every signal — no exceptions):
+---
 
-    Step 1 — From the signal's period label [FYYYY QX], advance one quarter to get the NEXT quarter's last day:
-      Call [FY____ Q1] → next quarter ends Sep 30  → exclude if end_date ≤ Sep 30
-      Call [FY____ Q2] → next quarter ends Dec 31  → exclude if end_date ≤ Dec 31
-      Call [FY____ Q3] → next quarter ends Mar 31  → exclude if end_date ≤ Mar 31
-      Call [FY____ Q4] → next quarter ends Jun 30  → exclude if end_date ≤ Jun 30
+### 3. **Narrative-vs-Consensus Gap** (Edge Signal)
 
-    Step 2 — Compare the signal's end_date to the NEXT quarter's last day:
-      IF end_date ≤ next_quarter_last_day  →  same-quarter report or trivial near-term update → EXCLUDE
-      IF end_date > next_quarter_last_day  →  multi-quarter commitment → continue to language check
+**Definition:** A theme management emphasizes heavily but analysts have not yet flagged.
 
-    Worked examples (apply this exact logic — no estimation):
-      [FY2026 Q2] end=2025-09-30 → next=Dec 31 → Sep 30 ≤ Dec 31 → EXCLUDE
-      [FY2026 Q2] end=2025-12-31 → next=Dec 31 → Dec 31 ≤ Dec 31 → EXCLUDE
-      [FY2026 Q2] end=2026-01-15 → next=Dec 31 → Jan 15 > Dec 31 → continue
-      [FY2026 Q3] end=2025-12-31 → next=Mar 31 → Dec 31 ≤ Mar 31 → EXCLUDE
-      [FY2026 Q3] end=2026-03-31 → next=Mar 31 → Mar 31 ≤ Mar 31 → EXCLUDE
-      [FY2026 Q3] end=2026-06-30 → next=Mar 31 → Jun 30 > Mar 31 → continue
-      [FY2026 Q4] end=2026-03-31 → next=Jun 30 → Mar 31 ≤ Jun 30 → EXCLUDE
-      [FY2026 Q4] end=2026-09-30 → next=Jun 30 → Sep 30 > Jun 30 → continue
+**How to detect:**
+- Count management references to a topic (e.g., "supply chain resilience": 9 mentions in Q4 call)
+- Count analyst questions on the same topic (e.g., 2 analyst Qs on supply chain in same Q4 call)
+- Gap = Management Emphasis (%) − Analyst Focus (%)
+- A 40-point gap signals an edge: management is warning/guiding on something the Street hasn't priced in
 
-    Signals with NO end_date: cannot be assigned a target_date → EXCLUDE.
+**Why it matters:** This is the actual alpha. Analysts are usually behind management. Early detection of under-priced risks/opportunities.
 
-  LANGUAGE CHECK (apply only to signals that pass the DATE PRE-FILTER):
-    If the original_statement has no forward commitment element — no future date, no forward verb
-    ("will", "expect", "target", "plan", "on track for") — it is still Tier 3. EXCLUDE.
+**Output format:**
+- **Shape:** Side-by-side bar chart: Management emphasis % vs. Analyst question density %
+- **Sentence:** "Supply chain resilience: management 40% of narrative, only 5% of analyst questions — Street asleep on risk."
+- **Evidence:**
+  - Management commentary: 9 references to "supply chain" in Q4 FY26 call ([date], company name)
+  - Analyst Q&A: Only 2 questions focused on supply chain (out of 45 total analyst questions, ~4%)
+  - Raw gap: 40 percentage points
+  - Verbatim management quotes: [3–4 direct quotes on supply chain resilience]
+  - Analyst Q sample: [Q: "Cost pressure from inputs?" A: (supply chain mentioned)]
 
-  Examples of signals that pass DATE PRE-FILTER but fail LANGUAGE CHECK (EXCLUDE):
-    • end_date is 2 quarters out but statement says "we have X" or "X stands at Y" — no forward verb
+---
 
-  Examples that pass both (INCLUDE):
-    • "Plant at Kurnool will be ready by March" — forward verb + future date ✓
-    • "We target 500M subscribers by FY26" — forward verb + future date ✓
-    • "On track for 30 MMSCMD by FY24" — forward commitment to future period ✓
+### 4. **Tone-vs-Numbers Divergence** (Narrative Inflation Warning)
 
-  Use Tier 3 signals only as supporting context for HEADLINE fields — never as timeline rows.
+**Definition:** Management speaks bullishly but the underlying KPI decelerates, stagnates, or misses guidance.
 
-ORDERING RULE: Within each tier, apply this secondary sort:
-  1. Hard-metric signals first — signal has a numeric value_targeted (e.g. "500M subscribers", "30 MMSCMD gas", "18% loan growth"). These are the most trackable and most meaningful for credibility scoring.
-  2. Binary milestone signals second — signal has a target_date but no numeric target (e.g. "demerger by November", "first gas by mid-2020"). Still trackable but directional only.
-  3. Soft/directional signals last — signal uses only vague language like "will improve", "expect to grow", "near-term improvement", "medium-term target" with no concrete number attached. These add little analytical value. If the 20-signal cap is reached and only soft signals remain, drop them — do not fill slots with vague talk.
+**How to detect:**
+- Extract \`mgmt_tone\` for the quarter (bullish/neutral/cautious)
+- Identify key KPI(s) management highlighted (e.g., "strong double-digit growth")
+- Compare actual KPI trajectory:
+  - Growth rate Q1 → Q4 (decelerating = divergence risk)
+  - Actual vs. guided (miss = divergence confirmed)
+  - Margin compression while claiming "pricing power" (divergence = inflation)
 
-Within each sub-group above, sort by announcement_date oldest first.
+**Why it matters:** Early red flag for deteriorating business fundamentals masked by optimistic framing.
+
+**Output format:**
+- **Shape:** Dual-axis chart: Tone sentiment score vs. KPI growth rate trend
+- **Sentence:** "Bullish tone (Jul 2026) vs. revenue growth decelerating 24% → 18% Q1–Q4 — narrative inflation."
+- **Evidence:**
+  - Management tone Q1–Q4 FY26: [bullish] [bullish] [neutral] [neutral] (tone softening)
+  - Actual revenue growth: Q1 24%, Q2 22%, Q3 19%, Q4 18% (steady deceleration)
+  - Management quote (Q1): "Strong double-digit growth momentum" ([exact quote])
+  - Actual Q4 guidance miss: Guided 22% growth, delivered 18% (−180 bps miss)
+  - Early-warning pattern: Tone remained upbeat through Q3 despite KPI weakness visible in Q1–Q2
+
+---
+
+### 5. **Going Quiet** (Deprioritization Signal)
+
+**Definition:** A segment or initiative management promoted heavily in prior quarters is now barely mentioned.
+
+**How to detect:**
+- Identify a metric/segment with 8+ mentions in Q1–Q2
+- Frequency drops to 0–1 mentions by Q4
+- Cross-check against actual performance (e.g., segment margin, volume, profitability)
+
+**Why it matters:** Management often go quiet on underperforming segments *before* formal guidance cut. Precursor to bad prints.
+
+**Output format:**
+- **Shape:** Frequency chart showing cliff-edge drop-off
+- **Sentence:** "Premium segment promoted 8x Q1, zero mentions Q4 — likely profit miss incoming."
+- **Evidence:**
+  - Q1 FY26 call: "Premium tier driving strong margins" (8 mentions, [quotes])
+  - Q2 FY26: "Premium segment momentum" (5 mentions)
+  - Q3 FY26: "Premium tier" (2 mentions)
+  - Q4 FY26: Zero mentions
+  - Actual data: Premium segment margin Q1 22% → Q4 18% (400 bps compression)
+  - Management silence correlated with margin erosion
+
+---
+
+### 6. **Street Pressure Map** (Analyst Question Clustering)
+
+**Definition:** Identify which topics dominate analyst Q&A, revealing where the Street is converging on concerns/opportunities.
+
+**How to detect:**
+- Parse all analyst questions from Q4 earnings call (e.g., 132 questions total)
+- Cluster by topic/theme (Capex, Margins, Market Share, Supply Chain, etc.)
+- Rank by frequency
+- Identify gaps: topics analysts ignore but management emphasizes (connects to Gap analysis)
+
+**Why it matters:** Shows where consensus is forming and where isolated risks hide.
+
+**Output format:**
+- **Shape:** Horizontal bar chart: Top 8 analyst question themes by frequency
+- **Sentence:** "Capex dominates analyst attention (28 Qs), while management pushes margin story (isolated 2 analyst Qs on margins)."
+- **Evidence:**
+  - Total analyst Qs: 132 (Q4 FY26 call, [date])
+  - Top clusters:
+    - Capex plans: 28 Qs (21%)
+    - Working capital / cash flow: 22 Qs (17%)
+    - Volume growth: 18 Qs (14%)
+    - Margin expansion: 2 Qs (1.5%) — Management emphasis, Street ignores
+  - Gap insight: Management spoke about margin structure 7x, but analysts asked only 2 questions — edge signal on pricing power assumptions
+
+---
+
+## Guidance Track Record Table
+
+**Purpose:** Quantify management's execution credibility. Answer: "Does management deliver on what they commit?"
+
+### Table Structure
+
+| Announcement Date | Guided Metric | Guided Value | Target Date | Actual Value | Hit Status | Management Statement |
+|---|---|---|---|---|---|---|
+| 15-Jul-2025 | Revenue | ₹50,000 Cr | Q3 FY26 | ₹51,200 Cr | Beat (+2.4%) | "Confident of 50k+ revenue in Q3" [exact quote] |
+| 15-Jul-2025 | Capex | ₹8,500 Cr | FY26 | ₹8,200 Cr | Miss (−3.5%) | "Capex guided at 8,500 Cr for full year" [exact quote] |
+| 15-Oct-2025 | EBITDA Margin | 32–34% | FY26 | 31.8% | Miss (−0.2%) | "We maintain 32–34% margin guidance" [exact quote] |
+
+### Column Definitions
+
+- **Announcement Date:** Exact date of earnings call (DD-MMM-YYYY)
+- **Guided Metric:** Specific KPI (e.g., Revenue, Capex, EBITDA Margin, Volume, Store Count)
+- **Guided Value:** Quantitative value or range, unit-standardized (all ₹ in Crores or Billions, all % expressed consistently)
+- **Target Date:** Normalized fiscal period (Q3 FY26, FY26, etc.) — **NOT verbatim** like "next year"
+- **Actual Value:** Verified from PPT signals (with Signal ID reference)
+- **Hit Status:** Beat | Miss | In Line (see delta rules below)
+- **Management Statement:** Verbatim quote (50–80 characters, truncated with […])
+
+### Temporal Normalization Rules
+
+**Anchor:** The **Announcement Date** is the definitive baseline for all relative timeframe calculations.
+
+**Standard Mappings (if announcement is Q2 FY24):**
+- "Next quarter" = Q3 FY24
+- "Next two quarters" = Q4 FY24
+- "Next fiscal year" / "FY25" = FY25
+- "Calendar year end" = Map to overlapping fiscal quarter (typically Q3/Q4 of next fiscal year)
+- "Next few quarters" = 2–3 quarters forward (Q4 FY24 to Q1 FY25)
+- "In a year" / "12 months" = +12 months from announcement date (map to fiscal quarter)
+
+**If ambiguous, default to the earliest conservative interpretation** (e.g., "in a couple of quarters" = exactly Q4 FY24, not Q1 FY25).
+
+---
+
+### Hit Status Calculation Rules
+
+#### **Rule A: Numeric Guidance (Revenue, Capex, Volume, etc.)**
+
+1. **Ensure unit standardization:**
+   - Guided value: ₹50,000 Cr → Actual value: ₹51,200 Cr (both Crores)
+   - If Guided is in Billions and Actual in Crores, convert both to Crores before delta
+
+2. **Calculate delta:**
+   Delta (%) = ((Actual Value − Guided Value) / Guided Value) × 100
+
+3. **Assign status:**
+   - **Beat:** Delta > +2%
+   - **Miss:** Delta < −2%
+   - **In Line:** −2% ≤ Delta ≤ +2%
+
+#### **Rule B: Guidance as a Range (e.g., 32–34% margin)**
+
+1. **Actual falls within range** → **In Line**
+2. **Actual exceeds upper bound** (e.g., 34.5%) → **Beat**
+3. **Actual below lower bound** (e.g., 31.5%) → **Miss**
+
+#### **Rule C: Growth Rate Guidance (e.g., "20% revenue growth next year")**
+
+1. **Locate base-year actual** (fiscal year immediately *before* target date)
+2. **Calculate actual growth:**
+   Actual Growth (%) = ((Actual Target Year / Actual Base Year) − 1) × 100
+3. **Assign status using delta logic** (vs. 20% guided growth)
+
+#### **Rule D: Qualitative Guidance (e.g., "peak capex in FY24", "factory commissioned Q3")**
+
+1. **Do NOT compute delta**
+2. **Verify the claim:**
+   - For "peak capex": Compare capex FY23, FY24, FY25. If FY24 is highest, = **In Line**
+   - For "commissioned Q3": Check whether facility was operational by Q3 target date = **In Line**
+3. **Assign status:**
+   - **Beat:** Outperformed qualitative target (e.g., commissioned Q2, not Q3)
+   - **Miss:** Failed to achieve milestone on time or at all
+   - **In Line:** Achieved as stated
+
+---
+
+## Output Structure
+
+### 1. Hit Rate Summary
+
+Hit Rate: X% (N out of M metrics)
+
+Management delivered on [X] of [Y] quantified commitments over [time period].
+Consistent execution on [control areas]. Slippage concentrated in [miss areas].
+
+Supporting narrative (2–3 sentences):
+- Identify which metric categories show high credibility (e.g., "Revenue guidance 100% hit rate across 5 calls")
+- Identify weakness areas (e.g., "Capex misses 60% of the time; margin guidance deteriorating")
+
+---
+
+### 2. What Management Controls (Delivers On / Beat + In Line)
+
+Populate the highlights[] array with up to 3 items from this section.
+Each item: metric category + hit rate + pattern insight, max 15 words, start with metric or verb.
+
+---
+
+### 3. What Management Slips On (Misses)
+
+Populate the risks[] array with up to 2 items from this section.
+Each item: risk noun + miss rate + pattern insight, max 12 words, start with risk noun.
+
+---
+
+### 4. Key Patterns Observed
+
+Use Shape → Sentence → Evidence for each of the 6 pattern types.
+Only include patterns that are material (clear evidence across 2+ quarters or high-conviction single emergence/divergence).
+
+---
+
+## Quality Checklist
+
+Before finalizing output:
+
+- All guided values and actual values use identical units (no Crores vs. Billions confusion)
+- All target dates are normalized to fiscal quarters/years, not verbatim language
+- Hit/miss status applied consistently using delta rules (or qualitative logic if applicable)
+- Every pattern includes sparkline/shape data
+- Every pattern backed by exact quote + date + Signal ID (verifiability)
+- Narrative-vs-consensus gap calculated using actual analyst question counts (not estimates)
+- Tone-vs-numbers divergence explicitly tied to a KPI deterioration (not subjective tone drift)
+- "Going quiet" patterns tied to actual metric weakening (not just frequency drop)
+- Street pressure map based on analyst Q clustering, not press noise
+
+---
+
+## Output Tone & Language
+
+- **Crisp, direct:** "Margin inflation" not "potential narrative divergence around operational leverage"
+- **Institutional:** Use exact dates, Signal IDs, percentages. No hedging.
+- **Edge-focused:** Lead with what Street misses, not what everyone knows.
+- **Actionable:** Every pattern should point to a specific risk or opportunity
 
 ---
 
 {{DATA_BLOCK}}
-
----
-
-OUTPUT FIELD RULES — strictly enforced:
-
-top_signals[] — MUST follow this exact layout. No exceptions.
-
-  HEADLINE SIGNALS (positions 0–2, mandatory):
-
-  [0] metric: "HEADLINE_HIT_RATE"
-      label: fraction of RESOLVED events that beat or came in_line, e.g. "5/7"
-        — numerator: count of resolved events where direction = beat or in_line
-        — denominator: count of ALL resolved events (target_date ≤ 2026-06-04 with confirmed actual)
-      statement: one sentence listing which key metrics hit and which missed (≤80 chars, use metric names)
-      actual_value: numerator
-      value_targeted: denominator
-      unit: "ratio"
-      impact: "high"
-
-  [1] metric: "HEADLINE_MAJOR_MISS"
-      label: short name of the biggest resolved miss with its delta, e.g. "NIM −40bps"
-      statement: "Targeted [X] for [period] (announced in [announcement_date]) — came in at [Y], shortfall of [Z]." (≤90 chars, all numbers)
-      actual_value: the actual_value of the missed metric
-      value_targeted: the value_targeted of the missed metric
-      unit: appropriate unit
-      direction: "major_miss"
-      impact: "high"
-      — If no material resolved miss: label = "No Major Miss", actual_value = 0, direction = "beat"
-
-  [2] metric: "HEADLINE_GUIDANCE_BIAS"
-      label: "Conservative" | "Balanced" | "Mixed" | "Aggressive"
-        — Conservative: management regularly guides below what they deliver (beats dominate)
-        — Aggressive: management regularly guides above what they deliver (misses dominate)
-        — Balanced: roughly equal beats and misses
-        — Mixed: no clear pattern
-      statement: one sentence with the beat/miss count split to justify the label (≤80 chars)
-      impact: "high"
-
-  TIMELINE SIGNALS (positions 3 onward — one row per QUALIFYING guidance commitment, up to 20 total):
-
-  QUALIFYING CRITERIA — a signal must meet ALL FOUR to get a timeline row:
-    1. Management made a specific, measurable commitment (a number, a milestone, a date, a rate)
-    2. The signal has a target_date (end_date in the data block) OR an explicit time_horizon
-    3. The commitment is trackable — you can determine whether it was met, missed, or is still pending
-    4. The signal passes the Tier 3 DATE PRE-FILTER: end_date must be STRICTLY AFTER the last day of
-       the quarter following the call quarter. Advance one quarter from [FYYYY QX]:
-       Call Q1 → next=Q2 → exclude if end_date ≤ Sep 30
-       Call Q2 → next=Q3 → exclude if end_date ≤ Dec 31
-       Call Q3 → next=Q4 → exclude if end_date ≤ Mar 31
-       Call Q4 → next=Q1 → exclude if end_date ≤ Jun 30
-
-  SELECTION ORDER — fill slots 3 to 22 (max 20 signals) strictly in this priority:
-    First: ALL Tier 1 signals (multi-quarter commitments, ≥2 quarters ahead, oldest announcement_date first)
-    Then:  remaining signals with end_date > next-quarter cutoff, until the 20-signal cap is reached
-
-  DO NOT emit timeline rows for:
-    - Operational achievements reported as facts (e.g. "506M subscribers this quarter")
-    - Product launches or partnerships with no stated target or deadline
-    - General strategy statements without measurable outcomes
-    - Success disclosures of past events with no forward commitment (Tier 3)
-  These belong only as evidence in HEADLINE fields — not as individual timeline rows.
-
-  Each row = one specific commitment management made on a specific announcement_date about a specific target_date.
-
-  • signal_id:         copy the [id=...] value exactly from the DATA_BLOCK
-  • metric:            the financial metric (e.g. "NIM", "LOAN_GROWTH", "ROA", "CD_RATIO")
-  • label:             target period, e.g. "FY25", "Q3 FY26" (max 10 chars) — this is the target_date period
-  • announcement_date: the quarter management made this commitment, e.g. "Q3 FY22" — copy from signal exactly
-
-  • statement: ONE sentence. Must contain four facts: (1) what was targeted, (2) the number, (3) the deadline, (4) the actual result with its number. Format: "[Metric] targeted at [X] by [period] (announced [announcement_date]) — [period] came in at [Y]."
-    STATEMENT RULES — non-negotiable:
-    - Always include announcement_date so the reader knows how old the commitment was.
-    - Use the actual targeted number (value_targeted). Never paraphrase as "strong growth" or "healthy levels".
-    - Use the actual reported number (actual_value). Never substitute words like "delivered", "achieved", "on track".
-    - Both value_targeted AND actual_value must appear. No exceptions.
-    - If actual is not yet reported: end with "— [period] result not yet reported."
-    - For revised guidance: start statement with "Revised in [announcement_date]:"
-    - Max 100 chars. No arrows. No semicolons. One fact only.
-
-    ✅ CORRECT:  "NIM targeted at 4.2% by FY25 (announced Q3 FY22) — FY25 came in at 3.8%."
-    ✅ CORRECT:  "Loan growth targeted at 18% by FY26 (announced Q1 FY24) — FY26 came in at 21%."
-    ✅ CORRECT:  "ROA targeted at 1.8% by FY27 (announced Q2 FY25) — FY27 result not yet reported."
-    ✅ CORRECT:  "Revised in Q2 FY24: NIM targeted at 4.0% by FY25 — FY25 came in at 3.8%."
-    ❌ WRONG:    "Guided strong loan growth for FY26 — delivered in FY26."
-    ❌ WRONG:    "Guided NIM improvement — achieved as guided."
-    ❌ WRONG:    "Guided loan growth matching system — on track so far."
-    ❌ WRONG:    Any statement missing either value_targeted or actual_value.
-
-  • value_at_announcement: the actual metric value at the time management made the statement. OMIT this field entirely when not available. Never use 0 as a placeholder.
-  • value_targeted: the numeric target from the signal. OMIT this field entirely — do NOT include it — when no numeric target exists (e.g. binary milestones like "demerger will happen in November"). Never use 0 or "undefined" as placeholders.
-  • actual_value:   the numeric result for the exact same period. OMIT this field entirely when not yet reported or not applicable. Never use 0 as a placeholder.
-  • unit:           "%" | "Cr" | "bps" | "x" | "million" | "stores" | "timing" (for date-based milestones); OMIT this field entirely when no unit applies
-  • delta:          actual_value − value_targeted. OMIT this field entirely whenever value_targeted or actual_value is absent. Never use 0 as a placeholder delta.
-  • delta_pct:      (delta / value_targeted) × 100 rounded to 1dp. OMIT this field entirely whenever delta is absent.
-  • direction:      one of beat / in_line / miss / promise_silently_dropped / tracking — apply Step 3 + Step 7 decision tree exactly. Use "promise_silently_dropped" when a past-deadline commitment was never acknowledged by management.
-  • target_date:    ISO 8601 last day of the target period (e.g. 2025-03-31 for FY25)
-  • announcement_date: quarter of the commitment, e.g. "Q3 FY22"
-  • actual_date:    ISO 8601 last day of the reported period (same as target_date if unreported)
-  • impact:         "high" | "medium" | "low"
-  • original_statement: copy the EXACT sentence from the DATA_BLOCK signal that this row is sourced from. Do NOT paraphrase. If the signal has no source sentence, set to null.
-
-  SUMMARY SIGNAL (last position, after all timeline signals):
-  metric: "HEADLINE_ENTRY_COUNT"
-  • label: "N entries" where N = total count of timeline signals emitted (max 20)
-  • statement: what the timeline spans (earliest announcement_date to latest target_date) in ≤60 chars
-  • impact: "high"
-
----
-
-WRITING RULES (non-timeline fields):
-- "takeaway": max 25 words. Lead with hit rate (e.g. "6/9 resolved") and bias label. No filler.
-- "highlights": up to 3 items, max 15 words each, start with a verb or metric name, include numbers.
-- "risks": up to 2 items, max 12 words each, start with the risk noun, include numbers where possible.
-- Never pad. Never use vague qualifiers where numbers exist.
-
----
-
-SELF-CHECK before emitting JSON:
-1. Does any field contain the string "undefined"? That is NEVER valid JSON — remove the field entirely instead.
-2. Is any value_targeted or actual_value set to 0 as a placeholder for "unknown"? Remove the field entirely instead. 0 means the actual number zero.
-3. Is any delta set to 0 for a resolved event where value_targeted and actual_value are both present and different? Re-read — you may be echoing value_targeted as actual_value.
-4. When value_targeted or actual_value is absent, is delta also absent (not 0)? If delta is present as 0 but one side is missing, remove delta entirely.
-5. Does any statement lack a targeted number (value_targeted, for numeric commitments)? Rewrite it.
-6. Does any statement lack an actual number (actual_value, for resolved events)? Rewrite it.
-7. Does every timeline signal include announcement_date? If not — add it.
-8. Are there multiple commitments for the same metric to the same deadline? Split into separate rows.
-9. Does every timeline signal have a non-null direction? If not — fix it.
-10. Do beat/miss counts in HEADLINE_HIT_RATE match the direction tags in timeline signals? Recount.
-11. Does every timeline signal have an original_statement that is a verbatim copy from the DATA_BLOCK? If paraphrased or invented, replace with the exact source sentence.
-12. Are there hard-metric Tier 1 signals (numeric value_targeted, multi-quarter span) that were skipped in favour of soft/directional signals? If so, swap them in — hard metrics always take priority over soft talk.
-13. For every past-deadline signal (target_date before 2026-06-07) tagged "miss" — is there actually evidence of management acknowledging the miss? If not, change direction to "promise_silently_dropped" and add "No subsequent acknowledgment found." to the statement.
-14. For every timeline row: apply the DATE PRE-FILTER. Look up the source signal's period label [FYYYY QX]
-    and its end_date. Advance one quarter to get the NEXT quarter's last day:
-      Call Q1 → next ends Sep 30 | Call Q2 → next ends Dec 31 | Call Q3 → next ends Mar 31 | Call Q4 → next ends Jun 30
-    If end_date ≤ that next-quarter last day → remove the row. This is non-negotiable.
-    Examples: [FY2026 Q2] end=2025-12-31 → next=Dec 31 → Dec 31 ≤ Dec 31 → remove.
-              [FY2026 Q2] end=2026-01-15 → next=Dec 31 → Jan 15 > Dec 31 → keep.
-              [FY2026 Q3] end=2026-03-31 → next=Mar 31 → Mar 31 ≤ Mar 31 → remove.
-
----
-
-Return a JSON object with this exact structure:
-{
-  "score": <integer 0-100>,
-  "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 25 words>,
-  "key_metrics": {},
-  "highlights": [<up to 3 items>],
-  "risks": [<up to 2 items>],
-  "top_signals": [<HEADLINE_HIT_RATE, HEADLINE_MAJOR_MISS, HEADLINE_GUIDANCE_BIAS, ...up to 20 timeline signals (Tier 1 oldest-first, then Tier 2)..., HEADLINE_ENTRY_COUNT>]
-}
 
 `,
     },

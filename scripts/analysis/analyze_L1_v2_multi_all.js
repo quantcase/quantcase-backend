@@ -6,12 +6,13 @@
  * Calls all three summarize endpoints for each ticker in TARGET_TICKERS.
  *
  * Usage:
- *   node scripts/analysis/analyze_L1_v2_multi_all.js [--dispatch] [--limit <n>] [--force]
+ *   node scripts/analysis/analyze_L1_v2_multi_all.js [--dispatch] [--limit <n>] [--force] [--all]
  *
  * Flags:
  *   --dispatch        Actually call the API (dry-run without this flag)
  *   --limit <n>       Only process the n most recent calls/reports per ticker (default: all)
  *   --force           Invalidate existing signals and reprocess
+ *   --all             Use all distinct companies from DB instead of TARGET_TICKERS
  *
  * Env:
  *   API_URL           Base URL of the API server (default: http://localhost:8000)
@@ -50,6 +51,7 @@ const API_URL = process.env.API_URL || 'http://localhost:8000';
 const args     = process.argv.slice(2);
 const dispatch = args.includes('--dispatch');
 const force    = args.includes('--force');
+const allMode  = args.includes('--all');
 const limIdx   = args.indexOf('--limit');
 const limit    = limIdx !== -1 ? parseInt(args[limIdx + 1], 10) : null;
 
@@ -232,11 +234,17 @@ async function processAnnualReports(symbol) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`\nTarget tickers: ${TARGET_TICKERS.join(', ')}`);
-  console.log(`Mode: ${dispatch ? `dispatch → ${API_URL}` : 'dry-run'}${force ? ' (--force)' : ''}${limit ? ` (--limit ${limit})` : ''}\n`);
+  let tickers = TARGET_TICKERS;
+  if (allMode) {
+    const rows = await prisma.earnings_calls.findMany({ select: { company: true }, distinct: ['company'] });
+    tickers = rows.map(r => r.company).filter(Boolean).sort();
+  }
+
+  console.log(`\nTarget tickers (${tickers.length}): ${allMode ? '[all from DB]' : tickers.join(', ')}`);
+  console.log(`Mode: ${dispatch ? `dispatch → ${API_URL}` : 'dry-run'}${force ? ' (--force)' : ''}${allMode ? ' (--all)' : ''}${limit ? ` (--limit ${limit})` : ''}\n`);
 
   if (!dispatch) {
-    for (const symbol of TARGET_TICKERS) {
+    for (const symbol of tickers) {
       const [calls, reports] = await Promise.all([
         prisma.earnings_calls.findMany({
           where:   { company: symbol },
@@ -270,7 +278,7 @@ async function main() {
 
   const totals = { queued: 0, skipped: 0, noSource: 0, failed: 0 };
 
-  for (const symbol of TARGET_TICKERS) {
+  for (const symbol of tickers) {
     console.log(`\n${'─'.repeat(60)}`);
     console.log(`  ${symbol}`);
     console.log('─'.repeat(60));
