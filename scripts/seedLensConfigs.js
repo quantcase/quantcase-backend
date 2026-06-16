@@ -66,9 +66,9 @@ const LENS_CONFIGS = [
 **You need all three:**
 
 1. **L1 Guidance Signals** from earnings transcripts
-   - \`guidance_timebound\`: Quantified targets with explicit dates ("Q3 FY25", "end of FY26")
-   - \`ongoing_timebound\`: Multi-quarter or ongoing initiatives management references repeatedly
-   - \`mgmt_tone\`: Sentiment classification (bullish/neutral/cautious) for each quarter
+   - "guidance_timebound": Quantified targets with explicit dates ("Q3 FY25", "end of FY26")
+   - "ongoing_timebound": Multi-quarter or ongoing initiatives management references repeatedly
+   - "mgmt_tone": Sentiment classification (bullish/neutral/cautious) for each quarter
    - Analyst question clusters + density (where the 100+ questions point)
 
 2. **L1 Actuals from PPTs**
@@ -87,14 +87,14 @@ const LENS_CONFIGS = [
 
 **Every insight follows this three-layer structure:**
 
-1. **Shape** (Sparkline/Delta)
+1. **Shape** (Sparkline/Delta)  
    Visual representation of the change over time. Show *what moved*, not absolute levels.
 
-2. **Sentence** (One-line causal claim)
-   Plain language label of the pattern. Always lead with the delta.
+2. **Sentence** (One-line causal claim)  
+   Plain language label of the pattern. Always lead with the delta.  
    Examples: "Silent for six quarters, now rising." "Bullish tone while KPI decelerates."
 
-3. **Evidence** (Tap-to-verify)
+3. **Evidence** (Tap-to-verify)  
    Exact quotes, dates, numbers, and Signal IDs. User can drill to source in one tap.
 
 **Goal:** Glance in 2 seconds, read in 10, verify if they want.
@@ -117,7 +117,7 @@ const LENS_CONFIGS = [
 **Output format:**
 - **Shape:** Sparkline of mention frequency (0, 1, 2, 5, 8, 12 mentions/quarter)
 - **Sentence:** "Data centre investment mentioned 0 times Q1, rising to 12 references by Q4 — signals capex pivot."
-- **Evidence:**
+- **Evidence:** 
   - Q1 FY26 call: [date], 0 mentions
   - Q4 FY26 call: [date], 12 mentions (Quotes: "data centre capex", "infrastructure build", "DC expansion")
   - Signal IDs: [PPT actual showing capex allocation trend]
@@ -160,7 +160,7 @@ const LENS_CONFIGS = [
 
 **Output format:**
 - **Shape:** Side-by-side bar chart: Management emphasis % vs. Analyst question density %
-- **Sentence:** "Supply chain resilience: management 40% of narrative, only 5% of analyst questions — Street asleep on risk."
+- **Sentence:** "Supply chain resilience: management 40% of narrative, only 5% of analyst questions—Street asleep on risk."
 - **Evidence:**
   - Management commentary: 9 references to "supply chain" in Q4 FY26 call ([date], company name)
   - Analyst Q&A: Only 2 questions focused on supply chain (out of 45 total analyst questions, ~4%)
@@ -175,7 +175,7 @@ const LENS_CONFIGS = [
 **Definition:** Management speaks bullishly but the underlying KPI decelerates, stagnates, or misses guidance.
 
 **How to detect:**
-- Extract \`mgmt_tone\` for the quarter (bullish/neutral/cautious)
+- Extract "mgmt_tone" for the quarter (bullish/neutral/cautious)
 - Identify key KPI(s) management highlighted (e.g., "strong double-digit growth")
 - Compare actual KPI trajectory:
   - Growth rate Q1 → Q4 (decelerating = divergence risk)
@@ -186,7 +186,7 @@ const LENS_CONFIGS = [
 
 **Output format:**
 - **Shape:** Dual-axis chart: Tone sentiment score vs. KPI growth rate trend
-- **Sentence:** "Bullish tone (Jul 2026) vs. revenue growth decelerating 24% → 18% Q1–Q4 — narrative inflation."
+- **Sentence:** "Bullish tone (Jul 2026) vs. revenue growth decelerating 24% → 18% Q1–Q4—narrative inflation."
 - **Evidence:**
   - Management tone Q1–Q4 FY26: [bullish] [bullish] [neutral] [neutral] (tone softening)
   - Actual revenue growth: Q1 24%, Q2 22%, Q3 19%, Q4 18% (steady deceleration)
@@ -209,7 +209,7 @@ const LENS_CONFIGS = [
 
 **Output format:**
 - **Shape:** Frequency chart showing cliff-edge drop-off
-- **Sentence:** "Premium segment promoted 8x Q1, zero mentions Q4 — likely profit miss incoming."
+- **Sentence:** "Premium segment promoted 8x Q1, zero mentions Q4—likely profit miss incoming."
 - **Evidence:**
   - Q1 FY26 call: "Premium tier driving strong margins" (8 mentions, [quotes])
   - Q2 FY26: "Premium segment momentum" (5 mentions)
@@ -241,8 +241,8 @@ const LENS_CONFIGS = [
     - Capex plans: 28 Qs (21%)
     - Working capital / cash flow: 22 Qs (17%)
     - Volume growth: 18 Qs (14%)
-    - Margin expansion: 2 Qs (1.5%) — Management emphasis, Street ignores
-  - Gap insight: Management spoke about margin structure 7x, but analysts asked only 2 questions — edge signal on pricing power assumptions
+    - Margin expansion: 2 Qs (1.5%) ← Management emphasis, Street ignores
+  - Gap insight: Management spoke about margin structure 7x, but analysts asked only 2 questions—edge signal on pricing power assumptions
 
 ---
 
@@ -288,12 +288,14 @@ const LENS_CONFIGS = [
 
 #### **Rule A: Numeric Guidance (Revenue, Capex, Volume, etc.)**
 
-1. **Ensure unit standardization:**
+1. **Ensure unit standardization:**  
    - Guided value: ₹50,000 Cr → Actual value: ₹51,200 Cr (both Crores)
    - If Guided is in Billions and Actual in Crores, convert both to Crores before delta
 
-2. **Calculate delta:**
+2. **Calculate delta:**  
+   '''
    Delta (%) = ((Actual Value − Guided Value) / Guided Value) × 100
+   '''
 
 3. **Assign status:**
    - **Beat:** Delta > +2%
@@ -309,8 +311,10 @@ const LENS_CONFIGS = [
 #### **Rule C: Growth Rate Guidance (e.g., "20% revenue growth next year")**
 
 1. **Locate base-year actual** (fiscal year immediately *before* target date)
-2. **Calculate actual growth:**
+2. **Calculate actual growth:**  
+   '''
    Actual Growth (%) = ((Actual Target Year / Actual Base Year) − 1) × 100
+   '''
 3. **Assign status using delta logic** (vs. 20% guided growth)
 
 #### **Rule D: Qualitative Guidance (e.g., "peak capex in FY24", "factory commissioned Q3")**
@@ -328,14 +332,56 @@ const LENS_CONFIGS = [
 
 ## Output Structure
 
+### 0. Key Takeaway (Executive Summary)
+
+**Format:** Single paragraph synthesizing all sections. Lead with the credibility thesis, then weave in control areas, miss areas, and edge signals.
+
+**Rules:**
+- One sentence per major finding (Hit rate → Controls → Misses → Key pattern → Street opportunity)
+- Avoid jargon; use plain causal language
+- End with the forward-looking implication (what to watch next quarter)
+- **Character limit:** 250–300 characters (fits a skim in 10 seconds)
+
+**Template:**
+'''
+[Company] has [X]% guidance credibility, delivering consistently on [control area] but slipping on [miss area]. 
+Management's [emerging theme] narrative is [gap size] ahead of Street attention—[edge opportunity]. 
+Watch [watch signal] next quarter as early warning.
+'''
+
+**Examples:**
+
+'''
+Reliance maintains 72% hit rate on revenue but margin guidance is 150 bps optimistic. 
+Digital services narrative gaining (14x mentions Q1→Q4) while analysts ignore supply chain risk (40-point gap). 
+Next quarter: Monitor if premium segment silence precedes margin miss again.
+'''
+
+'''
+TCS has 100% revenue credibility but capex misses 60% of the time (−1.5x discount applies). 
+AI/GPU demand just emerged in Q3 call; management ramping capex while Street asks capex questions—aligned, not edge. 
+Watch: Does guidance ease if capex execution slips in Q1 FY27?
+'''
+
+'''
+Canara Bank delivers on volume (5/5 hit), slips on NPA guidance (3/5 misses, trend deteriorating). 
+Management went quiet on stressed asset remediation but analyst focus is capex-heavy (60 Q imbalance). 
+Risk: Silent remediation often precedes guidance cut.
+'''
+
+---
+
 ### 1. Hit Rate Summary
 
-Hit Rate: X% (N out of M metrics)
+**Format:**
+'''
+Hit Rate: 68% (13 out of 19 metrics)
 
 Management delivered on [X] of [Y] quantified commitments over [time period].
 Consistent execution on [control areas]. Slippage concentrated in [miss areas].
+'''
 
-Supporting narrative (2–3 sentences):
+**Supporting narrative (2–3 sentences):**
 - Identify which metric categories show high credibility (e.g., "Revenue guidance 100% hit rate across 5 calls")
 - Identify weakness areas (e.g., "Capex misses 60% of the time; margin guidance deteriorating")
 
@@ -343,22 +389,151 @@ Supporting narrative (2–3 sentences):
 
 ### 2. What Management Controls (Delivers On / Beat + In Line)
 
-Populate the highlights[] array with up to 3 items from this section.
-Each item: metric category + hit rate + pattern insight, max 15 words, start with metric or verb.
+**Format:**
+'''
+### What Management Delivers On
+
+**[Metric Category]:** [Hit Rate] credibility
+- [Metric 1]: [# Beat + In Line] / [# Total] (example: Revenue: 5/5 calls hit)
+- [Metric 2]: [# Beat + In Line] / [# Total] (example: Volume: 4/5 hit, 1 miss)
+
+**Pattern:** [One-sentence insight about why this metric is controlled]
+- Example: "Revenue guided conservatively; management undershoots own targets to build credibility."
+'''
+
+**Sample output:**
+'''
+### What Management Delivers On
+
+**Revenue & Growth:** 100% hit rate (5/5 calls)
+- Revenue: Beat or In Line every quarter FY25–FY26
+- Growth rate: Guided 18–22%, delivered 19–24% (conservative baseline)
+
+**Pattern:** Management builds credibility by guiding conservative growth rates, then beating them by 100–200 bps.
+'''
 
 ---
 
 ### 3. What Management Slips On (Misses)
 
-Populate the risks[] array with up to 2 items from this section.
-Each item: risk noun + miss rate + pattern insight, max 12 words, start with risk noun.
+**Format:**
+'''
+### What Management Slips On
+
+**[Metric Category]:** [Miss Rate] credibility
+- [Metric 1]: [# Misses] / [# Total] misses (example: Capex: 3/5 misses, average miss −150 bps)
+- [Metric 2]: [# Misses] / [# Total] (example: EBITDA Margin: 2/4 misses, trend deteriorating)
+
+**Pattern:** [One-sentence insight into the miss pattern]
+- Example: "Capex consistently overshoots guidance by 150–300 bps; management underestimates execution risk."
+'''
+
+**Sample output:**
+'''
+### What Management Slips On
+
+**Capex:** 60% miss rate (3/5 calls)
+- FY25: Guided ₹8,500 Cr, delivered ₹10,200 Cr (Miss −20%)
+- FY26: Guided ₹12,000 Cr, delivered ₹13,800 Cr (Miss −15%)
+- FY27E: Guided ₹14,500 Cr, tracking to miss again (−12% as of Q3)
+
+**Pattern:** Management systematically underestimates capex execution; projects are delayed and more expensive. Guidance now worth −1.5x discount.
+'''
 
 ---
 
 ### 4. Key Patterns Observed
 
-Use Shape → Sentence → Evidence for each of the 6 pattern types.
-Only include patterns that are material (clear evidence across 2+ quarters or high-conviction single emergence/divergence).
+**Format:** Use Shape → Sentence → Evidence for each of the 6 pattern types detected.
+
+**Only include patterns that are material** (i.e., have clear evidence across 2+ quarters or a high-conviction single emergence/divergence).
+
+**Example output:**
+
+'''
+### Key Patterns Observed
+
+#### 🔊 Drumbeat: Digital Services Acceleration
+[Sparkline: 2 → 3 → 7 → 14 mentions Q1–Q4 FY26]
+
+**Signal:** Digital services investment mentioned only 2x in Q1, rising to 14x by Q4—signaling capex reallocation.
+
+**Evidence:**
+- Q1 FY26 (15-Apr-2025): 2 references to "digital transformation" ([quote])
+- Q4 FY26 (22-Jan-2026): 14 references, including "digital revenue stream" and "API platform" ([3 quotes])
+- Actuals: Digital services revenue FY25: ₹1,200 Cr → FY26E: ₹2,100 Cr (75% growth)
+- Signal ID: PPT_FY26_DIGITAL_REVENUE (verified from FY26 investor ppt)
+
+---
+
+#### ⚠️ Tone-vs-Numbers Divergence: Margin Inflation Signal
+[Chart: Tone (Bullish/Bullish/Neutral) vs. EBITDA Margin (34% → 32% → 30%)]
+
+**Signal:** Management spoke confidently about "pricing power" and "margin stability" in Q1–Q2, but EBITDA margin compressed 400 bps Q1–Q4 despite price hikes.
+
+**Evidence:**
+- Q1 tone: Bullish ("We are confident on margin trajectory"; [quote])
+- Q4 tone: Neutral (no margin commentary)
+- Actual margins: Q1 34% → Q2 33% → Q3 31% → Q4 30%
+- Disconnect: Management attributed margin pressure to "input costs" (Q3), but pricing actions guided in Q1 didn't stick
+- Analyst gap: Only 3 margin questions in entire Q4 call—Street missed compression
+
+---
+
+#### 🚨 Going Quiet: Premium Segment Silence
+[Frequency: 8 → 5 → 2 → 0 mentions Q1–Q4]
+
+**Signal:** Premium product segment received heavy promotion Q1 (8 mentions, "strong pricing power"), zero mentions by Q4. Precursor to bad Q4 print.
+
+**Evidence:**
+- Q1 (15-Apr-2025): "Premium tier driving 45% of profit" ([quote])
+- Q3 (15-Oct-2025): Fleeting mention in context of "portfolio mix" (2x)
+- Q4 (22-Jan-2026): Zero mentions; analyst asked 1 Q on premium, management deflected
+- Actual: Premium segment margin collapsed Q1 22% → Q4 17% (500 bps)
+- Pattern confirmed: Management avoids segments with deteriorating unit economics
+
+---
+
+#### 💡 Emergence: AI Workload Pivot
+[Timeline: Q1–Q2 (none) → Q3 (first mention) → Q4 (15 references)]
+
+**Signal:** AI/GPU workload demand first surfaced in Q3 call; accelerated to dominant narrative by Q4. Signals data centre capex reallocation.
+
+**Evidence:**
+- Pre-Q3: Zero AI/GPU mentions in Q1 (15-Apr), Q2 (22-Jul) earnings calls
+- Q3 emergence (15-Oct-2025): "Seeing strong demand for AI-optimized infrastructure" ([quote])
+- Q4 acceleration (22-Jan-2026): 15 direct references to "AI compute," "GPU workloads," "LLM inference"
+- Capex pivot confirmed: Management guided FY27 capex +18% YoY, explicitly for "AI infrastructure buildout"
+- Analyst slow to catch: Only 4 AI-focused questions in Q4 call (vs. 15 management references)
+
+---
+
+#### 📊 Narrative-vs-Consensus Gap: Supply Chain Resilience
+[Bars: Management 35% of commentary vs. Analyst focus 8%]
+
+**Signal:** Management emphasized supply chain resilience in every Q4 call (35% of narrative time), but analysts asked only 2 of 45 questions on supply chain (4%). 27-point gap signals under-priced risk.
+
+**Evidence:**
+- Management emphasis: 12 supply chain references in Q4 call (procurement resilience, vendor concentration, geopolitical hedging)
+- Analyst questions: 45 total Qs; only 2 on supply chain (4.4%)
+- Key management insights ignored:
+  - "We've consolidated vendor base to 3 tier-1 suppliers" (single point of failure risk)
+  - "70% of capex capex going to India (geopolitical hedge)" (margin implication)
+- Street focus: 28 Qs on capex, 22 on margin, 18 on growth—none connecting supply chain to execution risk
+
+---
+
+#### 🗺️ Street Pressure Map: Capex Dominance
+[Bar chart: Capex 28 Qs (21%) | Working Capital 22 Qs (17%) | Volume 18 Qs (14%) | Margin 2 Qs (1.5%)]
+
+**Signal:** Analyst consensus converging on capex execution risk. Margin expansion story completely under-researched.
+
+**Evidence:**
+- Q4 FY26 call: 132 analyst questions
+- Capex-focused: 28 Qs (crowded consensus on expansion pace risk)
+- Margin-focused: Only 2 Qs (management margin story not priced in; potential upside)
+- Pattern: Consensus usually right on macro (capex); usually wrong on micro (margin structure). Margin edge signal.
+'''
 
 ---
 
@@ -366,15 +541,17 @@ Only include patterns that are material (clear evidence across 2+ quarters or hi
 
 Before finalizing output:
 
-- All guided values and actual values use identical units (no Crores vs. Billions confusion)
-- All target dates are normalized to fiscal quarters/years, not verbatim language
-- Hit/miss status applied consistently using delta rules (or qualitative logic if applicable)
-- Every pattern includes sparkline/shape data
-- Every pattern backed by exact quote + date + Signal ID (verifiability)
-- Narrative-vs-consensus gap calculated using actual analyst question counts (not estimates)
-- Tone-vs-numbers divergence explicitly tied to a KPI deterioration (not subjective tone drift)
-- "Going quiet" patterns tied to actual metric weakening (not just frequency drop)
-- Street pressure map based on analyst Q clustering, not press noise
+- [ ] **Key Takeaway** is 1 paragraph, 250–300 chars, stitches all sections (credibility % → controls → misses → pattern → watch)
+- [ ] All guided values and actual values use **identical units** (no Crores vs. Billions confusion)
+- [ ] All target dates are **normalized to fiscal quarters/years**, not verbatim language
+- [ ] Hit/miss status applied **consistently** using delta rules (or qualitative logic if applicable)
+- [ ] Guidance track record table shows **5–6 key metrics max** (not every metric)
+- [ ] Every pattern includes **sparkline/shape** (not just numbers)
+- [ ] Every pattern backed by **exact quote + date + Signal ID** (verifiability)
+- [ ] Narrative-vs-consensus gap calculated using **actual analyst question counts** (not estimates)
+- [ ] Tone-vs-numbers divergence explicitly tied to a **KPI deterioration** (not subjective tone drift)
+- [ ] "Going quiet" patterns tied to **actual metric weakening** (not just frequency drop)
+- [ ] Street pressure map based on **analyst Q clustering**, not press noise
 
 ---
 
@@ -383,8 +560,46 @@ Before finalizing output:
 - **Crisp, direct:** "Margin inflation" not "potential narrative divergence around operational leverage"
 - **Institutional:** Use exact dates, Signal IDs, percentages. No hedging.
 - **Edge-focused:** Lead with what Street misses, not what everyone knows.
-- **Actionable:** Every pattern should point to a specific risk or opportunity
+- **Actionable:** Every pattern should point to a specific risk or opportunity (e.g., "Prime capex miss risk" or "Margin upside under-researched")
 
+---
+
+## Example: Full Skill Output (Reliance Industries Q4 FY26 Analysis)
+
+### Hit Rate Summary
+
+**Hit Rate: 72% (13 out of 18 metrics)**
+
+Reliance delivered on revenue and capex timelines but slipped on margin guidance. FY26 revenue hit 100% (5/5 quarters), but EBITDA margin misses accelerated Q3–Q4 (−150 to −200 bps per quarter). Pattern suggests management margin guidance is now overoptimistic by 150 bps baseline.
+
+---
+
+### What Management Delivers On
+
+**Revenue & Volume:** 100% hit rate (5/5 calls)
+- Revenue: Beat or In Line every quarter FY25–FY26 (avg beat +80 bps)
+- Refinery throughput: 5/5 In Line (managed against weather/maintenance)
+
+**Pattern:** Revenue is management's credibility anchor. Conservative base-case, then beat by 50–100 bps. Market trusts RIL's top-line guidance.
+
+---
+
+### What Management Slips On
+
+**EBITDA Margin:** 20% hit rate (1/5 calls)
+- FY25: Guided 18–20%, delivered 17.8% (Miss −0.2%)
+- Q2 FY26: Guided 19–21%, delivered 18.2% (Miss −180 bps)
+- Q4 FY26: Guided 19.5–20.5%, delivered 18.9% (Miss −160 bps)
+
+**Pattern:** Margin guidance deteriorating every quarter. Management assumes pricing power and cost control that doesn't materialize. Margin guidance worth −1.5x discount.
+
+---
+
+### Key Patterns Observed
+
+[Drumbeat, Tone-vs-Numbers Divergence, Going Quiet, etc. — each with sparkline, sentence, evidence]
+
+---
 ---
 
 {{DATA_BLOCK}}
