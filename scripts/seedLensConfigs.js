@@ -184,15 +184,18 @@ Child object (NO nulls — use sentinels):
     category:     'management',
     description:  'Discipline in deploying capital — capex returns, debt management, FCF generation',
     force_config: true,
-    version:      '1.2.0',
+    version:      '2.0.0',
     config: {
       signal_filters: {
-        // kpi: P&L and balance sheet actuals (EBITDA, CFO, CAPEX, DEBT, ROCE)
-        // financial_figure: reported line items from annual reports (dividends, capex schedules)
-        // capital_allocation: capex plans, M&A deployment, debt management decisions
-        // m_and_a: completed/announced deals and their capital deployed
+        // kpi: ROCE, ROIC, CFO, CAPEX, Net Debt, asset turns — returns and self-reliance validation
+        // financial_figure: dividends, capex schedules, CWIP balances from annual reports
+        // capital_allocation: capex announcements, M&A rationale, dividend/buyback signals, funding source
+        // m_and_a: completed/announced deals, stated rationale, integration signals
         // earnings_quality: exceptional items and one-offs that distort capital returns
-        signal_types:      ['kpi', 'financial_figure', 'capital_allocation', 'm_and_a', 'earnings_quality'],
+        // growth_forecast: forward capital deployment language, investment timelines, utilization targets
+        // mgmt_tone: conviction language per quarter — feeds conviction vs. accountability gap detection
+        // analyst_questions: analyst pressure on capex, M&A, returns — feeds accountability gap detection
+        signal_types:      ['kpi', 'financial_figure', 'capital_allocation', 'm_and_a', 'earnings_quality', 'growth_forecast', 'mgmt_tone', 'analyst_questions'],
         metric_family:     ['capital', 'profitability', 'growth', 'revenue', 'profit_lines', 'cashflow', 'assets', 'liabilities', 'operating_expenses', 'cogs', 'equity'],
         include_historical: true,
       },
@@ -206,115 +209,108 @@ Child object (NO nulls — use sentinels):
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management analysis using a rigorous L1 extraction pipeline.
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings call transcripts, investor PPTs, and annual reports using a rigorous L1 extraction pipeline.
 
-Your task is to synthesise this signal summary into a structured capital-allocation quality view. Do NOT invent data — work only from the signals provided.
+Your task is to synthesise this signal summary into a structured capital-allocation quality view conforming EXACTLY to the lens_score JSON schema.
 
-CAPITAL ALLOCATION FRAMEWORK — assess across 4 quadrants:
-  RQ — Returns Quality: ROCE, ROE, ROA trends. Is deployed capital earning above cost of capital?
-  SR — Self-Reliance: CFO vs CAPEX coverage. Is growth funded internally or via debt/dilution?
-  MA — M&A / Strategic Moves: acquisitions, JVs, divestments, new segments. Was capital allocated wisely?
-  CE — Capital Efficiency: asset turns, working capital cycle, CAPEX productivity. Is every rupee sweated?
-
-For each quadrant provide: a score (0–10), a 1-line verdict, 2–3 bullet evidence points, and a callout if there is a notable red flag or green flag.
+PROVENANCE GATE — NON-NEGOTIABLE:
+- Do NOT invent data. Work only from the signals provided.
+- Every figure (ROCE %, capex quantum, D/E ratio, DPS) must be verbatim from a supplied signal. If not in the input, it does not exist — use -1 / "" sentinels.
+- A pattern requires ≥2 distinct signals across ≥2 periods. A pattern supported by only 1 signal → direction = "watch", confidence ≤ 0.4.
+- No signals supplied → do not generate analysis. Set score = 50, status = "MODERATE", takeaway = "Insufficient capital allocation signals to score."
 
 {{DATA_BLOCK}}
 
-OUTPUT FIELD RULES — strictly enforced:
+=== SHARED CHILD SCHEMA — FIELD BANDS ===
+Both "top_signals" and "patterns" use the SAME child object. No nullable fields — use sentinels: "" for strings, -1 for numbers, [] for evidence arrays.
+- Every item in "top_signals" MUST have kind = "signal".
+- Every item in "patterns" MUST have kind = "pattern".
 
-top_signals[] — MUST follow this layout. Quadrant codes: RQ, SR, MA, CE.
+kind = "signal" (KPI actuals and meta entries):
+  - MUST be meaningful: kind, label, impact, direction, statement.
+  - actual_value: numeric figure or -1 if absent. actual_date: YYYY-MM-DD last day of period or "".
+  - guided_value: target/max for this metric or -1. guided_date: "" unless a specific date target exists.
+  - delta: signed change vs prior period or -1. unit: "%" | "x" | "Cr" | "" as appropriate.
+  - Pattern band SENTINELS: pattern_type = "none", confidence = -1, confidence_reason = "", sentence = "", shape_data = "", shape_label = "", evidence = [].
+  - direction: "beat" | "miss" | "in_line" | "tracking". NEVER a pattern-vocabulary value.
 
-  For EACH of the 4 quadrants, emit these signal types in order:
+kind = "pattern" (capital allocation behaviour patterns):
+  - MUST be meaningful: kind, label, impact, direction, pattern_type, confidence, confidence_reason, sentence.
+  - evidence MUST have ≥1 item with verbatim quote, signal_id, ISO period. evidence.value = -1 when no numeric count.
+  - shape_data: JSON array of {period, count} for sparkline when per-quarter mention frequency is derivable; else "".
+  - Signal band SENTINELS: value_targeted = -1, actual_value = -1, target_date = "", actual_date = "", unit = "", metric = "", signal_id = "".
+  - direction: "positive" | "negative" | "neutral" | "watch". NEVER a signal-vocabulary value.
 
-  DIM_{XX}_HEADER — quadrant header tile:
-  • metric: "DIM_RQ_HEADER" | "DIM_SR_HEADER" | "DIM_MA_HEADER" | "DIM_CE_HEADER"
-  • label: human-readable quadrant name (e.g. "Returns Quality", "Self-Reliance", "M&A / Strategic Moves", "Capital Efficiency")
-  • statement: 1-line verdict for the quadrant (≤80 chars)
-  • actual_value: score 0–10 for this quadrant
-  • guided_value: 10 (the max, always)
-  • direction: "beat" | "tracking" | "miss" based on score (≥7 → beat, 4–6 → tracking, ≤3 → miss)
-  • impact: "high"
+DATE FORMAT — STRICT ISO 8601, LAST DAY OF PERIOD:
+Every date field MUST be YYYY-MM-DD. Indian fiscal year ends 31 March: FY2026 → "2026-03-31". FY quarters: Q1 → Jun 30, Q2 → Sep 30, Q3 → Dec 31, Q4 → Mar 31.
 
-  DIM_{XX}_BULLET — evidence bullets (2–3 per quadrant):
-  • metric: "DIM_RQ_BULLET" | "DIM_SR_BULLET" | "DIM_MA_BULLET" | "DIM_CE_BULLET"
-  • label: one evidence statement (max 80 chars)
-  • direction: "beat" | "tracking" | "miss" (for the dot color)
-  • impact: "high" | "medium" | "low"
+SCORE & STATUS DERIVATION (DETERMINISTIC):
+1. Assess each of the 5 pattern slots below. Score each present pattern: positive/steady/disciplined = +2; watch = 0; negative/rising-risk/gap-detected = -2. Pattern below threshold (< 2 signals) = 0.
+2. Base = 50. Add pattern scores. Clamp to [0, 100].
+3. score ≥ 70 → "STRONG"; 40–69 → "MODERATE"; < 40 → "WEAK".
+Report in key_metrics: "roce" (latest % or "N/A"), "cfo_capex_coverage" (ratio or "N/A"), "net_debt_ebitda" (ratio or "N/A"), "last_dilution_event" (e.g. "FY22 QIP" or "None on record").
 
-  DIM_{XX}_CALLOUT — notable flag at bottom of quadrant (1 per quadrant, only if material):
-  • metric: "DIM_RQ_CALLOUT" | "DIM_SR_CALLOUT" | "DIM_MA_CALLOUT" | "DIM_CE_CALLOUT"
-  • label: short callout title (e.g. "Green — ROCE above cost of capital", "Amber — debt rising")
-  • statement: one sentence elaborating on the flag (≤80 chars)
-  • direction: "beat" | "tracking" | "miss"
+top_signals[] LAYOUT — 4 KPI ACTUALS + META:
 
-  QUOTE — one blockquote from management earnings call commentary:
-  • metric: "QUOTE"
-  • label: speaker and context, e.g. "Q3 FY25 concall · MD & CEO Name"
-  • statement: verbatim or closely paraphrased management quote on capital deployment (≤120 chars)
-  • actual_date: date of the concall in YYYY-MM-DD
-  • (omit direction — not applicable for quotes)
+  KPI ACTUALS (one row each, from PPT / Prowess / annual report signals only — never transcript):
+  • metric: "KPI_ROCE"        — actual_value: latest ROCE %, delta: YoY change, unit: "%", direction: "beat" if improving, "miss" if declining, "tracking" if no trend
+  • metric: "KPI_CFO_CAPEX"   — actual_value: CFO/CAPEX coverage ratio, unit: "x", direction: "beat" if ≥1.5x, "in_line" if 1–1.5x, "miss" if <1x
+  • metric: "KPI_NET_DEBT_EB" — actual_value: Net Debt/EBITDA ratio, unit: "x", direction: "beat" if declining, "miss" if rising, "in_line" if stable
+  • metric: "KPI_DPS"         — actual_value: latest DPS, delta: YoY change, unit: "₹", direction: "beat" if growing, "miss" if cut, "in_line" if stable
+  If a KPI is absent from signals: actual_value = -1, statement = "Not in supplied signals", direction = "tracking".
 
-  ANALYST_READ — 3 bottom analyst-read cards (one per theme):
-  • metric: "ANALYST_READ"
-  • label: theme title (e.g. "Returns story", "Debt trajectory", "CAPEX discipline")
-  • statement: analyst-level read on how to interpret the signals for this theme (≤80 chars)
-  • direction: "beat" | "tracking" | "miss" (drives card border color)
-  • impact: "high" | "medium" | "low"
+  META SIGNALS (after KPI rows):
+  metric: "META_ROCE"         — label: latest ROCE % or "N/A", statement: period + source (≤60 chars), impact: "high"
+  metric: "META_CFO_CAPEX"    — label: coverage ratio or "N/A", statement: "CFO vs CAPEX self-funding ratio" (≤60 chars), impact: "high"
+  metric: "META_NET_DEBT_EB"  — label: Net Debt/EBITDA or "N/A", statement: period context (≤60 chars), impact: "high"
+  metric: "META_LAST_DILUTION"— label: last dilution event or "None on record", statement: brief context (≤60 chars), impact: "medium"
+  metric: "META_VERDICT"      — label: 3–5 word capital discipline verdict, statement: one-line rationale (≤80 chars), impact: "high"
+  (Omit direction on all META_* signals)
 
-  META SIGNALS (emit these at the very end, after ANALYST_READ):
-  These encode summary metrics as top_signals so the frontend can read them directly.
+PATTERN ANALYSIS — FIVE CAPITAL ALLOCATION PATTERN TYPES:
+Run each pattern only if signals meet its inclusion threshold. Below threshold → direction = "watch", confidence ≤ 0.4, sentence states "Insufficient signals". Patterns not present in the data → direction = "neutral", note absence explicitly in confidence_reason.
 
-  metric: "META_ROCE"
-  • label: latest ROCE % value, e.g. "18.5%" or "N/A"
-  • statement: one-line context, e.g. "FY26 trailing ROCE from financials" (≤60 chars)
-  • impact: "high"
+Five pattern_type values (use exactly these slugs):
+  deployment_discipline       — Capex quantum trend and source of funds. Is growth self-funded or leverage-expanding? (threshold: funding source language in ≥2 periods)
+  returns_on_capital          — ROCE/ROIC trajectory. CRITICAL: distinguish legacy capital performing vs. new capital unproven (CWIP). Improving ROCE ≠ new capital earning returns. (threshold: returns metric in ≥2 periods)
+  conviction_accountability_gap — Management makes repeated high-conviction statements about a capital program WITHOUT utilization targets, payback, or revenue contribution. Absence of accountability language is itself the signal. (threshold: conviction language in ≥2 periods for same program WITHOUT accountability markers)
+  shareholder_return_discipline — Dividend/buyback trajectory and stated rationale. Absence of payout growth despite strong FCF = capital hoarding signal. (threshold: ≥1 dividend or buyback signal)
+  ma_allocation_quality       — Inorganic capital: rationale clarity, integration track record, synergy delivery in subsequent periods. (threshold: ≥1 M&A signal with stated rationale)
 
-  metric: "META_ROE"
-  • label: latest ROE % value, e.g. "22.1%" or "N/A"
-  • statement: one-line context (≤60 chars)
-  • impact: "high"
+Conviction language markers (triggers conviction_accountability_gap detection): "we are confident / committed / on track", "decade-long bet", "structural investment", "significant demand", repeated reference to a program without new accountability data.
+Accountability language markers (absence triggers Watch): specific utilization % with date, payback period or IRR, revenue contribution timeline, unit economics disclosure.
 
-  metric: "META_CFO_CAPEX"
-  • label: CFO/CAPEX coverage ratio, e.g. "2.1x" or "N/A"
-  • statement: one-line context (≤60 chars)
-  • impact: "high"
-
-  metric: "META_DEBT_EQUITY"
-  • label: D/E ratio, e.g. "0.3x" or "N/A"
-  • statement: one-line context (≤60 chars)
-  • impact: "medium"
-
-  metric: "META_CAPEX_CAGR"
-  • label: CAPEX CAGR over available period, e.g. "12% (3Y)" or "N/A"
-  • statement: one-line context (≤60 chars)
-  • impact: "medium"
-
-  metric: "META_VERDICT"
-  • label: 3–5 word overall capital allocation verdict, e.g. "Disciplined, returns-focused"
-  • statement: one-line supporting rationale (≤80 chars)
-  • impact: "high"
-
-  (Omit direction on all META_* signals — not applicable)
-
-VALIDATION: Every DIM_*_HEADER signal MUST have guided_value set to 10. Every DIM_*_HEADER MUST have direction set. Check before outputting.
+For shape_data: JSON array of {period, count} when per-quarter mention frequency is derivable (conviction vs. accountability keyword counts); else "".
+Confidence (0.0–1.0): 0.8–1.0 clear directional change, 3+ periods; 0.5–0.7 direction clear but thin data; 0.3–0.4 suggestive watch signal.
+Aim for patterns that are present — do NOT force all five. An output with 3 strong patterns beats one with 5 weak ones.
 
 WRITING STYLE RULES:
-- "takeaway": max 25 words, lead with the overall capital discipline verdict.
-- "highlights": up to 3 items, max 15 words each.
-- "risks": up to 2 items, max 12 words each, start with the risk noun.
-- "statement" in signals: ≤80 chars (QUOTE may be up to 120 chars).
+- "takeaway": max 25 words, lead with overall capital discipline verdict and key tension.
+- "highlights": up to 3 items, max 12 words each, start with a verb or metric.
+- "risks": up to 2 items, max 12 words each, start with the risk noun (e.g. "Conviction gap", "Leverage expanding").
+- "label": 2–5 words, title-case.
+- "statement": ≤80 chars, verbatim or tightly paraphrased from source signal.
+- "sentence" (patterns): one plain-language directional claim leading with the change.
 - Never pad with filler phrases.
 
-Return a JSON object with this exact structure:
+Return a JSON object conforming EXACTLY to the lens_score schema:
 {
-  "score": <integer 0-100>,
+  "score": <integer 0-100, per SCORE & STATUS DERIVATION>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 25 words, lead with capital discipline verdict>,
-  "key_metrics": {},
-  "highlights": [<up to 3 items, each max 15 words>],
+  "takeaway": <string — max 25 words, capital discipline verdict + key tension>,
+  "key_metrics": { "roce": <string>, "cfo_capex_coverage": <string>, "net_debt_ebitda": <string>, "last_dilution_event": <string> },
+  "highlights": [<up to 3 items, each max 12 words>],
   "risks": [<up to 2 items, each max 12 words, starting with risk noun>],
-  "top_signals": [<4 quadrant blocks RQ→SR→MA→CE (each: DIM_{XX}_HEADER + 2–3 DIM_{XX}_BULLET + optional DIM_{XX}_CALLOUT); then QUOTE; then 3 ANALYST_READ; then META_ROCE, META_ROE, META_CFO_CAPEX, META_DEBT_EQUITY, META_CAPEX_CAGR, META_VERDICT>]
-}`,
+  "top_signals": [ <KPI_ROCE, KPI_CFO_CAPEX, KPI_NET_DEBT_EB, KPI_DPS; then META_ROCE, META_CFO_CAPEX, META_NET_DEBT_EB, META_LAST_DILUTION, META_VERDICT> ],
+  "patterns":    [ <capital allocation pattern children — up to 5; [] if no signals> ]
+}
+
+Child object (NO nulls — use sentinels):
+  kind, signal_id, metric, label, impact, direction, statement, original_statement, source_ref,
+  announcement_date, value_targeted, value_targeted_low, value_targeted_high, target_date,
+  actual_value, actual_date, unit, delta, guided_value, guided_date,
+  pattern_type, confidence, confidence_reason, sentence, shape_data, shape_label, evidence[]
+`,
     },
   },
   {
@@ -323,16 +319,18 @@ Return a JSON object with this exact structure:
     category:     'management',
     description:  'Transparency and candour of management disclosures — proactive vs defensive communication',
     force_config: true,
-    version:      '1.2.0',
+    version:      '2.0.0',
     config: {
       signal_filters: {
-        // disclosure_quality: auditor remarks, accounting uncertainties, proactive/defensive disclosures
-        // governance_signal: board policy approvals, committee structures, SEBI compliance facts
-        // risk_factor: disclosed business risks with mitigation — reveals how candid management is about downside
+        // kpi: Prowess financial actuals — grounds narrative signals against real reported numbers (tone vs. numbers divergence)
+        // disclosure_quality: voluntary vs statutory disclosure events, topic deflections, proactive risk surfacing
+        // governance_signal: audit committee, auditor appointments, RPT disclosures, SEBI compliance, KAMs
+        // earnings_quality: exceptional/one-off item framing, auditor key audit matters — independent governance signal
+        // risk_factor: disclosed business risks with mitigation — reveals candour about downside
         // contingent_liability: legal/tax disputes — whether surfaced proactively or buried in notes
-        // mgmt_tone: optimism/defensiveness patterns across calls — consistency signal
-        // analyst_questions: what analysts had to pry out signals gaps in voluntary disclosure
-        signal_types:      ['disclosure_quality', 'governance_signal', 'risk_factor', 'contingent_liability', 'mgmt_tone', 'analyst_questions'],
+        // mgmt_tone: sentiment per quarter — feeds tone-disclosure divergence detection
+        // analyst_questions: what analysts had to pry out — confirms voluntary disclosure gaps
+        signal_types:      ['kpi', 'disclosure_quality', 'governance_signal', 'earnings_quality', 'risk_factor', 'contingent_liability', 'mgmt_tone', 'analyst_questions'],
         metric_family:     ['governance'],
         include_historical: true,
       },
@@ -345,118 +343,113 @@ Return a JSON object with this exact structure:
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts and management commentary using a rigorous L1 extraction pipeline.
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings call transcripts, investor PPTs, and annual reports using a rigorous L1 extraction pipeline.
 
-Your task is to synthesise this signal summary into a structured disclosure-honesty view. Do NOT invent data — work only from the signals provided.
+Your task is to synthesise this signal summary into a structured disclosure-honesty view conforming EXACTLY to the lens_score JSON schema.
 
-DISCLOSURE HONESTY FRAMEWORK — assess across 4 quadrants:
-  BN — Bad News Disclosure: Does management proactively surface negative developments, or only when pressed in Q&A? Look for NIM resets, credit stress admissions, write-off disclosures.
-  NC — Narrative Consistency: Does the story stay consistent across quarters, or does language shift when performance falters? Check for euphemisms, hedging, changed KPI emphasis.
-  TD — Transparency Depth: Are disclosures granular and quantitative, or vague and qualitative? Check if management provides segment-level breakdowns, vintage data, and specific guidance.
-  GV — Governance Signals: RPT disclosures, auditor remarks, board independence, related-party concerns, regulatory flags.
+PROVENANCE GATE — NON-NEGOTIABLE:
+- Do NOT invent data. Work only from the signals provided.
+- Every quote, absence claim, and governance fact must trace verbatim to a supplied signal. If not in the input, it does not exist — use -1 / "" sentinels.
+- A pattern requires ≥2 distinct signals. A pattern supported by only 1 signal → direction = "watch", confidence ≤ 0.4.
+- No signals supplied → do not generate analysis. Set score = 50, status = "MODERATE", takeaway = "Insufficient disclosure signals to score."
 
-SECTOR CONSTRAINT — NIM signals:
-  NIM (Net Interest Margin) is a BFSI-specific metric (banks, NBFCs, HFCs, MFIs). Do NOT generate NIM-related signals, bullets, callouts, or commentary for non-BFSI companies. If the subject company is not in the BFSI sector, skip any NIM references entirely.
-
-For each quadrant provide: a score (0–8), a 1-line verdict, 2–3 bullet evidence points, and a callout if there is a notable red flag.
+ABSENCE CLAIM GATE — HIGHEST HALLUCINATION RISK:
+Before marking any topic as absent ("Doesn't Say"), BOTH conditions must be met:
+  (1) Materiality confirmed: signals exist showing the topic is relevant to investors OR analyst questions on the topic appear in the input.
+  (2) No disclosure signal exists in the supplied input for that topic.
+If either condition is unmet → absence claim is [NULL]. Do not claim absence because a signal "seems like it should exist."
 
 {{DATA_BLOCK}}
 
-OUTPUT FIELD RULES — strictly enforced:
+=== SHARED CHILD SCHEMA — FIELD BANDS ===
+Both "top_signals" and "patterns" use the SAME child object. No nullable fields — use sentinels: "" for strings, -1 for numbers, [] for evidence arrays.
+- Every item in "top_signals" MUST have kind = "signal".
+- Every item in "patterns" MUST have kind = "pattern".
 
-top_signals[] — MUST follow this layout. Quadrant codes: BN, NC, TD, GV.
+kind = "signal" (disclosure indicator and meta entries):
+  - MUST be meaningful: kind, label, impact, direction, statement.
+  - actual_value: numeric indicator or -1. actual_date: YYYY-MM-DD last day of period or "".
+  - Pattern band SENTINELS: pattern_type = "none", confidence = -1, confidence_reason = "", sentence = "", shape_data = "", shape_label = "", evidence = [].
+  - direction: "beat" | "miss" | "in_line" | "tracking". NEVER a pattern-vocabulary value.
 
-  For EACH of the 4 quadrants, emit these signal types in order:
+kind = "pattern" (disclosure behaviour patterns):
+  - MUST be meaningful: kind, label, impact, direction, pattern_type, confidence, confidence_reason, sentence.
+  - evidence MUST have ≥1 item with verbatim quote, signal_id, ISO period. evidence.value = -1 when no numeric count.
+  - shape_data: JSON array of {period, count} for sparkline when per-quarter disclosure depth/frequency is derivable; else "".
+  - Signal band SENTINELS: value_targeted = -1, actual_value = -1, target_date = "", actual_date = "", unit = "", metric = "", signal_id = "".
+  - direction: "positive" | "negative" | "neutral" | "watch". NEVER a signal-vocabulary value.
 
-  DIM_{XX}_HEADER — quadrant header tile:
-  • metric: "DIM_BN_HEADER" | "DIM_NC_HEADER" | "DIM_TD_HEADER" | "DIM_GV_HEADER"
-  • label: human-readable quadrant name (e.g. "Bad News Disclosure", "Narrative Consistency", "Transparency Depth", "Governance Signals")
-  • statement: 1-line verdict for the quadrant (≤80 chars)
-  • actual_value: score 0–8 for this quadrant
-  • guided_value: 8 (the max, always)
-  • direction: "beat" | "tracking" | "miss" (≥6 → beat, 3–5 → tracking, ≤2 → miss)
-  • impact: "high"
+DATE FORMAT — STRICT ISO 8601, LAST DAY OF PERIOD:
+Every date field MUST be YYYY-MM-DD. Indian fiscal year ends 31 March: FY2026 → "2026-03-31". FY quarters: Q1 → Jun 30, Q2 → Sep 30, Q3 → Dec 31, Q4 → Mar 31.
 
-  DIM_{XX}_BULLET — evidence bullets (2–3 per quadrant):
-  • metric: "DIM_BN_BULLET" | "DIM_NC_BULLET" | "DIM_TD_BULLET" | "DIM_GV_BULLET"
-  • label: one evidence statement (max 80 chars)
-  • direction: "beat" | "tracking" | "miss" (for the dot color)
-  • impact: "high" | "medium" | "low"
+SCORE & STATUS DERIVATION (DETERMINISTIC):
+1. Assess each of the 5 pattern slots below. Score each present pattern: positive/expanding/consistent/resolving = +2; neutral/steady = 0; watch/reactive/unresolved = -1; negative/gap/escalating/silent = -2. Pattern below threshold = 0.
+2. Base = 50. Add pattern scores. Clamp to [0, 100].
+3. score ≥ 70 → "STRONG"; 40–69 → "MODERATE"; < 40 → "WEAK".
+Report in key_metrics: "disclosure_posture" (e.g. "proactive" | "reactive" | "statutory-only"), "kam_status" (e.g. "Stable — 2 KAMs" or "N/A — no annual report signals"), "voluntary_ratio" (e.g. "High" | "Moderate" | "Low" | "N/A").
 
-  DIM_{XX}_CALLOUT — notable flag at bottom of quadrant (1 per quadrant, only if material):
-  • metric: "DIM_BN_CALLOUT" | "DIM_NC_CALLOUT" | "DIM_TD_CALLOUT" | "DIM_GV_CALLOUT"
-  • label: short callout title (e.g. "Amber — reactive margin pattern", "Red — RPT not disclosed")
-  • statement: one sentence elaborating (≤80 chars)
-  • direction: "beat" | "tracking" | "miss"
+top_signals[] LAYOUT — DISCLOSURE INDICATORS + META:
 
-  QUOTE — one blockquote from management earnings call commentary:
-  • metric: "QUOTE"
-  • label: speaker and context, e.g. "Q3 FY25 concall · MD & CEO Name"
-  • statement: verbatim or closely paraphrased quote that best illustrates the disclosure quality (≤120 chars)
-  • actual_date: date of the concall in YYYY-MM-DD
+  DISCLOSURE INDICATORS (one row each — populate from signals; use -1 / "" if absent):
+  • metric: "IND_VOLUNTARY_DEPTH"  — actual_value: count of voluntary disclosure signals (unprompted) in input, unit: "signals", direction: "beat" if growing vs prior period, "miss" if contracting, "tracking" if stable/unknown
+  • metric: "IND_DEFLECTIONS"      — actual_value: count of analyst question deflections in input, unit: "deflections", direction: "miss" if any present, "beat" if zero, "tracking" if unclear
+  • metric: "IND_KAM_COUNT"        — actual_value: number of Key Audit Matters in latest annual report, unit: "KAMs", direction: "beat" if decreasing, "miss" if increasing, "in_line" if stable. Set to -1 if no annual report signals.
+  • metric: "IND_RECURRING_ONEOFF" — actual_value: count of items labelled one-off appearing in ≥2 periods, unit: "items", direction: "miss" if any present, "beat" if zero, "tracking" if unclear
 
-  ANALYST_READ — 3 bottom analyst-read cards (one per theme):
-  • metric: "ANALYST_READ"
-  • label: theme title (e.g. "Asset-quality story", "Margin story", "Retail book disclosure")
-  • statement: how an analyst should interpret and weight this management's statements on this theme (≤80 chars)
-  • direction: "beat" | "tracking" | "miss" (drives card border color: green / amber / red)
-  • impact: "high" | "medium" | "low"
+  META SIGNALS (after indicator rows):
+  metric: "META_POSTURE"        — label: 3–5 word disclosure posture, e.g. "Proactive, granular, consistent", statement: one-line basis (≤60 chars), impact: "high"
+  metric: "META_KAM_STATUS"     — label: KAM summary e.g. "2 KAMs — stable" or "N/A", statement: "Key audit matters from latest annual report" (≤60 chars), impact: "high"
+  metric: "META_VOLUNTARY_RATIO"— label: "High" | "Moderate" | "Low" | "N/A", statement: "Voluntary vs statutory disclosure ratio" (≤60 chars), impact: "high"
+  metric: "META_VERDICT"        — label: 3–5 word disclosure verdict, e.g. "Reactive on bad news", statement: one-line rationale (≤80 chars), impact: "high"
+  (Omit direction on all META_* signals)
 
-  META SIGNALS (emit these at the very end, after ANALYST_READ):
-  These encode summary scores as top_signals so the frontend can read them directly.
-  Derive all values from the DIM_*_HEADER actual_values you already computed above.
+PATTERN ANALYSIS — FIVE DISCLOSURE BEHAVIOUR PATTERN TYPES:
+Run each pattern only if signals meet its inclusion threshold. Below threshold → direction = "watch", confidence ≤ 0.4, sentence states "Insufficient signals". Patterns structurally absent from the input → direction = "neutral", note absence in confidence_reason.
 
-  metric: "META_OVERALL_SCORE"
-  • label: sum of all 4 quadrant scores as "N/32", e.g. "22/32"
-  • statement: one-line overall disclosure verdict (≤60 chars)
-  • impact: "high"
+Five pattern_type values (use exactly these slugs):
+  voluntary_statutory_ratio  — Is information surfaced by management choice or regulatory requirement? Is the ratio changing as business complexity grows? Analyst deflections directly reduce this ratio. (threshold: observable voluntary vs statutory difference across ≥2 periods or sources)
+  granularity_by_segment     — Is disclosure depth consistent across all material segments? Systematic thinness on high-growth / unproven segments is a watch signal — but only flag when (a) the segment is financially material OR (b) analysts are being deflected on it. (threshold: ≥2 segments with measurably different disclosure depth)
+  exceptional_item_framing   — Are one-offs flagged proactively in opening remarks or buried in Q&A? Do "exceptional" items recur? (threshold: ≥1 exceptional/one-off item in input). If none → [NULL] — do not infer from sector.
+  bad_news_acknowledgement   — When metrics deteriorate or timelines slip, does management surface it before or after numbers move? Reactive acknowledgement (numbers move first) = watch. Silent absorption (narrative unchanged) = gap. (threshold: ≥1 instance of metric deterioration AND management commentary on it in input)
+  audit_matter_evolution     — KAMs flagged by external auditors: new, recurring, or resolving? Convergence of KAM topics with management vagueness on same topics = escalated concern. Source: annual report signals ONLY — never inferred from call transcripts. (threshold: annual report signal present with auditor disclosures. If absent → [NULL])
 
-  metric: "META_BN_SCORE"
-  • label: DIM_BN_HEADER actual_value formatted as "N/8", e.g. "4/8"
-  • statement: "Bad News Disclosure score"
-  • impact: "high"
+SAYS CLEARLY / VAGUELY / DOESN'T SAY — populate via patterns[]:
+Use three additional pattern entries with these exact pattern_type slugs to encode the analysis structure:
+  says_clearly  — Topics disclosed granularly, consistently, voluntarily. direction = "positive". Each evidence item: verbatim quote + signal_id. Only include topics disclosed beyond statutory minimum.
+  says_vaguely  — Topics present in signals but without specificity to independently verify. direction = "watch". Each evidence item: what is said vs what is missing. Only include if topic is material AND disclosure is confirmed thin.
+  doesnt_say    — Material topics with no disclosure signal. direction = "negative". ABSENCE CLAIM GATE APPLIES: both materiality and signal-absence must be verified for each item. evidence.value = -1. If gate fails → omit the item entirely.
 
-  metric: "META_NC_SCORE"
-  • label: DIM_NC_HEADER actual_value as "N/8"
-  • statement: "Narrative Consistency score"
-  • impact: "high"
-
-  metric: "META_TD_SCORE"
-  • label: DIM_TD_HEADER actual_value as "N/8"
-  • statement: "Transparency Depth score"
-  • impact: "high"
-
-  metric: "META_GV_SCORE"
-  • label: DIM_GV_HEADER actual_value as "N/8"
-  • statement: "Governance Signals score"
-  • impact: "high"
-
-  metric: "META_VERDICT"
-  • label: 3–5 word disclosure verdict, e.g. "Reactive on margin story"
-  • statement: one-line supporting rationale (≤80 chars)
-  • impact: "high"
-
-  (Omit direction on all META_* signals — not applicable)
-
-VALIDATION: Every DIM_*_HEADER signal MUST have guided_value set to 8 and MUST have direction set. Check before outputting.
+For shape_data in detection patterns: JSON array of {period, count} when per-quarter disclosure depth or deflection frequency is derivable; else "".
+Confidence (0.0–1.0): 0.8–1.0 clear multi-period pattern, verbatim evidence; 0.5–0.7 direction clear but thin; 0.3–0.4 suggestive watch signal.
+Aim for patterns that are present — do NOT force all five. 2 strong patterns beat 5 weak ones.
 
 WRITING STYLE RULES:
-- "takeaway": max 25 words, lead with the overall disclosure character (proactive / reactive / defensive).
-- "highlights": up to 3 items, max 15 words each.
-- "risks": up to 2 items, max 12 words each, start with the risk noun.
-- "statement" in signals: ≤80 chars (QUOTE may be up to 120 chars).
+- "takeaway": max 25 words, lead with disclosure posture (proactive / reactive / defensive / statutory-only).
+- "highlights": up to 3 items, max 12 words each, start with a verb or topic.
+- "risks": up to 2 items, max 12 words each, start with the risk noun (e.g. "Absence claim", "Recurring one-offs").
+- "label": 2–5 words, title-case.
+- "statement": ≤80 chars, verbatim or tightly paraphrased from source signal.
+- "sentence" (patterns): one plain-language directional claim — what changed and what it means.
 - Never pad with filler phrases.
 
-Return a JSON object with this exact structure:
+Return a JSON object conforming EXACTLY to the lens_score schema:
 {
-  "score": <integer 0-100>,
+  "score": <integer 0-100, per SCORE & STATUS DERIVATION>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 25 words, lead with disclosure character verdict>,
-  "key_metrics": {},
-  "highlights": [<up to 3 items, each max 15 words>],
+  "takeaway": <string — max 25 words, disclosure posture + key finding>,
+  "key_metrics": { "disclosure_posture": <string>, "kam_status": <string>, "voluntary_ratio": <string> },
+  "highlights": [<up to 3 items, each max 12 words>],
   "risks": [<up to 2 items, each max 12 words, starting with risk noun>],
-  "top_signals": [<4 quadrant blocks BN→NC→TD→GV (each: DIM_{XX}_HEADER with guided_value=8 + 2–3 DIM_{XX}_BULLET + optional DIM_{XX}_CALLOUT); then QUOTE; then 3 ANALYST_READ; then META_OVERALL_SCORE, META_BN_SCORE, META_NC_SCORE, META_TD_SCORE, META_GV_SCORE, META_VERDICT>]
-}`,
+  "top_signals": [ <IND_VOLUNTARY_DEPTH, IND_DEFLECTIONS, IND_KAM_COUNT, IND_RECURRING_ONEOFF; then META_POSTURE, META_KAM_STATUS, META_VOLUNTARY_RATIO, META_VERDICT> ],
+  "patterns":    [ <5 detection patterns + says_clearly + says_vaguely + doesnt_say; [] if no signals> ]
+}
+
+Child object (NO nulls — use sentinels):
+  kind, signal_id, metric, label, impact, direction, statement, original_statement, source_ref,
+  announcement_date, value_targeted, value_targeted_low, value_targeted_high, target_date,
+  actual_value, actual_date, unit, delta, guided_value, guided_date,
+  pattern_type, confidence, confidence_reason, sentence, shape_data, shape_label, evidence[]
+`,
     },
   },
   {
@@ -465,14 +458,18 @@ Return a JSON object with this exact structure:
     category:     'management',
     description:  'Promoter shareholding trends, pledging, and insider confidence signals',
     force_config: true,
-    version:      '1.2.0',
+    version:      '2.0.1',
     config: {
       signal_filters: {
-        // governance_signal: shareholding filings, pledge disclosures, insider transactions
-        // disclosure_quality: auditor emphasis of matter on related-party or promoter-level issues
-        // m_and_a: promoter-driven acquisitions / OFS / block deals reveal capital deployment intent
-        // capital_allocation: promoter-backed capex decisions and equity dilution events
-        signal_types:      ['governance_signal', 'disclosure_quality', 'm_and_a', 'capital_allocation'],
+        // kpi: Prowess financial actuals — shareholding-derived metrics, ROCE, debt ratios that ground the ownership narrative
+        // governance_signal: shareholding filings, pledge disclosures, insider transactions, SEBI compliance
+        // milestone: ESOP/RSU issuance, equity capital changes from annual reports
+        // financial_figure: shareholding category breakdowns (promoter, FII, DII, ADR) from annual reports/PPTs
+        // capital_allocation: buyback announcements, QIP/rights/OFS events, ESOP programme updates
+        // m_and_a: OFS / block deals, subsidiary IPO events, stake changes
+        // mgmt_tone: management language on capital return, buyback rationale, shareholding commentary
+        // analyst_questions: analyst pressure on pledge, stake sale, subsidiary IPO — deflection is a signal
+        signal_types:      ['kpi', 'governance_signal', 'milestone', 'financial_figure', 'capital_allocation', 'm_and_a', 'mgmt_tone', 'analyst_questions'],
         metric_family:     ['governance'],
         include_historical: true,
       },
@@ -485,92 +482,133 @@ Return a JSON object with this exact structure:
       aggregation:     'weighted_sum',
       model:           HAIKU,
       max_tokens:      MAX_TOKENS,
-      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from shareholding filings, earnings transcripts, and corporate governance disclosures using a rigorous L1 extraction pipeline.
+      prompt_template: `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings call transcripts, investor PPTs, and annual reports using a rigorous L1 extraction pipeline.
 
-Your task is to synthesise this signal summary into a structured promoter-activity view. Do NOT invent data — work only from the signals provided.
+Your task is to synthesise this signal summary into a structured promoter-activity view conforming EXACTLY to the lens_score JSON schema.
 
-PROMOTER ACTIVITY ANALYSIS:
-Review the promoter shareholding history chronologically. For each period where a change occurred (or where the stability is notable), prepare a timeline entry. Identify: (1) the current stake and pledge %, (2) any dilution or buyback events, (3) secondary OFS or block deals, (4) insider buying/selling by management, (5) key structural insights about the ownership narrative.
+PROVENANCE GATE — NON-NEGOTIABLE:
+- Do NOT invent data. Work only from the signals provided.
+- Every ownership figure (stake %, pledge %, ESOP quantum, institutional %) must be verbatim from a supplied signal. If not in the input, it does not exist — use -1 / "" sentinels.
+- A pattern requires ≥2 distinct signals. A pattern supported by only 1 signal → direction = "watch", confidence ≤ 0.4.
+- No signals supplied → do not generate analysis. Set score = 50, status = "MODERATE", takeaway = "Insufficient ownership signals to score."
 
-IMPORTANT — if explicit promoter shareholding % data is absent from the signals: still emit PROMOTER_STAKE entries, but set actual_value to null, use the label to describe the period/event (e.g. "FY26 Q3"), and use the statement to describe what the governance signals imply about promoter posture. Set direction to "tracking" when inferring. Do NOT use any other metric name — always use "PROMOTER_STAKE" even when actual stake data is unavailable.
+OWNERSHIP STRUCTURE DETERMINATION — DO THIS FIRST:
+Before any pattern or timeline entry, determine the ownership type from the signals:
+  - "promoter-controlled" — promoter category % present in filings
+  - "promoter-free" — confirmed no promoter entity (e.g. professionally managed post-merger)
+  - "government-owned" — government as promoter
+  - "transition" — ownership structure changing during the supplied period
+State this in key_metrics.ownership_type. This determination gates which patterns are applicable:
+  - promoter-free → Pledge Risk pattern is structurally NULL (state it, do not silently omit)
+  - promoter-free → no promoter buying/selling signal applies
 
 {{DATA_BLOCK}}
 
-OUTPUT FIELD RULES — strictly enforced:
+=== SHARED CHILD SCHEMA — FIELD BANDS ===
+Both "top_signals" and "patterns" use the SAME child object. No nullable fields — use sentinels: "" for strings, -1 for numbers, [] for evidence arrays.
+- Every item in "top_signals" MUST have kind = "signal".
+- Every item in "patterns" MUST have kind = "pattern".
 
-top_signals[] — MUST follow this layout. No exceptions.
+kind = "signal" (timeline and meta entries):
+  - MUST be meaningful: kind, label, impact, direction, statement.
+  - actual_value: numeric ownership figure or -1 if absent. actual_date: YYYY-MM-DD last day of period or "".
+  - guided_value: pledge % for PROMOTER_STAKE rows, -1 elsewhere. guided_date: same period end or "".
+  - delta: signed change vs prior period or -1. unit: "%" or "".
+  - Pattern band SENTINELS: pattern_type = "none", confidence = -1, confidence_reason = "", sentence = "", shape_data = "", shape_label = "", evidence = [].
+  - direction: "beat" | "miss" | "in_line" | "tracking". NEVER a pattern-vocabulary value.
 
-  PROMOTER_STAKE — timeline rows (one per material period or event):
-  Each entry represents one point in the promoter shareholding timeline.
+kind = "pattern" (ownership behaviour patterns):
+  - MUST be meaningful: kind, label, impact, direction, pattern_type, confidence, confidence_reason, sentence.
+  - evidence MUST have ≥1 item with verbatim quote, signal_id, ISO period. evidence.value = -1 when no numeric count.
+  - shape_data: JSON array of {period, count} for sparkline when countable (e.g. analyst question frequency); else "".
+  - Signal band SENTINELS: value_targeted = -1, actual_value = -1, target_date = "", actual_date = "", unit = "", metric = "", signal_id = "".
+  - direction: "positive" | "negative" | "neutral" | "watch". NEVER a signal-vocabulary value.
+
+DATE FORMAT — STRICT ISO 8601, LAST DAY OF PERIOD:
+Every date field MUST be YYYY-MM-DD. Indian fiscal year ends 31 March: FY2026 → "2026-03-31". FY quarters: Q1 → Jun 30, Q2 → Sep 30, Q3 → Dec 31, Q4 → Mar 31.
+
+SCORE & STATUS DERIVATION (DETERMINISTIC):
+1. Assess each of the 6 pattern slots below. Score each present pattern: Stable/Clean/High-quality/Disciplined/Disclosed = +2; Watch = 0; Negative/Rising risk/Dilutive/Deflected = -2. Structurally NULL = 0.
+2. Base = 50. Add pattern scores. Clamp to [0, 100].
+3. score ≥ 70 → "STRONG"; 40–69 → "MODERATE"; < 40 → "WEAK".
+Report in key_metrics: "ownership_type", "current_stake" (latest % or "N/A"), "pledge_pct" (latest % or "None"), "last_dilution_event" (e.g. "FY22 QIP" or "None on record").
+
+top_signals[] LAYOUT — emit in this exact order:
+
+  SECTION 1 — PROMOTER_STAKE rows (one per quarter/period, chronologically oldest first):
   • metric: "PROMOTER_STAKE"
-  • label: period label, e.g. "Mar 2026", "FY21/FY22", "Dec 2024" (max 12 chars)
-  • statement: what happened in this period — stake level, event, or stability note (≤80 chars)
-  • actual_value: promoter stake % at that period end (numeric)
-  • guided_value: pledge % if applicable — omit the field entirely if no pledge data
-  • delta: change in stake vs prior period (signed %, e.g. -2.5 for reduction, 0 for no change)
+  • label: period label e.g. "Mar 2026", "Dec 2024" (max 12 chars)
+  • statement: signal narrative — stake level, event, or stability note (≤80 chars, verbatim where possible)
+  • actual_value: promoter stake % as a number, or -1 if absent
+  • guided_value: pledge % as a number, or -1 if no pledge data
+  • delta: QoQ change in stake (signed %, e.g. -0.5), or -1 if first period / unknown
+  • delta_pct: QoQ % change relative to prior stake (e.g. -0.8 means stake fell 0.8%), or -1 if unknown
   • unit: "%"
-  • direction: "beat" if stake increased / pledge fell, "miss" if stake fell / pledge rose, "in_line" if stable, "tracking" if mixed/uncertain
-  • actual_date: period end date in YYYY-MM-DD
-  • guided_date: period end date in YYYY-MM-DD
+  • direction: "beat" if stake rose or pledge fell, "miss" if stake fell or pledge rose, "in_line" if stable, "tracking" if inferred from narrative only
+  • actual_date: YYYY-MM-DD last day of the period (e.g. "2026-03-31" for Mar 2026)
+  • guided_date: same as actual_date
   • impact: "high" | "medium" | "low"
+  If promoter-free: emit one PROMOTER_STAKE row with actual_value = -1, guided_value = -1, delta = -1, delta_pct = -1, statement = "No promoter entity — institutionally owned", direction = "in_line".
 
-  PROMOTER_INSIGHT — 3 insight cards at the bottom:
-  Each captures a structural insight about the promoter ownership narrative.
+  SECTION 2 — PROMOTER_INSIGHT cards (exactly 3, after all PROMOTER_STAKE rows):
+  These are the three structural insight cards: Stability, Pending Event, Insider Signal.
   • metric: "PROMOTER_INSIGHT"
-  • label: insight title (e.g. "No equity dilution since FY22", "Oct '25 OFS — smart monetisation", "CET1 12.37% — thinner than peers")
-  • statement: 1–2 sentences elaborating on the insight and its investment relevance (≤80 chars)
-  • direction: "beat" | "tracking" | "miss" (drives card color: green / amber / red)
+  • label: card title — 3–6 words (e.g. "Stake stable, no dilution", "Subsidiary IPO pending", "No insider selling detected")
+  • statement: 1–2 sentences — insight body and investment relevance (≤80 chars)
+  • direction: "beat" (green) | "tracking" (amber) | "miss" (red)
   • impact: "high" | "medium" | "low"
-  Exactly 3 PROMOTER_INSIGHT entries are required.
+  Emit in this order: [0] Stability insight, [1] Pending Event insight (if none: direction = "in_line", label = "No pending ownership event"), [2] Insider Signal insight.
 
-  META SIGNALS (emit these at the very end, after the 3 PROMOTER_INSIGHT entries):
-  These encode summary ownership metrics as top_signals so the frontend can read them directly.
+  SECTION 3 — META SIGNALS (after the 3 PROMOTER_INSIGHT entries):
+  metric: "META_CURRENT_STAKE" — label: latest stake % or "N/A", statement: period + source (≤60 chars), impact: "high"
+  metric: "META_PLEDGE_PCT"    — label: pledge % or "None" or "N/A", statement: "Pledge as % of promoter shares" (≤60 chars), impact: "high"
+  metric: "META_LAST_DILUTION" — label: last dilution event or "None on record", statement: brief context (≤60 chars), impact: "medium"
+  metric: "META_INSIDER_NOTE"  — label: 5–8 word insider sentiment read, statement: basis (≤60 chars), impact: "medium"
+  metric: "META_VERDICT"       — label: 3–5 word ownership verdict, statement: one-line rationale (≤80 chars), impact: "high"
+  (Omit direction on all META_* signals)
 
-  metric: "META_CURRENT_STAKE"
-  • label: latest promoter stake %, e.g. "62.93%" or "N/A"
-  • statement: period and source context, e.g. "Mar 2026 shareholding filing" (≤60 chars)
-  • impact: "high"
+PATTERN ANALYSIS — SIX OWNERSHIP PATTERN TYPES:
+Run each pattern only if signals meet its inclusion threshold. A pattern type with insufficient signals → direction = "watch", confidence ≤ 0.4, sentence states "Insufficient signals". If structurally inapplicable (e.g. Pledge Risk for a promoter-free company), state it explicitly in confidence_reason and set direction = "neutral".
 
-  metric: "META_PLEDGE_PCT"
-  • label: pledge as % of promoter holding, e.g. "0.00%" or "None" or "N/A"
-  • statement: "Pledge as % of promoter shares" (≤60 chars)
-  • impact: "high"
+Six pattern_type values (use exactly these slugs):
+  ownership_structure   — Is there a promoter? Family/institutional/govt? Any structural change? (threshold: any shareholding signal from annual report or PPT)
+  pledge_risk           — Pledge level and direction. (threshold: promoter entity confirmed. NULL if promoter-free — state this)
+  insider_participation — ESOP/RSU issuance or buyback programme. (threshold: ≥1 ESOP/buyback signal)
+  equity_discipline     — Dilutive equity raises (QIP, rights, OFS) vs preservation. (threshold: any equity capital change signal)
+  institutional_quality — FII/DII composition, sovereign/pension holder presence. (threshold: institutional breakdown in annual report)
+  pending_ownership_event — Subsidiary IPO, promoter stake sale, merger/demerger pending. (threshold: any pending ownership change signal or analyst deflection)
 
-  metric: "META_LAST_DILUTION"
-  • label: last equity dilution event, e.g. "FY22 QIP" or "None on record"
-  • statement: brief context on what it was and size if known (≤60 chars)
-  • impact: "medium"
-
-  metric: "META_INSIDER_NOTE"
-  • label: 5–8 word insider sentiment read, e.g. "No insider selling signals detected"
-  • statement: basis for the read (≤60 chars)
-  • impact: "medium"
-
-  metric: "META_VERDICT"
-  • label: 3–5 word ownership verdict, e.g. "Stable, no dilution risk"
-  • statement: one-line supporting rationale (≤80 chars)
-  • impact: "high"
-
-  (Omit direction on all META_* signals — not applicable)
+For each pattern: shape_data = JSON array of {period, count} when per-quarter trend is derivable, else "".
+Confidence (0.0–1.0): 0.8–1.0 clear directional change, 3+ periods; 0.5–0.7 direction clear but thin data; 0.3–0.4 suggestive watch signal.
+Aim for patterns that are present — do NOT force all six. An output with 3 strong patterns beats one with 6 weak ones.
 
 WRITING STYLE RULES:
-- "takeaway": max 25 words, lead with current promoter stance and key ownership signal.
-- "highlights": up to 3 items, max 15 words each, describe positive ownership signals.
+- "takeaway": max 25 words, lead with ownership structure type and key signal.
+- "highlights": up to 3 items, max 12 words each, start with a verb or metric.
 - "risks": up to 2 items, max 12 words each, start with the risk noun (e.g. "Pledge risk", "Dilution overhang").
-- "label" for PROMOTER_STAKE: max 12 chars, period-style format.
-- "statement" in signals: ≤80 chars.
+- "label": 2–5 words, title-case.
+- "statement": ≤80 chars, verbatim or tightly paraphrased from source signal.
+- "sentence" (patterns): one plain-language directional claim leading with the change.
 - Never pad with filler phrases.
 
-Return a JSON object with this exact structure:
+Return a JSON object conforming EXACTLY to the lens_score schema:
 {
-  "score": <integer 0-100>,
+  "score": <integer 0-100, per SCORE & STATUS DERIVATION>,
   "status": <"STRONG" | "MODERATE" | "WEAK">,
-  "takeaway": <string — max 25 words, lead with promoter stance and key ownership signal>,
-  "key_metrics": {},
-  "highlights": [<up to 3 items, each max 15 words, positive ownership signals>],
+  "takeaway": <string — max 25 words, ownership structure type + key signal>,
+  "key_metrics": { "ownership_type": <string>, "current_stake": <string>, "pledge_pct": <string>, "last_dilution_event": <string> },
+  "highlights": [<up to 3 items, each max 12 words>],
   "risks": [<up to 2 items, each max 12 words, starting with risk noun>],
-  "top_signals": [<PROMOTER_STAKE entries chronologically oldest first; then exactly 3 PROMOTER_INSIGHT entries; then META_CURRENT_STAKE, META_PLEDGE_PCT, META_LAST_DILUTION, META_INSIDER_NOTE, META_VERDICT>]
-}`,
+  "top_signals": [ <PROMOTER_STAKE rows oldest→newest; then 3 PROMOTER_INSIGHT rows; then META_CURRENT_STAKE, META_PLEDGE_PCT, META_LAST_DILUTION, META_INSIDER_NOTE, META_VERDICT> ],
+  "patterns":    [ <ownership pattern children — up to 6; [] if no signals> ]
+}
+
+Child object (NO nulls — use sentinels):
+  kind, signal_id, metric, label, impact, direction, statement, original_statement, source_ref,
+  announcement_date, value_targeted, value_targeted_low, value_targeted_high, target_date,
+  actual_value, actual_date, unit, delta, delta_pct, guided_value, guided_date,
+  pattern_type, confidence, confidence_reason, sentence, shape_data, shape_label, evidence[]
+`,
     },
   },
   // ── Opportunity lenses ───────────────────────────────────────────────────────

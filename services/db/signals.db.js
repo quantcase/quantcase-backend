@@ -169,6 +169,12 @@ const V2_TYPE_TO_METRIC_FAMILY = {
   industry_signal:       'industry',
   capital_allocation:    'capital',
   disclosure_quality:    'governance',
+  governance_signal:     'governance',
+  financial_figure:      'governance',
+  m_and_a:               'capital',
+  risk_factor:           'governance',
+  contingent_liability:  'governance',
+  strategic_claim:       'management',
   mgmt_tone:             'management',
   analyst_questions:     'management',
   distribution_customer: 'customer',
@@ -302,13 +308,6 @@ async function querySignalsV2(filters = {}) {
   });
 
   const shaped = rows.map(shapeV2Signal);
-
-  // Apply metric_family post-filter (derived during shaping, not a DB column)
-  const mf = filters.metric_family ?? filters.metricFamily;
-  if (mf) {
-    const mfSet = new Set(Array.isArray(mf) ? mf : [mf]);
-    return shaped.filter(s => s.metric_family && mfSet.has(s.metric_family));
-  }
 
   return shaped;
 }
