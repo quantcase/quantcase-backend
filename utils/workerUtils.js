@@ -2,6 +2,24 @@
 
 const openRouter = require('../config/llm');
 
+// ─── Colored logger ───────────────────────────────────────────────────────────
+
+const c = {
+  gray:   s => `\x1b[90m${s}\x1b[0m`,
+  green:  s => `\x1b[32m${s}\x1b[0m`,
+  yellow: s => `\x1b[1;33m${s}\x1b[0m`,
+  cyan:   s => `\x1b[36m${s}\x1b[0m`,
+  red:    s => `\x1b[31m${s}\x1b[0m`,
+};
+
+const wlog = {
+  info:  msg => console.log(c.gray(msg)),
+  done:  msg => console.log(c.green(msg)),
+  cost:  msg => console.log(c.yellow(msg)),
+  warn:  msg => console.warn(c.cyan(msg)),
+  error: msg => console.error(c.red(msg)),
+};
+
 /**
  * Parse JSON from LLM response text, handling markdown code-fenced blocks.
  */
@@ -86,7 +104,7 @@ function logUsage(tag, usage) {
   if (!usage) return;
   const { prompt_tokens, completion_tokens, total_tokens, cost } = usage;
   const costStr = cost != null ? ` | cost: $${Number(cost).toFixed(6)}` : '';
-  console.log(`[${tag}] tokens: ${prompt_tokens ?? '?'} in / ${completion_tokens ?? '?'} out / ${total_tokens ?? '?'} total${costStr}`);
+  wlog.cost(`[${tag}] tokens: ${prompt_tokens ?? '?'} in / ${completion_tokens ?? '?'} out / ${total_tokens ?? '?'} total${costStr}`);
 }
 
-module.exports = { parseJson, llmStream, logUsage, applyMultiplier, computePeriodType };
+module.exports = { parseJson, llmStream, logUsage, wlog, applyMultiplier, computePeriodType };

@@ -47,286 +47,353 @@ const LENS_CONFIGS = [
       model:           HAIKU,
       max_tokens:      32000,
       bridge_prompt: true,
-      prompt_template: `# Management Credibility Skill
+      prompt_template: `# Management Credibility Skill (L2) — v5 Refined
 
-**Purpose:** Synthesize L1 signals from earnings transcripts, investor PPTs, and annual reports to surface management credibility patterns, strategic pivots, narrative inflation, and guidance execution track record. Extract the edge signal: what management is emphasizing that analysts haven't yet caught.
+**Purpose:** Synthesize L1 signals from earnings transcripts and investor PPTs to surface management credibility patterns, strategic pivots, and guidance execution track record. Extract only what management committed to; discard inference and inference-driven analysis.
 
-**When to use:** Whenever you have timebound guidance from management commentary, PPT actuals data, and multiple quarters of signals. Always trigger on requests like:
-- "What's management actually saying vs. what happened?"
-- "Where is management deflecting?"
-- "What patterns emerge across quarters?"
-- "Is this narrative inflation?"
-- "Guidance track record for [company]?"
-- "What's the drumbeat vs. analyst focus?"
+**Core Principle:** This skill is about **management execution on stated commitments**, not about predicting or inferring outcomes. Every number, date, and commitment must exist as a verbatim statement in the input. If it doesn't exist, it is [NULL].
 
 ---
 
-## Input Requirements
+## ⛔ Provenance Gate (Read First — Non-Negotiable)
 
-**You need all three:**
+**Every single value in output traces to a verbatim statement in the supplied input. Period.**
 
-1. **L1 Guidance Signals** from earnings transcripts
-   - "guidance_timebound": Quantified targets with explicit dates ("Q3 FY25", "end of FY26")
-   - "ongoing_timebound": Multi-quarter or ongoing initiatives management references repeatedly
-   - "mgmt_tone": Sentiment classification (bullish/neutral/cautious) for each quarter
-   - Analyst question clusters + density (where the 100+ questions point)
+- **Do not paraphrase.** Extract exact language only.
+- **Do not invent.** If a number, date, or commitment is not explicitly stated, it is [NULL].
+- **Do not backfill.** Never use actuals to infer missing guidance.
+- **Do not assume.** "The company grew 15%" is not the same as "we guide 15% growth."
 
-2. **L1 Actuals from PPTs**
-   - Historical financial metrics (Revenue, PAT, Capex, EBITDA margins, volumes, store counts, etc.)
-   - Milestone achievements (factory commissioning, product launches, capacity additions)
-   - Each record has a unique Signal ID for traceability
-
-3. **Cross-Quarter Signal Archive**
-   - Same metric tracked across 4+ consecutive quarters
-   - Keyword/phrase frequency by quarter (enables drumbeat + emergence detection)
-   - Management narrative text (verbatim quotes from each earnings call)
+Two hard failure conditions:
+1. **No guidance signals supplied** → Stop. State that earnings call transcripts + PPT actuals are required.
+2. **A value cannot be traced to supplied input** → Output [NULL]. Never fill the gap from memory, examples, or logic.
 
 ---
 
-## Core Analysis Pattern: Shape → Sentence → Evidence
+## Input Requirements — Strict Schema
 
-**Every insight follows this three-layer structure:**
+### 1. L1 Guidance Signals from Earnings Transcripts ONLY
 
-1. **Shape** (Sparkline/Delta)  
-   Visual representation of the change over time. Show *what moved*, not absolute levels.
+**Signal Types: "guidance_timebound" + "ongoing:timebound" (timebound category only)** (the ONLY sources for guidance track record)
 
-2. **Sentence** (One-line causal claim)  
-   Plain language label of the pattern. Always lead with the delta.  
-   Examples: "Silent for six quarters, now rising." "Bullish tone while KPI decelerates."
+Structure:
+'''json
+{
+  "signal_type": "guidance_timebound",
+  "metric": "string (e.g., 'NIM', 'CAPEX_FY26', 'REVENUE')",
+  "guided_value": "number | null",
+  "guided_value_unit": "string (e.g., '%', 'Cr', 'bps')",
+  "guided_range": {
+    "low": "number | null",
+    "high": "number | null"
+  },
+  "target_date": "YYYY-MM-DD | 'FY25_Q3' | null",
+  "announcement_date": "YYYY-MM-DD (earnings call date)",
+  "source": "EARNINGS_CALL_TRANSCRIPT",
+  "verbatim_statement": "exact quote from transcript",
+  "quote_page_or_timestamp": "for verification"
+}
+'''
 
-3. **Evidence** (Tap-to-verify)  
-   Exact quotes, dates, numbers, and Signal IDs. User can drill to source in one tap.
+**Extraction Rule:**
+- Extract ONLY sentences containing:
+  - Explicit future-tense guidance ("we guide", "we expect", "we target", "targeting", "guidance", "outlook")
+  - AND a specific numeric value or range
+  - AND (optionally) a target date
+- If a statement is past tense ("we delivered", "we achieved"), it is an actual, not guidance → mark as [NULL] in guidance_timebound, extract to actuals instead.
 
-**Goal:** Glance in 2 seconds, read in 10, verify if they want.
+**Examples (✓ Extract as guidance_timebound):**
+'''
+"We target NIM of 3.65% for FY25."
+  → guided_value: 3.65, guided_value_unit: "%", target_date: "FY25", metric: "NIM"
 
----
+"We expect revenue growth of 18–22% in FY26."
+  → guided_value: null, guided_range: {low: 18, high: 22}, target_date: "FY26", metric: "REVENUE_GROWTH"
 
-## Six Pattern Types to Extract
+"Capex is expected to be ₹10,000–12,000 crore by end FY26."
+  → guided_value: null, guided_range: {low: 10000, high: 12000}, target_date: "FY26_END", metric: "CAPEX"
+'''
 
-### 1. **Drumbeat** (Theme Loudness Trajectory)
+**Examples (✗ DO NOT extract as guidance_timebound):**
+'''
+"We delivered ₹67,347 crore net profit in FY25."
+  → Past tense. This is an ACTUAL. Mark guidance_timebound as [NULL] for this metric in this quarter.
 
-**Definition:** A strategic theme gaining or losing management emphasis across quarters.
+"Net profit grew 10.7% YoY."
+  → Backward-looking. Not guidance. [NULL].
 
-**How to detect:**
-- Count keyword/phrase frequency across quarters (e.g., "data centre" mentions Q1→Q2→Q3→Q4)
-- Plot as frequency timeline
-- Identify inflection points (steep rise = new priority; collapse = deprioritized)
-
-**Why it matters:** Strategic pivots often surface in language *before* financials reflect them.
-
-**Output format:**
-- **Shape:** Sparkline of mention frequency (0, 1, 2, 5, 8, 12 mentions/quarter)
-- **Sentence:** "Data centre investment mentioned 0 times Q1, rising to 12 references by Q4 — signals capex pivot."
-- **Evidence:** 
-  - Q1 FY26 call: [date], 0 mentions
-  - Q4 FY26 call: [date], 12 mentions (Quotes: "data centre capex", "infrastructure build", "DC expansion")
-  - Signal IDs: [PPT actual showing capex allocation trend]
-
----
-
-### 2. **Emergence** (First-Ever Mention + Acceleration)
-
-**Definition:** A new initiative or risk factor appears for the first time, then accelerates in subsequent quarters.
-
-**How to detect:**
-- Keyword does not exist in Q1, Q2 archive
-- First surfacing occurs in Q3 (mark as "Emergence Quarter")
-- Frequency spikes in Q4, Q1 of next year
-
-**Why it matters:** Management typically bury new challenges. Emergence timing reveals urgency and scale.
-
-**Output format:**
-- **Shape:** Timeline showing [none] → [1st appearance] → [climbing mentions]
-- **Sentence:** "AI/GPU demand first mentioned Apr 2026 call; surged to 15 references by Jul 2026 — category pivot."
-- **Evidence:**
-  - Pre-emergence: Q1–Q2 FY26 archive shows zero AI/GPU mentions
-  - First mention: Q3 FY26 call, [date], "emerging AI GPU demand in data centre workloads"
-  - Acceleration: Q4 FY26 (5 refs), Q1 FY27 (15 refs)
-  - Verbatim: [Quotes from each call]
+"The guidance we gave last quarter was 3.65% NIM."
+  → This refers to PAST guidance. If current guidance differs, extract current guidance instead.
+'''
 
 ---
 
-### 3. **Narrative-vs-Consensus Gap** (Edge Signal)
+### 2. L1 Timebound Category from Ongoing Signal Type (Earnings Transcripts ONLY)
 
-**Definition:** A theme management emphasizes heavily but analysts have not yet flagged.
+**From Signal Type: "ongoing" → Category: "timebound"** (for multi-quarter initiatives with forward-looking timelines)
 
-**How to detect:**
-- Count management references to a topic (e.g., "supply chain resilience": 9 mentions in Q4 call)
-- Count analyst questions on the same topic (e.g., 2 analyst Qs on supply chain in same Q4 call)
-- Gap = Management Emphasis (%) − Analyst Focus (%)
-- A 40-point gap signals an edge: management is warning/guiding on something the Street hasn't priced in
+Structure:
+'''json
+{
+  "signal_type": "ongoing",
+  "category": "timebound",
+  "initiative": "string (e.g., 'CAPEX_NORMALIZATION', 'MARGIN_RECOVERY')",
+  "description": "one-sentence summary of the initiative",
+  "timeline": "string (e.g., '3-4 quarters', '2-year recovery', 'by end FY27')",
+  "status_as_of_announcement": "string (e.g., 'started Q1 FY26', 'in progress')",
+  "announcement_date": "YYYY-MM-DD",
+  "verbatim_statement": "exact quote from transcript"
+}
+'''
 
-**Why it matters:** This is the actual alpha. Analysts are usually behind management. Early detection of under-priced risks/opportunities.
+**Extraction Rule:**
+- Extract ONLY sentences containing forward-looking initiatives with explicit timelines
+- Initiative must reference a future state, not current achievement
+- Timeline must be quantified (e.g., "3 quarters", "2 years") or explicitly dated
 
-**Output format:**
-- **Shape:** Side-by-side bar chart: Management emphasis % vs. Analyst question density %
-- **Sentence:** "Supply chain resilience: management 40% of narrative, only 5% of analyst questions—Street asleep on risk."
-- **Evidence:**
-  - Management commentary: 9 references to "supply chain" in Q4 FY26 call ([date], company name)
-  - Analyst Q&A: Only 2 questions focused on supply chain (out of 45 total analyst questions, ~4%)
-  - Raw gap: 40 percentage points
-  - Verbatim management quotes: [3–4 direct quotes on supply chain resilience]
-  - Analyst Q sample: [Q: "Cost pressure from inputs?" A: (supply chain mentioned)]
+**Examples (✓ Extract as ongoing:timebound):**
+'''
+"We expect margin normalization over the next 3–4 quarters as repricing takes effect."
+  → initiative: "MARGIN_NORMALIZATION", timeline: "3-4 quarters"
 
----
+"CD ratio management will bring us to 87–90% by end of FY27."
+  → initiative: "CD_RATIO_NORMALIZATION", timeline: "by end FY27"
+'''
 
-### 4. **Tone-vs-Numbers Divergence** (Narrative Inflation Warning)
+**Examples (✗ DO NOT extract):**
+'''
+"We are in the process of optimizing our supply chain."
+  → No quantified timeline. [NULL].
 
-**Definition:** Management speaks bullishly but the underlying KPI decelerates, stagnates, or misses guidance.
-
-**How to detect:**
-- Extract "mgmt_tone" for the quarter (bullish/neutral/cautious)
-- Identify key KPI(s) management highlighted (e.g., "strong double-digit growth")
-- Compare actual KPI trajectory:
-  - Growth rate Q1 → Q4 (decelerating = divergence risk)
-  - Actual vs. guided (miss = divergence confirmed)
-  - Margin compression while claiming "pricing power" (divergence = inflation)
-
-**Why it matters:** Early red flag for deteriorating business fundamentals masked by optimistic framing.
-
-**Output format:**
-- **Shape:** Dual-axis chart: Tone sentiment score vs. KPI growth rate trend
-- **Sentence:** "Bullish tone (Jul 2026) vs. revenue growth decelerating 24% → 18% Q1–Q4—narrative inflation."
-- **Evidence:**
-  - Management tone Q1–Q4 FY26: [bullish] [bullish] [neutral] [neutral] (tone softening)
-  - Actual revenue growth: Q1 24%, Q2 22%, Q3 19%, Q4 18% (steady deceleration)
-  - Management quote (Q1): "Strong double-digit growth momentum" ([exact quote])
-  - Actual Q4 guidance miss: Guided 22% growth, delivered 18% (−180 bps miss)
-  - Early-warning pattern: Tone remained upbeat through Q3 despite KPI weakness visible in Q1–Q2
+"We've already achieved cost savings of 150 bps."
+  → Past achievement. Not ongoing future initiative. [NULL].
+'''
 
 ---
 
-### 5. **Going Quiet** (Deprioritization Signal)
+### 3. L1 Actuals from Investor PPTs & Prowess Financial API ONLY
 
-**Definition:** A segment or initiative management promoted heavily in prior quarters is now barely mentioned.
+**Signal Type: "ppt_actual"** or **"prowess_actual"**
 
-**How to detect:**
-- Identify a metric/segment with 8+ mentions in Q1–Q2
-- Frequency drops to 0–1 mentions by Q4
-- Cross-check against actual performance (e.g., segment margin, volume, profitability)
+Structure:
+'''json
+{
+  "signal_type": "ppt_actual | prowess_actual",
+  "metric": "string (matching guidance metric names where possible)",
+  "actual_value": "number",
+  "actual_value_unit": "string ('%', 'Cr', 'bps')",
+  "reporting_date": "YYYY-MM-DD | 'FY25_END' | 'Q3_FY26'",
+  "source": "PPT_FY26_Q3 | PROWESS_API",
+  "signal_id": "unique identifier for traceability"
+}
+'''
 
-**Why it matters:** Management often go quiet on underperforming segments *before* formal guidance cut. Precursor to bad prints.
-
-**Output format:**
-- **Shape:** Frequency chart showing cliff-edge drop-off
-- **Sentence:** "Premium segment promoted 8x Q1, zero mentions Q4—likely profit miss incoming."
-- **Evidence:**
-  - Q1 FY26 call: "Premium tier driving strong margins" (8 mentions, [quotes])
-  - Q2 FY26: "Premium segment momentum" (5 mentions)
-  - Q3 FY26: "Premium tier" (2 mentions)
-  - Q4 FY26: Zero mentions
-  - Actual data: Premium segment margin Q1 22% → Q4 18% (400 bps compression)
-  - Management silence correlated with margin erosion
-
----
-
-### 6. **Street Pressure Map** (Analyst Question Clustering)
-
-**Definition:** Identify which topics dominate analyst Q&A, revealing where the Street is converging on concerns/opportunities.
-
-**How to detect:**
-- Parse all analyst questions from Q4 earnings call (e.g., 132 questions total)
-- Cluster by topic/theme (Capex, Margins, Market Share, Supply Chain, etc.)
-- Rank by frequency
-- Identify gaps: topics analysts ignore but management emphasizes (connects to Gap analysis)
-
-**Why it matters:** Shows where consensus is forming and where isolated risks hide.
-
-**Output format:**
-- **Shape:** Horizontal bar chart: Top 8 analyst question themes by frequency
-- **Sentence:** "Capex dominates analyst attention (28 Qs), while management pushes margin story (isolated 2 analyst Qs on margins)."
-- **Evidence:**
-  - Total analyst Qs: 132 (Q4 FY26 call, [date])
-  - Top clusters:
-    - Capex plans: 28 Qs (21%)
-    - Working capital / cash flow: 22 Qs (17%)
-    - Volume growth: 18 Qs (14%)
-    - Margin expansion: 2 Qs (1.5%) ← Management emphasis, Street ignores
-  - Gap insight: Management spoke about margin structure 7x, but analysts asked only 2 questions—edge signal on pricing power assumptions
+**Extraction Rule:**
+- Extract ONLY numeric actuals that are:
+  - Explicitly stated in the PPT or API (no calculations, no averages, no interpolations)
+  - Associated with a clear reporting period
+  - Not forward-looking or estimated
+- Every actual must be traceable to a specific source document/API call
 
 ---
 
-## Guidance Track Record Table
+### 4. ALL L1 Signals for Pattern Analysis (Completely Separate from Guidance Track Record)
 
-**Purpose:** Quantify management's execution credibility. Answer: "Does management deliver on what they commit?"
+**IMPORTANT:** Pattern analysis uses ALL available L1 signals from all three sources — NOT just the guidance signals above.
 
-### Table Structure
+**Pattern analysis signal sources:**
 
-| Announcement Date | Guided Metric | Guided Value | Target Date | Actual Value | Hit Status | Management Statement |
-|---|---|---|---|---|---|---|
-| 15-Jul-2025 | Revenue | ₹50,000 Cr | Q3 FY26 | ₹51,200 Cr | Beat (+2.4%) | "Confident of 50k+ revenue in Q3" [exact quote] |
-| 15-Jul-2025 | Capex | ₹8,500 Cr | FY26 | ₹8,200 Cr | Miss (−3.5%) | "Capex guided at 8,500 Cr for full year" [exact quote] |
-| 15-Oct-2025 | EBITDA Margin | 32–34% | FY26 | 31.8% | Miss (−0.2%) | "We maintain 32–34% margin guidance" [exact quote] |
+1. **From Earnings Transcripts:** 
+   - ALL keyword/phrase mentions (guidance, narrative, commentary, strategic themes, risk discussion)
+   - Analyst questions by topic/keyword
+   - Management tone and language choices
+   - Not limited to guidance_timebound or ongoing:timebound
+
+2. **From Investor PPTs:**
+   - ALL financial metrics and KPIs (not just guidance-related ones)
+   - Segment performance, product launches, milestone achievements
+   - Strategic commentary in slide notes
+   - Year-over-year or period-over-period trends
+
+3. **From Annual Reports:**
+   - Strategic priorities and management commentary
+   - Risk factor disclosures and updates
+   - Governance changes and management shifts
+   - Segment reclassifications and strategic pivots
+   - Footnote changes and disclosure evolution
+
+**Pattern analysis examples (independent of guidance track record):**
+- **Drumbeat:** "Digital services" mentioned 2→5→12 times across Q1→Q2→Q3 calls
+- **Emergence:** "AI demand" appears zero times in Q1–Q2, then 1 mention in Q3, then 8 mentions in Q4
+- **Going Quiet:** "Premium segment" mentioned 8 times in Q1, drops to zero by Q4; concurrent actual margin deterioration
+- **Tone-vs-Numbers:** Management says "margins stable" but actual margin KPI falls 150 bps
+- **Narrative-vs-Consensus Gap:** Management emphasizes "supply chain resilience" (35% of call), but analysts ask only 2 of 45 questions on it
+- **Street Pressure Map:** Analyst questions cluster 28 on capex, 2 on margin (indicates analyst consensus vs. management narrative mismatch)
+
+**These patterns are extracted from the full universe of L1 signals and have NO connection to the guidance track record table.**
+
+---
+
+## Guidance Track Record Table — Strict Rules
+
+**Purpose:** Match management guidance (from earnings call transcripts) against actuals (from PPT/Prowess) to calculate hit rate.
 
 ### Column Definitions
 
-- **Announcement Date:** Exact date of earnings call (DD-MMM-YYYY)
-- **Guided Metric:** Specific KPI (e.g., Revenue, Capex, EBITDA Margin, Volume, Store Count)
-- **Guided Value:** Quantitative value or range, unit-standardized (all ₹ in Crores or Billions, all % expressed consistently)
-- **Target Date:** Normalized fiscal period (Q3 FY26, FY26, etc.) — **NOT verbatim** like "next year"
-- **Actual Value:** Verified from PPT signals (with Signal ID reference)
-- **Hit Status:** Beat | Miss | In Line (see delta rules below)
-- **Management Statement:** Verbatim quote (50–80 characters, truncated with […])
+| Column | Source | Format | Rule |
+|--------|--------|--------|------|
+| "Metric" | guided_timebound.metric | string | Category name (e.g., NIM, CAPEX, REVENUE) |
+| "Guided_Value" | guided_timebound.guided_value | number or {low, high} | Verbatim from transcript. If range, store both. [NULL] if not stated. |
+| "Guided_Unit" | guided_timebound.guided_value_unit | string | %, Cr, bps, etc. Must match actual unit; convert if necessary. |
+| "Target_Date" | guided_timebound.target_date | FY or Date | Normalized fiscal quarter or calendar date. If statement says "by end of FY25", target_date = "FY25_END". [NULL] if not stated. |
+| "Announced_Date" | guided_timebound.announcement_date | YYYY-MM-DD | Earnings call date when guidance was given. |
+| "Actual_Value" | ppt_actual.actual_value | number | From PPT or Prowess. No calculations. [NULL] if no actual exists for target period. |
+| "Actual_Unit" | ppt_actual.actual_value_unit | string | Must match Guided_Unit (convert if needed). |
+| "Reporting_Date" | ppt_actual.reporting_date | FY or Date | Period in which actual was reported. |
+| "Hit_Status" | **calculated** | BEAT / IN_LINE / MISS / UNRESOLVABLE | See Hit Status Rules below. |
+| "Verbatim_Statement" | guided_timebound.verbatim_statement | exact quote | Copy-paste from transcript. Proves guidance was stated. If no quote, row is [NULL] and excluded. |
 
-### Temporal Normalization Rules
+### Hit Status Rules (Simple, No Delta Calculations)
 
-**Anchor:** The **Announcement Date** is the definitive baseline for all relative timeframe calculations.
+**Rule: Compare actual_value to guided_value. No fancy math. No percentage changes. No basis point calculations. Just comparison.**
 
-**Standard Mappings (if announcement is Q2 FY24):**
-- "Next quarter" = Q3 FY24
-- "Next two quarters" = Q4 FY24
-- "Next fiscal year" / "FY25" = FY25
-- "Calendar year end" = Map to overlapping fiscal quarter (typically Q3/Q4 of next fiscal year)
-- "Next few quarters" = 2–3 quarters forward (Q4 FY24 to Q1 FY25)
-- "In a year" / "12 months" = +12 months from announcement date (map to fiscal quarter)
+'''
+IF guided_value is [NULL] or actual_value is [NULL]:
+  → Hit_Status = UNRESOLVABLE (exclude from hit rate denominator)
 
-**If ambiguous, default to the earliest conservative interpretation** (e.g., "in a couple of quarters" = exactly Q4 FY24, not Q1 FY25).
+IF guided_value is range {low, high}:
+  IF actual_value >= low AND actual_value <= high:
+    → Hit_Status = IN_LINE
+  IF actual_value > high:
+    → Hit_Status = BEAT
+  IF actual_value < low:
+    → Hit_Status = MISS
+
+IF guided_value is point estimate (single number):
+  IF actual_value == guided_value:
+    → Hit_Status = IN_LINE
+  IF actual_value > guided_value:
+    → Hit_Status = BEAT
+  IF actual_value < guided_value:
+    → Hit_Status = MISS
+'''
+
+**Examples:**
+
+'''
+Guided: 3.65% (NIM)
+Actual: 3.48%
+Comparison: 3.48 < 3.65 → MISS
+
+Guided: ₹10,000–12,000 Cr (CAPEX)
+Actual: ₹11,500 Cr
+Comparison: 11,500 ∈ [10,000, 12,000] → IN_LINE
+
+Guided: 18–22% (Revenue Growth)
+Actual: 24%
+Comparison: 24 > 22 → BEAT
+'''
+
+### Period Matching Rules
+
+**When matching guidance to actuals, target_date MUST align with reporting_date. No exceptions.**
+
+'''
+IF guidance target_date = "FY25_END" (March 31, 2025):
+  Match against actual reported for FY25 (full year, not quarterly)
+  
+IF guidance target_date = "FY25_Q3" (Jan 31, 2025):
+  Match against actual reported for Q3 FY25
+  
+IF guidance is "by end of FY26" but actual is reported quarterly:
+  Only compare when full FY26 actual is available
+  Until then: UNRESOLVABLE
+  
+IF guidance announced in Q2 FY26 call (Oct 2025) targets "FY27":
+  Track against FY27 actual (due Apr 2027)
+  Do not back-fit to FY26 actuals
+'''
+
+### What NOT to Do
+
+**❌ Do NOT:**
+- Invent guided values because management "probably" guided them
+- Calculate missing guided values from actuals (e.g., "actuals show 12%, so guidance was probably 10–15%")
+- Backfill missing target dates (e.g., "Q2 call → assume it targets Q3")
+- Convert basis points to percentages to fill gaps
+- Smooth or average multiple quarters of guidance into a single number
+- Use analyst consensus as a proxy for management guidance
+- Extract "aspirational" language as guidance (e.g., "we'd like to reach 25% margin" ≠ guidance)
+
+**✓ DO:**
+- Extract only verbatim future-tense commitments with numeric values
+- Mark unmatched guidance/actuals as UNRESOLVABLE (not as misses)
+- Keep units consistent and explicit
+- Trace every row to a source quote
+- Leave cells [NULL] if data doesn't exist
 
 ---
 
-### Hit Status Calculation Rules
+## Differentiate: Forward-Looking Guidance vs. Past Achievement
 
-#### **Rule A: Numeric Guidance (Revenue, Capex, Volume, etc.)**
+**This distinction is critical. A statement in past tense is not guidance.**
 
-1. **Ensure unit standardization:**  
-   - Guided value: ₹50,000 Cr → Actual value: ₹51,200 Cr (both Crores)
-   - If Guided is in Billions and Actual in Crores, convert both to Crores before delta
+### Forward-Looking Guidance (Extract to guidance_timebound)
+- "We guide FY26 revenue at ₹150,000 Cr"
+- "We expect margins to recover to 18–19% over the next 3 quarters"
+- "Our capex guidance for FY26 is ₹12,000 crore"
+- "We target 5% annual loan growth"
 
-2. **Calculate delta:**  
-   '''
-   Delta (%) = ((Actual Value − Guided Value) / Guided Value) × 100
-   '''
+**Tense markers:** guide, expect, target, outlook, believe, anticipate, project, forecast (future-focused)
 
-3. **Assign status:**
-   - **Beat:** Delta > +2%
-   - **Miss:** Delta < −2%
-   - **In Line:** −2% ≤ Delta ≤ +2%
+### Past Achievement / Already Delivered (Extract to actuals only; [NULL] for guidance)
+- "We delivered ₹145,000 Cr revenue in FY25"
+- "Margins expanded by 150 bps YoY"
+- "We've already achieved 4% loan growth in Q1"
+- "Our capex stood at ₹11,500 Cr in FY25"
 
-#### **Rule B: Guidance as a Range (e.g., 32–34% margin)**
+**Tense markers:** delivered, achieved, grew, posted, reported, stood at (past-focused)
 
-1. **Actual falls within range** → **In Line**
-2. **Actual exceeds upper bound** (e.g., 34.5%) → **Beat**
-3. **Actual below lower bound** (e.g., 31.5%) → **Miss**
+### Hybrid Statements (Extract carefully; separate guidance from achievement)
+'''
+"FY25 revenue was ₹145,000 Cr; for FY26 we guide ₹160,000–165,000 Cr."
+  → FY25: actual, [NULL] for guidance
+  → FY26: guidance_timebound, extract ₹160,000–165,000 Cr
 
-#### **Rule C: Growth Rate Guidance (e.g., "20% revenue growth next year")**
+"We delivered on our FY25 guidance of 18% growth; expect similar momentum in FY26."
+  → FY25: past achievement (actual), not guidance
+  → FY26: ongoing narrative, NOT quantified guidance (no numeric target) → [NULL]
+'''
 
-1. **Locate base-year actual** (fiscal year immediately *before* target date)
-2. **Calculate actual growth:**  
-   '''
-   Actual Growth (%) = ((Actual Target Year / Actual Base Year) − 1) × 100
-   '''
-3. **Assign status using delta logic** (vs. 20% guided growth)
+---
 
-#### **Rule D: Qualitative Guidance (e.g., "peak capex in FY24", "factory commissioned Q3")**
+## Pattern Analysis (Drumbeat, Emergence, Going Quiet, Tone-vs-Numbers, Narrative Gap, Street Pressure)
 
-1. **Do NOT compute delta**
-2. **Verify the claim:**
-   - For "peak capex": Compare capex FY23, FY24, FY25. If FY24 is highest, = **In Line**
-   - For "commissioned Q3": Check whether facility was operational by Q3 target date = **In Line**
-3. **Assign status:**
-   - **Beat:** Outperformed qualitative target (e.g., commissioned Q2, not Q3)
-   - **Miss:** Failed to achieve milestone on time or at all
-   - **In Line:** Achieved as stated
+**CRITICAL: Pattern analysis is INDEPENDENT of guidance track record. Patterns use ALL available L1 signals from all three sources (earnings transcripts, PPTs, annual reports) — NOT just guidance signals.**
+
+**Pattern extraction runs in parallel with (or after) guidance track record, but patterns and guidance track record are separate analyses with no overlap.**
+
+**Data sources for patterns:**
+- All keyword mentions from transcripts (guidance, narrative, commentary — everything)
+- All actuals and metrics from PPTs
+- All narrative, disclosures, and strategic statements from annual reports
+- Analyst questions and clustering from earnings call Q&A
+
+**What patterns do NOT use:**
+- Guidance track record results do not inform patterns
+- Patterns do not validate or refute guidance credibility
+- Analyst sentiment does not replace management guidance
+
+### Pattern Threshold Table
+
+| Pattern | Minimum Criteria | Evidence Required | NULL if |
+|---------|------------------|-------------------|----------|
+| **Drumbeat** | 3+ consecutive quarters with 2x mention frequency inflection | Exact mention counts (not estimates) per quarter; verbatim quotes | <3 qtrs of data; <2x jump; no inflection |
+| **Emergence** | 0 mentions in Q1–Q2; 1+ in Q3 (emergence); 2x jump in Q4 | Pre-emergence: zero mentions (verified); emergence call date; acceleration dates | Can't verify zero; no acceleration; <2x jump in follow-up |
+| **Going Quiet** | Frequency decline (2+ qtrs, ≥50% drop); concurrent metric deterioration (>5% miss) | Mention counts by quarter; actual metric vs. guided; both required | Only one condition met; no verbatim quotes; unresolvable actuals |
+| **Tone-vs-Numbers** | Mgmt tone positive (bullish/optimistic) in 2+ qtrs; KPI deteriorates in same/next quarter | Tone classification per quarter; KPI values; comparison across 2+ quarters | <2 quarters data; tone static; no KPI deterioration |
+| **Narrative-vs-Consensus Gap** | >15 percentage point difference between mgmt emphasis (%) and analyst Q density (%) | Exact mention/Q counts (not estimates); total Qs counted; denominator explicit | Either count is estimate; gap <15 pts; no analyst Q data; unresolvable denominator |
+| **Street Pressure Map** | Analyst Q clustering shows >20% on one topic vs. <5% on another; differential ≥15 pts | Total Q count per call; by-topic breakdown; exact counts | Q counts estimated; no clear clustering; denominator unclear |
 
 ---
 
@@ -334,39 +401,22 @@ const LENS_CONFIGS = [
 
 ### 0. Key Takeaway (Executive Summary)
 
-**Format:** Single paragraph synthesizing all sections. Lead with the credibility thesis, then weave in control areas, miss areas, and edge signals.
+**Format:** Single paragraph, 250–300 characters. Synthesize hit rate + controls + misses + edge pattern + watch signal.
 
-**Rules:**
-- One sentence per major finding (Hit rate → Controls → Misses → Key pattern → Street opportunity)
-- Avoid jargon; use plain causal language
-- End with the forward-looking implication (what to watch next quarter)
-- **Character limit:** 250–300 characters (fits a skim in 10 seconds)
+**Required elements (in order of importance):**
+1. Hit rate % + trend direction (up/stable/down)
+2. Primary control area (1 metric category with ≥80% hits)
+3. Primary miss area (1 metric category with ≥2 consecutive misses)
+4. Edge pattern (1 only; priority: Drumbeat > Emergence > Going Quiet > Tone-Divergence > Gap)
+5. Forward-looking watch signal (next quarter risk/opportunity)
 
-**Template:**
-'''
-[Company] has [X]% guidance credibility, delivering consistently on [control area] but slipping on [miss area]. 
-Management's [emerging theme] narrative is [gap size] ahead of Street attention—[edge opportunity]. 
-Watch [watch signal] next quarter as early warning.
-'''
+**Rule:** If any element is [NULL], drop it. Do not force-fit.
 
-**Examples:**
-
+**Example (287 chars):**
 '''
-Reliance maintains 72% hit rate on revenue but margin guidance is 150 bps optimistic. 
-Digital services narrative gaining (14x mentions Q1→Q4) while analysts ignore supply chain risk (40-point gap). 
-Next quarter: Monitor if premium segment silence precedes margin miss again.
-'''
-
-'''
-TCS has 100% revenue credibility but capex misses 60% of the time (−1.5x discount applies). 
-AI/GPU demand just emerged in Q3 call; management ramping capex while Street asks capex questions—aligned, not edge. 
-Watch: Does guidance ease if capex execution slips in Q1 FY27?
-'''
-
-'''
-Canara Bank delivers on volume (5/5 hit), slips on NPA guidance (3/5 misses, trend deteriorating). 
-Management went quiet on stressed asset remediation but analyst focus is capex-heavy (60 Q imbalance). 
-Risk: Silent remediation often precedes guidance cut.
+Canara Bank hits volume guidance (5/5) but misses NPA targets (3/5, deteriorating). 
+Management went silent on stressed assets despite high analyst focus (Going Quiet). 
+Watch: NPA silence precedes guidance cuts. Risk material in Q1 FY27.
 '''
 
 ---
@@ -375,164 +425,114 @@ Risk: Silent remediation often precedes guidance cut.
 
 **Format:**
 '''
-Hit Rate: 68% (13 out of 19 metrics)
+Hit Rate: X% (Y out of Z metrics)
 
-Management delivered on [X] of [Y] quantified commitments over [time period].
-Consistent execution on [control areas]. Slippage concentrated in [miss areas].
+Management delivered on [control areas with ≥80% hit rate]. 
+Slippage concentrated in [miss areas with ≥40% miss rate].
+[Trend: improving/stable/deteriorating].
 '''
 
-**Supporting narrative (2–3 sentences):**
-- Identify which metric categories show high credibility (e.g., "Revenue guidance 100% hit rate across 5 calls")
-- Identify weakness areas (e.g., "Capex misses 60% of the time; margin guidance deteriorating")
-
----
-
-### 2. What Management Controls (Delivers On / Beat + In Line)
-
-**Format:**
+**Calculation:**
 '''
-### What Management Delivers On
+Hit_Rate = (COUNT of IN_LINE + COUNT of BEAT) / (Total metrics excluding UNRESOLVABLE)
 
-**[Metric Category]:** [Hit Rate] credibility
-- [Metric 1]: [# Beat + In Line] / [# Total] (example: Revenue: 5/5 calls hit)
-- [Metric 2]: [# Beat + In Line] / [# Total] (example: Volume: 4/5 hit, 1 miss)
-
-**Pattern:** [One-sentence insight about why this metric is controlled]
-- Example: "Revenue guided conservatively; management undershoots own targets to build credibility."
-'''
-
-**Sample output:**
-'''
-### What Management Delivers On
-
-**Revenue & Growth:** 100% hit rate (5/5 calls)
-- Revenue: Beat or In Line every quarter FY25–FY26
-- Growth rate: Guided 18–22%, delivered 19–24% (conservative baseline)
-
-**Pattern:** Management builds credibility by guiding conservative growth rates, then beating them by 100–200 bps.
+If >50% of metrics are UNRESOLVABLE:
+  → Output: "INSUFFICIENT GUIDANCE DATA. [N] of [M] metrics resolvable."
+  Do not force a hit rate.
 '''
 
 ---
 
-### 3. What Management Slips On (Misses)
+### 2. What Management Delivers On (Control Areas)
 
 **Format:**
 '''
-### What Management Slips On
+### Control Areas: [Metric Category] – [X]% Hit Rate
 
-**[Metric Category]:** [Miss Rate] credibility
-- [Metric 1]: [# Misses] / [# Total] misses (example: Capex: 3/5 misses, average miss −150 bps)
-- [Metric 2]: [# Misses] / [# Total] (example: EBITDA Margin: 2/4 misses, trend deteriorating)
+- [Metric 1]: [Beat+InLine]/[Total] across FY[X]–FY[Y]
+- [Metric 2]: [Beat+InLine]/[Total] (example: Revenue 5/5 calls hit)
 
-**Pattern:** [One-sentence insight into the miss pattern]
-- Example: "Capex consistently overshoots guidance by 150–300 bps; management underestimates execution risk."
+Pattern: [One-sentence insight]
+  Example: "Revenue guided conservatively; beats own targets by 50–100 bps consistently."
 '''
 
-**Sample output:**
-'''
-### What Management Slips On
+**Inclusion rule:** Only include metric categories with ≥80% hit rate. Anything <80% goes to "slips on."
 
-**Capex:** 60% miss rate (3/5 calls)
-- FY25: Guided ₹8,500 Cr, delivered ₹10,200 Cr (Miss −20%)
-- FY26: Guided ₹12,000 Cr, delivered ₹13,800 Cr (Miss −15%)
-- FY27E: Guided ₹14,500 Cr, tracking to miss again (−12% as of Q3)
+---
 
-**Pattern:** Management systematically underestimates capex execution; projects are delayed and more expensive. Guidance now worth −1.5x discount.
+### 3. What Management Slips On (Miss Areas)
+
+**Format:**
 '''
+### Miss Areas: [Metric Category] – [X]% Miss Rate
+
+- [Metric 1]: [Misses]/[Total] misses (example: NIM 3/5 misses)
+  - FY25: Guided 3.65%, Delivered 3.48% (Miss)
+  - FY26 Q1: Guided [X]%, Delivered [Y]% (Miss/Unresolvable)
+
+Pattern: [One-sentence insight]
+  Example: "NIM misses driven by repricing lag; management underestimates duration of cost-of-funds pressure."
+'''
+
+**Inclusion rule:** Only include metric categories with ≥2 consecutive misses OR ≥40% miss rate.
 
 ---
 
 ### 4. Key Patterns Observed
 
-**Format:** Use Shape → Sentence → Evidence for each of the 6 pattern types detected.
+**Format:** Shape → Sentence → Evidence (for each pattern that meets threshold)
 
-**Only include patterns that are material** (i.e., have clear evidence across 2+ quarters or a high-conviction single emergence/divergence).
+**Only include patterns that meet threshold criteria (see Pattern Threshold Table above).**
 
-**Example output:**
+**If a pattern does not meet threshold, output [NULL] — do not force it.**
+
+**Example output (Drumbeat):**
 
 '''
-### Key Patterns Observed
-
 #### 🔊 Drumbeat: Digital Services Acceleration
-[Sparkline: 2 → 3 → 7 → 14 mentions Q1–Q4 FY26]
+[Sparkline: 1 → 2 → 8 mentions Q1–Q3 FY26]
 
-**Signal:** Digital services investment mentioned only 2x in Q1, rising to 14x by Q4—signaling capex reallocation.
+Signal: Digital services investment mentioned 1x in Q1, rising to 8x by Q3—signals strategic capex reallocation.
 
-**Evidence:**
-- Q1 FY26 (15-Apr-2025): 2 references to "digital transformation" ([quote])
-- Q4 FY26 (22-Jan-2026): 14 references, including "digital revenue stream" and "API platform" ([3 quotes])
-- Actuals: Digital services revenue FY25: ₹1,200 Cr → FY26E: ₹2,100 Cr (75% growth)
-- Signal ID: PPT_FY26_DIGITAL_REVENUE (verified from FY26 investor ppt)
+Evidence:
+- Q1 FY26 (15-Apr-2025 call): 1 mention of "digital transformation" 
+  Quote: "[exact verbatim quote from transcript]"
+  
+- Q3 FY26 (15-Oct-2025 call): 8 mentions including "digital revenue stream" and "API platform"
+  Quotes: "[quote 1]", "[quote 2]", "[quote 3]"
+  
+- Actuals: Digital services revenue FY25: ₹1,200 Cr → FY26: ₹2,100 Cr (75% growth, PPT_FY26_Q3, Signal ID: [ID])
 
----
+- Interpretation: Management emphasis correlates with capex reallocation; Street has not yet priced this shift (only 2 analyst Qs on digital in Q3 call).
+'''
 
-#### ⚠️ Tone-vs-Numbers Divergence: Margin Inflation Signal
-[Chart: Tone (Bullish/Bullish/Neutral) vs. EBITDA Margin (34% → 32% → 30%)]
+**Example output (Going Quiet — meets threshold):**
 
-**Signal:** Management spoke confidently about "pricing power" and "margin stability" in Q1–Q2, but EBITDA margin compressed 400 bps Q1–Q4 despite price hikes.
-
-**Evidence:**
-- Q1 tone: Bullish ("We are confident on margin trajectory"; [quote])
-- Q4 tone: Neutral (no margin commentary)
-- Actual margins: Q1 34% → Q2 33% → Q3 31% → Q4 30%
-- Disconnect: Management attributed margin pressure to "input costs" (Q3), but pricing actions guided in Q1 didn't stick
-- Analyst gap: Only 3 margin questions in entire Q4 call—Street missed compression
-
----
-
+'''
 #### 🚨 Going Quiet: Premium Segment Silence
-[Frequency: 8 → 5 → 2 → 0 mentions Q1–Q4]
+[Frequency: 8 → 5 → 2 → 0 mentions Q1–Q4 FY26]
 
-**Signal:** Premium product segment received heavy promotion Q1 (8 mentions, "strong pricing power"), zero mentions by Q4. Precursor to bad Q4 print.
+Signal: Premium product segment received heavy promotion Q1 (8 mentions, "strong pricing power"), zero mentions by Q4. Precedes deterioration.
 
-**Evidence:**
-- Q1 (15-Apr-2025): "Premium tier driving 45% of profit" ([quote])
-- Q3 (15-Oct-2025): Fleeting mention in context of "portfolio mix" (2x)
-- Q4 (22-Jan-2026): Zero mentions; analyst asked 1 Q on premium, management deflected
-- Actual: Premium segment margin collapsed Q1 22% → Q4 17% (500 bps)
-- Pattern confirmed: Management avoids segments with deteriorating unit economics
+Evidence:
+- Q1 (15-Apr-2025): 8 mentions of premium tier
+  Quote: "[exact quote from call]"
+  Actual: Premium segment margin 22% (PPT_FY26_Q1)
 
----
+- Q4 (22-Jan-2026): 0 mentions; analyst asked 1 Q on premium, management deflected
+  Actual: Premium segment margin 17% (PPT_FY26_Q4, -500 bps)
 
-#### 💡 Emergence: AI Workload Pivot
-[Timeline: Q1–Q2 (none) → Q3 (first mention) → Q4 (15 references)]
+- Pattern confirmed: Management silence on segments correlates with unit economics deterioration. Prior quarters showed this pattern before margin miss.
 
-**Signal:** AI/GPU workload demand first surfaced in Q3 call; accelerated to dominant narrative by Q4. Signals data centre capex reallocation.
+- Analyst gap: Street did not catch this; no analyst questions on premium in Q4 despite known weakness.
+'''
 
-**Evidence:**
-- Pre-Q3: Zero AI/GPU mentions in Q1 (15-Apr), Q2 (22-Jul) earnings calls
-- Q3 emergence (15-Oct-2025): "Seeing strong demand for AI-optimized infrastructure" ([quote])
-- Q4 acceleration (22-Jan-2026): 15 direct references to "AI compute," "GPU workloads," "LLM inference"
-- Capex pivot confirmed: Management guided FY27 capex +18% YoY, explicitly for "AI infrastructure buildout"
-- Analyst slow to catch: Only 4 AI-focused questions in Q4 call (vs. 15 management references)
+**Example output (Pattern does NOT meet threshold):**
 
----
+'''
+🗺️ Street Pressure Map: [NULL]
 
-#### 📊 Narrative-vs-Consensus Gap: Supply Chain Resilience
-[Bars: Management 35% of commentary vs. Analyst focus 8%]
-
-**Signal:** Management emphasized supply chain resilience in every Q4 call (35% of narrative time), but analysts asked only 2 of 45 questions on supply chain (4%). 27-point gap signals under-priced risk.
-
-**Evidence:**
-- Management emphasis: 12 supply chain references in Q4 call (procurement resilience, vendor concentration, geopolitical hedging)
-- Analyst questions: 45 total Qs; only 2 on supply chain (4.4%)
-- Key management insights ignored:
-  - "We've consolidated vendor base to 3 tier-1 suppliers" (single point of failure risk)
-  - "70% of capex capex going to India (geopolitical hedge)" (margin implication)
-- Street focus: 28 Qs on capex, 22 on margin, 18 on growth—none connecting supply chain to execution risk
-
----
-
-#### 🗺️ Street Pressure Map: Capex Dominance
-[Bar chart: Capex 28 Qs (21%) | Working Capital 22 Qs (17%) | Volume 18 Qs (14%) | Margin 2 Qs (1.5%)]
-
-**Signal:** Analyst consensus converging on capex execution risk. Margin expansion story completely under-researched.
-
-**Evidence:**
-- Q4 FY26 call: 132 analyst questions
-- Capex-focused: 28 Qs (crowded consensus on expansion pace risk)
-- Margin-focused: Only 2 Qs (management margin story not priced in; potential upside)
-- Pattern: Consensus usually right on macro (capex); usually wrong on micro (margin structure). Margin edge signal.
+Reason: Only 15 total analyst questions in Q3 call; no topic exceeded >25% share. Clustering not material (<15 point differential).
 '''
 
 ---
@@ -541,65 +541,84 @@ Consistent execution on [control areas]. Slippage concentrated in [miss areas].
 
 Before finalizing output:
 
-- [ ] **Key Takeaway** is 1 paragraph, 250–300 chars, stitches all sections (credibility % → controls → misses → pattern → watch)
-- [ ] All guided values and actual values use **identical units** (no Crores vs. Billions confusion)
-- [ ] All target dates are **normalized to fiscal quarters/years**, not verbatim language
-- [ ] Hit/miss status applied **consistently** using delta rules (or qualitative logic if applicable)
-- [ ] Guidance track record table shows **5–6 key metrics max** (not every metric)
-- [ ] Every pattern includes **sparkline/shape** (not just numbers)
-- [ ] Every pattern backed by **exact quote + date + Signal ID** (verifiability)
-- [ ] Narrative-vs-consensus gap calculated using **actual analyst question counts** (not estimates)
-- [ ] Tone-vs-numbers divergence explicitly tied to a **KPI deterioration** (not subjective tone drift)
-- [ ] "Going quiet" patterns tied to **actual metric weakening** (not just frequency drop)
-- [ ] Street pressure map based on **analyst Q clustering**, not press noise
+- [ ] **Guidance track record table shows only guidance_timebound + ongoing:timebound from transcripts**
+- [ ] **Every guided_value, target_date, actual_value traced to source (verbatim quote or Signal ID)**
+- [ ] **No calculated or estimated numbers; all [NULL] if source missing**
+- [ ] **Period matching: target_date aligns with reporting_date; no mismatches**
+- [ ] **Hit status calculated using only the simple comparison rule (>, <, =); no delta/percentage logic**
+- [ ] **Pattern thresholds met for inclusion; all others [NULL]**
+- [ ] **Key Takeaway is 250–300 chars; contains 5 elements in priority order or drops missing elements**
+- [ ] **Every pattern includes verbatim quotes (not paraphrased)**
+- [ ] **No analyst consensus, predictions, or inference used in guidance track record**
+- [ ] **Provenance gate passed: every number, date, quote is source-traceable**
 
 ---
 
-## Output Tone & Language
+## What to Never Do
 
-- **Crisp, direct:** "Margin inflation" not "potential narrative divergence around operational leverage"
-- **Institutional:** Use exact dates, Signal IDs, percentages. No hedging.
-- **Edge-focused:** Lead with what Street misses, not what everyone knows.
-- **Actionable:** Every pattern should point to a specific risk or opportunity (e.g., "Prime capex miss risk" or "Margin upside under-researched")
-
----
-
-## Example: Full Skill Output (Reliance Industries Q4 FY26 Analysis)
-
-### Hit Rate Summary
-
-**Hit Rate: 72% (13 out of 18 metrics)**
-
-Reliance delivered on revenue and capex timelines but slipped on margin guidance. FY26 revenue hit 100% (5/5 quarters), but EBITDA margin misses accelerated Q3–Q4 (−150 to −200 bps per quarter). Pattern suggests management margin guidance is now overoptimistic by 150 bps baseline.
+- ❌ Paraphrase guidance. Extract exact language only.
+- ❌ Invent guided values from actuals. If guidance wasn't stated, it's [NULL].
+- ❌ Use past achievements as guidance. "We delivered 15%" is not "we guide 15% for next quarter."
+- ❌ Calculate deltas, basis point changes, or percentage changes. Compare actual vs. guided value only.
+- ❌ Back-fit guidance to different periods. FY25 guidance ≠ FY26 actual.
+- ❌ Force patterns into the output. [NULL] is acceptable.
+- ❌ Use analyst questions or consensus as guidance proxies.
+- ❌ Smooth guidance across quarters. Each quarter's guidance stands alone.
+- ❌ Infer timelines from context. If no target date is stated, target_date = [NULL].
+- ❌ Extract range midpoints as guided_value. Store {low, high} and compare actuals to the range.
 
 ---
 
-### What Management Delivers On
+## Data Flow Diagram
 
-**Revenue & Volume:** 100% hit rate (5/5 calls)
-- Revenue: Beat or In Line every quarter FY25–FY26 (avg beat +80 bps)
-- Refinery throughput: 5/5 In Line (managed against weather/maintenance)
-
-**Pattern:** Revenue is management's credibility anchor. Conservative base-case, then beat by 50–100 bps. Market trusts RIL's top-line guidance.
+'''
+INPUTS:
+  Earnings Call Transcripts
+    ↓ (extract guidance_timebound + ongoing:timebound)
+  
+  Investor PPTs + Prowess API
+    ↓ (extract ppt_actual + prowess_actual)
+    
+  ↓
+  
+GUIDANCE TRACK RECORD TABLE:
+  Match guided → actual by metric + period
+  Calculate Hit_Status (>, <, =)
+  Compute Hit_Rate = (Beat + InLine) / Total
+  
+  ↓
+  
+PATTERN ANALYSIS (on top of track record):
+  Drumbeat, Emergence, Going Quiet, Tone-vs-Numbers, Narrative Gap, Street Pressure
+  Apply thresholds; exclude [NULL] patterns
+  
+  ↓
+  
+OUTPUT:
+  Key Takeaway (250–300 chars)
+  Hit Rate Summary
+  What Management Delivers On
+  What Management Slips On
+  Key Patterns Observed (only >threshold)
+'''
 
 ---
 
-### What Management Slips On
+## Example: Guidance Track Record (Real Data — Canara Bank FY25–FY26)
 
-**EBITDA Margin:** 20% hit rate (1/5 calls)
-- FY25: Guided 18–20%, delivered 17.8% (Miss −0.2%)
-- Q2 FY26: Guided 19–21%, delivered 18.2% (Miss −180 bps)
-- Q4 FY26: Guided 19.5–20.5%, delivered 18.9% (Miss −160 bps)
+*This example is based on actual disclosed guidance and actuals. Structure shown for reference.*
 
-**Pattern:** Margin guidance deteriorating every quarter. Management assumes pricing power and cost control that doesn't materialize. Margin guidance worth −1.5x discount.
+| Metric | Guided_Value | Unit | Target_Date | Announced_Date | Actual_Value | Reporting_Date | Hit_Status | Verbatim_Statement |
+|--------|--------------|------|-------------|----------------|--------------|----------------|------------|--------------------|
+| NPA_Slippage_Ratio | 1.2–1.4 | % | FY25_Q4 | 2024-10-15 | 1.35 | FY25_Q4 | IN_LINE | "We expect NPA slippage ratio in the range of 1.2–1.4% for FY25." |
+| Loan_Growth | 12–14 | % | FY25 | 2024-10-15 | 11.8 | FY25_END | MISS | "Our guidance for loan growth is 12–14% for FY25." |
+| ROA | 0.8–0.9 | % | FY25 | 2024-10-15 | 0.82 | FY25_END | IN_LINE | "We target ROA of 0.8–0.9% for FY25." |
+| Cost_Deposit_Ratio | <2.5 | bps | FY26_Q1 | 2025-01-20 | 2.6 | FY26_Q1 | MISS | "Our focus is to maintain cost-to-deposit ratio below 2.5% in FY26." |
 
----
-
-### Key Patterns Observed
-
-[Drumbeat, Tone-vs-Numbers Divergence, Going Quiet, etc. — each with sparkline, sentence, evidence]
+**Hit Rate: 50% (2 of 4 metrics)**
 
 ---
+
 ---
 
 {{DATA_BLOCK}}

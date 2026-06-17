@@ -4,7 +4,7 @@ const { Worker }      = require('bullmq');
 const { PDFDocument } = require('pdf-lib');
 const connection      = require('../config/redis');
 const prisma          = require('../config/prisma');
-const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage, wlog } = require('../utils/workerUtils');
 const { pptExtractorPromptV2 }           = require('../prompts/ppt_call_v2');
 const { upsertNewKpis }                  = require('../services/db/kpis.db');
 const { loadSkillConfig }                = require('../utils/skillConfig');
@@ -105,7 +105,7 @@ async function writeSignals(lineageId, callId, ticker, company, callMeta, signal
 
 async function processSummarizationV2PptJob(job) {
   const { callId, pptUrl, pageStart, pageEnd, lineageId, chunkIndex, totalChunks } = job.data;
-  console.log(`[summarization-v2-ppt] Job ${job.id} — callId: ${callId} chunk ${chunkIndex}/${totalChunks} (pages ${pageStart + 1}–${pageEnd})`);
+  wlog.info(`[summarization-v2-ppt] Job ${job.id} — callId: ${callId} chunk ${chunkIndex}/${totalChunks} (pages ${pageStart + 1}–${pageEnd})`);
 
   if (!pptUrl) throw new Error(`No PPT URL for call ${callId}`);
   await job.updateProgress(10);
@@ -119,7 +119,7 @@ async function processSummarizationV2PptJob(job) {
     where: { call_id: callId, source_hash: sourceHash, prompt_v: promptV, is_invalidated: false },
   });
   if (existing > 0) {
-    console.log(`[summarization-v2-ppt] Chunk ${chunkIndex} already processed — skipping`);
+    wlog.warn(`[summarization-v2-ppt] Chunk ${chunkIndex} already processed — skipping`);
     await job.updateProgress(100);
     return { cached: true, callId, chunkIndex };
   }
@@ -131,10 +131,10 @@ async function processSummarizationV2PptJob(job) {
   if (!callMeta) throw new Error(`Earnings call ${callId} not found`);
 
   const existingKpis = await getExistingKpisForPrompt(callMeta.basic_industry);
-  console.log(`[summarization-v2-ppt] ${existingKpis.length} KPIs loaded`);
+  wlog.info(`[summarization-v2-ppt] ${existingKpis.length} KPIs loaded`);
   await job.updateProgress(20);
 
-  console.log(`[summarization-v2-ppt] Downloading PPT PDF (cached)...`);
+  wlog.info(`[summarization-v2-ppt] Downloading PPT PDF (cached)...`);
   const arrayBuffer = await downloadPdfCached(pptUrl);
   const base64      = await extractPageRange(arrayBuffer, pageStart, pageEnd);
   await job.updateProgress(40);
@@ -146,7 +146,7 @@ async function processSummarizationV2PptJob(job) {
   const llmParams = { model, max_tokens: maxTokens, messages: [{ role: 'user', content }] };
   if (outputSchema) llmParams.response_format = outputSchema;
 
-  console.log(`[summarization-v2-ppt] Calling LLM for chunk ${chunkIndex}/${totalChunks}...`);
+  wlog.info(`[summarization-v2-ppt] Calling LLM for chunk ${chunkIndex}/${totalChunks}...`);
   const { text: responseText, usage } = await llmStream(llmParams);
   logUsage('summarization-v2-ppt', usage);
   if (!responseText) throw new Error(`Empty LLM response for chunk ${chunkIndex}`);
@@ -155,11 +155,11 @@ async function processSummarizationV2PptJob(job) {
   const extracted = parseJson(responseText);
   const signals   = extracted.signals  ?? [];
   const newKpis   = extracted.new_kpis ?? [];
-  console.log(`[summarization-v2-ppt] Chunk ${chunkIndex}: ${signals.length} signals, ${newKpis.length} new_kpis`);
+  wlog.done(`[summarization-v2-ppt] Chunk ${chunkIndex}: ${signals.length} signals, ${newKpis.length} new_kpis`);
 
   if (newKpis.length > 0) {
     const kpiResult = await upsertNewKpis({ kpis: [], new_kpis: newKpis }, callMeta.basic_industry, 'transcript');
-    if (kpiResult.failed?.length > 0) console.warn('[summarization-v2-ppt] new_kpis failures:', kpiResult.failed);
+    if (kpiResult.failed?.length > 0) wlog.warn(`[summarization-v2-ppt] new_kpis failures: ${JSON.stringify(kpiResult.failed)}`);
   }
 
   const written = await writeSignals(
@@ -168,7 +168,7 @@ async function processSummarizationV2PptJob(job) {
     callMeta, signals,
     sourceHash, promptV, model,
   );
-  console.log(`[summarization-v2-ppt] Wrote ${written} signals`);
+  wlog.done(`[summarization-v2-ppt] Wrote ${written} signals`);
 
   await job.updateProgress(100);
   return { callId, chunkIndex, totalChunks, signalsWritten: written, lineageId };
@@ -178,14 +178,15 @@ async function processSummarizationV2PptJob(job) {
 
 const worker = new Worker('summarization_v2_ppt', processSummarizationV2PptJob, {
   connection,
-  concurrency: 100,
-  limiter: { max: 100, duration: 1000 },
+  concurrency: 50,
+  limiter: { max: 50, duration: 1000 },
+  lockDuration: 300000, // 5 min — LLM calls can take 60–120s; default 30s causes lock renewal failures
 });
 
-worker.on('completed', job       => console.log(`[summarization-v2-ppt] Job ${job.id} completed`));
-worker.on('failed',    (job, err) => console.error(`[summarization-v2-ppt] Job ${job.id} failed:`, err.message));
-worker.on('error',     err       => console.error('[summarization-v2-ppt] Worker error:', err));
+worker.on('completed', job       => wlog.done(`[summarization-v2-ppt] Job ${job.id} completed`));
+worker.on('failed',    (job, err) => wlog.error(`[summarization-v2-ppt] Job ${job.id} failed: ${err.message}`));
+worker.on('error',     err       => wlog.error(`[summarization-v2-ppt] Worker error: ${err}`));
 
-console.log('Summarization V2 PPT worker ready');
+wlog.done('Summarization V2 PPT worker ready');
 
 module.exports = worker;

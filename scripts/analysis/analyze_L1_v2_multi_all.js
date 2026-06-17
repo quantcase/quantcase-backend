@@ -291,11 +291,12 @@ async function main() {
     const pp = await processPpts(symbol);
     console.log(`    → queued=${pp.queued} skipped=${pp.skipped} no-source=${pp.noSource} failed=${pp.failed}`);
 
-    console.log('  [annual reports]');
-    const ar = await processAnnualReports(symbol);
-    console.log(`    → queued=${ar.queued} skipped=${ar.skipped} no-source=${ar.noSource} failed=${ar.failed}`);
+    // console.log('  [annual reports]');
+    // const ar = await processAnnualReports(symbol);
+    // console.log(`    → queued=${ar.queued} skipped=${ar.skipped} no-source=${ar.noSource} failed=${ar.failed}`);
 
-    for (const src of [tx, pp, ar]) {
+    // for (const src of [tx, pp, ar]) {
+    for (const src of [tx, pp]) {
       totals.queued   += src.queued;
       totals.skipped  += src.skipped;
       totals.noSource += src.noSource;

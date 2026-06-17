@@ -4,7 +4,7 @@ const { Worker }        = require('bullmq');
 const { PDFDocument }   = require('pdf-lib');
 const connection        = require('../config/redis');
 const prisma            = require('../config/prisma');
-const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage, wlog } = require('../utils/workerUtils');
 const { transcriptExtractorPromptV2 }   = require('../prompts/transcript_call_v2');
 const { upsertNewKpis }                 = require('../services/db/kpis.db');
 const { loadSkillConfig }               = require('../utils/skillConfig');
@@ -109,7 +109,7 @@ async function writeSignals(lineageId, callId, ticker, company, callMeta, signal
 
 async function processSummarizationV2Job(job) {
   const { callId, transcriptUrl, pageStart, pageEnd, lineageId, chunkIndex, totalChunks } = job.data;
-  console.log(`[summarization-v2] Job ${job.id} — callId: ${callId} chunk ${chunkIndex}/${totalChunks} (pages ${pageStart + 1}–${pageEnd})`);
+  wlog.info(`[summarization-v2] Job ${job.id} — callId: ${callId} chunk ${chunkIndex}/${totalChunks} (pages ${pageStart + 1}–${pageEnd})`);
 
   if (!transcriptUrl) throw new Error(`No transcript URL for call ${callId}`);
   await job.updateProgress(10);
@@ -123,7 +123,7 @@ async function processSummarizationV2Job(job) {
     where: { call_id: callId, source_hash: sourceHash, prompt_v: promptV, is_invalidated: false },
   });
   if (existing > 0) {
-    console.log(`[summarization-v2] Chunk ${chunkIndex} already processed — skipping`);
+    wlog.warn(`[summarization-v2] Chunk ${chunkIndex} already processed — skipping`);
     await job.updateProgress(100);
     return { cached: true, callId, chunkIndex };
   }
@@ -135,10 +135,10 @@ async function processSummarizationV2Job(job) {
   if (!callMeta) throw new Error(`Earnings call ${callId} not found`);
 
   const existingKpis = await getExistingKpisForPrompt(callMeta.basic_industry);
-  console.log(`[summarization-v2] ${existingKpis.length} KPIs loaded`);
+  wlog.info(`[summarization-v2] ${existingKpis.length} KPIs loaded`);
   await job.updateProgress(20);
 
-  console.log(`[summarization-v2] Downloading PDF (cached)...`);
+  wlog.info(`[summarization-v2] Downloading PDF (cached)...`);
   const arrayBuffer = await downloadPdfCached(transcriptUrl);
   const base64      = await extractPageRange(arrayBuffer, pageStart, pageEnd);
   await job.updateProgress(40);
@@ -150,7 +150,7 @@ async function processSummarizationV2Job(job) {
   const llmParams = { model, max_tokens: maxTokens, messages: [{ role: 'user', content }] };
   if (outputSchema) llmParams.response_format = outputSchema;
 
-  console.log(`[summarization-v2] Calling LLM for chunk ${chunkIndex}/${totalChunks}...`);
+  wlog.info(`[summarization-v2] Calling LLM for chunk ${chunkIndex}/${totalChunks}...`);
   const { text: responseText, usage } = await llmStream(llmParams);
   logUsage('summarization-v2', usage);
   if (!responseText) throw new Error(`Empty LLM response for chunk ${chunkIndex}`);
@@ -159,11 +159,11 @@ async function processSummarizationV2Job(job) {
   const extracted = parseJson(responseText);
   const signals   = extracted.signals  ?? [];
   const newKpis   = extracted.new_kpis ?? [];
-  console.log(`[summarization-v2] Chunk ${chunkIndex}: ${signals.length} signals, ${newKpis.length} new_kpis`);
+  wlog.done(`[summarization-v2] Chunk ${chunkIndex}: ${signals.length} signals, ${newKpis.length} new_kpis`);
 
   if (newKpis.length > 0) {
     const kpiResult = await upsertNewKpis({ kpis: [], new_kpis: newKpis }, callMeta.basic_industry, 'transcript');
-    if (kpiResult.failed?.length > 0) console.warn('[summarization-v2] new_kpis failures:', kpiResult.failed);
+    if (kpiResult.failed?.length > 0) wlog.warn(`[summarization-v2] new_kpis failures: ${JSON.stringify(kpiResult.failed)}`);
   }
 
   const written = await writeSignals(
@@ -172,7 +172,7 @@ async function processSummarizationV2Job(job) {
     callMeta, signals,
     sourceHash, promptV, model,
   );
-  console.log(`[summarization-v2] Wrote ${written} signals`);
+  wlog.done(`[summarization-v2] Wrote ${written} signals`);
 
   await job.updateProgress(100);
   return { callId, chunkIndex, totalChunks, signalsWritten: written, lineageId };
@@ -182,14 +182,15 @@ async function processSummarizationV2Job(job) {
 
 const worker = new Worker('summarization_v2', processSummarizationV2Job, {
   connection,
-  concurrency: 100,
-  limiter: { max: 100, duration: 1000 },
+  concurrency: 50,
+  limiter: { max: 50, duration: 1000 },
+  lockDuration: 300000, // 5 min — LLM calls can take 60–120s; default 30s causes lock renewal failures
 });
 
-worker.on('completed', job       => console.log(`[summarization-v2] Job ${job.id} completed`));
-worker.on('failed',    (job, err) => console.error(`[summarization-v2] Job ${job.id} failed:`, err.message));
-worker.on('error',     err       => console.error('[summarization-v2] Worker error:', err));
+worker.on('completed', job       => wlog.done(`[summarization-v2] Job ${job.id} completed`));
+worker.on('failed',    (job, err) => wlog.error(`[summarization-v2] Job ${job.id} failed: ${err.message}`));
+worker.on('error',     err       => wlog.error(`[summarization-v2] Worker error: ${err}`));
 
-console.log('Summarization V2 worker ready');
+wlog.done('Summarization V2 worker ready');
 
 module.exports = worker;

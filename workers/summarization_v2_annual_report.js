@@ -4,7 +4,7 @@ const { Worker }      = require('bullmq');
 const { PDFDocument } = require('pdf-lib');
 const connection      = require('../config/redis');
 const prisma          = require('../config/prisma');
-const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage, wlog } = require('../utils/workerUtils');
 const { annualReportExtractorPromptV2 }  = require('../prompts/annual_report_call_v2');
 const { upsertNewKpis }                  = require('../services/db/kpis.db');
 const { loadSkillConfig }                = require('../utils/skillConfig');
@@ -137,7 +137,7 @@ function derivePriorArFyEnd(arFyEnd) {
 
 async function processSummarizationV2AnnualReportJob(job) {
   const { reportId, annualReportUrl, pageStart, pageEnd, lineageId, chunkIndex, totalChunks } = job.data;
-  console.log(`[${SKILL_SLUG}] Job ${job.id} — reportId: ${reportId} chunk ${chunkIndex}/${totalChunks} (pages ${pageStart + 1}–${pageEnd})`);
+  wlog.info(`[${SKILL_SLUG}] Job ${job.id} — reportId: ${reportId} chunk ${chunkIndex}/${totalChunks} (pages ${pageStart + 1}–${pageEnd})`);
 
   if (!annualReportUrl) throw new Error(`No annual report URL for report ${reportId}`);
   await job.updateProgress(10);
@@ -151,7 +151,7 @@ async function processSummarizationV2AnnualReportJob(job) {
     where: { call_id: reportId, source_hash: sourceHash, prompt_v: promptV, is_invalidated: false },
   });
   if (existing > 0) {
-    console.log(`[${SKILL_SLUG}] Chunk ${chunkIndex} already processed — skipping`);
+    wlog.warn(`[${SKILL_SLUG}] Chunk ${chunkIndex} already processed — skipping`);
     await job.updateProgress(100);
     return { cached: true, reportId, chunkIndex };
   }
@@ -168,13 +168,13 @@ async function processSummarizationV2AnnualReportJob(job) {
   const basicIndustry = callMeta?.basic_industry ?? null;
 
   const existingKpis = await getExistingKpisForPrompt(basicIndustry);
-  console.log(`[${SKILL_SLUG}] ${existingKpis.length} KPIs loaded`);
+  wlog.info(`[${SKILL_SLUG}] ${existingKpis.length} KPIs loaded`);
   await job.updateProgress(20);
 
   const arFyEnd     = deriveArFyEnd(report.fiscal_year);
   const priorArFyEnd = derivePriorArFyEnd(arFyEnd);
 
-  console.log(`[${SKILL_SLUG}] Downloading annual report PDF (cached)...`);
+  wlog.info(`[${SKILL_SLUG}] Downloading annual report PDF (cached)...`);
   const arrayBuffer = await downloadPdfCached(annualReportUrl);
   const base64      = await extractPageRange(arrayBuffer, pageStart, pageEnd);
   await job.updateProgress(40);
@@ -194,7 +194,7 @@ async function processSummarizationV2AnnualReportJob(job) {
   const llmParams = { model, max_tokens: maxTokens, messages: [{ role: 'user', content }] };
   if (outputSchema) llmParams.response_format = outputSchema;
 
-  console.log(`[${SKILL_SLUG}] Calling LLM for chunk ${chunkIndex}/${totalChunks}...`);
+  wlog.info(`[${SKILL_SLUG}] Calling LLM for chunk ${chunkIndex}/${totalChunks}...`);
   const { text: responseText, usage } = await llmStream(llmParams);
   logUsage(SKILL_SLUG, usage);
   if (!responseText) throw new Error(`Empty LLM response for chunk ${chunkIndex}`);
@@ -203,11 +203,11 @@ async function processSummarizationV2AnnualReportJob(job) {
   const extracted = parseJson(responseText);
   const signals   = extracted.signals  ?? [];
   const newKpis   = extracted.new_kpis ?? [];
-  console.log(`[${SKILL_SLUG}] Chunk ${chunkIndex}: ${signals.length} signals, ${newKpis.length} new_kpis`);
+  wlog.done(`[${SKILL_SLUG}] Chunk ${chunkIndex}: ${signals.length} signals, ${newKpis.length} new_kpis`);
 
   if (newKpis.length > 0) {
     const kpiResult = await upsertNewKpis({ kpis: [], new_kpis: newKpis }, basicIndustry, 'transcript');
-    if (kpiResult.failed?.length > 0) console.warn(`[${SKILL_SLUG}] new_kpis failures:`, kpiResult.failed);
+    if (kpiResult.failed?.length > 0) wlog.warn(`[${SKILL_SLUG}] new_kpis failures: ${kpiResult.failed.length}`);
   }
 
   const written = await writeSignals(
@@ -216,7 +216,7 @@ async function processSummarizationV2AnnualReportJob(job) {
     report, signals,
     sourceHash, promptV, model,
   );
-  console.log(`[${SKILL_SLUG}] Wrote ${written} signals`);
+  wlog.done(`[${SKILL_SLUG}] Wrote ${written} signals`);
 
   await job.updateProgress(100);
   return { reportId, chunkIndex, totalChunks, signalsWritten: written, lineageId };
@@ -226,14 +226,15 @@ async function processSummarizationV2AnnualReportJob(job) {
 
 const worker = new Worker('summarization_v2_annual_report', processSummarizationV2AnnualReportJob, {
   connection,
-  concurrency: 100,
-  limiter: { max: 100, duration: 1000 },
+  concurrency: 50,
+  limiter: { max: 50, duration: 1000 },
+  lockDuration: 300000, // 5 min — LLM calls can take 60–120s; default 30s causes lock renewal failures
 });
 
-worker.on('completed', job       => console.log(`[${SKILL_SLUG}] Job ${job.id} completed`));
-worker.on('failed',    (job, err) => console.error(`[${SKILL_SLUG}] Job ${job.id} failed:`, err.message));
-worker.on('error',     err       => console.error(`[${SKILL_SLUG}] Worker error:`, err));
+worker.on('completed', job       => wlog.done(`[${SKILL_SLUG}] Job ${job.id} completed`));
+worker.on('failed',    (job, err) => wlog.error(`[${SKILL_SLUG}] Job ${job.id} failed: ${err.message}`));
+worker.on('error',     err       => wlog.error(`[${SKILL_SLUG}] Worker error: ${err}`));
 
-console.log('Summarization V2 Annual Report worker ready');
+wlog.done('Summarization V2 Annual Report worker ready');
 
 module.exports = worker;

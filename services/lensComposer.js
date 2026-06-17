@@ -655,7 +655,7 @@ async function composeLens(callId, lensSlug) {
     .replace('{{LENS_INSTRUCTIONS}}', lensInstructions)
     .replace('{{DATA_BLOCK}}', signalSummary + shareholdingBlock + peerBlock + equityBlock);
 
-  if (cfgBridgePrompt) prompt += JSON_OUTPUT_CONTRACT;
+  // if (cfgBridgePrompt) prompt += JSON_OUTPUT_CONTRACT;
 
   const model          = cfgModel     ?? 'anthropic/claude-haiku-4.5';
   const maxTokens      = cfgMaxTokens ?? 8000;
