@@ -42,8 +42,8 @@ const prisma = require('../../config/prisma');
 // ];
 
 // const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT', 'RELIANCE'];
-// const TARGET_TICKERS = ['CANBK', 'MSUMI', 'IEX'];
-const TARGET_TICKERS = ['HDFCBANK', 'RELIANCE'];
+const TARGET_TICKERS = ['CANBK'];
+// const TARGET_TICKERS = ['HDFCBANK', 'RELIANCE'];
 
 const TARGET_LENSES  = [
   'guidance-credibility',

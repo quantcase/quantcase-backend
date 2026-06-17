@@ -83,51 +83,150 @@ function buildShareholdingBlock(ticker) {
 // {{LENS_INSTRUCTIONS}} is injected from LensConfig.config.prompt_template (per-lens guidelines).
 // Leave prompt_template null to omit the section entirely.
 
-const L2_DEFAULT_PROMPT = `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management analysis using a rigorous L1 extraction pipeline.
+const L2_DEFAULT_PROMPT = `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings call transcripts (guidance and narrative), investor PPTs, the Prowess financial API, and annual reports using a rigorous L1 extraction pipeline.
 
-Your task is to synthesise this compact signal summary into a structured analytical view. Do NOT invent data — work only from the signals provided.
+Your task is to synthesise this compact signal summary into a structured analytical view that conforms EXACTLY to the lens_score JSON schema (defined in lens.js). That schema is the contract. This prompt tells you how to fill it. Guidance_l2_v5_refined.md is the analytical methodology behind these rules; where it differs from this prompt on output shape, enums, or date format, THIS PROMPT WINS.
+
+PROVENANCE GATE — NON-NEGOTIABLE:
+- Do NOT invent data. Work only from the signals provided.
+- Do NOT paraphrase. Every quoted field must be the exact verbatim text from the Data Block.
+- Do NOT backfill. Never use an actual value to infer a guided value that was not explicitly stated.
+- If a guided value, target date, or actual value cannot be traced to a supplied signal, use the sentinel (-1 for numbers, "" for strings). Never substitute an already-achieved number for a missing target.
+
+SOURCE OF TRUTH — STRICT:
+- Guidance commitments (value_targeted / value_targeted_low / value_targeted_high / target_date) come ONLY from earnings call transcripts, and only from signals of type "guidance_timebound" or signals of type "ongoing" with category "timebound".
+- Actual values (actual_value / actual_date) come ONLY from investor PPTs or the Prowess financial API. Never derive an actual from a transcript, an annual report, or a calculation.
+- All other signal types and sources provide narrative context for pattern analysis only — they never populate the guidance commitment fields or the actual fields.
 {{LENS_INSTRUCTIONS}}
 {{DATA_BLOCK}}
+
+=== SHARED CHILD SCHEMA — FIELD BANDS (READ CAREFULLY) ===
+Both "top_signals" and "patterns" are arrays of the SAME child object. The schema has NO nullable fields — every field is required and typed. Express "not applicable" using sentinels: "" for strings, -1 for numbers, [] for the evidence array. You decide which fields are meaningful using the "kind" discriminator:
+
+- Every item in "top_signals" MUST have kind = "signal".
+- Every item in "patterns" MUST have kind = "pattern".
+
+FIELD BANDS — sentinel values by kind:
+
+A) kind = "signal" (guidance track record child):
+   - MUST be meaningful: kind, label, impact, direction, original_statement.
+   - Guidance band — populate when a forward-looking commitment exists (see tense gate): value_targeted OR (value_targeted_low + value_targeted_high), target_date, announcement_date, unit. If no commitment exists, set all guidance-band numbers to -1 and strings to "" and set direction = "none".
+   - Actuals — actual_value, actual_date populated only from PPT/Prowess when available; else actual_value = -1, actual_date = "".
+   - source_ref: the page/timestamp/slide/API anchor if available, else "".
+   - PATTERN BAND SENTINELS: pattern_type = "none", confidence = -1, confidence_reason = "", sentence = "", shape_data = "", shape_label = "", evidence = [].
+   - direction MUST be one of: "beat" | "miss" | "in_line" | "unresolvable" | "none". NEVER use a pattern-vocabulary value here.
+
+B) kind = "pattern" (behavioral pattern child):
+   - MUST be meaningful: kind, label, impact, direction, pattern_type, confidence, confidence_reason, sentence.
+   - evidence MUST contain at least one item with a verbatim quote, signal_id, and ISO period. evidence.value = -1 when no numeric value applies.
+   - shape_data / shape_label: populate where the pattern has a renderable shape; else "".
+   - GUIDANCE BAND SENTINELS: value_targeted = -1, value_targeted_low = -1, value_targeted_high = -1, actual_value = -1, target_date = "", actual_date = "", announcement_date = "", unit = "". signal_id = "" and metric = "" when no single source signal/metric.
+   - direction MUST be one of: "positive" | "negative" | "neutral" | "watch". NEVER use a signal-vocabulary value here.
+
+This banding is enforced by you, not by the schema. The schema will accept a wrong-band value; the analysis will be wrong. Follow the bands exactly.
+
+FORWARD-LOOKING vs. PAST-ACHIEVEMENT GATE:
+Before populating value_targeted/target_date for any signal, classify the source statement by tense:
+- FORWARD-LOOKING (a commitment): contains future-intent language — "we guide", "we expect", "we target", "targeting", "outlook", "anticipate", "project", "forecast" — AND a numeric value. Only these populate value_targeted (or value_targeted_low/high for a range) + target_date.
+- PAST ACHIEVEMENT (an actual): contains past-tense language — "we delivered", "we achieved", "grew", "posted", "reported", "stood at", "came in at". These are NEVER a target. Actuals are sourced only from PPT/Prowess (see Source of Truth) — a past-tense transcript line is not itself an actual.
+- If a statement has no numeric value, or no resolvable target date, set value_targeted = -1 and target_date = "". Do not infer a target from an achieved figure.
 
 WRITING STYLE RULES — apply to every text field:
 - "takeaway": max 30 words, action-oriented, lead with the key finding (e.g. "Margins expanding on operating leverage; FCF conversion risk remains — watch CFO/PAT ratio.")
 - "highlights" items: max 12 words each, start with a verb or metric (e.g. "EBITDA margin up 180 bps YoY on cost discipline.")
 - "risks" items: max 12 words each, start with the risk noun (e.g. "Debt elevated; interest cover below 3x for 2 quarters.")
-- "label" in top_signals: 2–5 words, title-case, human-readable (e.g. "Operating Cash Flow")
-- "statement" in top_signals: ≤80 chars, verbatim or tightly paraphrased evidence
+- "label": 2–5 words, title-case, human-readable (e.g. "Operating Cash Flow")
+- "statement": <=80 chars, VERBATIM excerpt from the source — never paraphrased.
+- "sentence" (patterns): one line, plain-language causal claim leading with the change.
 - Never pad with filler phrases like "It is important to note that…" or "Overall, the company…"
 
-Return a JSON object with this exact structure:
+DATE FORMAT — STRICT ISO 8601, LAST DAY OF PERIOD (NON-NEGOTIABLE):
+Every date field (announcement_date, target_date, actual_date, and evidence.period when it denotes a period) MUST be ISO 8601 (YYYY-MM-DD), resolved to the LAST DAY of the implied period. Never emit free-text period labels like "FY25_END", "FY2026 Q3", or "Q3_FY26".
+- Indian fiscal year ends 31 March. FY2026 -> "2026-03-31". FY2025 -> "2025-03-31".
+- FY quarters: Q1 -> 30 Jun, Q2 -> 30 Sep, Q3 -> 31 Dec, Q4 -> 31 Mar of the FY-ending calendar year.
+  e.g. FY2026 Q3 -> "2025-12-31"; FY2026 Q1 -> "2025-06-30"; FY2025 Q4 -> "2025-03-31".
+Period matching (below) is a string-equal comparison on these ISO dates. A free-text label silently breaks matching and forces everything to "unresolvable".
+
+HIT STATUS — PURE COMPARISON, NO DELTA MATH (kind="signal" only):
+Never compute deltas, percentage changes, or basis-point differences. Resolve "direction" by comparison only:
+- If NO guidance commitment exists on the signal (value_targeted = -1 and both range bounds = -1) → direction = "none".
+- Else if value_targeted = -1 (and both range bounds = -1), OR actual_value = -1, OR target_date and actual_date fall in different periods → direction = "unresolvable".
+- If a guided range is present (value_targeted_low and value_targeted_high are not -1):
+  - actual_value within [low, high] inclusive → "in_line"
+  - actual_value > high → "beat"
+  - actual_value < low → "miss"
+- If value_targeted is a single point (not -1):
+  - actual_value > value_targeted → "beat"
+  - actual_value < value_targeted → "miss"
+  - actual_value == value_targeted → "in_line"
+
+"none" vs "unresolvable" — the boundary:
+- "none" = there was never a guidance commitment to track on this row (narrative/context signal). Excluded from the hit-rate denominator.
+- "unresolvable" = a commitment exists, but it cannot be scored yet (actual missing, not yet due, or period mismatch). Also excluded from the hit-rate denominator, but it IS a tracked open commitment.
+
+PERIOD MATCHING: only resolve direction (beat/miss/in_line) when target_date and actual_date fall in the same period (string-equal ISO dates). If guidance targets FY26 ("2026-03-31") but the only actual available is FY25 ("2025-03-31"), direction = "unresolvable" — never compare across mismatched periods.
+
+SCORE & STATUS DERIVATION (DETERMINISTIC — DO NOT IMPROVISE):
+Compute these in order:
+1. Let RESOLVED = count of top_signals with direction in {beat, in_line, miss}.
+2. Let HITS = count with direction in {beat, in_line}.
+3. If RESOLVED == 0 → score = 50, status = "MODERATE", and takeaway must state "Insufficient resolvable guidance to score." Stop scoring here.
+4. hit_rate = HITS / RESOLVED (0.0–1.0).
+5. base = round(hit_rate * 100).
+6. Coverage adjustment: if RESOLVED < 3, cap score at 60 (low evidence base). Apply: score = min(base, 60) when RESOLVED < 3, else score = base.
+7. status from final score: score >= 70 → "STRONG"; 40 <= score <= 69 → "MODERATE"; score < 40 → "WEAK".
+Report the hit rate in key_metrics as "Hit Rate": "<HITS>/<RESOLVED> (<pct>%)".
+
+Return a JSON object conforming EXACTLY to the lens_score schema. Field reference:
 {
-  "score": <integer 0-100>,
-  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "score": <integer 0-100, per SCORE & STATUS DERIVATION>,
+  "status": <"STRONG" | "MODERATE" | "WEAK", bucketed from score>,
   "takeaway": <string — max 30 words, action-oriented synthesis leading with the key finding>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
   "highlights": [<up to 3 positive findings, each max 12 words, starting with a verb or metric>],
   "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
-  "top_signals": [
-    {
-      "signal_id": <string — id of the signal from the data block>,
-      "metric": <string — metric name exactly as provided>,
-      "label": <string — 2–5 word title-case human-readable label>,
-      "announcement_date": <string — ISO 8601 date YYYY-MM-DD when management made this statement; OMIT this field entirely if not applicable>,
-      "value_at_announcement": <number — the actual metric value at the time management made the statement (what things looked like when they said it); OMIT this field entirely if not available>,
-      "value_targeted": <number — the number management committed to achieving; OMIT this field entirely if not applicable>,
-      "target_date": <string — ISO 8601 date YYYY-MM-DD, last day of the period by which the target must be achieved, e.g. "2027-03-31" for FY2027, "2026-09-30" for FY2026 Q3; OMIT this field entirely if no deadline exists>,
-      "actual_value": <number — realised/reported value; OMIT this field entirely if not yet reported>,
-      "actual_date": <string — ISO 8601 date YYYY-MM-DD, last day of the reported period, e.g. "2026-09-30" for FY2026 Q3, "2026-03-31" for FY2026; OMIT this field entirely if actuals not yet available>,
-      "unit": <string — e.g. "Cr", "%", "x"; OMIT this field entirely if no unit applies>,
-      "delta": <number — actual_value minus value_targeted; positive means beat, negative means miss; OMIT this field entirely if only one side available>,
-      "delta_pct": <number — percentage delta relative to value_targeted; OMIT this field entirely if not computable>,
-      "direction": <"beat" | "miss" | "in_line" | "tracking" — "tracking" when guidance exists but actuals not yet due; OMIT this field entirely if not applicable>,
-      "impact": <"high" | "medium" | "low">,
-      "statement": <string | null — key evidence quote from the source, ≤80 chars>,
-      "original_statement": <string | null — exact verbatim sentence from the Data Block that this signal is sourced from>
-    }
-  ]
+  "top_signals": [ <child objects with kind="signal" — see FIELD BANDS> ],
+  "patterns":    [ <child objects with kind="pattern" — see FIELD BANDS; [] for non-management lenses> ]
 }
 
-For top_signals: select 8–10 signals that most influenced this lens score — include ALL signals that have meaningful analytical value for this lens, not just the top few. For signals where management gave a forward-looking promise (guidance), populate value_targeted/target_date and compare against actual_value if the period has passed. If no actual is available yet, set direction to "tracking". For all dates use strict ISO 8601 format (YYYY-MM-DD) resolved to the last day of the implied period — never use free-text period labels like "FY2026 Q3".`;
+Child object fields (shared superset — NO nulls; use sentinels: "" for strings, -1 for numbers):
+  kind                — "signal" for top_signals, "pattern" for patterns. REQUIRED.
+  signal_id           — id of the signal from the data block; "" if a pure pattern with no single source signal.
+  metric              — metric name exactly as provided; "" for patterns without a single metric.
+  label               — 2–5 word title-case human-readable label.
+  impact              — "high" | "medium" | "low".
+  direction           — signal: beat|miss|in_line|unresolvable|none. pattern: positive|negative|neutral|watch.
+  statement           — VERBATIM evidence excerpt, <=80 chars; "" if none.
+  original_statement  — exact verbatim source sentence; "" if none.
+  source_ref          — page / timestamp / PPT slide / Prowess call id for tap-to-verify; "" if unavailable.
+  announcement_date   — ISO 8601 (YYYY-MM-DD) when management made the statement; "" if N/A.
+  value_targeted      — single-point committed number; -1 if range or none.
+  value_targeted_low  — range low; -1 otherwise.
+  value_targeted_high — range high; -1 otherwise.
+  target_date         — ISO 8601 last day of target period; "" if no deadline.
+  actual_value        — realised value verbatim from PPT/Prowess; never calculated; -1 if not reported.
+  actual_date         — ISO 8601 last day of reported period; "" if actuals unavailable.
+  unit                — "Cr" | "%" | "x" | "bps"; "" if none.
+  pattern_type        — one of the 6 pattern types; "none" for kind="signal".
+  confidence          — 0.0–1.0 evidence strength of an INCLUDED pattern; -1 for kind="signal".
+  confidence_reason   — why this confidence; "" for kind="signal".
+  sentence            — full one-line causal claim; "" for kind="signal".
+  shape_data          — JSON-stringified shape array; "" if none.
+  shape_label         — human label for the shape; "" if none.
+  evidence            — array of {period, signal_id, value, quote}; [] for kind="signal". evidence.value = -1 when no numeric count.
+
+For top_signals: select 8–10 signals that most influenced this lens score — include ALL signals that have meaningful analytical value for this lens, not just the top few. For signals with a forward-looking commitment (subject to Source of Truth and the tense gate), populate the guidance band and resolve direction against actual_value when target and actual periods match; otherwise "unresolvable". If no guidance was stated, set all guidance-band numbers to -1 and strings to "" and set direction = "none".
+
+PATTERN ANALYSIS — INDEPENDENT OF GUIDANCE TRACK RECORD:
+Behavioral patterns (drumbeat, emergence, narrative_gap, tone_divergence, going_quiet, street_pressure) are a SEPARATE analysis from the guidance track record above. They draw on ALL L1 signals from ALL sources — earnings transcripts (every mention, not just guidance), PPTs, the Prowess API, and annual reports — plus analyst question clustering. Pattern analysis neither reads from nor writes to the top_signals comparison logic; the two are orthogonal.
+
+PATTERN INCLUSION vs CONFIDENCE (reconciled):
+- INCLUSION is gated by the v5 Pattern Threshold Table (minimum quarters, mention jumps, gap thresholds). A pattern that does NOT meet its threshold is NOT emitted at all — do not force it.
+- For each pattern you DO emit, "confidence" (0.0–1.0) expresses how strong the evidence is: 1.0 = strong multi-quarter evidence with exact quotes and signal IDs; lower = thinner but still threshold-clearing evidence. Never emit a sub-threshold pattern with low confidence — drop it instead.
+- Emit patterns for management-style lenses; emit an empty array [] for non-management lenses.
+
+For all dates use strict ISO 8601 format (YYYY-MM-DD) resolved to the last day of the implied period — never use free-text period labels like "FY2026 Q3".
+`;
 
 // ─── Per metric_family normalization ranges ───────────────────────────────────
 
@@ -818,4 +917,10 @@ module.exports = {
   markLensStaleBySlug,
   getLensScores,
   getLensesByCategory,
+  // Exported for debug scripts
+  buildSignalSummary,
+  buildShareholdingBlock,
+  normalizeValue,
+  computeConfidenceInterval,
+  L2_DEFAULT_PROMPT,
 };
