@@ -46,10 +46,10 @@ const prisma = require('../../config/prisma');
 const TARGET_TICKERS = ['HDFCBANK', 'RELIANCE'];
 
 const TARGET_LENSES  = [
-  // 'guidance-credibility',
+  'guidance-credibility',
   // 'disclosure-honesty',
   // 'capital-allocation',
-  'promoter-activity',
+  // 'promoter-activity',
   // 'industry-analysis',
   // 'financial-strength',
   // 'customer-distribution',

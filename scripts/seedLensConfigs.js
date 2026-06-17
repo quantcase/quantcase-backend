@@ -80,14 +80,21 @@ FIELD BANDS — sentinel values by kind:
 A) kind = "signal" (guidance track record child):
    - MUST be meaningful: kind, label, impact, direction, original_statement.
    - Guidance band: value_targeted OR (value_targeted_low + value_targeted_high), target_date, announcement_date, unit. If no commitment: all guidance numbers = -1, strings = "", direction = "none".
+   - announcement_date MUST be the fiscal quarter-end when this guidance statement was FIRST made — not the reporting date, not the scrape date. For a commitment first stated in Q2 FY23, set announcement_date = "2022-09-30" even if the signal was extracted from a recent transcript. Trace back through historical signals to find the earliest period where this target was stated. If the original quarter cannot be determined, use the earliest quarter in the supplied data where the commitment appears.
    - Actuals band: actual_value, actual_date — from PPT/Prowess only; else -1 / "".
-   - source_ref: page/timestamp/slide/API anchor if available, else "".
+   - source_ref: for HEADLINE_* signals use "". For every other (timeline) signal, MUST be "controllable" or "demand_led":
+       "controllable" — outcomes management directly controls: capex timelines, plant commissioning, cost programmes, headcount, specific project delivery.
+       "demand_led"   — outcomes contingent on external demand: revenue growth, volume targets, realization, market share.
+   - label: for timeline signals MUST be ≤ 20 chars (used as scatter-chart annotation). For HEADLINE_* signals use the specified label.
+   - statement MUST differ from label — never repeat label text verbatim in statement.
+   - target_date MUST be populated for every timeline signal (YYYY-MM-DD last day of commitment period). "" only when date is genuinely unknown.
+   - delta_pct: signed % magnitude of miss (negative) or beat (positive). -1 if not quantifiable. Drives dot size on scatter chart.
    - Pattern band SENTINELS: pattern_type = "none", confidence = -1, confidence_reason = "", sentence = "", shape_data = "", shape_label = "", evidence = [].
-   - direction: "beat" | "miss" | "in_line" | "unresolvable" | "none". NEVER a pattern-vocabulary value.
+   - direction: "beat" | "in_line" | "beat_early" | "beat_costly" (green dot) | "miss" | "major_miss" (red dot) | "tracking" (amber, unresolved) | "unresolvable" | "none". NEVER a pattern-vocabulary value.
 
 B) kind = "pattern" (behavioral pattern child):
    - MUST be meaningful: kind, label, impact, direction, pattern_type, confidence, confidence_reason, sentence.
-   - evidence MUST have ≥1 item with verbatim quote, signal_id, ISO period. evidence.value = -1 when no numeric count.
+   - evidence MUST have ≥1 item with verbatim quote, signal_id, ISO period. evidence.value = -1 when no numeric count. evidence[].period MUST be the quarter the quoted statement was spoken/published (the guidance quarter), not the resolution quarter.
    - shape_data / shape_label: populate for renderable patterns; else "".
    - Guidance band SENTINELS: value_targeted = -1, value_targeted_low = -1, value_targeted_high = -1, actual_value = -1, target_date = "", actual_date = "", announcement_date = "", unit = "". signal_id = "", metric = "".
    - direction: "positive" | "negative" | "neutral" | "watch". NEVER a signal-vocabulary value.
@@ -107,7 +114,8 @@ Every date field MUST be YYYY-MM-DD resolved to the LAST DAY of the implied peri
   e.g. FY2026 Q3 → "2025-12-31"; FY2026 Q1 → "2025-06-30".
 
 SCORE & STATUS DERIVATION (DETERMINISTIC):
-1. RESOLVED = count of top_signals with direction in {beat, in_line, miss}.
+Exclude all HEADLINE_* entries from score computation — count only timeline signals.
+1. RESOLVED = count of timeline top_signals with direction in {beat, in_line, miss}.
 2. HITS = count with direction in {beat, in_line}.
 3. If RESOLVED == 0 → score = 50, status = "MODERATE", takeaway states "Insufficient resolvable guidance to score."
 4. hit_rate = HITS / RESOLVED.
@@ -153,10 +161,23 @@ WRITING STYLE RULES:
 - "takeaway": max 30 words, action-oriented, lead with key finding.
 - "highlights": up to 3 items, max 12 words each, start with a verb or metric.
 - "risks": up to 2 items, max 12 words each, start with the risk noun.
-- "label": 2–5 words, title-case.
-- "statement": ≤80 chars, VERBATIM excerpt from source — never paraphrased.
+- "label": ≤ 20 chars for timeline signals (title-case); as specified for HEADLINE_* signals.
+- "statement": ≤80 chars, VERBATIM excerpt from source — never paraphrased; MUST differ from label.
 - "sentence" (patterns): one plain-language causal claim leading with the change.
 - Never pad with filler phrases.
+
+top_signals[] — emit in this exact order:
+
+  HEADLINE SIGNALS (always first — 6 mandatory aggregate tiles):
+  • metric: "HEADLINE_HIT_RATE"          — actual_value: HITS, guided_value: RESOLVED, unit: "%", direction: "beat" if ≥70%, "in_line" if 50–69%, "miss" if <50%. label: "Hit Rate". statement: e.g. "7/10 guidance commitments met". source_ref: "". impact: "high".
+  • metric: "HEADLINE_DELIVERS_ON"       — label: "Delivers On". statement: ≤60 chars, 1–2 categories management reliably hits (e.g. "Capex timelines, commissioning"). direction: "beat". actual_value: -1. impact: "high". source_ref: "".
+  • metric: "HEADLINE_SLIPS_ON"          — label: "Slips On". statement: ≤60 chars, 1–2 categories management repeatedly misses (e.g. "Volume ramp, margin recovery"). direction: "miss". actual_value: -1. impact: "high". source_ref: "".
+  • metric: "HEADLINE_OPERATIONAL_SCORE" — label: "Operational" (≤20 chars). statement: subtitle e.g. "Outcome within management's control". actual_value: beat/in_line count of controllable commitments. guided_value: total resolved controllable commitments. direction: "beat" if ratio ≥0.7, "miss" if <0.5, "in_line" otherwise. unit: "%". impact: "high". source_ref: "".
+  • metric: "HEADLINE_DEMAND_SCORE"      — label: "Demand-Led" (≤20 chars). statement: subtitle e.g. "Outcome depends on external demand". actual_value: beat/in_line count of demand_led commitments. guided_value: total resolved demand_led commitments. direction: "beat" if ratio ≥0.7, "miss" if <0.5, "in_line" otherwise. unit: "%". impact: "high". source_ref: "".
+  • metric: "HEADLINE_RELIABILITY_READ"  — label: "Reliability Read". sentence: plain-language paragraph (≤120 chars) on what management controls vs. where outcomes slip. direction: "none". actual_value: -1. guided_value: -1. statement: "". impact: "medium". source_ref: "".
+
+  TIMELINE SIGNALS (one per guidance commitment, 6–12 entries, after HEADLINE block):
+  Each must have: source_ref = "controllable" | "demand_led", label ≤ 20 chars, target_date populated, statement ≠ label, delta_pct set.
 
 Return a JSON object conforming EXACTLY to the lens_score schema:
 {
@@ -166,14 +187,14 @@ Return a JSON object conforming EXACTLY to the lens_score schema:
   "key_metrics": { "Hit Rate": "<HITS>/<RESOLVED> (<pct>%)" },
   "highlights": [<up to 3 items, each max 12 words>],
   "risks": [<up to 2 items, each max 12 words>],
-  "top_signals": [ <kind="signal" children — one per guidance commitment, 6–12 items> ],
+  "top_signals": [ <6 HEADLINE signals first, then 6–12 timeline signals> ],
   "patterns":    [ <kind="pattern" children — evidence-backed patterns; [] if none> ]
 }
 
 Child object (NO nulls — use sentinels):
   kind, signal_id, metric, label, impact, direction, statement, original_statement, source_ref,
   announcement_date, value_targeted, value_targeted_low, value_targeted_high, target_date,
-  actual_value, actual_date, unit, pattern_type, confidence, confidence_reason,
+  actual_value, actual_date, unit, delta_pct, pattern_type, confidence, confidence_reason,
   sentence, shape_data, shape_label, evidence[]
 `,
     },
