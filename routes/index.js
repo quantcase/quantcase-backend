@@ -25,6 +25,7 @@ const analysisRouter      = require('./analysis.routes');
 const dealRouter          = require('./deal.routes');
 const opportunityRouter       = require('./opportunity.routes');
 const annualReportsRouter     = require('./annual_reports.routes');
+const htmlSkillsRouter        = require('./htmlSkills.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -74,6 +75,7 @@ router.use('/api/analysis', analysisRouter);
 router.use('/api/deal',           dealRouter);
 router.use('/api/opportunity',    opportunityRouter);
 router.use('/api/annual-reports', annualReportsRouter);
+router.use('/api/html-skills',   htmlSkillsRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);

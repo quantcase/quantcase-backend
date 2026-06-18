@@ -103,25 +103,25 @@ model kv_store_abda8bef {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model nse_equity {
-  id           Int       @id(map: "nse_daily_data_pkey") @default(autoincrement())
-  symbol       String?
-  datetime     DateTime? @db.Timestamp(6)
-  open         Float?
-  high         Float?
-  low          Float?
-  close        Float?
-  volume       BigInt?
-  pe           Float?
+  id            Int       @id(map: "nse_daily_data_pkey") @default(autoincrement())
+  symbol        String?
+  datetime      DateTime? @db.Timestamp(6)
+  open          Float?
+  high          Float?
+  low           Float?
+  close         Float?
+  volume        BigInt?
+  pe            Float?
   market_cap_cr Float?
 
   @@unique([symbol, datetime], map: "unique_symbol_datetime")
-  @@index([symbol], map: "nse_equity_symbol_idx")
+  @@index([symbol])
 }
 
 model nse_equity_new {
-  symbol        String    @db.VarChar
-  company_name  String    @db.VarChar
-  datetime      DateTime  @db.Date
+  symbol        String   @db.VarChar
+  company_name  String   @db.VarChar
+  datetime      DateTime @db.Date
   open          Float?
   high          Float?
   low           Float?
@@ -131,7 +131,7 @@ model nse_equity_new {
   eps           Float?
   market_cap_cr Float?
 
-  @@id([symbol, datetime], map: "nse_equity_new_pkey")
+  @@id([symbol, datetime])
   @@map("nse_equity_new")
 }
 
@@ -148,11 +148,11 @@ model nse_index {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model users {
-  id         BigInt   @id @default(autoincrement())
   created_at DateTime @default(now()) @db.Timestamptz(6)
   email      String?
   password   String?
   role       String?
+  id         BigInt   @id @default(autoincrement())
 }
 
 model Job {
@@ -212,22 +212,21 @@ model SummaryNew {
 }
 
 model Kpi {
-  id           String            @id @default(uuid())
-  abbr         String            @unique
-  full_form    String
-  denomination DenominationType?
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
-  industry     String[]          @default([])
-  source       KpiSource
-  kpi_type     KpiTypeCategory?
+  id            String            @id @default(uuid())
+  abbr          String            @unique
+  full_form     String
+  denomination  DenominationType?
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  industry      String[]          @default([])
+  source        KpiSource
+  kpi_type      KpiTypeCategory?
   prowessValues ProwessValueNew[]
 
   @@index([abbr])
   @@index([source])
   @@map("kpis")
 }
-
 
 model SubstituteKpi {
   id             String   @id @default(uuid())
@@ -277,7 +276,6 @@ model ProwessValueNew {
   quarter     String?
   call_date   String?
   kpi_abbr    String
-  kpi         Kpi      @relation(fields: [kpi_abbr], references: [abbr], onDelete: Cascade)
   value       Float?
   raw_value   String?   @map("raw_value")
   unit        String?
@@ -291,6 +289,7 @@ model ProwessValueNew {
   start_date  String?   @map("start_date")
   period_type String?   @map("period_type")
   source_type String    @default("C") @map("source_type")
+  kpi         Kpi       @relation(fields: [kpi_abbr], references: [abbr], onDelete: Cascade)
 
   @@unique([callId, kpi_abbr], map: "pnv_call_kpi_unique")
   @@index([company, fiscal_year, quarter], map: "idx_pnv_company_fy_q")
@@ -298,31 +297,28 @@ model ProwessValueNew {
   @@index([kpi_abbr], map: "idx_pnv_kpi")
   @@index([kpi_abbr, period_type], map: "idx_pnv_kpi_period")
   @@index([company, source_type], map: "idx_pnv_company_srctype")
-  // Partial indexes for the two call_id namespaces — annual (prowess_new_*) vs quarterly (prowess_qtr_*)
-  @@index([company, fiscal_year, quarter], map: "idx_pnv_company_fy_q_annual")
-  @@index([company, fiscal_year, quarter], map: "idx_pnv_company_fy_q_qtr")
   @@map("prowess_values_new")
 }
 
 model MilestoneKpiTarget {
-  id             String   @id @default(uuid())
-  callId         String   @map("call_id")
-  company        String
-  fiscal_year    String?
-  quarter        String?
-  call_date      String?
-  category       String
-  kpi_abbr       String
-  statement      String?
-  current_value  Float?   @map("current_value")
-  targeted_value Float?   @map("targeted_value")
+  id                String   @id @default(uuid())
+  callId            String   @map("call_id")
+  company           String
+  fiscal_year       String?
+  quarter           String?
+  call_date         String?
+  category          String
+  kpi_abbr          String
+  statement         String?
+  current_value     Float?   @map("current_value")
+  targeted_value    Float?   @map("targeted_value")
   initial_time      String?  @map("initial_time")
   target_time       String?  @map("target_time")
-  cumulative_period Int?     @map("cumulative_period")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   multiplier        Int      @default(1)
   currency          String?  @map("currency")
+  cumulative_period Int?     @map("cumulative_period")
 
   @@index([callId])
   @@index([company, kpi_abbr])
@@ -563,29 +559,23 @@ model prowess_kpi_values {
   @@index([kpi_abbr, period_type], map: "idx_pkv_kpi_period")
 }
 
-// ─── IIT (Industry Intelligence Tracker) ─────────────────────────────────────
-
 model IitWeeklyStockScore {
   id                  String   @id @default(uuid())
-  week_date           DateTime @db.Date                 // Friday of the scoring week
+  week_date           DateTime @db.Date
   ticker              String
   basic_industry      String
-  economic_model      String                            // Capex | Consumption | Financial | Hybrid
-  regime              String   @default("Neutral")      // Risk-On | Neutral | Risk-Off
-
-  // Factor scores (0-100 percentile rank within universe; null = data unavailable)
+  economic_model      String
+  regime              String   @default("Neutral")
   momentum_score      Float?
   growth_score        Float?
   profitability_score Float?
   balance_sheet_score Float?
-  breadth_score       Float?   // stock-level: 1 if above 20w MA, 0 if not (cluster breadth in IitClusterScore)
-  sentiment_score     Float?   // null until analyst data is available
+  breadth_score       Float?
+  sentiment_score     Float?
   valuation_score     Float?
-
-  composite_score     Float?                            // weighted sum of factor scores
-  factor_weights      Json?                             // regime-adjusted weights used for this row
-  data_flags          Json?                             // e.g. { sentiment: "missing", valuation: "low_confidence" }
-
+  composite_score     Float?
+  factor_weights      Json?
+  data_flags          Json?
   created_at          DateTime @default(now())
   updated_at          DateTime @updatedAt
 
@@ -598,34 +588,25 @@ model IitWeeklyStockScore {
 }
 
 model IitClusterScore {
-  id                  String   @id @default(uuid())
-  week_date           DateTime @db.Date                 // Friday of the scoring week
-  basic_industry      String
-
-  // Layer 2 inputs
-  median_score        Float?                            // median of constituent composite scores
-  breadth_pct         Float?                            // % of cluster stocks above 20-week MA
-  composite_score     Float?                            // 0.65 × median_score + 0.35 × breadth_pct
-
-  // Rank fields
-  rank                Int?                              // 1 = strongest cluster
-  rank_prev           Int?                              // rank from prior week
-  wow_delta           Int?                              // rank_prev - rank (positive = moved up)
-  velocity_3w         Int?                              // rank change over trailing 3 weekly updates
-  rank_trend          String?                           // e.g. "↑ ↑ →" — direction over last 3 updates
-  quartile            String?                           // Q1 | Q2 | Q3 | Q4
-
-  // Score change
-  score_wow_delta     Float?                            // composite_score minus prior week's composite_score
-
-  // Metadata
-  stock_count         Int?                              // total stocks in cluster with basic_industry set
-  scored_stock_count  Int?                              // stocks that contributed to the score
-  regime              String   @default("Neutral")
-  low_confidence      Boolean  @default(false)          // true if >50% factor metrics missing or <3 stocks
-
-  created_at          DateTime @default(now())
-  updated_at          DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  week_date          DateTime @db.Date
+  basic_industry     String
+  median_score       Float?
+  breadth_pct        Float?
+  composite_score    Float?
+  rank               Int?
+  rank_prev          Int?
+  wow_delta          Int?
+  velocity_3w        Int?
+  rank_trend         String?
+  quartile           String?
+  score_wow_delta    Float?
+  stock_count        Int?
+  scored_stock_count Int?
+  regime             String   @default("Neutral")
+  low_confidence     Boolean  @default(false)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
 
   @@unique([week_date, basic_industry])
   @@index([week_date])
@@ -637,10 +618,9 @@ model IitClusterScore {
 model shareholding_pattern {
   id                        String   @id @default(uuid())
   company                   String
-  quarter_label             String   // e.g. "Jun 2024" — display + unique key
-  fiscal_year               String   // e.g. "FY2025" — for ordering
-  quarter_code              String   // "Q1"–"Q4" — for ordering
-
+  quarter_label             String
+  fiscal_year               String
+  quarter_code              String
   total                     Float?
   promoters                 Float?
   indian_promoters          Float?
@@ -676,14 +656,373 @@ model shareholding_pattern {
   np_qfi                    Float?
   other_non_inst_np         Float?
   custodians                Float?
-
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
 
   @@unique([company, quarter_label])
   @@index([company])
   @@index([company, fiscal_year, quarter_code])
   @@map("shareholding_pattern")
+}
+
+model PortfolioModel {
+  id               String   @id @default(uuid())
+  name             String
+  riskProfile      String   @map("risk_profile")
+  capital          Float
+  assetClasses     Json     @map("asset_classes")
+  client           Json?
+  positions        Json?
+  whyThisPortfolio Json?    @map("why_this_portfolio")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([riskProfile])
+  @@map("portfolio_models")
+}
+
+model AiInsight {
+  id               String   @id @default(uuid())
+  ticker           String
+  type             String
+  insight          Json
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  lens_scores_hash String?  @map("lens_scores_hash")
+  prompt_v         String?  @map("prompt_v")
+
+  @@unique([ticker, type])
+  @@index([ticker])
+  @@index([type])
+  @@map("ai_insights")
+}
+
+model Watchlist {
+  id           String           @id @default(uuid())
+  user_id      String
+  name         String
+  total_assets Int              @default(0) @map("total_assets")
+  created_at   DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+  assets       WatchlistAsset[]
+
+  @@index([user_id])
+  @@map("watchlists")
+}
+
+model WatchlistAsset {
+  id           String    @id @default(uuid())
+  watchlist_id String
+  symbol       String
+  added_on     DateTime  @default(now())
+  notes        String?
+  watchlist    Watchlist @relation(fields: [watchlist_id], references: [id], onDelete: Cascade)
+
+  @@unique([watchlist_id, symbol])
+  @@index([watchlist_id])
+  @@index([symbol])
+  @@map("watchlist_assets")
+}
+
+model User {
+  id                String           @id @default(uuid())
+  email             String?          @unique
+  mobile            String?          @unique
+  password_hash     String?          @map("password_hash")
+  google_id         String?          @unique @map("google_id")
+  display_name      String?          @map("display_name")
+  display_picture   String?          @map("display_picture")
+  account_type      AccountType      @map("account_type")
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+  shadow_portfolios ShadowPortfolio?
+  team_memberships  TeamMember[]
+  user_portfolios   UserPortfolio?
+
+  @@index([email])
+  @@index([mobile])
+  @@index([google_id])
+  @@map("qc_users")
+}
+
+model Team {
+  id         String       @id @default(uuid())
+  name       String
+  created_at DateTime     @default(now())
+  updated_at DateTime     @updatedAt
+  members    TeamMember[]
+
+  @@map("qc_teams")
+}
+
+model TeamMember {
+  id         String   @id @default(uuid())
+  team_id    String
+  user_id    String
+  created_at DateTime @default(now())
+  team       Team     @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([team_id, user_id])
+  @@index([team_id])
+  @@index([user_id])
+  @@map("qc_team_members")
+}
+
+model UserPortfolio {
+  id         String    @id @default(uuid())
+  user_id    String    @unique @map("user_id")
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  holdings   Holding[]
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("qc_user_portfolios")
+}
+
+model ShadowPortfolio {
+  id         String    @id @default(uuid())
+  user_id    String    @unique @map("user_id")
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  holdings   Holding[]
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("qc_shadow_portfolios")
+}
+
+model Holding {
+  id                  String           @id @default(uuid())
+  ticker              String
+  amount_invested     Float            @map("amount_invested")
+  invested_at         DateTime         @map("invested_at")
+  created_at          DateTime         @default(now())
+  updated_at          DateTime         @updatedAt
+  user_portfolio_id   String?          @map("user_portfolio_id")
+  shadow_portfolio_id String?          @map("shadow_portfolio_id")
+  notes               HoldingNote[]
+  shadow_portfolio    ShadowPortfolio? @relation(fields: [shadow_portfolio_id], references: [id], onDelete: Cascade)
+  user_portfolio      UserPortfolio?   @relation(fields: [user_portfolio_id], references: [id], onDelete: Cascade)
+
+  @@index([user_portfolio_id])
+  @@index([shadow_portfolio_id])
+  @@index([ticker])
+  @@map("qc_holdings")
+}
+
+model HoldingNote {
+  id         String   @id @default(uuid())
+  holding_id String   @map("holding_id")
+  note_text  String   @map("note_text")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  holding    Holding  @relation(fields: [holding_id], references: [id], onDelete: Cascade)
+
+  @@index([holding_id])
+  @@map("qc_holding_notes")
+}
+
+model MutualFundScheme {
+  amfi_code      String   @id
+  name           String
+  isin           String?
+  plan_type      String?
+  option_type    String?
+  nav            Float?
+  nav_date       String?
+  day_change     Float?
+  day_change_pct Float?
+  morningstar    Int?
+  risk_label     String?
+  expense_ratio  Float?
+  aum            Float?
+  family_name    String?
+  family_id      Int?
+  amc_name       String?
+  amc_slug       String?
+  category       String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  returns_1y     Float?
+  returns_3y     Float?
+  returns_5y     Float?
+
+  @@index([amc_slug])
+  @@index([category])
+  @@index([family_id])
+  @@map("mutual_fund_schemes")
+}
+
+model Skill {
+  id                  String        @id @default(uuid())
+  name                String        @unique
+  description         String?
+  promptKey           String        @map("prompt_key")
+  model               String        @default("anthropic/claude-haiku-4.5")
+  maxTokens           Int           @default(16000) @map("max_tokens")
+  outputSchema        Json?         @map("output_schema")
+  isActive            Boolean       @default(true) @map("is_active")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+  defaultInstructions String?       @map("default_instructions")
+  promptTemplate      String?       @map("prompt_template")
+  slug                String?       @unique
+  pluginSkills        PluginSkill[]
+
+  @@index([name])
+  @@map("skills")
+}
+
+model Plugin {
+  id           String         @id @default(uuid())
+  name         String         @unique
+  description  String?
+  category     PluginCategory
+  isActive     Boolean        @default(true) @map("is_active")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  slug         String?        @unique
+  pluginSkills PluginSkill[]
+
+  @@index([category])
+  @@map("plugins")
+}
+
+model PluginSkill {
+  id       String @id @default(uuid())
+  pluginId String @map("plugin_id")
+  skillId  String @map("skill_id")
+  order    Int
+  plugin   Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  skill    Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([pluginId, skillId])
+  @@unique([pluginId, order])
+  @@index([pluginId])
+  @@index([skillId])
+  @@map("plugin_skills")
+}
+
+model ExtractedSignal {
+  id              String           @id @default(uuid())
+  call_id         String
+  ticker          String
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  source_type     SignalSourceType
+  signal_type     String
+  metric          String
+  value           Float?
+  raw_value       String?
+  unit            String?
+  multiplier      Float            @default(1)
+  w               Float            @default(1.0)
+  b               Float            @default(0.0)
+  confidence      Float?
+  time_horizon    String?
+  esg_tag         String?
+  risk_tag        String?
+  sector          String?
+  metric_family   String?
+  source_hash     String
+  prompt_v        String
+  schema_v        String           @default("2.0.0")
+  extractor_model String
+  lineage_id      String
+  statement       String?
+  start_date      String?
+  end_date        String?
+  period_type     String?
+  is_invalidated  Boolean          @default(false)
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+  impact          String?
+  severity        String?
+
+  @@unique([call_id, signal_type, metric, source_hash, prompt_v, start_date])
+  @@index([ticker])
+  @@index([call_id])
+  @@index([ticker, metric_family])
+  @@index([source_hash])
+  @@map("extracted_signals")
+}
+
+model TranscriptSignalV2 {
+  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  call_id         String
+  ticker          String
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  signal_type     String
+  source_context  String?
+  source_stmt_id  String?
+  signal_seq_id   String?
+  metric          String?
+  impact          String?
+  severity        String?
+  statement       String?
+  data            Json
+  source_hash     String
+  prompt_v        String
+  extractor_model String
+  lineage_id      String
+  is_invalidated  Boolean  @default(false)
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  source_doc_type String?
+
+  @@index([source_doc_type])
+  @@index([call_id], map: "tsv2_call_id")
+  @@index([call_id, signal_type], map: "tsv2_call_type")
+  @@index([lineage_id], map: "tsv2_lineage")
+  @@index([source_hash], map: "tsv2_src_hash")
+  @@index([ticker, signal_type], map: "tsv2_tick_type")
+  @@index([ticker], map: "tsv2_ticker")
+  @@map("transcript_signals_v2")
+}
+
+model LensConfig {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String?
+  is_active   Boolean  @default(true)
+  version     String   @default("1.0.0")
+  config      Json
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  category    String?
+
+  @@index([slug])
+  @@index([category])
+  @@map("lens_configs")
+}
+
+model LensScore {
+  id               String   @id @default(uuid())
+  call_id          String
+  ticker           String
+  lens_slug        String
+  z_score          Float
+  confidence_lo    Float?
+  confidence_hi    Float?
+  signal_count     Int
+  lens_config_v    String
+  signals_snapshot Json
+  is_stale         Boolean  @default(false)
+  computed_at      DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  lens_data        Json?
+  signals_hash     String?
+
+  @@unique([call_id, lens_slug])
+  @@index([ticker, lens_slug])
+  @@index([call_id])
+  @@map("lens_scores")
 }
 
 enum DenominationType {
@@ -754,215 +1093,10 @@ enum WealthModelType {
   aif
 }
 
-model PortfolioModel {
-  id               String   @id @default(uuid())
-  name             String
-  riskProfile      String   @map("risk_profile")
-  capital          Float
-  assetClasses     Json     @map("asset_classes")
-  client           Json?
-  positions        Json?
-  whyThisPortfolio Json?    @map("why_this_portfolio")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-
-  @@index([riskProfile])
-  @@map("portfolio_models")
-}
-
-model AiInsight {
-  id               String   @id @default(uuid())
-  ticker           String
-  type             String                        // e.g. "technicals", "financials", "peers"
-  insight          Json                          // raw LLM output, stored as-is for frontend rendering
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
-  lens_scores_hash String?  @map("lens_scores_hash") // SHA-256 of lens scores used as L3 input; cache key
-  prompt_v         String?  @map("prompt_v")          // skill version that generated this insight
-
-  @@unique([ticker, type])
-  @@map("ai_insights")
-  @@index([ticker])
-  @@index([type])
-}
-
-// ─── Watchlists ──────────────────────────────────────────────────────────────
-
-model Watchlist {
-  id             String           @id @default(uuid())
-  user_id        String
-  name           String
-  total_assets   Int              @default(0) @map("total_assets")
-  created_at     DateTime         @default(now())
-  updated_at     DateTime         @updatedAt
-  assets         WatchlistAsset[]
-
-  @@index([user_id])
-  @@map("watchlists")
-}
-
-model WatchlistAsset {
-  id           String    @id @default(uuid())
-  watchlist_id String
-  symbol       String
-  added_on     DateTime  @default(now())
-  notes        String?
-  watchlist    Watchlist @relation(fields: [watchlist_id], references: [id], onDelete: Cascade)
-
-  @@unique([watchlist_id, symbol])
-  @@index([watchlist_id])
-  @@index([symbol])
-  @@map("watchlist_assets")
-}
-
-// ─── Auth: Users, Teams ────────────────────────────────────────────────────────
-
 enum AccountType {
   manager
   investor
 }
-
-model User {
-  id              String      @id @default(uuid())
-  email           String?     @unique
-  mobile          String?     @unique
-  password_hash   String?     @map("password_hash")
-  google_id       String?     @unique @map("google_id")
-  display_name    String?     @map("display_name")
-  display_picture String?     @map("display_picture")
-  account_type    AccountType @map("account_type")
-  created_at      DateTime    @default(now())
-  updated_at      DateTime    @updatedAt
-
-  team_memberships  TeamMember[]
-  user_portfolios   UserPortfolio[]
-  shadow_portfolios ShadowPortfolio[]
-
-  @@index([email])
-  @@index([mobile])
-  @@index([google_id])
-  @@map("qc_users")
-}
-
-model Team {
-  id         String       @id @default(uuid())
-  name       String
-  created_at DateTime     @default(now())
-  updated_at DateTime     @updatedAt
-
-  members    TeamMember[]
-
-  @@map("qc_teams")
-}
-
-model TeamMember {
-  id         String   @id @default(uuid())
-  team_id    String
-  user_id    String
-  created_at DateTime @default(now())
-
-  team       Team     @relation(fields: [team_id], references: [id], onDelete: Cascade)
-  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@unique([team_id, user_id])
-  @@index([team_id])
-  @@index([user_id])
-  @@map("qc_team_members")
-}
-
-// ─── Portfolio & Shadow Portfolio ─────────────────────────────────────────────
-
-model UserPortfolio {
-  id         String    @id @default(uuid())
-  user_id    String    @unique @map("user_id")
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
-
-  user     User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  holdings Holding[]
-
-  @@map("qc_user_portfolios")
-}
-
-model ShadowPortfolio {
-  id         String    @id @default(uuid())
-  user_id    String    @unique @map("user_id")
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
-
-  user     User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  holdings Holding[]
-
-  @@map("qc_shadow_portfolios")
-}
-
-model Holding {
-  id                  String   @id @default(uuid())
-  ticker              String
-  amount_invested     Float    @map("amount_invested")
-  invested_at         DateTime @map("invested_at")
-  created_at          DateTime @default(now())
-  updated_at          DateTime @updatedAt
-  user_portfolio_id   String?  @map("user_portfolio_id")
-  shadow_portfolio_id String?  @map("shadow_portfolio_id")
-
-  user_portfolio   UserPortfolio?   @relation(fields: [user_portfolio_id], references: [id], onDelete: Cascade)
-  shadow_portfolio ShadowPortfolio? @relation(fields: [shadow_portfolio_id], references: [id], onDelete: Cascade)
-  notes            HoldingNote[]
-
-  @@index([user_portfolio_id])
-  @@index([shadow_portfolio_id])
-  @@index([ticker])
-  @@map("qc_holdings")
-}
-
-model HoldingNote {
-  id         String   @id @default(uuid())
-  holding_id String   @map("holding_id")
-  note_text  String   @map("note_text")
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  holding    Holding  @relation(fields: [holding_id], references: [id], onDelete: Cascade)
-
-  @@index([holding_id])
-  @@map("qc_holding_notes")
-}
-
-// ─── Mutual Funds ─────────────────────────────────────────────────────────────
-
-model MutualFundScheme {
-  amfi_code      String   @id
-  name           String
-  isin           String?
-  plan_type      String?
-  option_type    String?
-  nav            Float?
-  nav_date       String?
-  day_change     Float?
-  day_change_pct Float?
-  morningstar    Int?
-  risk_label     String?
-  expense_ratio  Float?
-  aum            Float?
-  family_name    String?
-  family_id      Int?
-  amc_name       String?
-  amc_slug       String?
-  category       String?
-  returns_1y     Float?
-  returns_3y     Float?
-  returns_5y     Float?
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
-
-  @@index([amc_slug])
-  @@index([category])
-  @@index([family_id])
-  @@map("mutual_fund_schemes")
-}
-
-// ─── Skills & Plugins ────────────────────────────────────────────────────────
 
 enum PluginCategory {
   management
@@ -974,57 +1108,70 @@ enum PluginCategory {
   fundamentals
 }
 
-model Skill {
-  id                  String        @id @default(uuid())
-  name                String        @unique
-  slug                String?       @unique
-  description         String?
-  promptKey           String        @map("prompt_key")
-  promptTemplate      String?       @map("prompt_template")        // Static instructional portion of the prompt — editable without code deploys
-  defaultInstructions String?       @map("default_instructions")   // DEFAULT_INSTRUCTIONS text injected at {{DEFAULT_INSTRUCTIONS}} in the template
-  model               String        @default("anthropic/claude-haiku-4.5")
-  maxTokens           Int           @default(16000) @map("max_tokens")
-  outputSchema        Json?         @map("output_schema")
-  isActive            Boolean       @default(true) @map("is_active")
-  createdAt           DateTime      @default(now()) @map("created_at")
-  updatedAt           DateTime      @updatedAt @map("updated_at")
-  pluginSkills        PluginSkill[]
+// ─── HTML Skills ─────────────────────────────────────────────────────────────
 
-  @@index([name])
-  @@map("skills")
-}
-
-model Plugin {
-  id           String         @id @default(uuid())
-  name         String         @unique
-  slug         String?        @unique
-  description  String?
+model HtmlSkill {
+  id           String                   @id @default(uuid())
+  slug         String                   @unique
+  name         String
+  skill_prompt String
+  signal_types TranscriptSignalTypeV2[]
   category     PluginCategory
-  isActive     Boolean        @default(true) @map("is_active")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
-  pluginSkills PluginSkill[]
+  model        String                   @default("~anthropic/claude-haiku-latest")
+  max_tokens   Int                      @default(16000)
+  is_active    Boolean                  @default(true)
+  created_at   DateTime                 @default(now())
+  updated_at   DateTime                 @updatedAt
 
+  outputs      HtmlSkillOutput[]
+
+  @@index([slug])
   @@index([category])
-  @@map("plugins")
+  @@map("html_skills")
 }
 
-model PluginSkill {
-  id       String @id @default(uuid())
-  pluginId String @map("plugin_id")
-  skillId  String @map("skill_id")
-  order    Int
-  plugin   Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
-  skill    Skill  @relation(fields: [skillId],  references: [id], onDelete: Cascade)
+model HtmlSkillOutput {
+  id            String    @id @default(uuid())
+  skill_id      String    @map("skill_id")
+  ticker        String
+  call_id       String?   @map("call_id")
+  fiscal_year   String?   @map("fiscal_year")
+  quarter       String?
+  raw_html      String
+  prompt_v      String    @map("prompt_v")
+  model         String
+  input_tokens  Int?      @map("input_tokens")
+  output_tokens Int?      @map("output_tokens")
+  cost_usd      Float?    @map("cost_usd")
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
 
-  @@unique([pluginId, skillId])
-  @@unique([pluginId, order])
-  @@index([pluginId])
-  @@index([skillId])
-  @@map("plugin_skills")
+  skill         HtmlSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  @@unique([skill_id, ticker, fiscal_year, quarter])
+  @@index([ticker])
+  @@index([skill_id])
+  @@index([call_id])
+  @@map("html_skill_outputs")
 }
 
-// ─── 3-Layer Analysis Pipeline ───────────────────────────────────────────────
+enum TranscriptSignalTypeV2 {
+  guidance
+  industry_signal
+  capital_allocation
+  disclosure_quality
+  distribution_customer
+  growth_forecast
+  earnings_quality
+  kpi
+  mgmt_tone
+  analyst_questions
+  guidance_revision
+  pricing_power
+  competitive_position
+  milestone
+  ongoing
+}
 
 enum SignalSourceType {
   transcript
@@ -1032,152 +1179,4 @@ enum SignalSourceType {
   management
   ofactor
   prowess
-}
-
-// Controlled vocabularies for signal classification
-// signal_type: what kind of signal this is
-//   kpi            — numeric financial/operational KPI (REV_OP, EPS, P_E, etc.)
-//   governance     — board/disclosure quality flag (transparent, defensive_language, …)
-//   entity         — named entity extracted from text (person, segment, geography)
-//   milestone      — forward-looking target or past achievement
-//   industry       — industry-level demand/supply/margin signal
-//   customer       — customer-traction signal (growth, churn, ARPU, …)
-//   financial_health — qualitative financial-strength driver (FCF quality, leverage, …)
-//   tone           — overall management tone signal
-//   ofactor_section — opportunity factor section score
-//   management_score — management quality score
-//
-// metric_family: broad category for lens composition
-//   profitability | growth | governance | customer | capital | industry | qualitative | milestone | ofactor
-
-model ExtractedSignal {
-  id              String          @id @default(uuid())
-  call_id         String
-  ticker          String
-  company         String
-  fiscal_year     String?
-  quarter         String?
-  call_date       String?
-  source_type     SignalSourceType
-  signal_type     String          // controlled vocab — see comment above
-  metric          String          // e.g. "REV_OP", "transparent", "churn_rate", "tone"
-  value           Float?          // numeric value (null for qualitative-only)
-  raw_value       String?         // original text / stringified number from LLM
-  unit            String?
-  multiplier      Float           @default(1)
-  w               Float           @default(1.0)
-  b               Float           @default(0.0)
-  confidence      Float?          // 0.0–1.0
-  time_horizon    String?         // "short" | "medium" | "long"
-  esg_tag         String?
-  risk_tag        String?
-  sector          String?
-  metric_family   String?         // controlled vocab — see comment above
-  impact          String?         // "high" | "medium" | "low" — LLM-assigned, cross-signal comparable
-  severity        String?         // "critical" | "high" | "medium" | "low" | "informational"
-  source_hash     String          // SHA-256 of source document; gates L1 re-runs
-  prompt_v        String          // skillSlug@updatedAt — invalidated when prompt changes
-  schema_v        String          @default("2.0.0")
-  extractor_model String
-  lineage_id      String          // groups all signals from one extraction run
-  statement       String?         // evidence quote from source
-  start_date      String?
-  end_date        String?
-  period_type     String?
-  is_invalidated  Boolean         @default(false)
-  created_at      DateTime        @default(now())
-  updated_at      DateTime        @updatedAt
-
-  @@unique([call_id, signal_type, metric, source_hash, prompt_v, start_date])
-  @@index([ticker])
-  @@index([call_id])
-  @@index([ticker, metric_family])
-  @@index([source_hash])
-  // Partial indexes covering the is_invalidated=false hot path (100% of active rows)
-  @@index([call_id, signal_type], map: "extracted_signals_call_id_type_active_idx")
-  @@index([ticker, signal_type], map: "extracted_signals_ticker_type_active_idx")
-  @@map("extracted_signals")
-}
-
-// ─── V2 Signal Store ─────────────────────────────────────────────────────────
-// Parallel pipeline running the richer 14-type extraction schema.
-// Provenance fields are proper columns; all type-specific payload lives in `data`.
-
-model TranscriptSignalV2 {
-  id              String   @id @default(uuid())
-  call_id         String
-  ticker          String
-  company         String
-  fiscal_year     String?
-  quarter         String?
-  call_date       String?
-  signal_type     String   // v2 vocab: guidance | claim | industry_signal | capital_allocation | etc.
-  source_doc_type String?  // "transcript" | "ppt" | "annual_report" — which document this signal came from
-  source_context  String?  // "opening_remarks" | "management_presentation" | "analyst_qa"
-  source_stmt_id  String?  // LLM-assigned source_statement_id (links signals sharing one quote)
-  signal_seq_id   String?  // LLM-assigned signal_id within the run
-  metric          String?  // derived key field — see worker mapping comment
-  impact          String?  // "high" | "medium" | "low"
-  severity        String?  // "critical" | "high" | "medium" | "low" | "informational"
-  statement       String?  // verbatim quote
-  data            Json     // full type-specific payload from LLM
-  source_hash     String
-  prompt_v        String
-  extractor_model String
-  lineage_id      String
-  is_invalidated  Boolean  @default(false)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  @@index([call_id])
-  @@index([ticker])
-  @@index([call_id, signal_type])
-  @@index([ticker, signal_type])
-  @@index([source_hash])
-  @@index([lineage_id])
-  @@index([source_doc_type])
-  @@map("transcript_signals_v2")
-}
-
-model LensConfig {
-  id          String   @id @default(uuid())
-  slug        String   @unique
-  name        String
-  description String?
-  category    String?  // "management" | "opportunity" | "deal" — groups lenses into insight types
-  is_active   Boolean  @default(true)
-  version     String   @default("1.0.0")
-  config      Json     // { signal_filters: { signal_types, metric_family, source_types }, weights: [{ metric, w, b }], aggregation: "weighted_sum" }
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  @@index([slug])
-  @@index([category])
-  @@map("lens_configs")
-}
-
-model LensScore {
-  id               String   @id @default(uuid())
-  call_id          String
-  ticker           String
-  lens_slug        String
-  z_score          Float
-  confidence_lo    Float?
-  confidence_hi    Float?
-  signal_count     Int
-  lens_config_v    String   // LensConfig.version at compute time
-  signals_snapshot Json     // [{ signal_id, metric, value, w, b, contribution }]
-  lens_data        Json?    // Full structured output from L2 LLM call {score, status, takeaway, key_metrics, highlights, risks}
-  signals_hash     String?  // SHA-256 of signal IDs+values; L2 LLM cache key
-  is_stale         Boolean  @default(false)
-  computed_at      DateTime @default(now())
-  updated_at       DateTime @updatedAt
-
-  @@unique([call_id, lens_slug])
-  @@index([ticker, lens_slug])
-  @@index([call_id])
-  // Partial indexes for is_stale=false hot path (~89% of rows)
-  @@index([ticker, lens_slug], map: "lens_scores_ticker_slug_active_idx")
-  @@index([call_id], map: "lens_scores_call_id_active_idx")
-  @@map("lens_scores")
 }
