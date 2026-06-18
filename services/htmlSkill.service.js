@@ -11,26 +11,42 @@ const { llmStream, logUsage } = require('../utils/workerUtils');
 function buildDataBlock(signals) {
   if (!signals || signals.length === 0) return 'No signals found for this ticker/period.';
 
-  const entries = signals.map(s => {
-    const entry = {
-      signal_type:     s.signal_type,
-      metric:          s.metric          ?? undefined,
-      metric_family:   s.metric_family   ?? undefined,
-      fiscal_year:     s.fiscal_year     ?? undefined,
-      quarter:         s.quarter         ?? undefined,
-      call_date:       s.call_date       ?? undefined,
-      source_doc_type: s.source_doc_type ?? undefined,
-      statement:       s.statement       ?? undefined,
-      source_context:  s.source_context  ?? undefined,
-      // flatten data fields and measures to top level
-      ...(s.data ?? {}),
-      measures:        s.measures?.length > 0 ? s.measures : undefined,
-    };
-    // drop undefined keys to keep output compact
-    return Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined));
+  // Header row
+  const COLS = ['signal_type','metric','metric_family','fiscal_year','quarter','call_date',
+                'source_doc_type','source_context','impact','severity','statement'];
+
+  const flattenDetails = (data) => {
+    const d = data?.details ?? {};
+    return Object.entries(d)
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`)
+      .join('; ');
+  };
+
+  const flattenMeasures = (measures) => {
+    if (!measures?.length) return '';
+    return measures.map(m => {
+      const parts = [];
+      if (m.value != null)      parts.push(`val=${m.value}${m.unit ? m.unit : ''}`);
+      if (m.value_raw != null)  parts.push(`raw=${m.value_raw}`);
+      if (m.period?.start)      parts.push(`from=${m.period.start}`);
+      if (m.period?.end)        parts.push(`to=${m.period.end}`);
+      if (m.direction)          parts.push(`dir=${m.direction}`);
+      return parts.join(' ');
+    }).join(' | ');
+  };
+
+  const rows = signals.map(s => {
+    const cols = COLS.map(k => {
+      const v = s[k] ?? (s.data?.[k]) ?? '';
+      return String(v).replace(/\n/g, ' ').replace(/\|/g, '/');
+    });
+    const details  = flattenDetails(s.data);
+    const measures = flattenMeasures(s.measures);
+    return [...cols, details, measures].join('\t');
   });
 
-  return JSON.stringify(entries, null, 2);
+  return [COLS.concat(['details', 'measures']).join('\t'), ...rows].join('\n');
 }
 
 /**
