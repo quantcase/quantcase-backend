@@ -3,6 +3,7 @@
 const { Router } = require('express');
 const prisma = require('../config/prisma');
 const { addHtmlSkillJob } = require('../services/jobs.service');
+const { buildHtmlSkillPrompt } = require('../services/htmlSkill.service');
 
 const router = Router();
 
@@ -186,6 +187,18 @@ router.get('/:slug/signals/:ticker', async (req, res, next) => {
 
     res.json({ ticker, slug, total: signals.length, signals });
   } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/html-skills/:slug/prompt/:ticker — dry-run: return assembled prompt without calling LLM
+router.get('/:slug/prompt/:ticker', async (req, res, next) => {
+  try {
+    const { slug, ticker } = req.params;
+    const { systemPrompt, userPrompt, signal_count } = await buildHtmlSkillPrompt({ slug, ticker });
+    res.json({ slug, ticker, signal_count, systemPrompt, userPrompt });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);
   }
 });

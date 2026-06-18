@@ -21,6 +21,34 @@ function buildDataBlock(signals) {
 }
 
 /**
+ * Build the system + user prompt for an HtmlSkill without calling the LLM.
+ * Returns { skill, signals, systemPrompt, userPrompt, signal_count }.
+ */
+async function buildHtmlSkillPrompt({ slug, ticker }) {
+  const skill = await prisma.htmlSkill.findUnique({ where: { slug } });
+  if (!skill) throw Object.assign(new Error(`HtmlSkill not found: ${slug}`), { status: 404 });
+
+  const signals = await querySignalsV2({ ticker, signal_types: skill.signal_types });
+  const dataBlock = buildDataBlock(signals);
+
+  const systemPrompt = [
+    'You are a financial analyst assistant.',
+    'Return ONLY a complete, standalone HTML file. No markdown. No explanation. No backticks.',
+    'The HTML must be self-contained with inline CSS and be renderable in an iframe.',
+  ].join('\n');
+
+  const userPrompt = [
+    skill.skill_prompt,
+    '',
+    '--- DATA BLOCK ---',
+    dataBlock,
+    '--- END DATA BLOCK ---',
+  ].join('\n');
+
+  return { skill, signals, systemPrompt, userPrompt, signal_count: signals.length };
+}
+
+/**
  * Run an HtmlSkill against a ticker.
  * Returns the saved HtmlSkillOutput row.
  *
@@ -104,4 +132,4 @@ async function runHtmlSkill({ slug, ticker, fiscal_year, quarter, force = false 
   return { cached: false, output };
 }
 
-module.exports = { runHtmlSkill };
+module.exports = { runHtmlSkill, buildHtmlSkillPrompt };
