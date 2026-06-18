@@ -5,19 +5,32 @@ const { querySignalsV2 } = require('./db/signals.db');
 const { llmStream, logUsage } = require('../utils/workerUtils');
 
 /**
- * Format V2 signals into a readable DATA_BLOCK string for the LLM prompt.
+ * Format V2 signals into a JSON DATA_BLOCK for the LLM prompt.
+ * Includes all meaningful fields from the shaped TranscriptSignalV2 row.
  */
 function buildDataBlock(signals) {
   if (!signals || signals.length === 0) return 'No signals found for this ticker/period.';
 
-  return signals.map(s => {
-    const parts = [`[${s.signal_type}] ${s.metric ?? ''}`.trim()];
-    if (s.value != null)       parts.push(`value: ${s.value} ${s.unit ?? ''}`.trim());
-    if (s.raw_value != null)   parts.push(`raw: ${s.raw_value}`);
-    if (s.context)             parts.push(`context: ${s.context}`);
-    if (s.call_date)           parts.push(`date: ${s.call_date}`);
-    return parts.join(' | ');
-  }).join('\n');
+  const entries = signals.map(s => {
+    const entry = {
+      signal_type:     s.signal_type,
+      metric:          s.metric          ?? undefined,
+      metric_family:   s.metric_family   ?? undefined,
+      fiscal_year:     s.fiscal_year     ?? undefined,
+      quarter:         s.quarter         ?? undefined,
+      call_date:       s.call_date       ?? undefined,
+      source_doc_type: s.source_doc_type ?? undefined,
+      statement:       s.statement       ?? undefined,
+      source_context:  s.source_context  ?? undefined,
+      // flatten data fields and measures to top level
+      ...(s.data ?? {}),
+      measures:        s.measures?.length > 0 ? s.measures : undefined,
+    };
+    // drop undefined keys to keep output compact
+    return Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined));
+  });
+
+  return JSON.stringify(entries, null, 2);
 }
 
 /**
@@ -88,7 +101,6 @@ async function runHtmlSkill({ slug, ticker, fiscal_year, quarter, force = false 
   const dataBlock = buildDataBlock(signals);
 
   const systemPrompt = [
-    'You are a financial analyst assistant.',
     'Return ONLY a complete, standalone HTML file. No markdown. No explanation. No backticks.',
     'The HTML must be self-contained with inline CSS and be renderable in an iframe.',
   ].join('\n');
