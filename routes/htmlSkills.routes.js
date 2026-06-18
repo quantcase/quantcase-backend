@@ -2,7 +2,7 @@
 
 const { Router } = require('express');
 const prisma = require('../config/prisma');
-const { runHtmlSkill } = require('../services/htmlSkill.service');
+const { addHtmlSkillJob } = require('../services/jobs.service');
 
 const router = Router();
 
@@ -190,14 +190,14 @@ router.get('/:slug/signals/:ticker', async (req, res, next) => {
   }
 });
 
-// POST /api/html-skills/:slug/run — run skill on a ticker
+// POST /api/html-skills/:slug/run — enqueue skill run for a ticker
 // Body: { ticker, fiscal_year?, quarter?, force? }
 router.post('/:slug/run', async (req, res, next) => {
   try {
     const { ticker, fiscal_year, quarter, force } = req.body;
     if (!ticker) return res.status(400).json({ error: 'ticker is required' });
 
-    const result = await runHtmlSkill({
+    const job = await addHtmlSkillJob({
       slug:        req.params.slug,
       ticker,
       fiscal_year: fiscal_year ?? null,
@@ -205,7 +205,7 @@ router.post('/:slug/run', async (req, res, next) => {
       force:       force === true,
     });
 
-    res.json(result);
+    res.json({ success: true, message: 'Html skill job enqueued', job: { id: job.id, slug: req.params.slug, ticker, type: 'html_skill', status: 'pending' } });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);

@@ -98,8 +98,12 @@ async function addProwessExtractionJob(callId) {
   return jobQueue.addJob('prowess_extraction', { callId, type: 'prowess_extraction' });
 }
 
+async function addHtmlSkillJob({ slug, ticker, fiscal_year = null, quarter = null, force = false }) {
+  return jobQueue.addJob('html_skill', { slug, ticker, fiscal_year, quarter, force, type: 'html_skill' });
+}
+
 async function findJob(jobId) {
-  const queues = ['summarization', 'qe_extraction', 'prowess_extraction', 'ai_insight_synthesis'];
+  const queues = ['summarization', 'qe_extraction', 'prowess_extraction', 'ai_insight_synthesis', 'html_skill'];
   for (const q of queues) {
     const job = await jobQueue.getJobStatus(q, jobId);
     if (job) {
@@ -258,5 +262,6 @@ module.exports = {
   addSummarizationV2Jobs,
   addSummarizationV2PptJobs,
   addSummarizationV2AnnualReportJobs,
+  addHtmlSkillJob,
   findJob,
 };
