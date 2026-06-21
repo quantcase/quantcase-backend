@@ -5,6 +5,42 @@ const { querySignalsV2 } = require('./db/signals.db');
 const { llmStream, logUsage } = require('../utils/workerUtils');
 
 /**
+ * Trim signals to respect per-source-type window limits from the skill config.
+ * Signals are already ordered by call_date desc, so we just collect the N most
+ * recent distinct period keys per source bucket.
+ *
+ * @param {object[]} signals  Shaped V2 signals ordered by call_date desc
+ * @param {object}   limits
+ * @param {number|null} limits.max_transcript_qtrs      Max distinct (fiscal_year, quarter) combos for transcript+ppt
+ * @param {number|null} limits.max_annual_report_years  Max distinct fiscal_year values for annual_report
+ */
+function applySignalLimits(signals, { max_transcript_qtrs, max_annual_report_years }) {
+  if (!max_transcript_qtrs && !max_annual_report_years) return signals;
+
+  const qtrsAllowed    = new Set();
+  const annualAllowed  = new Set();
+  const qtrsLimit      = max_transcript_qtrs     ?? Infinity;
+  const annualLimit    = max_annual_report_years  ?? Infinity;
+
+  // First pass: collect the allowed period keys in recency order
+  for (const s of signals) {
+    const docType = s.source_doc_type;
+    if (docType === 'annual_report') {
+      if (annualAllowed.size < annualLimit) annualAllowed.add(s.fiscal_year);
+    } else {
+      const key = `${s.fiscal_year}|${s.quarter}`;
+      if (qtrsAllowed.size < qtrsLimit) qtrsAllowed.add(key);
+    }
+  }
+
+  // Second pass: keep only signals whose period key is in the allowed set
+  return signals.filter(s => {
+    if (s.source_doc_type === 'annual_report') return annualAllowed.has(s.fiscal_year);
+    return qtrsAllowed.has(`${s.fiscal_year}|${s.quarter}`);
+  });
+}
+
+/**
  * Format V2 signals into a JSON DATA_BLOCK for the LLM prompt.
  * Includes all meaningful fields from the shaped TranscriptSignalV2 row.
  */
@@ -57,7 +93,11 @@ async function buildHtmlSkillPrompt({ slug, ticker }) {
   const skill = await prisma.htmlSkill.findUnique({ where: { slug } });
   if (!skill) throw Object.assign(new Error(`HtmlSkill not found: ${slug}`), { status: 404 });
 
-  const signals = await querySignalsV2({ ticker, signal_types: skill.signal_types });
+  const rawSignals = await querySignalsV2({ ticker, signal_types: skill.signal_types });
+  const signals    = applySignalLimits(rawSignals, {
+    max_transcript_qtrs:     skill.max_transcript_qtrs,
+    max_annual_report_years: skill.max_annual_report_years,
+  });
   const dataBlock = buildDataBlock(signals);
 
   const systemPrompt = [
@@ -74,7 +114,7 @@ async function buildHtmlSkillPrompt({ slug, ticker }) {
     '--- END DATA BLOCK ---',
   ].join('\n');
 
-  return { skill, signals, systemPrompt, userPrompt, signal_count: signals.length };
+  return { skill, signals, systemPrompt, userPrompt, signal_count: signals.length, raw_signal_count: rawSignals.length };
 }
 
 /**
@@ -108,10 +148,11 @@ async function runHtmlSkill({ slug, ticker, fiscal_year, quarter, force = false 
     if (cached && cached.prompt_v === prompt_v) return { cached: true, output: cached };
   }
 
-  // Fetch V2 signals filtered by this skill's signal_types
-  const signals = await querySignalsV2({
-    ticker,
-    signal_types: skill.signal_types,
+  // Fetch V2 signals filtered by this skill's signal_types, then apply window limits
+  const rawSignals = await querySignalsV2({ ticker, signal_types: skill.signal_types });
+  const signals    = applySignalLimits(rawSignals, {
+    max_transcript_qtrs:     skill.max_transcript_qtrs,
+    max_annual_report_years: skill.max_annual_report_years,
   });
 
   const dataBlock = buildDataBlock(signals);

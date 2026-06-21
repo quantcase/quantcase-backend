@@ -39,7 +39,7 @@ router.get('/', async (req, res, next) => {
     const { includeInactive } = req.query;
     const skills = await prisma.htmlSkill.findMany({
       where:  includeInactive === 'true' ? {} : { is_active: true },
-      select: { id: true, slug: true, name: true, category: true, signal_types: true, model: true, max_tokens: true, is_active: true, created_at: true, updated_at: true },
+      select: { id: true, slug: true, name: true, category: true, signal_types: true, model: true, max_tokens: true, max_transcript_qtrs: true, max_annual_report_years: true, is_active: true, created_at: true, updated_at: true },
     });
     res.json({ count: skills.length, skills: sortSkills(skills) });
   } catch (err) {
@@ -61,7 +61,7 @@ router.get('/:slug', async (req, res, next) => {
 // POST /api/html-skills — create a skill
 router.post('/', async (req, res, next) => {
   try {
-    const { slug, name, skill_prompt, signal_types, category, model, max_tokens, is_active } = req.body;
+    const { slug, name, skill_prompt, signal_types, category, model, max_tokens, max_transcript_qtrs, max_annual_report_years, is_active } = req.body;
     if (!slug || !name || !skill_prompt || !category) {
       return res.status(400).json({ error: 'slug, name, skill_prompt, and category are required' });
     }
@@ -69,9 +69,11 @@ router.post('/', async (req, res, next) => {
       data: {
         slug, name, skill_prompt, category,
         signal_types: signal_types ?? [],
-        ...(model      != null && { model }),
-        ...(max_tokens != null && { max_tokens }),
-        ...(is_active  != null && { is_active }),
+        ...(model                   != null && { model }),
+        ...(max_tokens              != null && { max_tokens }),
+        ...(max_transcript_qtrs     != null && { max_transcript_qtrs }),
+        ...(max_annual_report_years != null && { max_annual_report_years }),
+        ...(is_active               != null && { is_active }),
       },
     });
     res.status(201).json(skill);
@@ -84,7 +86,7 @@ router.post('/', async (req, res, next) => {
 // PUT /api/html-skills/:slug — update a skill
 router.put('/:slug', async (req, res, next) => {
   try {
-    const allowed = ['name', 'skill_prompt', 'signal_types', 'category', 'model', 'max_tokens', 'is_active'];
+    const allowed = ['name', 'skill_prompt', 'signal_types', 'category', 'model', 'max_tokens', 'max_transcript_qtrs', 'max_annual_report_years', 'is_active'];
     const data = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) data[key] = req.body[key];
