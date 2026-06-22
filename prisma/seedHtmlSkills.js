@@ -30,7 +30,9 @@ async function main() {
         slug: skill.slug,
         name: skill.name,
         skill_prompt: '',
-        signal_types: [],
+        transcript_signal_types:    [],
+        ppt_signal_types:           [],
+        annual_report_signal_types: [],
         category: skill.category,
       },
     });

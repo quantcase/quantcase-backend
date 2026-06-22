@@ -1111,20 +1111,22 @@ enum PluginCategory {
 // ─── HTML Skills ─────────────────────────────────────────────────────────────
 
 model HtmlSkill {
-  id                      String                   @id @default(uuid())
-  slug                    String                   @unique
-  name                    String
-  skill_prompt            String
-  signal_types            TranscriptSignalTypeV2[]
-  category                PluginCategory
-  model                   String                   @default("~anthropic/claude-haiku-latest")
-  max_tokens              Int                      @default(16000)
-  max_transcript_qtrs     Int?
-  max_ppt_qtrs            Int?
-  max_annual_report_years Int?
-  is_active               Boolean                  @default(true)
-  created_at              DateTime                 @default(now())
-  updated_at              DateTime                 @updatedAt
+  id                          String                   @id @default(uuid())
+  slug                        String                   @unique
+  name                        String
+  skill_prompt                String
+  transcript_signal_types     String[]
+  ppt_signal_types            String[]
+  annual_report_signal_types  String[]
+  category                    PluginCategory
+  model                       String                   @default("~anthropic/claude-haiku-latest")
+  max_tokens                  Int                      @default(16000)
+  max_transcript_qtrs         Int?
+  max_ppt_qtrs                Int?
+  max_annual_report_years     Int?
+  is_active                   Boolean                  @default(true)
+  created_at                  DateTime                 @default(now())
+  updated_at                  DateTime                 @updatedAt
 
   outputs      HtmlSkillOutput[]
 

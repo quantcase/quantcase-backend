@@ -5,11 +5,32 @@ const prisma = require('../config/prisma');
 const { addHtmlSkillJob, addHtmlSkillPreviewJob } = require('../services/jobs.service');
 const { buildHtmlSkillPrompt, applySignalLimits } = require('../services/htmlSkill.service');
 
-const VALID_SIGNAL_TYPES = new Set([
+const VALID_TRANSCRIPT_SIGNAL_TYPES = new Set([
   'guidance','industry_signal','capital_allocation','disclosure_quality',
   'distribution_customer','growth_forecast','earnings_quality','kpi',
   'mgmt_tone','analyst_questions','guidance_revision','pricing_power',
   'competitive_position','milestone','ongoing',
+]);
+
+const VALID_PPT_SIGNAL_TYPES = new Set([
+  'guidance','industry_signal','capital_allocation','disclosure_quality',
+  'distribution_customer','growth_forecast','earnings_quality','kpi',
+  'mgmt_tone','analyst_questions','guidance_revision','pricing_power',
+  'competitive_position','milestone','ongoing',
+]);
+
+const VALID_ANNUAL_REPORT_SIGNAL_TYPES = new Set([
+  'financial_figure','notes_to_accounts','guidance','growth_forecast',
+  'capital_allocation','risk_factor','contingent_liability','governance_signal',
+  'strategic_claim','m_and_a','kpi','leadership_statement','milestone','ongoing',
+  'industry_signal','disclosure_quality','earnings_quality','guidance_revision',
+]);
+
+// Combined set for the /signals/count endpoint (covers all doc types)
+const ALL_VALID_SIGNAL_TYPES = new Set([
+  ...VALID_TRANSCRIPT_SIGNAL_TYPES,
+  ...VALID_PPT_SIGNAL_TYPES,
+  ...VALID_ANNUAL_REPORT_SIGNAL_TYPES,
 ]);
 
 const router = Router();
@@ -46,7 +67,7 @@ router.get('/', async (req, res, next) => {
     const { includeInactive } = req.query;
     const skills = await prisma.htmlSkill.findMany({
       where:  includeInactive === 'true' ? {} : { is_active: true },
-      select: { id: true, slug: true, name: true, category: true, signal_types: true, model: true, max_tokens: true, max_transcript_qtrs: true, max_ppt_qtrs: true, max_annual_report_years: true, is_active: true, created_at: true, updated_at: true },
+      select: { id: true, slug: true, name: true, category: true, transcript_signal_types: true, ppt_signal_types: true, annual_report_signal_types: true, model: true, max_tokens: true, max_transcript_qtrs: true, max_ppt_qtrs: true, max_annual_report_years: true, is_active: true, created_at: true, updated_at: true },
     });
     res.json({ count: skills.length, skills: sortSkills(skills) });
   } catch (err) {
@@ -55,27 +76,31 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /api/html-skills/run-preview — enqueue a one-off skill run using unsaved config
-// Body: { ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs?, max_ppt_qtrs?, max_annual_report_years?, force? }
+// Body: { ticker, skill_prompt, transcript_signal_types?, ppt_signal_types?, annual_report_signal_types?,
+//         model, max_tokens, max_transcript_qtrs?, max_ppt_qtrs?, max_annual_report_years?, force? }
 router.post('/run-preview', async (req, res, next) => {
   try {
-    const { ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force } = req.body;
+    const {
+      ticker, skill_prompt,
+      transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+      model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force,
+    } = req.body;
 
     if (!ticker)       return res.status(400).json({ error: 'ticker is required' });
     if (!skill_prompt) return res.status(400).json({ error: 'skill_prompt is required' });
-    if (!Array.isArray(signal_types) || signal_types.length === 0) {
-      return res.status(400).json({ error: 'signal_types must be a non-empty array' });
-    }
-    if (!model)       return res.status(400).json({ error: 'model is required' });
-    if (!max_tokens)  return res.status(400).json({ error: 'max_tokens is required' });
+    if (!model)        return res.status(400).json({ error: 'model is required' });
+    if (!max_tokens)   return res.status(400).json({ error: 'max_tokens is required' });
 
     const job = await addHtmlSkillPreviewJob({
       ticker,
       skill_prompt,
-      signal_types,
+      transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
+      ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
+      annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],
       model,
       max_tokens,
-      max_transcript_qtrs: max_transcript_qtrs ?? null,
-      max_ppt_qtrs:        max_ppt_qtrs        ?? null,
+      max_transcript_qtrs:     max_transcript_qtrs     ?? null,
+      max_ppt_qtrs:            max_ppt_qtrs            ?? null,
       max_annual_report_years: max_annual_report_years ?? null,
       force: force === true,
     });
@@ -100,14 +125,16 @@ router.get('/:slug', async (req, res, next) => {
 // POST /api/html-skills — create a skill
 router.post('/', async (req, res, next) => {
   try {
-    const { slug, name, skill_prompt, signal_types, category, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, is_active } = req.body;
+    const { slug, name, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, category, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, is_active } = req.body;
     if (!slug || !name || !skill_prompt || !category) {
       return res.status(400).json({ error: 'slug, name, skill_prompt, and category are required' });
     }
     const skill = await prisma.htmlSkill.create({
       data: {
         slug, name, skill_prompt, category,
-        signal_types: signal_types ?? [],
+        transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
+        ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
+        annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],
         ...(model                   != null && { model }),
         ...(max_tokens              != null && { max_tokens }),
         ...(max_transcript_qtrs     != null && { max_transcript_qtrs }),
@@ -126,7 +153,7 @@ router.post('/', async (req, res, next) => {
 // PUT /api/html-skills/:slug — update a skill
 router.put('/:slug', async (req, res, next) => {
   try {
-    const allowed = ['name', 'skill_prompt', 'signal_types', 'category', 'model', 'max_tokens', 'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'is_active'];
+    const allowed = ['name', 'skill_prompt', 'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types', 'category', 'model', 'max_tokens', 'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'is_active'];
     const data = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) data[key] = req.body[key];
@@ -159,19 +186,15 @@ router.delete('/:slug', async (req, res, next) => {
 });
 
 // GET /api/html-skills/signals/count/:ticker
-// Returns signal counts for a ticker. Accepts optional filter query params:
-//   signal_types    — comma-separated list of signal types
-//   max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years — period window limits
+// Returns per-source-doc-type signal counts for a ticker.
+// Optional query params:
+//   max_transcript_qtrs     — integer, limit to N most recent (fiscal_year, quarter) combos for transcript
+//   max_ppt_qtrs            — integer, limit to N most recent (fiscal_year, quarter) combos for ppt
+//   max_annual_report_years — integer, limit to N most recent fiscal years for annual_report
 router.get('/signals/count/:ticker', async (req, res, next) => {
   try {
     const { ticker } = req.params;
-    const { signal_types: rawTypes, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years } = req.query;
-
-    const parsedTypes = rawTypes
-      ? rawTypes.split(',').map(s => s.trim()).filter(s => VALID_SIGNAL_TYPES.has(s))
-      : null;
-
-    const hasLimits = max_transcript_qtrs != null || max_ppt_qtrs != null || max_annual_report_years != null;
+    const { max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years } = req.query;
 
     const parseLimit = v => (v != null ? parseInt(v, 10) : null);
     const limits = {
@@ -179,56 +202,76 @@ router.get('/signals/count/:ticker', async (req, res, next) => {
       max_ppt_qtrs:            parseLimit(max_ppt_qtrs),
       max_annual_report_years: parseLimit(max_annual_report_years),
     };
+    const hasLimits = limits.max_transcript_qtrs != null || limits.max_ppt_qtrs != null || limits.max_annual_report_years != null;
 
-    if (hasLimits || parsedTypes) {
-      // Fetch lightweight signal rows, apply limits in JS (groupBy can't handle period windows)
-      const where = { ticker, is_invalidated: false };
-      if (parsedTypes) where.signal_type = { in: parsedTypes };
+    // Always fetch per-row so we can segregate by source_doc_type
+    const rows = await prisma.transcriptSignalV2.findMany({
+      where:   { ticker, is_invalidated: false },
+      select:  { signal_type: true, fiscal_year: true, quarter: true, source_doc_type: true, call_date: true },
+      orderBy: [{ call_date: 'desc' }],
+    });
 
-      const rows = await prisma.transcriptSignalV2.findMany({
-        where,
-        select: { signal_type: true, fiscal_year: true, quarter: true, source_doc_type: true, call_date: true },
-        orderBy: [{ call_date: 'desc' }],
-      });
+    const filtered = hasLimits ? applySignalLimits(rows, limits) : rows;
 
-      const filtered = hasLimits ? applySignalLimits(rows, limits) : rows;
+    // Build per-source buckets
+    const sources = { transcript: {}, ppt: {}, annual_report: {} };
+    const transcriptPeriods = new Set();
+    const pptPeriods        = new Set();
+    const annualPeriods     = new Set();
 
-      const countsByType = {};
-      const periodSet    = new Set();
-      for (const s of filtered) {
-        countsByType[s.signal_type] = (countsByType[s.signal_type] ?? 0) + 1;
-        periodSet.add(`${s.fiscal_year}|${s.quarter}`);
+    for (const s of filtered) {
+      const docType = s.source_doc_type ?? 'transcript';
+      const bucket  = sources[docType] ?? (sources[docType] = {});
+      bucket[s.signal_type] = (bucket[s.signal_type] ?? 0) + 1;
+
+      if (docType === 'annual_report') {
+        annualPeriods.add(s.fiscal_year);
+      } else if (docType === 'ppt') {
+        pptPeriods.add(`${s.fiscal_year}|${s.quarter}`);
+      } else {
+        transcriptPeriods.add(`${s.fiscal_year}|${s.quarter}`);
       }
+    }
 
-      const signal_counts = Object.entries(countsByType)
+    const toSignalCounts = bucket =>
+      Object.entries(bucket)
         .map(([signal_type, count]) => ({ signal_type, count }))
         .sort((a, b) => a.signal_type.localeCompare(b.signal_type));
 
-      const total   = filtered.length;
-      const periods = [...periodSet].map(k => { const [fy, q] = k.split('|'); return { fiscal_year: fy, quarter: q }; });
+    const toQtrPeriods = set =>
+      [...set].map(k => { const [fiscal_year, quarter] = k.split('|'); return { fiscal_year, quarter }; });
 
-      return res.json({ ticker, total, periods_count: periods.length, periods, signal_counts });
-    }
+    const toYearPeriods = set =>
+      [...set].map(fiscal_year => ({ fiscal_year }));
 
-    // Fast path — no filters, use groupBy
-    const [rows, periodRows] = await Promise.all([
-      prisma.transcriptSignalV2.groupBy({
-        by:      ['signal_type'],
-        where:   { ticker, is_invalidated: false },
-        _count:  { signal_type: true },
-        orderBy: { signal_type: 'asc' },
-      }),
-      prisma.transcriptSignalV2.groupBy({
-        by:    ['fiscal_year', 'quarter'],
-        where: { ticker, is_invalidated: false },
-      }),
-    ]);
+    const transcriptCounts = toSignalCounts(sources.transcript);
+    const pptCounts        = toSignalCounts(sources.ppt);
+    const annualCounts     = toSignalCounts(sources.annual_report);
 
-    const signal_counts = rows.map(r => ({ signal_type: r.signal_type, count: r._count.signal_type }));
-    const total   = signal_counts.reduce((sum, s) => sum + s.count, 0);
-    const periods = periodRows.map(r => ({ fiscal_year: r.fiscal_year, quarter: r.quarter }));
-
-    res.json({ ticker, total, periods_count: periods.length, periods, signal_counts });
+    res.json({
+      ticker,
+      total: filtered.length,
+      by_source: {
+        transcript: {
+          total:         transcriptCounts.reduce((s, r) => s + r.count, 0),
+          periods_count: transcriptPeriods.size,
+          periods:       toQtrPeriods(transcriptPeriods),
+          signal_counts: transcriptCounts,
+        },
+        ppt: {
+          total:         pptCounts.reduce((s, r) => s + r.count, 0),
+          periods_count: pptPeriods.size,
+          periods:       toQtrPeriods(pptPeriods),
+          signal_counts: pptCounts,
+        },
+        annual_report: {
+          total:         annualCounts.reduce((s, r) => s + r.count, 0),
+          periods_count: annualPeriods.size,
+          periods:       toYearPeriods(annualPeriods),
+          signal_counts: annualCounts,
+        },
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -241,11 +284,18 @@ router.get('/:slug/signals/:ticker', async (req, res, next) => {
   try {
     const { slug, ticker } = req.params;
 
-    const skill = await prisma.htmlSkill.findUnique({ where: { slug }, select: { id: true, signal_types: true } });
+    const skill = await prisma.htmlSkill.findUnique({ where: { slug }, select: { id: true, transcript_signal_types: true, ppt_signal_types: true, annual_report_signal_types: true } });
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
+    // Combine all signal types across source types for the initial fetch;
+    // per-source filtering is applied in applySignalLimits during skill execution
+    const allSkillTypes = [
+      ...skill.transcript_signal_types,
+      ...skill.ppt_signal_types,
+      ...skill.annual_report_signal_types,
+    ];
     const where = { ticker, is_invalidated: false };
-    if (skill.signal_types.length > 0) where.signal_type = { in: skill.signal_types };
+    if (allSkillTypes.length > 0) where.signal_type = { in: allSkillTypes };
 
     const rows = await prisma.transcriptSignalV2.findMany({
       where,

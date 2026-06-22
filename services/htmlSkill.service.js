@@ -8,21 +8,38 @@ const { llmStream, logUsage } = require('../utils/workerUtils');
 const PREVIEW_SKILL_SLUG = '__preview__';
 
 /**
- * Trim signals to respect per-source-type window limits from the skill config.
+ * Trim signals to respect per-source-type window limits and per-source signal type filters.
  * Signals are already ordered by call_date desc, so we just collect the N most
  * recent distinct period keys per source bucket.
  *
  * A limit of 0 means "include none"; null/undefined means "no limit".
+ * An empty signal types array means "include all types for that source".
  *
  * @param {object[]} signals  Shaped V2 signals ordered by call_date desc
  * @param {object}   limits
- * @param {number|null} limits.max_transcript_qtrs      Max distinct (fiscal_year, quarter) combos for transcript
- * @param {number|null} limits.max_ppt_qtrs             Max distinct (fiscal_year, quarter) combos for ppt
- * @param {number|null} limits.max_annual_report_years  Max distinct fiscal_year values for annual_report
+ * @param {number|null}   limits.max_transcript_qtrs        Max distinct (fiscal_year, quarter) combos for transcript
+ * @param {number|null}   limits.max_ppt_qtrs               Max distinct (fiscal_year, quarter) combos for ppt
+ * @param {number|null}   limits.max_annual_report_years    Max distinct fiscal_year values for annual_report
+ * @param {string[]|null} limits.transcript_signal_types    Allowed signal types for transcript (null = all)
+ * @param {string[]|null} limits.ppt_signal_types           Allowed signal types for ppt (null = all)
+ * @param {string[]|null} limits.annual_report_signal_types Allowed signal types for annual_report (null = all)
  */
-function applySignalLimits(signals, { max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years }) {
+function applySignalLimits(signals, {
+  max_transcript_qtrs,
+  max_ppt_qtrs,
+  max_annual_report_years,
+  transcript_signal_types,
+  ppt_signal_types,
+  annual_report_signal_types,
+}) {
   const hasLimit = v => v != null;
-  if (!hasLimit(max_transcript_qtrs) && !hasLimit(max_ppt_qtrs) && !hasLimit(max_annual_report_years)) return signals;
+  const transcriptTypeSet   = transcript_signal_types?.length   ? new Set(transcript_signal_types)   : null;
+  const pptTypeSet          = ppt_signal_types?.length          ? new Set(ppt_signal_types)          : null;
+  const annualTypeSet       = annual_report_signal_types?.length ? new Set(annual_report_signal_types) : null;
+
+  const hasAnyFilter = hasLimit(max_transcript_qtrs) || hasLimit(max_ppt_qtrs) || hasLimit(max_annual_report_years)
+    || transcriptTypeSet || pptTypeSet || annualTypeSet;
+  if (!hasAnyFilter) return signals;
 
   const transcriptAllowed = new Set();
   const pptAllowed        = new Set();
@@ -31,26 +48,37 @@ function applySignalLimits(signals, { max_transcript_qtrs, max_ppt_qtrs, max_ann
   const pptLimit          = max_ppt_qtrs            ?? Infinity;
   const annualLimit       = max_annual_report_years  ?? Infinity;
 
-  // First pass: collect the allowed period keys in recency order
+  // First pass: collect the allowed period keys in recency order (respecting signal type filters)
   for (const s of signals) {
     const docType = s.source_doc_type;
     if (docType === 'annual_report') {
+      if (annualTypeSet && !annualTypeSet.has(s.signal_type)) continue;
       if (annualAllowed.size < annualLimit) annualAllowed.add(s.fiscal_year);
     } else if (docType === 'ppt') {
+      if (pptTypeSet && !pptTypeSet.has(s.signal_type)) continue;
       const key = `${s.fiscal_year}|${s.quarter}`;
       if (pptAllowed.size < pptLimit) pptAllowed.add(key);
     } else {
       // transcript (and any unrecognised doc type)
+      if (transcriptTypeSet && !transcriptTypeSet.has(s.signal_type)) continue;
       const key = `${s.fiscal_year}|${s.quarter}`;
       if (transcriptAllowed.size < transcriptLimit) transcriptAllowed.add(key);
     }
   }
 
-  // Second pass: keep only signals whose period key is in the allowed set
+  // Second pass: keep only signals that pass both type filter and period window
   return signals.filter(s => {
     const docType = s.source_doc_type;
-    if (docType === 'annual_report') return annualAllowed.has(s.fiscal_year);
-    if (docType === 'ppt')           return pptAllowed.has(`${s.fiscal_year}|${s.quarter}`);
+    if (docType === 'annual_report') {
+      if (annualTypeSet && !annualTypeSet.has(s.signal_type)) return false;
+      return annualAllowed.has(s.fiscal_year);
+    }
+    if (docType === 'ppt') {
+      if (pptTypeSet && !pptTypeSet.has(s.signal_type)) return false;
+      return pptAllowed.has(`${s.fiscal_year}|${s.quarter}`);
+    }
+    // transcript
+    if (transcriptTypeSet && !transcriptTypeSet.has(s.signal_type)) return false;
     return transcriptAllowed.has(`${s.fiscal_year}|${s.quarter}`);
   });
 }
@@ -108,11 +136,14 @@ async function buildHtmlSkillPrompt({ slug, ticker }) {
   const skill = await prisma.htmlSkill.findUnique({ where: { slug } });
   if (!skill) throw Object.assign(new Error(`HtmlSkill not found: ${slug}`), { status: 404 });
 
-  const rawSignals = await querySignalsV2({ ticker, signal_types: skill.signal_types });
+  const rawSignals = await querySignalsV2({ ticker });
   const signals    = applySignalLimits(rawSignals, {
-    max_transcript_qtrs:     skill.max_transcript_qtrs,
-    max_ppt_qtrs:            skill.max_ppt_qtrs,
-    max_annual_report_years: skill.max_annual_report_years,
+    max_transcript_qtrs:        skill.max_transcript_qtrs,
+    max_ppt_qtrs:               skill.max_ppt_qtrs,
+    max_annual_report_years:    skill.max_annual_report_years,
+    transcript_signal_types:    skill.transcript_signal_types,
+    ppt_signal_types:           skill.ppt_signal_types,
+    annual_report_signal_types: skill.annual_report_signal_types,
   });
   const dataBlock = buildDataBlock(signals);
 
@@ -164,12 +195,15 @@ async function runHtmlSkill({ slug, ticker, fiscal_year, quarter, force = false 
     if (cached && cached.prompt_v === prompt_v) return { cached: true, output: cached };
   }
 
-  // Fetch V2 signals filtered by this skill's signal_types, then apply window limits
-  const rawSignals = await querySignalsV2({ ticker, signal_types: skill.signal_types });
+  // Fetch all V2 signals for ticker, then apply per-source type filters and window limits
+  const rawSignals = await querySignalsV2({ ticker });
   const signals    = applySignalLimits(rawSignals, {
-    max_transcript_qtrs:     skill.max_transcript_qtrs,
-    max_ppt_qtrs:            skill.max_ppt_qtrs,
-    max_annual_report_years: skill.max_annual_report_years,
+    max_transcript_qtrs:        skill.max_transcript_qtrs,
+    max_ppt_qtrs:               skill.max_ppt_qtrs,
+    max_annual_report_years:    skill.max_annual_report_years,
+    transcript_signal_types:    skill.transcript_signal_types,
+    ppt_signal_types:           skill.ppt_signal_types,
+    annual_report_signal_types: skill.annual_report_signal_types,
   });
 
   const dataBlock = buildDataBlock(signals);
@@ -229,7 +263,9 @@ async function getPreviewSkill() {
       slug:        PREVIEW_SKILL_SLUG,
       name:        'Preview (system)',
       skill_prompt: 'preview',
-      signal_types: [],
+      transcript_signal_types:    [],
+      ppt_signal_types:           [],
+      annual_report_signal_types: [],
       category:    'management',
       is_active:   false,
     },
@@ -239,12 +275,14 @@ async function getPreviewSkill() {
 /**
  * Compute a stable cache key for a preview run from its config inputs.
  */
-function previewCacheKey({ ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years }) {
+function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years }) {
   const payload = [
     ticker,
     model,
     String(max_tokens ?? ''),
-    [...(signal_types ?? [])].sort().join(','),
+    [...(transcript_signal_types ?? [])].sort().join(','),
+    [...(ppt_signal_types ?? [])].sort().join(','),
+    [...(annual_report_signal_types ?? [])].sort().join(','),
     String(max_transcript_qtrs ?? ''),
     String(max_ppt_qtrs ?? ''),
     String(max_annual_report_years ?? ''),
@@ -261,7 +299,9 @@ function previewCacheKey({ ticker, skill_prompt, signal_types, model, max_tokens
  * @param {object} opts
  * @param {string}   opts.ticker
  * @param {string}   opts.skill_prompt
- * @param {string[]} opts.signal_types
+ * @param {string[]} [opts.transcript_signal_types]
+ * @param {string[]} [opts.ppt_signal_types]
+ * @param {string[]} [opts.annual_report_signal_types]
  * @param {string}   opts.model
  * @param {number}   opts.max_tokens
  * @param {number|null} [opts.max_transcript_qtrs]
@@ -269,9 +309,9 @@ function previewCacheKey({ ticker, skill_prompt, signal_types, model, max_tokens
  * @param {number|null} [opts.max_annual_report_years]
  * @param {boolean}  [opts.force]  Skip cache
  */
-async function runHtmlSkillPreview({ ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force = false }) {
+async function runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force = false }) {
   const previewSkill = await getPreviewSkill();
-  const prompt_v     = previewCacheKey({ ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years });
+  const prompt_v     = previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years });
 
   if (!force) {
     const cached = await prisma.htmlSkillOutput.findFirst({
@@ -280,11 +320,14 @@ async function runHtmlSkillPreview({ ticker, skill_prompt, signal_types, model, 
     if (cached && cached.prompt_v === prompt_v) return { cached: true, output: cached };
   }
 
-  const rawSignals = await querySignalsV2({ ticker, signal_types: signal_types ?? [] });
+  const rawSignals = await querySignalsV2({ ticker });
   const signals    = applySignalLimits(rawSignals, {
     max_transcript_qtrs,
     max_ppt_qtrs,
     max_annual_report_years,
+    transcript_signal_types:    transcript_signal_types    ?? [],
+    ppt_signal_types:           ppt_signal_types           ?? [],
+    annual_report_signal_types: annual_report_signal_types ?? [],
   });
 
   const dataBlock = buildDataBlock(signals);

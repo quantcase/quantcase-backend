@@ -102,9 +102,13 @@ async function addHtmlSkillJob({ slug, ticker, fiscal_year = null, quarter = nul
   return jobQueue.addJob('html_skill', { slug, ticker, fiscal_year, quarter, force, type: 'html_skill' });
 }
 
-async function addHtmlSkillPreviewJob({ ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force = false }) {
+async function addHtmlSkillPreviewJob({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force = false }) {
   return jobQueue.addJob('html_skill_preview', {
-    ticker, skill_prompt, signal_types, model, max_tokens,
+    ticker, skill_prompt,
+    transcript_signal_types:    transcript_signal_types    ?? [],
+    ppt_signal_types:           ppt_signal_types           ?? [],
+    annual_report_signal_types: annual_report_signal_types ?? [],
+    model, max_tokens,
     max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
     force,
     type: 'html_skill_preview',
