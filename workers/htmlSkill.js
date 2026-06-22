@@ -1,19 +1,43 @@
 'use strict';
 
-const { Worker } = require('bullmq');
+const { Worker, UnrecoverableError } = require('bullmq');
 const connection = require('../config/redis');
 const { runHtmlSkill, runHtmlSkillPreview } = require('../services/htmlSkill.service');
+
+function rethrowIfUnrecoverable(err) {
+  const status = err?.status ?? err?.response?.status;
+  const body   = err?.error ?? err?.response?.data;
+  const code   = body?.code ?? body?.error?.code;
+  const msg    = err?.message ?? '';
+
+  const isContextLength =
+    (status === 400 && msg.toLowerCase().includes('context length')) ||
+    code === 'context_length_exceeded';
+
+  if (isContextLength) {
+    // Preserve the original message so the frontend can display it verbatim.
+    // UnrecoverableError tells BullMQ to move to failed immediately without retrying.
+    const ure = new UnrecoverableError(msg);
+    ure.cause = err;
+    throw ure;
+  }
+}
 
 async function processHtmlSkillJob(job) {
   const { slug, ticker, fiscal_year, quarter, force } = job.data;
   console.log(`[htmlSkill] Processing job ${job.id} (skill: ${slug}, ticker: ${ticker})`);
 
-  await job.updateProgress(10);
-  const result = await runHtmlSkill({ slug, ticker, fiscal_year, quarter, force });
-  await job.updateProgress(100);
+  try {
+    await job.updateProgress(10);
+    const result = await runHtmlSkill({ slug, ticker, fiscal_year, quarter, force });
+    await job.updateProgress(100);
 
-  console.log(`[htmlSkill] Job ${job.id} done — cached: ${result.cached}`);
-  return { slug, ticker, cached: result.cached, outputId: result.output?.id ?? null };
+    console.log(`[htmlSkill] Job ${job.id} done — cached: ${result.cached}`);
+    return { slug, ticker, cached: result.cached, outputId: result.output?.id ?? null };
+  } catch (err) {
+    rethrowIfUnrecoverable(err);
+    throw err;
+  }
 }
 
 const worker = new Worker('html_skill', processHtmlSkillJob, {
@@ -30,12 +54,17 @@ async function processHtmlSkillPreviewJob(job) {
   const { ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force } = job.data;
   console.log(`[htmlSkillPreview] Processing job ${job.id} (ticker: ${ticker})`);
 
-  await job.updateProgress(10);
-  const result = await runHtmlSkillPreview({ ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force });
-  await job.updateProgress(100);
+  try {
+    await job.updateProgress(10);
+    const result = await runHtmlSkillPreview({ ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force });
+    await job.updateProgress(100);
 
-  console.log(`[htmlSkillPreview] Job ${job.id} done — cached: ${result.cached}`);
-  return { ticker, cached: result.cached, outputId: result.output?.id ?? null };
+    console.log(`[htmlSkillPreview] Job ${job.id} done — cached: ${result.cached}`);
+    return { ticker, cached: result.cached, outputId: result.output?.id ?? null };
+  } catch (err) {
+    rethrowIfUnrecoverable(err);
+    throw err;
+  }
 }
 
 const previewWorker = new Worker('html_skill_preview', processHtmlSkillPreviewJob, {
