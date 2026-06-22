@@ -188,21 +188,28 @@ router.delete('/:slug', async (req, res, next) => {
 // GET /api/html-skills/signals/count/:ticker
 // Returns per-source-doc-type signal counts for a ticker.
 // Optional query params:
-//   max_transcript_qtrs     — integer, limit to N most recent (fiscal_year, quarter) combos for transcript
-//   max_ppt_qtrs            — integer, limit to N most recent (fiscal_year, quarter) combos for ppt
-//   max_annual_report_years — integer, limit to N most recent fiscal years for annual_report
+//   max_transcript_qtrs          — integer, limit to N most recent (fiscal_year, quarter) combos for transcript
+//   max_ppt_qtrs                 — integer, limit to N most recent (fiscal_year, quarter) combos for ppt
+//   max_annual_report_years      — integer, limit to N most recent fiscal years for annual_report
+//   transcript_signal_types      — comma-separated, filter by signal type for transcript
+//   ppt_signal_types             — comma-separated, filter by signal type for ppt
+//   annual_report_signal_types   — comma-separated, filter by signal type for annual_report
 router.get('/signals/count/:ticker', async (req, res, next) => {
   try {
     const { ticker } = req.params;
-    const { max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years } = req.query;
+    const { max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, transcript_signal_types, ppt_signal_types, annual_report_signal_types } = req.query;
 
     const parseLimit = v => (v != null ? parseInt(v, 10) : null);
+    const parseTypes = v => (v ? decodeURIComponent(v).split(',').map(s => s.trim()).filter(Boolean) : null);
     const limits = {
-      max_transcript_qtrs:     parseLimit(max_transcript_qtrs),
-      max_ppt_qtrs:            parseLimit(max_ppt_qtrs),
-      max_annual_report_years: parseLimit(max_annual_report_years),
+      max_transcript_qtrs:        parseLimit(max_transcript_qtrs),
+      max_ppt_qtrs:               parseLimit(max_ppt_qtrs),
+      max_annual_report_years:    parseLimit(max_annual_report_years),
+      transcript_signal_types:    parseTypes(transcript_signal_types),
+      ppt_signal_types:           parseTypes(ppt_signal_types),
+      annual_report_signal_types: parseTypes(annual_report_signal_types),
     };
-    const hasLimits = limits.max_transcript_qtrs != null || limits.max_ppt_qtrs != null || limits.max_annual_report_years != null;
+    const hasLimits = Object.values(limits).some(v => v != null);
 
     // Always fetch per-row so we can segregate by source_doc_type
     const rows = await prisma.transcriptSignalV2.findMany({
@@ -333,7 +340,7 @@ router.get('/:slug/prompt/:ticker', async (req, res, next) => {
   try {
     const { slug, ticker } = req.params;
     const parseLimit = v => (v != null ? parseInt(v, 10) : null);
-    const parseTypes = v => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : null);
+    const parseTypes = v => (v ? decodeURIComponent(v).split(',').map(s => s.trim()).filter(Boolean) : null);
     const {
       max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
       transcript_signal_types, ppt_signal_types, annual_report_signal_types,
