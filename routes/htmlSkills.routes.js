@@ -327,10 +327,26 @@ router.get('/:slug/signals/:ticker', async (req, res, next) => {
 });
 
 // GET /api/html-skills/:slug/prompt/:ticker — dry-run: return assembled prompt without calling LLM
+// Optional query params: max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+//   transcript_signal_types (comma-separated), ppt_signal_types, annual_report_signal_types
 router.get('/:slug/prompt/:ticker', async (req, res, next) => {
   try {
     const { slug, ticker } = req.params;
-    const { systemPrompt, userPrompt, signal_count } = await buildHtmlSkillPrompt({ slug, ticker });
+    const parseLimit = v => (v != null ? parseInt(v, 10) : null);
+    const parseTypes = v => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : null);
+    const {
+      max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+      transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+    } = req.query;
+    const { systemPrompt, userPrompt, signal_count } = await buildHtmlSkillPrompt({
+      slug, ticker,
+      max_transcript_qtrs:        parseLimit(max_transcript_qtrs),
+      max_ppt_qtrs:               parseLimit(max_ppt_qtrs),
+      max_annual_report_years:    parseLimit(max_annual_report_years),
+      transcript_signal_types:    parseTypes(transcript_signal_types),
+      ppt_signal_types:           parseTypes(ppt_signal_types),
+      annual_report_signal_types: parseTypes(annual_report_signal_types),
+    });
     res.json({ slug, ticker, signal_count, systemPrompt, userPrompt });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
@@ -339,10 +355,16 @@ router.get('/:slug/prompt/:ticker', async (req, res, next) => {
 });
 
 // POST /api/html-skills/:slug/run — enqueue skill run for a ticker
-// Body: { ticker, fiscal_year?, quarter?, force? }
+// Body: { ticker, fiscal_year?, quarter?, force?,
+//         max_transcript_qtrs?, max_ppt_qtrs?, max_annual_report_years?,
+//         transcript_signal_types?, ppt_signal_types?, annual_report_signal_types? }
 router.post('/:slug/run', async (req, res, next) => {
   try {
-    const { ticker, fiscal_year, quarter, force } = req.body;
+    const {
+      ticker, fiscal_year, quarter, force,
+      transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+      max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+    } = req.body;
     if (!ticker) return res.status(400).json({ error: 'ticker is required' });
 
     const job = await addHtmlSkillJob({
@@ -351,6 +373,12 @@ router.post('/:slug/run', async (req, res, next) => {
       fiscal_year: fiscal_year ?? null,
       quarter:     quarter ?? null,
       force:       force === true,
+      transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : null,
+      ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : null,
+      annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : null,
+      max_transcript_qtrs:        max_transcript_qtrs     ?? null,
+      max_ppt_qtrs:               max_ppt_qtrs            ?? null,
+      max_annual_report_years:    max_annual_report_years  ?? null,
     });
 
     res.json({ success: true, message: 'Html skill job enqueued', job: { id: job.id, slug: req.params.slug, ticker, type: 'html_skill', status: 'pending' } });

@@ -132,18 +132,22 @@ function buildDataBlock(signals) {
  * Build the system + user prompt for an HtmlSkill without calling the LLM.
  * Returns { skill, signals, systemPrompt, userPrompt, signal_count }.
  */
-async function buildHtmlSkillPrompt({ slug, ticker }) {
+async function buildHtmlSkillPrompt({
+  slug, ticker,
+  transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+  max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+}) {
   const skill = await prisma.htmlSkill.findUnique({ where: { slug } });
   if (!skill) throw Object.assign(new Error(`HtmlSkill not found: ${slug}`), { status: 404 });
 
   const rawSignals = await querySignalsV2({ ticker });
   const signals    = applySignalLimits(rawSignals, {
-    max_transcript_qtrs:        skill.max_transcript_qtrs,
-    max_ppt_qtrs:               skill.max_ppt_qtrs,
-    max_annual_report_years:    skill.max_annual_report_years,
-    transcript_signal_types:    skill.transcript_signal_types,
-    ppt_signal_types:           skill.ppt_signal_types,
-    annual_report_signal_types: skill.annual_report_signal_types,
+    max_transcript_qtrs:        max_transcript_qtrs        ?? skill.max_transcript_qtrs,
+    max_ppt_qtrs:               max_ppt_qtrs               ?? skill.max_ppt_qtrs,
+    max_annual_report_years:    max_annual_report_years     ?? skill.max_annual_report_years,
+    transcript_signal_types:    transcript_signal_types     ?? skill.transcript_signal_types,
+    ppt_signal_types:           ppt_signal_types            ?? skill.ppt_signal_types,
+    annual_report_signal_types: annual_report_signal_types  ?? skill.annual_report_signal_types,
   });
   const dataBlock = buildDataBlock(signals);
 
@@ -175,7 +179,11 @@ async function buildHtmlSkillPrompt({ slug, ticker }) {
  * @param {string}  [opts.quarter]
  * @param {boolean} [opts.force]       Skip cache and always re-run
  */
-async function runHtmlSkill({ slug, ticker, fiscal_year, quarter, force = false }) {
+async function runHtmlSkill({
+  slug, ticker, fiscal_year, quarter, force = false,
+  transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+  max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+}) {
   const skill = await prisma.htmlSkill.findUnique({ where: { slug } });
   if (!skill) throw Object.assign(new Error(`HtmlSkill not found: ${slug}`), { status: 404 });
   if (!skill.is_active) throw Object.assign(new Error(`HtmlSkill is inactive: ${slug}`), { status: 400 });
@@ -198,12 +206,12 @@ async function runHtmlSkill({ slug, ticker, fiscal_year, quarter, force = false 
   // Fetch all V2 signals for ticker, then apply per-source type filters and window limits
   const rawSignals = await querySignalsV2({ ticker });
   const signals    = applySignalLimits(rawSignals, {
-    max_transcript_qtrs:        skill.max_transcript_qtrs,
-    max_ppt_qtrs:               skill.max_ppt_qtrs,
-    max_annual_report_years:    skill.max_annual_report_years,
-    transcript_signal_types:    skill.transcript_signal_types,
-    ppt_signal_types:           skill.ppt_signal_types,
-    annual_report_signal_types: skill.annual_report_signal_types,
+    max_transcript_qtrs:        max_transcript_qtrs        ?? skill.max_transcript_qtrs,
+    max_ppt_qtrs:               max_ppt_qtrs               ?? skill.max_ppt_qtrs,
+    max_annual_report_years:    max_annual_report_years     ?? skill.max_annual_report_years,
+    transcript_signal_types:    transcript_signal_types     ?? skill.transcript_signal_types,
+    ppt_signal_types:           ppt_signal_types            ?? skill.ppt_signal_types,
+    annual_report_signal_types: annual_report_signal_types  ?? skill.annual_report_signal_types,
   });
 
   const dataBlock = buildDataBlock(signals);

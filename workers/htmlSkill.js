@@ -24,12 +24,20 @@ function rethrowIfUnrecoverable(err) {
 }
 
 async function processHtmlSkillJob(job) {
-  const { slug, ticker, fiscal_year, quarter, force } = job.data;
+  const {
+    slug, ticker, fiscal_year, quarter, force,
+    transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+    max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+  } = job.data;
   console.log(`[htmlSkill] Processing job ${job.id} (skill: ${slug}, ticker: ${ticker})`);
 
   try {
     await job.updateProgress(10);
-    const result = await runHtmlSkill({ slug, ticker, fiscal_year, quarter, force });
+    const result = await runHtmlSkill({
+      slug, ticker, fiscal_year, quarter, force,
+      transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+      max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+    });
     await job.updateProgress(100);
 
     console.log(`[htmlSkill] Job ${job.id} done — cached: ${result.cached}`);

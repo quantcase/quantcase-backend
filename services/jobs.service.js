@@ -98,8 +98,17 @@ async function addProwessExtractionJob(callId) {
   return jobQueue.addJob('prowess_extraction', { callId, type: 'prowess_extraction' });
 }
 
-async function addHtmlSkillJob({ slug, ticker, fiscal_year = null, quarter = null, force = false }) {
-  return jobQueue.addJob('html_skill', { slug, ticker, fiscal_year, quarter, force, type: 'html_skill' });
+async function addHtmlSkillJob({
+  slug, ticker, fiscal_year = null, quarter = null, force = false,
+  transcript_signal_types = null, ppt_signal_types = null, annual_report_signal_types = null,
+  max_transcript_qtrs = null, max_ppt_qtrs = null, max_annual_report_years = null,
+}) {
+  return jobQueue.addJob('html_skill', {
+    slug, ticker, fiscal_year, quarter, force,
+    transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+    max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+    type: 'html_skill',
+  });
 }
 
 async function addHtmlSkillPreviewJob({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force = false }) {
