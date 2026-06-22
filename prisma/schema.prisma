@@ -1120,6 +1120,7 @@ model HtmlSkill {
   model                   String                   @default("~anthropic/claude-haiku-latest")
   max_tokens              Int                      @default(16000)
   max_transcript_qtrs     Int?
+  max_ppt_qtrs            Int?
   max_annual_report_years Int?
   is_active               Boolean                  @default(true)
   created_at              DateTime                 @default(now())

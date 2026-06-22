@@ -102,12 +102,21 @@ async function addHtmlSkillJob({ slug, ticker, fiscal_year = null, quarter = nul
   return jobQueue.addJob('html_skill', { slug, ticker, fiscal_year, quarter, force, type: 'html_skill' });
 }
 
+async function addHtmlSkillPreviewJob({ ticker, skill_prompt, signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force = false }) {
+  return jobQueue.addJob('html_skill_preview', {
+    ticker, skill_prompt, signal_types, model, max_tokens,
+    max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+    force,
+    type: 'html_skill_preview',
+  });
+}
+
 async function findJob(jobId) {
-  const queues = ['summarization', 'qe_extraction', 'prowess_extraction', 'ai_insight_synthesis', 'html_skill'];
+  const queues = ['summarization', 'qe_extraction', 'prowess_extraction', 'ai_insight_synthesis', 'html_skill', 'html_skill_preview'];
   for (const q of queues) {
     const job = await jobQueue.getJobStatus(q, jobId);
     if (job) {
-      return {
+      const result = {
         id:          job.id,
         callId:      job.data?.callId   ?? null,
         type:        job.data?.type     ?? null,
@@ -126,6 +135,21 @@ async function findJob(jobId) {
           returnvalue:  job.returnvalue,
         },
       };
+
+      // Embed output inline for completed preview jobs so the frontend needs no extra fetch
+      if (result.type === 'html_skill_preview' && result.status === 'completed' && job.returnvalue?.outputId) {
+        const row = await prisma.htmlSkillOutput.findUnique({ where: { id: job.returnvalue.outputId } });
+        if (row) {
+          result.output = {
+            raw_html:      row.raw_html,
+            input_tokens:  row.input_tokens,
+            output_tokens: row.output_tokens,
+            cost_usd:      row.cost_usd,
+          };
+        }
+      }
+
+      return result;
     }
   }
   return null;
@@ -263,5 +287,6 @@ module.exports = {
   addSummarizationV2PptJobs,
   addSummarizationV2AnnualReportJobs,
   addHtmlSkillJob,
+  addHtmlSkillPreviewJob,
   findJob,
 };
