@@ -7,6 +7,10 @@ const { llmStream, logUsage } = require('../utils/workerUtils');
 
 const PREVIEW_SKILL_SLUG = '__preview__';
 
+function stripMarkdownFences(text) {
+  return text.replace(/^```(?:html)?\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+}
+
 /**
  * Trim signals to respect per-source-type window limits and per-source signal type filters.
  * Signals are already ordered by call_date desc, so we just collect the N most
@@ -229,7 +233,7 @@ async function runHtmlSkill({
     '--- END DATA BLOCK ---',
   ].join('\n');
 
-  const { text: raw_html, usage } = await llmStream({
+  const { text: raw_html_raw, usage } = await llmStream({
     model:      skill.model,
     max_tokens: skill.max_tokens,
     messages: [
@@ -237,6 +241,7 @@ async function runHtmlSkill({
       { role: 'user',   content: userPrompt },
     ],
   });
+  const raw_html = stripMarkdownFences(raw_html_raw);
 
   logUsage(`html-skill:${slug}:${ticker}`, usage);
 
@@ -353,7 +358,7 @@ async function runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_typ
     '--- END DATA BLOCK ---',
   ].join('\n');
 
-  const { text: raw_html, usage } = await llmStream({
+  const { text: raw_html_raw, usage } = await llmStream({
     model,
     max_tokens,
     messages: [
@@ -361,6 +366,7 @@ async function runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_typ
       { role: 'user',   content: userPrompt },
     ],
   });
+  const raw_html = stripMarkdownFences(raw_html_raw);
 
   logUsage(`html-skill-preview:${ticker}`, usage);
 
