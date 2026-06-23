@@ -26,6 +26,8 @@ const dealRouter          = require('./deal.routes');
 const opportunityRouter       = require('./opportunity.routes');
 const annualReportsRouter     = require('./annual_reports.routes');
 const htmlSkillsRouter        = require('./htmlSkills.routes');
+const billingRouter           = require('./billing.routes');
+const smallcaseRouter         = require('./smallcase.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -76,6 +78,8 @@ router.use('/api/deal',           dealRouter);
 router.use('/api/opportunity',    opportunityRouter);
 router.use('/api/annual-reports', annualReportsRouter);
 router.use('/api/html-skills',   htmlSkillsRouter);
+router.use('/api/billing',       billingRouter);
+router.use('/api/smallcase',     smallcaseRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);

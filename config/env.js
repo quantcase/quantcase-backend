@@ -23,4 +23,12 @@ module.exports = {
 
   // App config
   fiscalYearEnd:    process.env.FISCAL_YEAR_END || '03-31',
+
+  // Razorpay
+  razorpayKeyId:       process.env.RAZORPAY_KEY_ID,
+  razorpayKeySecret:   process.env.RAZORPAY_KEY_SECRET,
+  razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
+
+  // Smallcase
+  smallcaseEncryptionKey: process.env.SMALLCASE_ENCRYPTION_KEY,
 };

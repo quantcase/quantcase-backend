@@ -738,6 +738,12 @@ model User {
   shadow_portfolios ShadowPortfolio?
   team_memberships  TeamMember[]
   user_portfolios   UserPortfolio?
+  profile           UserProfile?
+  subscription      UserSubscription?
+  payment_methods   PaymentMethod[]
+  transactions      Transaction[]
+  discounts         Discount[]
+  smallcase_user    SmallcaseUser?
 
   @@index([email])
   @@index([mobile])
@@ -1184,4 +1190,307 @@ enum SignalSourceType {
   management
   ofactor
   prowess
+}
+
+// ─── User & Auth ──────────────────────────────────────────────────────────────
+
+enum SubscriptionPlan {
+  trial
+  monthly
+  annual
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  expired
+  cancelled
+  past_due
+}
+
+enum TransactionStatus {
+  pending
+  captured
+  failed
+  refunded
+}
+
+enum DiscountType {
+  percentage
+  fixed
+}
+
+enum PaymentMethodType {
+  card
+  upi
+  netbanking
+  wallet
+}
+
+enum RiskProfile {
+  conservative
+  moderate
+  aggressive
+}
+
+enum OnboardingStep {
+  profile
+  portfolio_setup
+  plan_selection
+  done
+}
+
+enum SmallcaseOrderStatus {
+  pending
+  placed
+  completed
+  failed
+  cancelled
+}
+
+enum SmallcaseOrderType {
+  buy
+  sell
+  rebalance
+  sip
+}
+
+// ─── User Profile ─────────────────────────────────────────────────────────────
+
+model UserProfile {
+  id                   String         @id @default(uuid())
+  user_id              String         @unique @map("user_id")
+  full_name            String?        @map("full_name")
+  phone                String?
+  date_of_birth        DateTime?      @map("date_of_birth") @db.Date
+  risk_profile         RiskProfile?   @map("risk_profile")
+  onboarding_completed Boolean        @default(false) @map("onboarding_completed")
+  onboarding_step      OnboardingStep @default(profile) @map("onboarding_step")
+  created_at           DateTime       @default(now())
+  updated_at           DateTime       @updatedAt
+  user                 User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("qc_user_profiles")
+}
+
+// ─── Billing: Products + Prices ───────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  is_active   Boolean  @default(true) @map("is_active")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  prices      Price[]
+
+  @@index([is_active])
+  @@map("qc_products")
+}
+
+model Price {
+  id               String             @id @default(uuid())
+  product_id       String             @map("product_id")
+  plan_type        SubscriptionPlan   @map("plan_type")
+  amount           Int
+  currency         String             @default("INR")
+  interval_months  Int                @map("interval_months")
+  razorpay_plan_id String?            @unique @map("razorpay_plan_id")
+  is_active        Boolean            @default(true) @map("is_active")
+  created_at       DateTime           @default(now())
+  updated_at       DateTime           @updatedAt
+  product          Product            @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  subscriptions    UserSubscription[]
+
+  @@index([product_id])
+  @@index([plan_type])
+  @@index([is_active])
+  @@map("qc_prices")
+}
+
+// ─── Billing: Coupons + Discounts ─────────────────────────────────────────────
+
+model Coupon {
+  id             String       @id @default(uuid())
+  code           String       @unique
+  discount_type  DiscountType @map("discount_type")
+  discount_value Decimal      @map("discount_value") @db.Decimal(10, 2)
+  max_uses       Int?         @map("max_uses")
+  used_count     Int          @default(0) @map("used_count")
+  expires_at     DateTime?    @map("expires_at")
+  is_active      Boolean      @default(true) @map("is_active")
+  created_at     DateTime     @default(now())
+  updated_at     DateTime     @updatedAt
+  discounts      Discount[]
+
+  @@index([code])
+  @@index([is_active])
+  @@map("qc_coupons")
+}
+
+model Discount {
+  id         String   @id @default(uuid())
+  coupon_id  String   @map("coupon_id")
+  user_id    String   @map("user_id")
+  applied_at DateTime @default(now()) @map("applied_at")
+  coupon     Coupon   @relation(fields: [coupon_id], references: [id])
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([coupon_id, user_id])
+  @@index([coupon_id])
+  @@index([user_id])
+  @@map("qc_discounts")
+}
+
+// ─── Billing: Payment Methods ─────────────────────────────────────────────────
+
+model PaymentMethod {
+  id                   String            @id @default(uuid())
+  user_id              String            @map("user_id")
+  type                 PaymentMethodType
+  razorpay_token_id    String?           @unique @map("razorpay_token_id")
+  razorpay_customer_id String?           @map("razorpay_customer_id")
+  last4                String?
+  brand                String?
+  is_default           Boolean           @default(false) @map("is_default")
+  created_at           DateTime          @default(now())
+  updated_at           DateTime          @updatedAt
+  user                 User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("qc_payment_methods")
+}
+
+// ─── Billing: Subscriptions ───────────────────────────────────────────────────
+
+model UserSubscription {
+  id                       String             @id @default(uuid())
+  user_id                  String             @unique @map("user_id")
+  price_id                 String?            @map("price_id")
+  plan_type                SubscriptionPlan   @map("plan_type")
+  status                   SubscriptionStatus
+  trial_starts_at          DateTime?          @map("trial_starts_at")
+  trial_ends_at            DateTime?          @map("trial_ends_at")
+  current_period_start     DateTime?          @map("current_period_start")
+  current_period_end       DateTime?          @map("current_period_end")
+  razorpay_subscription_id String?            @unique @map("razorpay_subscription_id")
+  razorpay_customer_id     String?            @map("razorpay_customer_id")
+  cancelled_at             DateTime?          @map("cancelled_at")
+  created_at               DateTime           @default(now())
+  updated_at               DateTime           @updatedAt
+  user                     User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  price                    Price?             @relation(fields: [price_id], references: [id])
+  transactions             Transaction[]
+
+  @@index([status])
+  @@index([trial_ends_at])
+  @@map("qc_user_subscriptions")
+}
+
+// ─── Billing: Transactions ────────────────────────────────────────────────────
+
+model Transaction {
+  id                  String            @id @default(uuid())
+  subscription_id     String?           @map("subscription_id")
+  user_id             String            @map("user_id")
+  razorpay_order_id   String?           @unique @map("razorpay_order_id")
+  razorpay_payment_id String?           @unique @map("razorpay_payment_id")
+  amount              Int
+  currency            String            @default("INR")
+  status              TransactionStatus
+  failure_reason      String?           @map("failure_reason")
+  metadata            Json?
+  created_at          DateTime          @default(now())
+  updated_at          DateTime          @updatedAt
+  user                User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  subscription        UserSubscription? @relation(fields: [subscription_id], references: [id])
+
+  @@index([user_id])
+  @@index([subscription_id])
+  @@index([razorpay_order_id])
+  @@index([status])
+  @@map("qc_transactions")
+}
+
+// ─── Smallcase ────────────────────────────────────────────────────────────────
+
+model SmallcaseUser {
+  id                String             @id @default(uuid())
+  user_id           String             @unique @map("user_id")
+  smallcase_user_id String?            @map("smallcase_user_id")
+  auth_token        String?            @map("auth_token")
+  broker            String?
+  broker_client_id  String?            @map("broker_client_id")
+  is_connected      Boolean            @default(false) @map("is_connected")
+  last_synced_at    DateTime?          @map("last_synced_at")
+  created_at        DateTime           @default(now())
+  updated_at        DateTime           @updatedAt
+  user              User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  holdings          SmallcaseHolding[]
+  orders            SmallcaseOrder[]
+  portfolio         SmallcasePortfolio?
+
+  @@index([user_id])
+  @@map("qc_smallcase_users")
+}
+
+model SmallcasePortfolio {
+  id                String        @id @default(uuid())
+  smallcase_user_id String        @unique @map("smallcase_user_id")
+  total_value       Float         @default(0) @map("total_value")
+  total_invested    Float         @default(0) @map("total_invested")
+  total_pnl         Float         @default(0) @map("total_pnl")
+  total_pnl_pct     Float         @default(0) @map("total_pnl_pct")
+  synced_at         DateTime?     @map("synced_at")
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+  smallcase_user    SmallcaseUser @relation(fields: [smallcase_user_id], references: [id], onDelete: Cascade)
+
+  @@index([smallcase_user_id])
+  @@map("qc_smallcase_portfolios")
+}
+
+model SmallcaseHolding {
+  id                String        @id @default(uuid())
+  smallcase_user_id String        @map("smallcase_user_id")
+  ticker            String
+  quantity          Float
+  avg_price         Float         @map("avg_price")
+  current_price     Float?        @map("current_price")
+  current_value     Float?        @map("current_value")
+  invested_value    Float         @map("invested_value")
+  pnl               Float?
+  pnl_pct           Float?        @map("pnl_pct")
+  exchange          String?
+  isin              String?
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+  smallcase_user    SmallcaseUser @relation(fields: [smallcase_user_id], references: [id], onDelete: Cascade)
+
+  @@unique([smallcase_user_id, ticker])
+  @@index([smallcase_user_id])
+  @@index([ticker])
+  @@map("qc_smallcase_holdings")
+}
+
+model SmallcaseOrder {
+  id                String               @id @default(uuid())
+  smallcase_user_id String               @map("smallcase_user_id")
+  order_id          String               @unique @map("order_id")
+  status            SmallcaseOrderStatus
+  type              SmallcaseOrderType
+  amount            Float?
+  smallcase_name    String?              @map("smallcase_name")
+  metadata          Json?
+  placed_at         DateTime?            @map("placed_at")
+  completed_at      DateTime?            @map("completed_at")
+  created_at        DateTime             @default(now())
+  updated_at        DateTime             @updatedAt
+  smallcase_user    SmallcaseUser        @relation(fields: [smallcase_user_id], references: [id], onDelete: Cascade)
+
+  @@index([smallcase_user_id])
+  @@index([status])
+  @@index([placed_at])
+  @@map("qc_smallcase_orders")
 }
