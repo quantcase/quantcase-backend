@@ -3,32 +3,68 @@
 
 /**
  * KPI deduplication script — cleans the `kpis` table and canonicalizes
- * `extracted_signals.metric` values, recording all mappings in `substitute_kpis`.
+ * `transcript_signals_v2.metric` values, recording all mappings in `substitute_kpis`.
+ *
+ * All reads and writes use `transcript_signals_v2` (`extracted_signals` is deprecated).
  *
  * Phases:
- *   1 — Delete unused transcript KPIs (no extracted_signals rows)
+ *   1 — Delete unused transcript KPIs (no transcript_signals_v2 rows)
  *   2 — Case/format dedup: same concept, different casing/spacing/punctuation
  *   3 — Semantic dedup: same full_form + same kpi_type, different abbr
+ *   4 — Delete singleton transcript KPIs (appear exactly once in signals)
+ *   5 — Delete malformed transcript KPIs (new_kpi% placeholders, starts-with-digit)
+ *   6 — Per-industry KPI cap: keep top-K by cross-company signal count, drop the tail
  *
  * Usage:
- *   node scripts/dedup_kpis.js                    # dry-run all phases
- *   node scripts/dedup_kpis.js --phase 1          # dry-run phase 1 only
- *   node scripts/dedup_kpis.js --phase 2 --execute
- *   node scripts/dedup_kpis.js --execute          # run all phases
+ *   node scripts/dedup_kpis.js                         # dry-run all phases
+ *   node scripts/dedup_kpis.js --phase 6               # dry-run phase 6 only
+ *   node scripts/dedup_kpis.js --phase 6 --execute
+ *   node scripts/dedup_kpis.js --execute               # run all phases
+ *   node scripts/dedup_kpis.js --execute --kpis-only   # skip signal table ops (faster)
  */
+
+// ─── Per-industry KPI cap configuration ──────────────────────────────────────
+// Default: min(CAP_MAX, max(CAP_MIN, company_count × PER_CO_MULTIPLIER))
+// Override specific industries below where the formula under/overshoots.
+const PER_CO_MULTIPLIER = 18;
+const CAP_MIN = 300;
+const CAP_MAX = 1000;
+
+const INDUSTRY_CAP_OVERRIDES = {
+  // Metric-heavy regulated industries — formula undershoots
+  'Private Sector Bank':            650,
+  'Public Sector Bank':             600,
+  'Non Banking Financial Company (NBFC)': 650,
+  'NBFC':                           500,
+  'Housing Finance Company':        500,
+  'Life Insurance':                 500,
+  'General Insurance':              450,
+  'Microfinance Institutions':      400,
+  'Financial Technology (Fintech)': 450,
+  'Hospital':                       500,
+  // Diversified / holding — many sub-segments inflate counts
+  'Holding Company':                500,
+  'Diversified':                    500,
+};
+
+function getIndustryCap(industry, companyCount) {
+  if (INDUSTRY_CAP_OVERRIDES[industry] !== undefined) return INDUSTRY_CAP_OVERRIDES[industry];
+  return Math.min(CAP_MAX, Math.max(CAP_MIN, companyCount * PER_CO_MULTIPLIER));
+}
 
 require('dotenv').config();
 const prisma = require('../config/prisma');
 
-const DRY_RUN = !process.argv.includes('--execute');
-const phaseIdx = process.argv.indexOf('--phase');
+const DRY_RUN    = !process.argv.includes('--execute');
+const KPIS_ONLY  = process.argv.includes('--kpis-only'); // skip signal table ops, only delete kpis rows
+const phaseIdx   = process.argv.indexOf('--phase');
 const ONLY_PHASE = phaseIdx !== -1 ? parseInt(process.argv[phaseIdx + 1]) : null;
 
 const log  = (...a) => console.log(...a);
 const sep  = () => console.log('-'.repeat(80));
 
 // ─── Canonical selection ───────────────────────────────────────────────────────
-// Priority: QE abbr > most-used in extracted_signals > UPPER_SNAKE_CASE > shortest
+// Priority: QE abbr > most-used in transcript_signals_v2 > UPPER_SNAKE_CASE > shortest
 
 const UPPER_SNAKE = /^[A-Z][A-Z0-9_]*$/;
 
@@ -79,83 +115,86 @@ async function applyDedup(clusters, usageMap, qeSet, phaseLabel) {
     return { totalClusters, totalVariants, totalSignalsUpdated: totalVariants, totalKpisDeleted: totalVariants };
   }
 
-  // 1. Upsert substitute_kpis for all clusters in parallel (capped to avoid connection overload)
-  const BATCH = 100;
-  for (let i = 0; i < validClusters.length; i += BATCH) {
-    await Promise.all(validClusters.slice(i, i + BATCH).map(([canonical, variants]) =>
-      prisma.substituteKpi.upsert({
-        where:  { primaryKpiAbbr: canonical },
-        update: { substitutes: { push: variants } },
-        create: { primaryKpiAbbr: canonical, substitutes: variants },
-      }).catch(() => {
-        // If push creates duplicates, do a full replace
-        return prisma.substituteKpi.upsert({
+  if (!KPIS_ONLY) {
+    // 1. Upsert substitute_kpis for all clusters in parallel (capped to avoid connection overload)
+    const BATCH = 100;
+    for (let i = 0; i < validClusters.length; i += BATCH) {
+      await Promise.all(validClusters.slice(i, i + BATCH).map(([canonical, variants]) =>
+        prisma.substituteKpi.upsert({
           where:  { primaryKpiAbbr: canonical },
-          update: {},
+          update: { substitutes: { push: variants } },
           create: { primaryKpiAbbr: canonical, substitutes: variants },
-        });
-      })
-    ));
-    process.stdout.write(`\r  substitute_kpis: ${Math.min(i + BATCH, validClusters.length)}/${validClusters.length}`);
-  }
-  log('');
+        }).catch(() => {
+          // If push creates duplicates, do a full replace
+          return prisma.substituteKpi.upsert({
+            where:  { primaryKpiAbbr: canonical },
+            update: {},
+            create: { primaryKpiAbbr: canonical, substitutes: variants },
+          });
+        })
+      ));
+      process.stdout.write(`\r  substitute_kpis: ${Math.min(i + BATCH, validClusters.length)}/${validClusters.length}`);
+    }
+    log('');
 
-  // 2. Batch-update extracted_signals — process in chunks to avoid statement timeout
-  const SIGNAL_CHUNK = 200; // variants per SQL statement
-  let updated = 0, deletedSignals = 0;
+    // 2. Batch-update transcript_signals_v2 — process in chunks to avoid statement timeout
+    const SIGNAL_CHUNK = 200; // variants per SQL statement
+    let updated = 0, deletedSignals = 0;
 
-  const allMappings = validClusters.flatMap(([canonical, variants]) =>
-    variants.map(v => ({ variant: v, canonical }))
-  );
+    const allMappings = validClusters.flatMap(([canonical, variants]) =>
+      variants.map(v => ({ variant: v, canonical }))
+    );
 
-  for (let i = 0; i < allMappings.length; i += SIGNAL_CHUNK) {
-    const chunk = allMappings.slice(i, i + SIGNAL_CHUNK);
-    const mappingValues = chunk
-      .map(({ variant, canonical }) => `('${variant.replace(/'/g, "''")}','${canonical.replace(/'/g, "''")}')`).join(',');
-    const variantListChunk = chunk.map(({ variant }) => `'${variant.replace(/'/g, "''")}'`).join(',');
+    for (let i = 0; i < allMappings.length; i += SIGNAL_CHUNK) {
+      const chunk = allMappings.slice(i, i + SIGNAL_CHUNK);
+      const mappingValues = chunk
+        .map(({ variant, canonical }) => `('${variant.replace(/'/g, "''")}','${canonical.replace(/'/g, "''")}')`).join(',');
+      const variantListChunk = chunk.map(({ variant }) => `'${variant.replace(/'/g, "''")}'`).join(',');
 
-    // Use ROW_NUMBER to pick exactly one variant per unique-key slot when multiple
-    // variants map to the same canonical — prevents intra-batch conflicts.
-    const [, u, d] = await prisma.$transaction([
-      prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
-      prisma.$executeRawUnsafe(`
-        WITH mapping(variant, canonical) AS (VALUES ${mappingValues}),
-        ranked AS (
-          SELECT es.id, m.canonical,
-                 ROW_NUMBER() OVER (
-                   PARTITION BY es.call_id, es.signal_type, m.canonical,
-                                es.source_hash, es.prompt_v, es.start_date
-                   ORDER BY es.id
-                 ) AS rn
-          FROM extracted_signals es
-          JOIN mapping m ON es.metric = m.variant
-          WHERE NOT EXISTS (
-            SELECT 1 FROM extracted_signals es2
-            WHERE es2.call_id     = es.call_id
-              AND es2.signal_type = es.signal_type
-              AND es2.metric      = m.canonical
-              AND es2.source_hash = es.source_hash
-              AND es2.prompt_v    = es.prompt_v
-              AND es2.start_date  IS NOT DISTINCT FROM es.start_date
+      // Use ROW_NUMBER to pick exactly one variant per unique-key slot when multiple
+      // variants map to the same canonical — prevents intra-batch conflicts.
+      const [, u, d] = await prisma.$transaction([
+        prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
+        prisma.$executeRawUnsafe(`
+          WITH mapping(variant, canonical) AS (VALUES ${mappingValues}),
+          ranked AS (
+            SELECT ts.id, m.canonical,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY ts.call_id, ts.signal_type, m.canonical,
+                                  ts.source_hash, ts.prompt_v
+                     ORDER BY ts.id
+                   ) AS rn
+            FROM transcript_signals_v2 ts
+            JOIN mapping m ON ts.metric = m.variant
+            WHERE NOT EXISTS (
+              SELECT 1 FROM transcript_signals_v2 ts2
+              WHERE ts2.call_id     = ts.call_id
+                AND ts2.signal_type = ts.signal_type
+                AND ts2.metric      = m.canonical
+                AND ts2.source_hash = ts.source_hash
+                AND ts2.prompt_v    = ts.prompt_v
+            )
           )
-        )
-        UPDATE extracted_signals es
-        SET metric = r.canonical
-        FROM ranked r
-        WHERE es.id = r.id AND r.rn = 1
-      `),
-      prisma.$executeRawUnsafe(`DELETE FROM extracted_signals WHERE metric IN (${variantListChunk})`),
-    ]);
-    updated += u; deletedSignals += d;
-    process.stdout.write(`\r  signals: chunk ${Math.min(i + SIGNAL_CHUNK, allMappings.length)}/${allMappings.length}`);
+          UPDATE transcript_signals_v2 ts
+          SET metric = r.canonical
+          FROM ranked r
+          WHERE ts.id = r.id AND r.rn = 1
+        `),
+        prisma.$executeRawUnsafe(`DELETE FROM transcript_signals_v2 WHERE metric IN (${variantListChunk})`),
+      ]);
+      updated += u; deletedSignals += d;
+      process.stdout.write(`\r  signals: chunk ${Math.min(i + SIGNAL_CHUNK, allMappings.length)}/${allMappings.length}`);
+    }
+    log(`\n  transcript_signals_v2 updated: ${updated}, dupes deleted: ${deletedSignals}`);
+  } else {
+    log(`  [kpis-only] skipping substitute_kpis + signal updates`);
   }
-  log(`\n  extracted_signals updated: ${updated}, dupes deleted: ${deletedSignals}`);
 
   // 3. Delete variant KPI rows
   const { count: kpisDeleted } = await prisma.kpi.deleteMany({ where: { abbr: { in: allVariants } } });
   log(`  kpis deleted: ${kpisDeleted}`);
 
-  return { totalClusters, totalVariants, totalSignalsUpdated: updated, totalKpisDeleted: kpisDeleted };
+  return { totalClusters, totalVariants, totalSignalsUpdated: 0, totalKpisDeleted: kpisDeleted };
 }
 
 // ─── Phase 1: Delete unused transcript KPIs ───────────────────────────────────
@@ -167,7 +206,7 @@ async function phase1() {
     FROM kpis k
     WHERE k.source = 'transcript'
       AND NOT EXISTS (
-        SELECT 1 FROM extracted_signals es WHERE es.metric = k.abbr
+        SELECT 1 FROM transcript_signals_v2 ts WHERE ts.metric = k.abbr
       )
   `;
 
@@ -200,7 +239,7 @@ async function phase2() {
     prisma.kpi.findMany({ where: { source: 'QE' }, select: { abbr: true } }),
     prisma.$queryRaw`
       SELECT metric, COUNT(*)::int as cnt
-      FROM extracted_signals
+      FROM transcript_signals_v2
       WHERE is_invalidated = false
       GROUP BY metric
     `,
@@ -231,7 +270,7 @@ async function phase2() {
 
   const stats = await applyDedup(resolved, usageMap, qeSet, 'P2');
   log(`\n  Phase 2 summary: ${stats.totalClusters} clusters, ${stats.totalVariants} variants merged`);
-  log(`  extracted_signals updates: ${stats.totalSignalsUpdated}`);
+  log(`  transcript_signals_v2 updates: ${stats.totalSignalsUpdated}`);
   log(`  kpis deleted: ${stats.totalKpisDeleted}`);
 }
 
@@ -244,7 +283,7 @@ async function phase3() {
     prisma.kpi.findMany({ where: { source: 'QE' }, select: { abbr: true } }),
     prisma.$queryRaw`
       SELECT metric, COUNT(*)::int as cnt
-      FROM extracted_signals
+      FROM transcript_signals_v2
       WHERE is_invalidated = false
       GROUP BY metric
     `,
@@ -280,7 +319,7 @@ async function phase3() {
 
   const stats = await applyDedup(resolved, usageMap, qeSet, 'P3');
   log(`\n  Phase 3 summary: ${stats.totalClusters} clusters, ${stats.totalVariants} variants merged`);
-  log(`  extracted_signals updates: ${stats.totalSignalsUpdated}`);
+  log(`  transcript_signals_v2 updates: ${stats.totalSignalsUpdated}`);
   log(`  kpis deleted: ${stats.totalKpisDeleted}`);
 }
 
@@ -293,10 +332,10 @@ async function phase4() {
     SELECT k.abbr
     FROM kpis k
     JOIN (
-      SELECT metric FROM extracted_signals
+      SELECT metric FROM transcript_signals_v2
       WHERE is_invalidated = false
       GROUP BY metric HAVING COUNT(*) = 1
-    ) es ON es.metric = k.abbr
+    ) ts ON ts.metric = k.abbr
     WHERE k.source = 'transcript'
   `);
 
@@ -304,20 +343,23 @@ async function phase4() {
   log(`  Found ${abbrs.length} singleton transcript KPIs`);
 
   if (!DRY_RUN) {
-    // Delete signals first (batched), then KPI rows
     const CHUNK = 500;
-    let sigDeleted = 0;
-    for (let i = 0; i < abbrs.length; i += CHUNK) {
-      const chunk = abbrs.slice(i, i + CHUNK);
-      const inList = chunk.map(a => `'${a.replace(/'/g, "''")}'`).join(',');
-      const [, d] = await prisma.$transaction([
-        prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
-        prisma.$executeRawUnsafe(`DELETE FROM extracted_signals WHERE metric IN (${inList})`),
-      ]);
-      sigDeleted += d;
-      process.stdout.write(`\r  signals deleted: ${sigDeleted}/${abbrs.length}`);
+    if (!KPIS_ONLY) {
+      let sigDeleted = 0;
+      for (let i = 0; i < abbrs.length; i += CHUNK) {
+        const chunk = abbrs.slice(i, i + CHUNK);
+        const inList = chunk.map(a => `'${a.replace(/'/g, "''")}'`).join(',');
+        const [, d] = await prisma.$transaction([
+          prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
+          prisma.$executeRawUnsafe(`DELETE FROM transcript_signals_v2 WHERE metric IN (${inList})`),
+        ]);
+        sigDeleted += d;
+        process.stdout.write(`\r  signals deleted: ${sigDeleted}/${abbrs.length}`);
+      }
+      log('');
+    } else {
+      log(`  [kpis-only] skipping signal deletes`);
     }
-    log('');
 
     let kpiDeleted = 0;
     for (let i = 0; i < abbrs.length; i += CHUNK) {
@@ -326,12 +368,168 @@ async function phase4() {
       kpiDeleted += result.count;
       process.stdout.write(`\r  KPIs deleted: ${kpiDeleted}/${abbrs.length}`);
     }
-    log(`\n  Deleted ${sigDeleted} signals and ${kpiDeleted} KPI rows`);
+    log(`\n  Deleted ${kpiDeleted} KPI rows`);
   } else {
     log(`  [DRY RUN] Would delete ${abbrs.length} KPI rows and their signals`);
     abbrs.slice(0, 20).forEach(a => log(`    ${a}`));
     if (abbrs.length > 20) log(`    ... +${abbrs.length - 20} more`);
   }
+}
+
+// ─── Phase 5: Delete structurally malformed transcript KPIs ─────────────────
+// Targets two unambiguously garbage patterns:
+//   a) new_kpi% random hash placeholders (LLM couldn't find a real abbr)
+//   b) abbr starts with a digit (e.g. "13.46_MN", "25.94" — values, not KPI names)
+async function phase5() {
+  log('\n══ PHASE 5 — Delete malformed transcript KPIs ══');
+
+  const garbage = await prisma.$queryRawUnsafe(`
+    SELECT abbr FROM kpis
+    WHERE source = 'transcript'
+      AND (
+        abbr ILIKE 'new_kpi%'
+        OR abbr ~ '^[0-9]'
+      )
+  `);
+
+  const abbrs = garbage.map(r => r.abbr);
+  log(`  Found ${abbrs.length} malformed transcript KPIs`);
+
+  const counts = {
+    newKpi:      abbrs.filter(a => /^new_kpi/i.test(a)).length,
+    startsDigit: abbrs.filter(a => /^[0-9]/.test(a)).length,
+  };
+  log(`    new_kpi% placeholders : ${counts.newKpi}`);
+  log(`    starts with digit     : ${counts.startsDigit}`);
+
+  if (DRY_RUN) {
+    log(`  [DRY RUN] Would delete ${abbrs.length} KPI rows and their v2 signals`);
+    abbrs.slice(0, 20).forEach(a => log(`    ${a}`));
+    if (abbrs.length > 20) log(`    ... +${abbrs.length - 20} more`);
+    return;
+  }
+
+  const CHUNK = 500;
+  if (!KPIS_ONLY) {
+    let sigDeleted = 0;
+    for (let i = 0; i < abbrs.length; i += CHUNK) {
+      const chunk = abbrs.slice(i, i + CHUNK);
+      const inList = chunk.map(a => `'${a.replace(/'/g, "''")}'`).join(',');
+      const [, d] = await prisma.$transaction([
+        prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
+        prisma.$executeRawUnsafe(`DELETE FROM transcript_signals_v2 WHERE metric IN (${inList})`),
+      ]);
+      sigDeleted += d;
+      process.stdout.write(`\r  v2 signals deleted: ${sigDeleted}`);
+    }
+    log('');
+  } else {
+    log(`  [kpis-only] skipping signal deletes`);
+  }
+
+  let kpiDeleted = 0;
+  for (let i = 0; i < abbrs.length; i += CHUNK) {
+    const chunk = abbrs.slice(i, i + CHUNK);
+    const result = await prisma.kpi.deleteMany({ where: { abbr: { in: chunk } } });
+    kpiDeleted += result.count;
+    process.stdout.write(`\r  KPIs deleted: ${kpiDeleted}/${abbrs.length}`);
+  }
+  log(`\n  Deleted ${kpiDeleted} KPI rows`);
+}
+
+// ─── Phase 6: Per-industry KPI cap ────────────────────────────────────────────
+// For each industry, keeps the top-K KPIs by cross-company signal count.
+// A KPI is only deleted if it falls below the cap in EVERY industry it belongs to
+// (prevents removing a KPI that's highly used in a second industry).
+async function phase6() {
+  log('\n══ PHASE 6 — Per-industry KPI cap ══');
+
+  // 1. Company count per industry
+  const companyRows = await prisma.$queryRaw`
+    SELECT basic_industry, COUNT(DISTINCT company)::int AS company_count
+    FROM earnings_calls
+    WHERE basic_industry IS NOT NULL
+    GROUP BY basic_industry
+  `;
+  const companyCountMap = new Map(companyRows.map(r => [r.basic_industry, Number(r.company_count)]));
+
+  // 2. Cross-company signal count per KPI
+  const signalRows = await prisma.$queryRaw`
+    SELECT metric, COUNT(DISTINCT call_id)::int AS co_count
+    FROM transcript_signals_v2
+    WHERE is_invalidated = false
+    GROUP BY metric
+  `;
+  const signalMap = new Map(signalRows.map(r => [r.metric, Number(r.co_count)]));
+
+  // 3. All transcript KPIs with their industry arrays
+  const allKpis = await prisma.kpi.findMany({
+    where: { source: 'transcript' },
+    select: { abbr: true, industry: true },
+  });
+
+  // 4. For each industry, rank KPIs by co_count and mark those over-cap
+  const overCapByIndustry = new Map(); // industry → Set of over-cap abbrs
+  const industryKpis = new Map();      // industry → [{abbr, coCount}]
+
+  for (const kpi of allKpis) {
+    for (const ind of kpi.industry) {
+      if (!industryKpis.has(ind)) industryKpis.set(ind, []);
+      industryKpis.get(ind).push({ abbr: kpi.abbr, coCount: signalMap.get(kpi.abbr) ?? 0 });
+    }
+  }
+
+  let totalOverCap = 0;
+  for (const [ind, kpis] of industryKpis) {
+    const cap = getIndustryCap(ind, companyCountMap.get(ind) ?? 1);
+    kpis.sort((a, b) => b.coCount - a.coCount);
+    const tail = kpis.slice(cap);
+    if (tail.length) {
+      overCapByIndustry.set(ind, new Set(tail.map(k => k.abbr)));
+      totalOverCap += tail.length;
+    }
+  }
+
+  // 5. Only delete KPIs that are over-cap in ALL their industries
+  const toDelete = [];
+  for (const kpi of allKpis) {
+    if (!kpi.industry.length) continue;
+    const overInAll = kpi.industry.every(ind => overCapByIndustry.get(ind)?.has(kpi.abbr));
+    if (overInAll) toDelete.push(kpi.abbr);
+  }
+
+  log(`  Industries processed: ${industryKpis.size}`);
+  log(`  Total over-cap slots: ${totalOverCap}`);
+  log(`  KPIs deletable (over-cap in ALL their industries): ${toDelete.length}`);
+
+  // Show cap table for top 20 industries by KPI count
+  const topInds = [...industryKpis.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 20);
+  log('\n  industry'.padEnd(53) + 'cos'.padStart(5) + 'kpis'.padStart(7) + 'cap'.padStart(6) + 'del'.padStart(6));
+  for (const [ind, kpis] of topInds) {
+    const cos = companyCountMap.get(ind) ?? '?';
+    const cap = getIndustryCap(ind, companyCountMap.get(ind) ?? 1);
+    const del = overCapByIndustry.get(ind)?.size ?? 0;
+    log(`  ${ind.padEnd(50)}${String(cos).padStart(5)}${String(kpis.length).padStart(7)}${String(cap).padStart(6)}${String(del).padStart(6)}`);
+  }
+
+  if (DRY_RUN) {
+    log(`\n  [DRY RUN] Would delete ${toDelete.length} KPI rows`);
+    toDelete.slice(0, 20).forEach(a => log(`    ${a}`));
+    if (toDelete.length > 20) log(`    ... +${toDelete.length - 20} more`);
+    return;
+  }
+
+  const CHUNK = 500;
+  let deleted = 0;
+  for (let i = 0; i < toDelete.length; i += CHUNK) {
+    const chunk = toDelete.slice(i, i + CHUNK);
+    const result = await prisma.kpi.deleteMany({ where: { abbr: { in: chunk } } });
+    deleted += result.count;
+    process.stdout.write(`\r  KPIs deleted: ${deleted}/${toDelete.length}`);
+  }
+  log(`\n  Deleted ${deleted} KPI rows`);
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
@@ -347,6 +545,8 @@ async function main() {
   if (!ONLY_PHASE || ONLY_PHASE === 2) await phase2();
   if (!ONLY_PHASE || ONLY_PHASE === 3) await phase3();
   if (!ONLY_PHASE || ONLY_PHASE === 4) await phase4();
+  if (!ONLY_PHASE || ONLY_PHASE === 5) await phase5();
+  if (!ONLY_PHASE || ONLY_PHASE === 6) await phase6();
 
   const after = await prisma.kpi.count({ where: { source: 'transcript' } });
   sep();

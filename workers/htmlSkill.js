@@ -50,8 +50,8 @@ async function processHtmlSkillJob(job) {
 
 const worker = new Worker('html_skill', processHtmlSkillJob, {
   connection,
-  concurrency: 10,
-  limiter: { max: 10, duration: 1000 },
+  concurrency: 5,
+  limiter: { max: 5, duration: 1000 },
 });
 
 worker.on('completed', (job)      => console.log(`[htmlSkill] Job ${job.id} completed`));
