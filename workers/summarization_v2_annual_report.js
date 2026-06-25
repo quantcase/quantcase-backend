@@ -232,7 +232,16 @@ const worker = new Worker('summarization_v2_annual_report', processSummarization
 });
 
 worker.on('completed', job       => wlog.done(`[${SKILL_SLUG}] Job ${job.id} completed`));
-worker.on('failed',    (job, err) => wlog.error(`[${SKILL_SLUG}] Job ${job.id} failed: ${err.message}`));
+worker.on('failed', async (job, err) => {
+  wlog.error(`[${SKILL_SLUG}] Job ${job.id} failed (attempt ${job.attemptsMade}): ${err.message}`);
+  if (job.attemptsMade < (job.opts.attempts ?? 1)) return;
+  const d = job?.data ?? {};
+  await prisma.pipelineJobFailure.upsert({
+    where:  { bullmq_job_id: String(job.id) },
+    create: { queue: 'summarization_v2_annual_report', bullmq_job_id: String(job.id), call_id: d.reportId ?? '', source_doc_type: 'annual_report', chunk_index: d.chunkIndex ?? null, total_chunks: d.totalChunks ?? null, lineage_id: d.lineageId ?? null, error_message: err.message, attempts_made: job.attemptsMade },
+    update: { error_message: err.message, attempts_made: job.attemptsMade },
+  }).catch(e => wlog.error(`[${SKILL_SLUG}] Failed to record failure: ${e.message}`));
+});
 worker.on('error',     err       => wlog.error(`[${SKILL_SLUG}] Worker error: ${err}`));
 
 wlog.done('Summarization V2 Annual Report worker ready');

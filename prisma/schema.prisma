@@ -1031,6 +1031,25 @@ model LensScore {
   @@map("lens_scores")
 }
 
+model PipelineJobFailure {
+  id              String   @id @default(uuid())
+  queue           String
+  bullmq_job_id   String   @unique
+  call_id         String
+  source_doc_type String
+  chunk_index     Int?
+  total_chunks    Int?
+  lineage_id      String?
+  error_message   String?
+  attempts_made   Int?
+  failed_at       DateTime @default(now())
+
+  @@index([call_id])
+  @@index([source_doc_type])
+  @@index([failed_at])
+  @@map("pipeline_job_failures")
+}
+
 enum DenominationType {
   rupee
   percentage
