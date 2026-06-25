@@ -1149,6 +1149,7 @@ model HtmlSkill {
   max_transcript_qtrs         Int?
   max_ppt_qtrs                Int?
   max_annual_report_years     Int?
+  market_data_months          Int?
   is_active                   Boolean                  @default(true)
   created_at                  DateTime                 @default(now())
   updated_at                  DateTime                 @updatedAt

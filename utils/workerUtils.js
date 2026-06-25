@@ -49,12 +49,15 @@ async function llmStream(params) {
   } catch (err) {
     const status = err?.status ?? err?.response?.status;
     const body   = err?.error ?? err?.response?.data ?? err?.message;
-    console.error(`[llmStream] API error (HTTP ${status ?? '?'}):`, JSON.stringify(body, null, 2));
-    // Log the full response_format that was sent so schema issues are immediately visible
+    const detail = typeof body === 'object' ? JSON.stringify(body) : String(body ?? err.message);
+    console.error(`[llmStream] API error (HTTP ${status ?? '?'}):`, detail);
     if (status === 400 && params.response_format) {
       console.error('[llmStream] response_format sent:', JSON.stringify(params.response_format, null, 2));
     }
-    throw err;
+    const enriched    = new Error(`[llmStream] HTTP ${status ?? '?'}: ${detail}`);
+    enriched.status   = status;
+    enriched.original = err;
+    throw enriched;
   }
   let text = '';
   let finishReason;
@@ -66,9 +69,13 @@ async function llmStream(params) {
       if (chunk.usage) usage = chunk.usage;
     }
   } catch (err) {
-    const body = err?.error ?? err?.response?.data ?? err?.message;
-    console.error('[llmStream] stream error:', JSON.stringify(body, null, 2));
-    throw err;
+    const body   = err?.error ?? err?.response?.data ?? err?.message;
+    const detail = typeof body === 'object' ? JSON.stringify(body) : String(body ?? err.message);
+    console.error('[llmStream] stream error:', detail);
+    const enriched    = new Error(`[llmStream] ${detail}`);
+    enriched.status   = err?.status ?? err?.response?.status;
+    enriched.original = err;
+    throw enriched;
   }
   if (finishReason === 'length') {
     throw new Error(`[llmStream] Response truncated at token limit (finish_reason=length, ${text.length} chars). Increase maxTokens or reduce input.`);

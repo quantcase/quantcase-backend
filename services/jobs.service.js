@@ -111,7 +111,7 @@ async function addHtmlSkillJob({
   });
 }
 
-async function addHtmlSkillPreviewJob({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, force = false }) {
+async function addHtmlSkillPreviewJob({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_months = null, force = false }) {
   return jobQueue.addJob('html_skill_preview', {
     ticker, skill_prompt,
     transcript_signal_types:    transcript_signal_types    ?? [],
@@ -119,6 +119,7 @@ async function addHtmlSkillPreviewJob({ ticker, skill_prompt, transcript_signal_
     annual_report_signal_types: annual_report_signal_types ?? [],
     model, max_tokens,
     max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+    market_data_months,
     force,
     type: 'html_skill_preview',
   });
