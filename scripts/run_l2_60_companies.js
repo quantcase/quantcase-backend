@@ -27,12 +27,16 @@ const TARGET_TICKERS = [
 ];
 
 const TARGET_SKILLS = [
-  'guidance-credibility',
-  'disclosure-honesty',
-  'capital-allocation',
-  'promoter-activity',
-  'customer-distribution',
-  'earnings-forecast',
+  // 'guidance-credibility',
+  // 'disclosure-honesty',
+  // 'capital-allocation',
+  // 'promoter-activity',
+  // 'customer-distribution',
+  // 'earnings-forecast',
+  // 'financial-strength',
+  // 'industry-analysis',
+  // 'pe-rerating-potential',
+  'competition',
 ];
 
 const CONCURRENCY = 5;
