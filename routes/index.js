@@ -28,6 +28,7 @@ const annualReportsRouter     = require('./annual_reports.routes');
 const htmlSkillsRouter        = require('./htmlSkills.routes');
 const billingRouter           = require('./billing.routes');
 const smallcaseRouter         = require('./smallcase.routes');
+const pipelineRouter          = require('./pipeline.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -80,6 +81,7 @@ router.use('/api/annual-reports', annualReportsRouter);
 router.use('/api/html-skills',   htmlSkillsRouter);
 router.use('/api/billing',       billingRouter);
 router.use('/api/smallcase',     smallcaseRouter);
+router.use('/api/pipeline',      pipelineRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);
