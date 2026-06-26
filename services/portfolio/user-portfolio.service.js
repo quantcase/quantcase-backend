@@ -70,9 +70,8 @@ async function getUserPortfolio(userId) {
     },
   });
   if (!portfolio) {
-    const e = new Error('No portfolio found for this user');
-    e.status = 404;
-    throw e;
+    console.log(`[getUserPortfolio] No portfolio linked for user ${userId} — returning empty state`);
+    return { portfolio: null, holdings: [], empty: true };
   }
 
   const tickers    = [...new Set(portfolio.holdings.map(h => h.ticker))];
