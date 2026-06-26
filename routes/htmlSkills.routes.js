@@ -67,7 +67,7 @@ router.get('/', async (req, res, next) => {
     const { includeInactive } = req.query;
     const skills = await prisma.htmlSkill.findMany({
       where:  includeInactive === 'true' ? {} : { is_active: true },
-      select: { id: true, slug: true, name: true, category: true, transcript_signal_types: true, ppt_signal_types: true, annual_report_signal_types: true, model: true, max_tokens: true, max_transcript_qtrs: true, max_ppt_qtrs: true, max_annual_report_years: true, market_data_months: true, is_active: true, created_at: true, updated_at: true },
+      select: { id: true, slug: true, name: true, category: true, transcript_signal_types: true, ppt_signal_types: true, annual_report_signal_types: true, model: true, max_tokens: true, max_transcript_qtrs: true, max_ppt_qtrs: true, max_annual_report_years: true, market_data_signal_types: true, max_market_data_months: true, is_active: true, created_at: true, updated_at: true },
     });
     res.json({ count: skills.length, skills: sortSkills(skills) });
   } catch (err) {
@@ -84,7 +84,7 @@ router.post('/run-preview', async (req, res, next) => {
       ticker, skill_prompt,
       transcript_signal_types, ppt_signal_types, annual_report_signal_types,
       model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
-      market_data_months, force,
+      market_data_signal_types, max_market_data_months, force,
     } = req.body;
 
     if (!ticker)       return res.status(400).json({ error: 'ticker is required' });
@@ -100,10 +100,11 @@ router.post('/run-preview', async (req, res, next) => {
       annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],
       model,
       max_tokens,
-      max_transcript_qtrs:     max_transcript_qtrs     ?? null,
-      max_ppt_qtrs:            max_ppt_qtrs            ?? null,
-      max_annual_report_years: max_annual_report_years ?? null,
-      market_data_months:      market_data_months      ?? null,
+      max_transcript_qtrs:      max_transcript_qtrs     ?? null,
+      max_ppt_qtrs:             max_ppt_qtrs            ?? null,
+      max_annual_report_years:  max_annual_report_years ?? null,
+      market_data_signal_types: Array.isArray(market_data_signal_types) ? market_data_signal_types : [],
+      max_market_data_months:   max_market_data_months ?? null,
       force: force === true,
     });
 
@@ -127,7 +128,7 @@ router.get('/:slug', async (req, res, next) => {
 // POST /api/html-skills — create a skill
 router.post('/', async (req, res, next) => {
   try {
-    const { slug, name, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, category, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_months, is_active } = req.body;
+    const { slug, name, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, category, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months, is_active } = req.body;
     if (!slug || !name || !skill_prompt || !category) {
       return res.status(400).json({ error: 'slug, name, skill_prompt, and category are required' });
     }
@@ -142,7 +143,8 @@ router.post('/', async (req, res, next) => {
         ...(max_transcript_qtrs     != null && { max_transcript_qtrs }),
         ...(max_ppt_qtrs            != null && { max_ppt_qtrs }),
         ...(max_annual_report_years != null && { max_annual_report_years }),
-        ...(market_data_months      != null && { market_data_months }),
+        ...(Array.isArray(market_data_signal_types) && { market_data_signal_types }),
+        ...(max_market_data_months != null && { max_market_data_months }),
         ...(is_active               != null && { is_active }),
       },
     });
@@ -156,7 +158,7 @@ router.post('/', async (req, res, next) => {
 // PUT /api/html-skills/:slug — update a skill
 router.put('/:slug', async (req, res, next) => {
   try {
-    const allowed = ['name', 'skill_prompt', 'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types', 'category', 'model', 'max_tokens', 'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'market_data_months', 'is_active'];
+    const allowed = ['name', 'skill_prompt', 'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types', 'category', 'model', 'max_tokens', 'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'market_data_signal_types', 'max_market_data_months', 'is_active'];
     const data = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) data[key] = req.body[key];

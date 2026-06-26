@@ -10,17 +10,65 @@ const PREVIEW_SKILL_SLUG = '__preview__';
 // ── nse_equity_new market data helpers ───────────────────────────────────────
 
 /**
- * Fetch P/E and CMP time-series from nse_equity_new for a ticker.
- * @param {string} ticker
- * @param {number} months  How many months of history to fetch (from skill.market_data_months)
- * @returns {object|null}  { latest, weekly, monthly, quarterly } or null when no data
+ * Aggregate an array of { date, value } daily rows into monthly and quarterly buckets.
  */
-async function fetchNseMarketTimeseries(ticker, months) {
+function aggregateTimeseries(rows) {
+  const monthMap = new Map();
+  const qMap     = new Map();
+
+  for (const r of rows) {
+    const d    = r.date instanceof Date ? r.date : new Date(r.date);
+    const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const qKey = `${d.getFullYear()}Q${Math.floor(d.getMonth() / 3) + 1}`;
+
+    if (!monthMap.has(mKey)) monthMap.set(mKey, { sum: 0, count: 0 });
+    if (!qMap.has(qKey))     qMap.set(qKey,     { sum: 0, count: 0 });
+
+    if (r.value != null) {
+      const m = monthMap.get(mKey); m.sum += r.value; m.count++;
+      const q = qMap.get(qKey);     q.sum += r.value; q.count++;
+    }
+  }
+
+  const monthly   = [...monthMap.entries()].map(([period, m]) => ({ period, avg: m.count ? parseFloat((m.sum / m.count).toFixed(2)) : null }));
+  const quarterly = [...qMap.entries()].map(([period, q])     => ({ period, avg: q.count ? parseFloat((q.sum / q.count).toFixed(2)) : null }));
+  return { monthly, quarterly };
+}
+
+/**
+ * Fetch P/E time-series from nse_equity_new for a ticker over the given months window.
+ * Returns { latest, daily, monthly, quarterly } or null when no data.
+ */
+async function fetchNsePeTimeseries(ticker, months) {
   const rows = await prisma.$queryRawUnsafe(`
-    SELECT datetime, pe::float AS pe, close::float AS cmp
+    SELECT datetime AS date, pe::float AS value
     FROM   nse_equity_new
     WHERE  symbol   = $1
       AND  pe       IS NOT NULL
+      AND  datetime >= NOW() - ($2 || ' months')::INTERVAL
+    ORDER  BY datetime ASC
+  `, ticker, String(months));
+
+  if (!rows || rows.length === 0) return null;
+
+  const daily = rows.map(r => ({
+    date:  (r.date instanceof Date ? r.date : new Date(r.date)).toISOString().slice(0, 10),
+    value: r.value != null ? parseFloat(r.value.toFixed(2)) : null,
+  }));
+
+  const { monthly, quarterly } = aggregateTimeseries(rows);
+  return { latest: daily.at(-1), daily, monthly, quarterly };
+}
+
+/**
+ * Fetch CMP time-series from nse_equity_new for a ticker over the given months window.
+ * Returns { latest, daily, monthly, quarterly } or null when no data.
+ */
+async function fetchNseCmpTimeseries(ticker, months) {
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT datetime AS date, close::float AS value
+    FROM   nse_equity_new
+    WHERE  symbol   = $1
       AND  close    IS NOT NULL
       AND  datetime >= NOW() - ($2 || ' months')::INTERVAL
     ORDER  BY datetime ASC
@@ -28,77 +76,54 @@ async function fetchNseMarketTimeseries(ticker, months) {
 
   if (!rows || rows.length === 0) return null;
 
-  const weekly = rows.map(r => {
-    const d = r.datetime instanceof Date ? r.datetime : new Date(r.datetime);
-    return {
-      date: d.toISOString().slice(0, 10),
-      pe:   r.pe  != null ? parseFloat(r.pe.toFixed(1))  : null,
-      cmp:  r.cmp != null ? parseFloat(r.cmp.toFixed(1)) : null,
-    };
-  });
-
-  // Monthly averages
-  const monthMap = new Map();
-  for (const r of rows) {
-    const d   = r.datetime instanceof Date ? r.datetime : new Date(r.datetime);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    if (!monthMap.has(key)) monthMap.set(key, { peSum: 0, peCount: 0, cmpSum: 0, cmpCount: 0 });
-    const m = monthMap.get(key);
-    if (r.pe  != null) { m.peSum  += r.pe;  m.peCount++;  }
-    if (r.cmp != null) { m.cmpSum += r.cmp; m.cmpCount++; }
-  }
-  const monthly = [...monthMap.entries()].map(([month, m]) => ({
-    month,
-    avg_pe:  m.peCount  ? parseFloat((m.peSum  / m.peCount).toFixed(1))  : null,
-    avg_cmp: m.cmpCount ? parseFloat((m.cmpSum / m.cmpCount).toFixed(1)) : null,
+  const daily = rows.map(r => ({
+    date:  (r.date instanceof Date ? r.date : new Date(r.date)).toISOString().slice(0, 10),
+    value: r.value != null ? parseFloat(r.value.toFixed(2)) : null,
   }));
 
-  // Quarterly averages
-  const qMap = new Map();
-  for (const r of rows) {
-    const d   = r.datetime instanceof Date ? r.datetime : new Date(r.datetime);
-    const q   = Math.floor(d.getMonth() / 3) + 1;
-    const key = `${d.getFullYear()}Q${q}`;
-    if (!qMap.has(key)) qMap.set(key, { peSum: 0, peCount: 0, cmpSum: 0, cmpCount: 0 });
-    const m = qMap.get(key);
-    if (r.pe  != null) { m.peSum  += r.pe;  m.peCount++;  }
-    if (r.cmp != null) { m.cmpSum += r.cmp; m.cmpCount++; }
-  }
-  const quarterly = [...qMap.entries()].map(([quarter, m]) => ({
-    quarter,
-    avg_pe:  m.peCount  ? parseFloat((m.peSum  / m.peCount).toFixed(1))  : null,
-    avg_cmp: m.cmpCount ? parseFloat((m.cmpSum / m.cmpCount).toFixed(1)) : null,
-  }));
-
-  return { latest: weekly.at(-1), weekly, monthly, quarterly };
+  const { monthly, quarterly } = aggregateTimeseries(rows);
+  return { latest: daily.at(-1), daily, monthly, quarterly };
 }
 
 /**
- * Format nse_equity_new time-series into a prompt block.
- * All three frequency buckets are included so the LLM-generated HTML
- * can render toggle buttons to switch between them.
+ * Build a TSV prompt block for a single market metric (P/E or CMP).
+ * All three frequency views (daily/monthly/quarterly) are included so the
+ * LLM-generated HTML can render a time-frequency toggle.
  */
-function buildMarketDataBlock(data) {
+function buildMetricBlock(label, unit, data) {
   if (!data) return '';
 
   const lines = [
+    `${label} (${unit}) — latest: ${data.latest?.value ?? 'N/A'} as_of ${data.latest?.date ?? 'N/A'}`,
+    '',
+    'Daily:',
+    'date\tvalue',
+  ];
+  for (const r of data.daily)     lines.push(`${r.date}\t${r.value ?? ''}`);
+  lines.push('', 'Monthly averages:', 'period\tavg');
+  for (const r of data.monthly)   lines.push(`${r.period}\t${r.avg ?? ''}`);
+  lines.push('', 'Quarterly averages:', 'period\tavg');
+  for (const r of data.quarterly) lines.push(`${r.period}\t${r.avg ?? ''}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Assemble the full MARKET DATA block from independently-fetched pe/cmp series.
+ * Either series may be null (not configured for this skill).
+ */
+function buildMarketDataBlock(peData, cmpData) {
+  const sections = [];
+  if (peData)  sections.push(buildMetricBlock('P/E RATIO', 'x',  peData));
+  if (cmpData) sections.push(buildMetricBlock('CMP',       '₹', cmpData));
+  if (!sections.length) return '';
+
+  return [
     '',
     '--- MARKET DATA (nse_equity_new) ---',
-    `Latest: PE=${data.latest?.pe ?? 'N/A'}, CMP=₹${data.latest?.cmp ?? 'N/A'}, as_of=${data.latest?.date ?? 'N/A'}`,
-    '',
-    'Weekly:',
-    'date\tpe\tcmp',
-  ];
-  for (const r of data.weekly) lines.push(`${r.date}\t${r.pe ?? ''}\t${r.cmp ?? ''}`);
-
-  lines.push('', 'Monthly averages:', 'month\tavg_pe\tavg_cmp');
-  for (const r of data.monthly) lines.push(`${r.month}\t${r.avg_pe ?? ''}\t${r.avg_cmp ?? ''}`);
-
-  lines.push('', 'Quarterly averages:', 'quarter\tavg_pe\tavg_cmp');
-  for (const r of data.quarterly) lines.push(`${r.quarter}\t${r.avg_pe ?? ''}\t${r.avg_cmp ?? ''}`);
-
-  lines.push('--- END MARKET DATA ---');
-  return lines.join('\n');
+    sections.join('\n\n'),
+    '--- END MARKET DATA ---',
+  ].join('\n');
 }
 
 function stripMarkdownFences(text) {
@@ -249,11 +274,13 @@ async function buildHtmlSkillPrompt({
   });
   const dataBlock = buildDataBlock(signals);
 
-  let marketDataBlock = '';
-  if (skill.market_data_months != null) {
-    const marketData = await fetchNseMarketTimeseries(ticker, skill.market_data_months);
-    marketDataBlock = buildMarketDataBlock(marketData);
-  }
+  const mdTypes = new Set(skill.market_data_signal_types ?? []);
+  const mdMonths = skill.max_market_data_months;
+  const [peData, cmpData] = await Promise.all([
+    (mdTypes.has('pe')  && mdMonths != null) ? fetchNsePeTimeseries(ticker,  mdMonths) : null,
+    (mdTypes.has('cmp') && mdMonths != null) ? fetchNseCmpTimeseries(ticker, mdMonths) : null,
+  ]);
+  const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
   const systemPrompt = [
     'You are a financial analyst assistant.',
@@ -321,11 +348,13 @@ async function runHtmlSkill({
 
   const dataBlock = buildDataBlock(signals);
 
-  let marketDataBlock = '';
-  if (skill.market_data_months != null) {
-    const marketData = await fetchNseMarketTimeseries(ticker, skill.market_data_months);
-    marketDataBlock = buildMarketDataBlock(marketData);
-  }
+  const mdTypes = new Set(skill.market_data_signal_types ?? []);
+  const mdMonths = skill.max_market_data_months;
+  const [peData, cmpData] = await Promise.all([
+    (mdTypes.has('pe')  && mdMonths != null) ? fetchNsePeTimeseries(ticker,  mdMonths) : null,
+    (mdTypes.has('cmp') && mdMonths != null) ? fetchNseCmpTimeseries(ticker, mdMonths) : null,
+  ]);
+  const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
   const systemPrompt = [
     'Return ONLY a complete, standalone HTML file. No markdown. No explanation. No backticks.',
@@ -396,7 +425,7 @@ async function getPreviewSkill() {
 /**
  * Compute a stable cache key for a preview run from its config inputs.
  */
-function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_months }) {
+function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months }) {
   const payload = [
     ticker,
     model,
@@ -407,7 +436,8 @@ function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_si
     String(max_transcript_qtrs ?? ''),
     String(max_ppt_qtrs ?? ''),
     String(max_annual_report_years ?? ''),
-    String(market_data_months ?? ''),
+    [...(market_data_signal_types ?? [])].sort().join(','),
+    String(max_market_data_months ?? ''),
     skill_prompt,
   ].join('|');
   return createHash('sha256').update(payload).digest('hex');
@@ -429,12 +459,14 @@ function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_si
  * @param {number|null} [opts.max_transcript_qtrs]
  * @param {number|null} [opts.max_ppt_qtrs]
  * @param {number|null} [opts.max_annual_report_years]
- * @param {number|null} [opts.market_data_months]  Include nse_equity_new P/E+CMP block for this many months (null = omit)
+ * @param {string[]} [opts.market_data_signal_types]  Which market metrics to include ("pe", "cmp")
+ * @param {number|null} [opts.market_pe_months]        Months of P/E history (requires "pe" in signal types)
+ * @param {number|null} [opts.market_cmp_months]       Months of CMP history (requires "cmp" in signal types)
  * @param {boolean}  [opts.force]  Skip cache
  */
-async function runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_months = null, force = false }) {
+async function runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types = [], max_market_data_months = null, force = false }) {
   const previewSkill = await getPreviewSkill();
-  const prompt_v     = previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_months });
+  const prompt_v     = previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months });
 
   if (!force) {
     const cached = await prisma.htmlSkillOutput.findFirst({
@@ -455,11 +487,12 @@ async function runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_typ
 
   const dataBlock = buildDataBlock(signals);
 
-  let marketDataBlock = '';
-  if (market_data_months != null) {
-    const marketData = await fetchNseMarketTimeseries(ticker, market_data_months);
-    marketDataBlock = buildMarketDataBlock(marketData);
-  }
+  const mdTypes = new Set(market_data_signal_types ?? []);
+  const [peData, cmpData] = await Promise.all([
+    (mdTypes.has('pe')  && max_market_data_months != null) ? fetchNsePeTimeseries(ticker,  max_market_data_months) : null,
+    (mdTypes.has('cmp') && max_market_data_months != null) ? fetchNseCmpTimeseries(ticker, max_market_data_months) : null,
+  ]);
+  const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
   const systemPrompt = [
     'Return ONLY a complete, standalone HTML file. No markdown. No explanation. No backticks.',

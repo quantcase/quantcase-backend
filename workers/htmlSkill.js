@@ -59,12 +59,12 @@ worker.on('failed',    (job, err) => console.error(`[htmlSkill] Job ${job.id} fa
 worker.on('error',     (err)      => console.error('[htmlSkill] Worker error:', err));
 
 async function processHtmlSkillPreviewJob(job) {
-  const { ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_months, force } = job.data;
+  const { ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months, force } = job.data;
   console.log(`[htmlSkillPreview] Processing job ${job.id} (ticker: ${ticker})`);
 
   try {
     await job.updateProgress(10);
-    const result = await runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_months, force });
+    const result = await runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months, force });
     await job.updateProgress(100);
 
     console.log(`[htmlSkillPreview] Job ${job.id} done — cached: ${result.cached}`);
