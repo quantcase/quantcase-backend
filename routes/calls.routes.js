@@ -16,10 +16,7 @@ router.get('/:callId', callsController.getCallById);
 router.get('/:callId/summary', summaryController.getSummary);
 
 // Job enqueue routes
-router.post('/:callId/summarize',       jobsController.enqueueSummarization);
 router.post('/:callId/summarize-v2',     jobsController.enqueueSummarizationV2);
 router.post('/:callId/summarize-v2-ppt', jobsController.enqueueSummarizationV2Ppt);
-router.post('/:callId/extract-qe',      jobsController.enqueueQeExtraction);
-router.post('/:callId/extract-prowess', jobsController.enqueueProwessExtraction);
 
 module.exports = router;

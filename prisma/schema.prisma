@@ -8,6 +8,8 @@ datasource db {
   directUrl = env("DIRECT_DATABASE_URL")
 }
 
+// ─── Core Pipeline ────────────────────────────────────────────────────────────
+
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model earnings_calls {
   id                    String    @id(map: "earnings_calls_pkey1")
@@ -31,128 +33,16 @@ model earnings_calls {
   @@index([company, fiscal_year, quarter])
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model earnings_calls_1 {
-  id              String    @id(map: "earnings_calls_test_pkey")
-  company         String
-  fiscal_year     String?
-  quarter         String?
-  call_date       String?
-  transcript_url  String?
-  transcript_text String?
-  ppt_url         String?
-  ppt_text        String?
-  created_at      DateTime? @default(now()) @db.Timestamp(6)
-  updated_at      DateTime? @default(now()) @db.Timestamp(6)
-  basic_industry  String?
-  company_name    String?
+model annual_reports {
+  id                BigInt    @id @default(autoincrement())
+  company           String?
+  document_type     String?
+  fiscal_year       String?
+  call_date         String?
+  annual_report_url String?
+  created_at        DateTime? @db.Timestamp(6)
 
-  @@index([company, fiscal_year, quarter], map: "earnings_calls_test_company_fiscal_year_quarter_idx")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model earnings_calls_2 {
-  id              String    @id(map: "earnings_calls_new_pkey")
-  company         String
-  fiscal_year     String?
-  quarter         String?
-  call_date       String?
-  transcript_url  String?
-  transcript_text String?
-  ppt_url         String?
-  ppt_text        String?
-  created_at      DateTime? @default(now()) @db.Timestamp(6)
-  updated_at      DateTime? @default(now()) @db.Timestamp(6)
-  basic_industry  String?
-  company_name    String?
-
-  @@index([company, fiscal_year, quarter], map: "earnings_calls_new_company_fiscal_year_quarter_idx")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model earnings_calls_test {
-  id                    String    @id(map: "earnings_calls_pkey")
-  company               String
-  fiscal_year           String?
-  quarter               String?
-  call_date             String?
-  transcript_url        String?
-  transcript_text       String?
-  ppt_url               String?
-  ppt_text              String?
-  created_at            DateTime? @default(now()) @db.Timestamp(6)
-  updated_at            DateTime? @default(now()) @db.Timestamp(6)
-  quarterly_result      String?
-  quarterly_result_url  String?
-  quarterly_result_text String?
-  updated_ppt_text      String?
-
-  @@index([company, fiscal_year, quarter], map: "idx_company_fy_quarter")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model kv_store_abda8bef {
-  key   String @id
-  value Json
-
-  @@index([key])
-  @@index([key], map: "kv_store_abda8bef_key_idx1")
-  @@index([key], map: "kv_store_abda8bef_key_idx2")
-  @@index([key], map: "kv_store_abda8bef_key_idx3")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model nse_equity {
-  id            Int       @id(map: "nse_daily_data_pkey") @default(autoincrement())
-  symbol        String?
-  datetime      DateTime? @db.Timestamp(6)
-  open          Float?
-  high          Float?
-  low           Float?
-  close         Float?
-  volume        BigInt?
-  pe            Float?
-  market_cap_cr Float?
-
-  @@unique([symbol, datetime], map: "unique_symbol_datetime")
-  @@index([symbol])
-}
-
-model nse_equity_new {
-  symbol        String   @db.VarChar
-  company_name  String   @db.VarChar
-  datetime      DateTime @db.Date
-  open          Float?
-  high          Float?
-  low           Float?
-  close         Float?
-  volume        Int?
-  pe            Float?
-  eps           Float?
-  market_cap_cr Float?
-
-  @@id([symbol, datetime])
-  @@map("nse_equity_new")
-}
-
-model nse_index {
-  id       Int       @id @default(autoincrement())
-  sector   String?
-  datetime DateTime? @db.Date
-  open     Decimal?  @db.Decimal
-  high     Decimal?  @db.Decimal
-  low      Decimal?  @db.Decimal
-  close    Decimal?  @db.Decimal
-  volume   BigInt?
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model users {
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  email      String?
-  password   String?
-  role       String?
-  id         BigInt   @id @default(autoincrement())
+  @@map("annual_reports")
 }
 
 model Job {
@@ -173,43 +63,26 @@ model Job {
   @@map("jobs")
 }
 
-model Summary {
-  id                String   @id @default(uuid())
-  callId            String   @unique @map("call_id")
-  entities          Json?
-  milestones        Json?
-  governanceSignals Json?    @map("governance_signals")
-  confidence        String?
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-  riskDisclosures   Json?    @map("risk_disclosures")
-  tone              String?
-  industryAnalysis  Json?    @map("industry_analysis")
-  kpis              Json?
+model PipelineJobFailure {
+  id              String   @id @default(uuid())
+  queue           String
+  bullmq_job_id   String   @unique
+  call_id         String
+  source_doc_type String
+  chunk_index     Int?
+  total_chunks    Int?
+  lineage_id      String?
+  error_message   String?
+  attempts_made   Int?
+  failed_at       DateTime @default(now())
 
-  @@index([callId])
-  @@map("summaries")
+  @@index([call_id])
+  @@index([source_doc_type])
+  @@index([failed_at])
+  @@map("pipeline_job_failures")
 }
 
-model SummaryNew {
-  id                String   @id @default(uuid())
-  callId            String   @unique @map("call_id")
-  kpis              Json?
-  entities          Json?
-  milestones        Json?
-  riskDisclosures   Json?    @map("risk_disclosures")
-  governanceSignals Json?    @map("governance_signals")
-  industryAnalysis  Json?    @map("industry_analysis")
-  financialStrength Json?    @map("financial_strength")
-  clientTraction    Json?    @map("client_traction")
-  tone              String?
-  confidence        String?
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-
-  @@index([callId])
-  @@map("summary_new")
-}
+// ─── KPI & Prowess ────────────────────────────────────────────────────────────
 
 model Kpi {
   id            String            @id @default(uuid())
@@ -300,31 +173,407 @@ model ProwessValueNew {
   @@map("prowess_values_new")
 }
 
-model MilestoneKpiTarget {
+model SummaryNew {
   id                String   @id @default(uuid())
-  callId            String   @map("call_id")
-  company           String
-  fiscal_year       String?
-  quarter           String?
-  call_date         String?
-  category          String
-  kpi_abbr          String
-  statement         String?
-  current_value     Float?   @map("current_value")
-  targeted_value    Float?   @map("targeted_value")
-  initial_time      String?  @map("initial_time")
-  target_time       String?  @map("target_time")
+  callId            String   @unique @map("call_id")
+  kpis              Json?
+  entities          Json?
+  milestones        Json?
+  riskDisclosures   Json?    @map("risk_disclosures")
+  governanceSignals Json?    @map("governance_signals")
+  industryAnalysis  Json?    @map("industry_analysis")
+  financialStrength Json?    @map("financial_strength")
+  clientTraction    Json?    @map("client_traction")
+  tone              String?
+  confidence        String?
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
-  multiplier        Int      @default(1)
-  currency          String?  @map("currency")
-  cumulative_period Int?     @map("cumulative_period")
 
   @@index([callId])
-  @@index([company, kpi_abbr])
-  @@index([kpi_abbr])
-  @@map("milestone_kpi_targets")
+  @@map("summary_new")
 }
+
+// ─── Signals & Lenses ─────────────────────────────────────────────────────────
+
+model TranscriptSignalV2 {
+  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  call_id         String
+  ticker          String
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  signal_type     String
+  source_context  String?
+  source_stmt_id  String?
+  signal_seq_id   String?
+  metric          String?
+  impact          String?
+  severity        String?
+  statement       String?
+  data            Json
+  source_hash     String
+  prompt_v        String
+  extractor_model String
+  lineage_id      String
+  is_invalidated  Boolean  @default(false)
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  source_doc_type String?
+
+  @@index([source_doc_type])
+  @@index([call_id], map: "tsv2_call_id")
+  @@index([call_id, signal_type], map: "tsv2_call_type")
+  @@index([lineage_id], map: "tsv2_lineage")
+  @@index([source_hash], map: "tsv2_src_hash")
+  @@index([ticker, signal_type], map: "tsv2_tick_type")
+  @@index([ticker], map: "tsv2_ticker")
+  @@map("transcript_signals_v2")
+}
+
+model ExtractedSignal {
+  id              String           @id @default(uuid())
+  call_id         String
+  ticker          String
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  source_type     SignalSourceType
+  signal_type     String
+  metric          String
+  value           Float?
+  raw_value       String?
+  unit            String?
+  multiplier      Float            @default(1)
+  w               Float            @default(1.0)
+  b               Float            @default(0.0)
+  confidence      Float?
+  time_horizon    String?
+  esg_tag         String?
+  risk_tag        String?
+  sector          String?
+  metric_family   String?
+  source_hash     String
+  prompt_v        String
+  schema_v        String           @default("2.0.0")
+  extractor_model String
+  lineage_id      String
+  statement       String?
+  start_date      String?
+  end_date        String?
+  period_type     String?
+  is_invalidated  Boolean          @default(false)
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+  impact          String?
+  severity        String?
+
+  @@unique([call_id, signal_type, metric, source_hash, prompt_v, start_date])
+  @@index([ticker])
+  @@index([call_id])
+  @@index([ticker, metric_family])
+  @@index([source_hash])
+  @@map("extracted_signals")
+}
+
+model LensConfig {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String?
+  is_active   Boolean  @default(true)
+  version     String   @default("1.0.0")
+  config      Json
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  category    String?
+
+  @@index([slug])
+  @@index([category])
+  @@map("lens_configs")
+}
+
+model LensScore {
+  id               String   @id @default(uuid())
+  call_id          String
+  ticker           String
+  lens_slug        String
+  z_score          Float
+  confidence_lo    Float?
+  confidence_hi    Float?
+  signal_count     Int
+  lens_config_v    String
+  signals_snapshot Json
+  is_stale         Boolean  @default(false)
+  computed_at      DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  lens_data        Json?
+  signals_hash     String?
+
+  @@unique([call_id, lens_slug])
+  @@index([ticker, lens_slug])
+  @@index([call_id])
+  @@map("lens_scores")
+}
+
+model AiInsight {
+  id               String   @id @default(uuid())
+  ticker           String
+  type             String
+  insight          Json
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  lens_scores_hash String?  @map("lens_scores_hash")
+  prompt_v         String?  @map("prompt_v")
+
+  @@unique([ticker, type])
+  @@index([ticker])
+  @@index([type])
+  @@map("ai_insights")
+}
+
+// ─── Skills & Plugins ─────────────────────────────────────────────────────────
+
+model HtmlSkill {
+  id                         String            @id @default(uuid())
+  slug                       String            @unique
+  name                       String
+  skill_prompt               String
+  transcript_signal_types    String[]
+  ppt_signal_types           String[]
+  annual_report_signal_types String[]
+  category                   PluginCategory
+  model                      String            @default("~anthropic/claude-haiku-latest")
+  max_tokens                 Int               @default(16000)
+  max_transcript_qtrs        Int?
+  max_ppt_qtrs               Int?
+  max_annual_report_years    Int?
+  market_data_signal_types   String[]
+  max_market_data_months     Int?
+  is_active                  Boolean           @default(true)
+  created_at                 DateTime          @default(now())
+  updated_at                 DateTime          @updatedAt
+  outputs                    HtmlSkillOutput[]
+
+  @@index([slug])
+  @@index([category])
+  @@map("html_skills")
+}
+
+model HtmlSkillOutput {
+  id            String    @id @default(uuid())
+  skill_id      String    @map("skill_id")
+  ticker        String
+  call_id       String?   @map("call_id")
+  fiscal_year   String?   @map("fiscal_year")
+  quarter       String?
+  raw_html      String
+  prompt_v      String    @map("prompt_v")
+  model         String
+  input_tokens  Int?      @map("input_tokens")
+  output_tokens Int?      @map("output_tokens")
+  cost_usd      Float?    @map("cost_usd")
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  skill         HtmlSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  @@unique([skill_id, ticker, fiscal_year, quarter])
+  @@index([ticker])
+  @@index([skill_id])
+  @@index([call_id])
+  @@map("html_skill_outputs")
+}
+
+model Skill {
+  id                  String        @id @default(uuid())
+  name                String        @unique
+  description         String?
+  promptKey           String        @map("prompt_key")
+  model               String        @default("anthropic/claude-haiku-4.5")
+  maxTokens           Int           @default(16000) @map("max_tokens")
+  outputSchema        Json?         @map("output_schema")
+  isActive            Boolean       @default(true) @map("is_active")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+  defaultInstructions String?       @map("default_instructions")
+  promptTemplate      String?       @map("prompt_template")
+  slug                String?       @unique
+  pluginSkills        PluginSkill[]
+
+  @@index([name])
+  @@map("skills")
+}
+
+model Plugin {
+  id           String         @id @default(uuid())
+  name         String         @unique
+  description  String?
+  category     PluginCategory
+  isActive     Boolean        @default(true) @map("is_active")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  slug         String?        @unique
+  pluginSkills PluginSkill[]
+
+  @@index([category])
+  @@map("plugins")
+}
+
+model PluginSkill {
+  id       String @id @default(uuid())
+  pluginId String @map("plugin_id")
+  skillId  String @map("skill_id")
+  order    Int
+  plugin   Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  skill    Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([pluginId, skillId])
+  @@unique([pluginId, order])
+  @@index([pluginId])
+  @@index([skillId])
+  @@map("plugin_skills")
+}
+
+// ─── Market Data ──────────────────────────────────────────────────────────────
+
+model nse_equity_new {
+  symbol        String   @db.VarChar
+  company_name  String   @db.VarChar
+  datetime      DateTime @db.Date
+  open          Float?
+  high          Float?
+  low           Float?
+  close         Float?
+  volume        Int?
+  pe            Float?
+  eps           Float?
+  market_cap_cr Float?
+
+  @@id([symbol, datetime])
+  @@map("nse_equity_new")
+}
+
+model nse_index {
+  id       Int       @id @default(autoincrement())
+  sector   String?
+  datetime DateTime? @db.Date
+  open     Decimal?  @db.Decimal
+  high     Decimal?  @db.Decimal
+  low      Decimal?  @db.Decimal
+  close    Decimal?  @db.Decimal
+  volume   BigInt?
+}
+
+model shareholding_pattern {
+  id                        String   @id @default(uuid())
+  company                   String
+  quarter_label             String
+  fiscal_year               String
+  quarter_code              String
+  total                     Float?
+  promoters                 Float?
+  indian_promoters          Float?
+  indian_promoter_indv_huf  Float?
+  indian_central_state_govt Float?
+  indian_promoter_corp      Float?
+  indian_promoter_fi_banks  Float?
+  other_indian_promoters    Float?
+  foreign_promoters         Float?
+  foreign_indv_nri          Float?
+  foreign_promoter_corp     Float?
+  foreign_promoter_inst     Float?
+  promoter_qfi              Float?
+  other_foreign_promoters   Float?
+  persons_acting_in_concert Float?
+  non_promoters             Float?
+  non_promoter_inst         Float?
+  np_mutual_funds           Float?
+  np_banks_fi_ins           Float?
+  np_insurance              Float?
+  np_fi_banks               Float?
+  np_central_state_govt     Float?
+  np_fiis                   Float?
+  np_venture_capital        Float?
+  np_foreign_venture        Float?
+  np_qfi_inst               Float?
+  other_inst_np             Float?
+  np_non_inst               Float?
+  np_corp_bodies            Float?
+  np_individuals            Float?
+  np_indv_upto_1l           Float?
+  np_indv_over_1l           Float?
+  np_qfi                    Float?
+  other_non_inst_np         Float?
+  custodians                Float?
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+
+  @@unique([company, quarter_label])
+  @@index([company])
+  @@index([company, fiscal_year, quarter_code])
+  @@map("shareholding_pattern")
+}
+
+// ─── Industry Intelligence (IIT) ─────────────────────────────────────────────
+
+model IitWeeklyStockScore {
+  id                  String   @id @default(uuid())
+  week_date           DateTime @db.Date
+  ticker              String
+  basic_industry      String
+  economic_model      String
+  regime              String   @default("Neutral")
+  momentum_score      Float?
+  growth_score        Float?
+  profitability_score Float?
+  balance_sheet_score Float?
+  breadth_score       Float?
+  sentiment_score     Float?
+  valuation_score     Float?
+  composite_score     Float?
+  factor_weights      Json?
+  data_flags          Json?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  @@unique([week_date, ticker])
+  @@index([week_date])
+  @@index([ticker])
+  @@index([basic_industry])
+  @@index([week_date, basic_industry])
+  @@map("iit_weekly_stock_scores")
+}
+
+model IitClusterScore {
+  id                 String   @id @default(uuid())
+  week_date          DateTime @db.Date
+  basic_industry     String
+  median_score       Float?
+  breadth_pct        Float?
+  composite_score    Float?
+  rank               Int?
+  rank_prev          Int?
+  wow_delta          Int?
+  velocity_3w        Int?
+  rank_trend         String?
+  quartile           String?
+  score_wow_delta    Float?
+  stock_count        Int?
+  scored_stock_count Int?
+  regime             String   @default("Neutral")
+  low_confidence     Boolean  @default(false)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  @@unique([week_date, basic_industry])
+  @@index([week_date])
+  @@index([basic_industry])
+  @@index([week_date, rank])
+  @@map("iit_cluster_scores")
+}
+
+// ─── WealthOS ─────────────────────────────────────────────────────────────────
 
 model WealthRmUser {
   id                String              @id @default(uuid())
@@ -504,237 +753,28 @@ model WealthFeatureStore {
   @@map("wealth_feature_store")
 }
 
-model annual_reports {
-  id                BigInt    @id @default(autoincrement())
-  company           String?
-  document_type     String?
-  fiscal_year       String?
-  call_date         String?
-  annual_report_url String?
-  created_at        DateTime? @db.Timestamp(6)
+// ─── User & Auth ──────────────────────────────────────────────────────────────
 
-  @@map("annual_reports")
-}
-
-model investor_presentations_ppt {
-  id             String    @id
-  company        String?
-  fiscal_year    String?
-  quarter        String?
-  call_date      String?
-  ppt_url        String?
-  ppt_text       String?
-  basic_industry String?
-  company_name   String?
-  created_at     DateTime? @db.Timestamp(6)
-  updated_at     DateTime? @db.Timestamp(6)
-}
-
-model prowess_kpi_values {
-  id          String
-  call_id     String
-  company     String
-  fiscal_year String?
-  quarter     String?
-  call_date   String?
-  kpi_abbr    String
-  value       Float?
-  raw_value   String?
-  unit        String?
-  multiplier  Int       @default(1)
-  source      KpiSource
-  source_path String    @default("")
-  statement   String?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime
-  end_date    String?
-  start_date  String?
-  period_type String?
-
-  @@unique([call_id, kpi_abbr], map: "prowess_kv_call_kpi_unique")
-  @@index([call_id], map: "idx_pkv_call_id")
-  @@index([company, fiscal_year, quarter], map: "idx_pkv_company_fy_q")
-  @@index([company, kpi_abbr], map: "idx_pkv_company_kpi")
-  @@index([kpi_abbr], map: "idx_pkv_kpi")
-  @@index([kpi_abbr, period_type], map: "idx_pkv_kpi_period")
-}
-
-model IitWeeklyStockScore {
-  id                  String   @id @default(uuid())
-  week_date           DateTime @db.Date
-  ticker              String
-  basic_industry      String
-  economic_model      String
-  regime              String   @default("Neutral")
-  momentum_score      Float?
-  growth_score        Float?
-  profitability_score Float?
-  balance_sheet_score Float?
-  breadth_score       Float?
-  sentiment_score     Float?
-  valuation_score     Float?
-  composite_score     Float?
-  factor_weights      Json?
-  data_flags          Json?
-  created_at          DateTime @default(now())
-  updated_at          DateTime @updatedAt
-
-  @@unique([week_date, ticker])
-  @@index([week_date])
-  @@index([ticker])
-  @@index([basic_industry])
-  @@index([week_date, basic_industry])
-  @@map("iit_weekly_stock_scores")
-}
-
-model IitClusterScore {
-  id                 String   @id @default(uuid())
-  week_date          DateTime @db.Date
-  basic_industry     String
-  median_score       Float?
-  breadth_pct        Float?
-  composite_score    Float?
-  rank               Int?
-  rank_prev          Int?
-  wow_delta          Int?
-  velocity_3w        Int?
-  rank_trend         String?
-  quartile           String?
-  score_wow_delta    Float?
-  stock_count        Int?
-  scored_stock_count Int?
-  regime             String   @default("Neutral")
-  low_confidence     Boolean  @default(false)
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
-
-  @@unique([week_date, basic_industry])
-  @@index([week_date])
-  @@index([basic_industry])
-  @@index([week_date, rank])
-  @@map("iit_cluster_scores")
-}
-
-model shareholding_pattern {
-  id                        String   @id @default(uuid())
-  company                   String
-  quarter_label             String
-  fiscal_year               String
-  quarter_code              String
-  total                     Float?
-  promoters                 Float?
-  indian_promoters          Float?
-  indian_promoter_indv_huf  Float?
-  indian_central_state_govt Float?
-  indian_promoter_corp      Float?
-  indian_promoter_fi_banks  Float?
-  other_indian_promoters    Float?
-  foreign_promoters         Float?
-  foreign_indv_nri          Float?
-  foreign_promoter_corp     Float?
-  foreign_promoter_inst     Float?
-  promoter_qfi              Float?
-  other_foreign_promoters   Float?
-  persons_acting_in_concert Float?
-  non_promoters             Float?
-  non_promoter_inst         Float?
-  np_mutual_funds           Float?
-  np_banks_fi_ins           Float?
-  np_insurance              Float?
-  np_fi_banks               Float?
-  np_central_state_govt     Float?
-  np_fiis                   Float?
-  np_venture_capital        Float?
-  np_foreign_venture        Float?
-  np_qfi_inst               Float?
-  other_inst_np             Float?
-  np_non_inst               Float?
-  np_corp_bodies            Float?
-  np_individuals            Float?
-  np_indv_upto_1l           Float?
-  np_indv_over_1l           Float?
-  np_qfi                    Float?
-  other_non_inst_np         Float?
-  custodians                Float?
-  created_at                DateTime @default(now())
-  updated_at                DateTime @updatedAt
-
-  @@unique([company, quarter_label])
-  @@index([company])
-  @@index([company, fiscal_year, quarter_code])
-  @@map("shareholding_pattern")
-}
-
-model PortfolioModel {
-  id               String   @id @default(uuid())
-  name             String
-  riskProfile      String   @map("risk_profile")
-  capital          Float
-  assetClasses     Json     @map("asset_classes")
-  client           Json?
-  positions        Json?
-  whyThisPortfolio Json?    @map("why_this_portfolio")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-
-  @@index([riskProfile])
-  @@map("portfolio_models")
-}
-
-model AiInsight {
-  id               String   @id @default(uuid())
-  ticker           String
-  type             String
-  insight          Json
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
-  lens_scores_hash String?  @map("lens_scores_hash")
-  prompt_v         String?  @map("prompt_v")
-
-  @@unique([ticker, type])
-  @@index([ticker])
-  @@index([type])
-  @@map("ai_insights")
-}
-
-model Watchlist {
-  id           String           @id @default(uuid())
-  user_id      String
-  name         String
-  total_assets Int              @default(0) @map("total_assets")
-  created_at   DateTime         @default(now())
-  updated_at   DateTime         @updatedAt
-  assets       WatchlistAsset[]
-
-  @@index([user_id])
-  @@map("watchlists")
-}
-
-model WatchlistAsset {
-  id           String    @id @default(uuid())
-  watchlist_id String
-  symbol       String
-  added_on     DateTime  @default(now())
-  notes        String?
-  watchlist    Watchlist @relation(fields: [watchlist_id], references: [id], onDelete: Cascade)
-
-  @@unique([watchlist_id, symbol])
-  @@index([watchlist_id])
-  @@index([symbol])
-  @@map("watchlist_assets")
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model users {
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  email      String?
+  password   String?
+  role       String?
+  id         BigInt   @id @default(autoincrement())
 }
 
 model User {
-  id                String           @id @default(uuid())
-  email             String?          @unique
-  mobile            String?          @unique
-  password_hash     String?          @map("password_hash")
-  google_id         String?          @unique @map("google_id")
-  display_name      String?          @map("display_name")
-  display_picture   String?          @map("display_picture")
-  account_type      AccountType      @map("account_type")
-  created_at        DateTime         @default(now())
-  updated_at        DateTime         @updatedAt
+  id                String            @id @default(uuid())
+  email             String?           @unique
+  mobile            String?           @unique
+  password_hash     String?           @map("password_hash")
+  google_id         String?           @unique @map("google_id")
+  display_name      String?           @map("display_name")
+  display_picture   String?           @map("display_picture")
+  account_type      AccountType       @map("account_type")
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
   shadow_portfolios ShadowPortfolio?
   team_memberships  TeamMember[]
   user_portfolios   UserPortfolio?
@@ -773,6 +813,41 @@ model TeamMember {
   @@index([team_id])
   @@index([user_id])
   @@map("qc_team_members")
+}
+
+model UserProfile {
+  id                   String         @id @default(uuid())
+  user_id              String         @unique @map("user_id")
+  full_name            String?        @map("full_name")
+  phone                String?
+  date_of_birth        DateTime?      @map("date_of_birth") @db.Date
+  risk_profile         RiskProfile?   @map("risk_profile")
+  onboarding_completed Boolean        @default(false) @map("onboarding_completed")
+  onboarding_step      OnboardingStep @default(profile) @map("onboarding_step")
+  created_at           DateTime       @default(now())
+  updated_at           DateTime       @updatedAt
+  user                 User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("qc_user_profiles")
+}
+
+// ─── Portfolio ────────────────────────────────────────────────────────────────
+
+model PortfolioModel {
+  id               String   @id @default(uuid())
+  name             String
+  riskProfile      String   @map("risk_profile")
+  capital          Float
+  assetClasses     Json     @map("asset_classes")
+  client           Json?
+  positions        Json?
+  whyThisPortfolio Json?    @map("why_this_portfolio")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([riskProfile])
+  @@map("portfolio_models")
 }
 
 model UserPortfolio {
@@ -828,6 +903,33 @@ model HoldingNote {
   @@map("qc_holding_notes")
 }
 
+model Watchlist {
+  id           String           @id @default(uuid())
+  user_id      String
+  name         String
+  total_assets Int              @default(0) @map("total_assets")
+  created_at   DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+  assets       WatchlistAsset[]
+
+  @@index([user_id])
+  @@map("watchlists")
+}
+
+model WatchlistAsset {
+  id           String    @id @default(uuid())
+  watchlist_id String
+  symbol       String
+  added_on     DateTime  @default(now())
+  notes        String?
+  watchlist    Watchlist @relation(fields: [watchlist_id], references: [id], onDelete: Cascade)
+
+  @@unique([watchlist_id, symbol])
+  @@index([watchlist_id])
+  @@index([symbol])
+  @@map("watchlist_assets")
+}
+
 model MutualFundScheme {
   amfi_code      String   @id
   name           String
@@ -859,443 +961,7 @@ model MutualFundScheme {
   @@map("mutual_fund_schemes")
 }
 
-model Skill {
-  id                  String        @id @default(uuid())
-  name                String        @unique
-  description         String?
-  promptKey           String        @map("prompt_key")
-  model               String        @default("anthropic/claude-haiku-4.5")
-  maxTokens           Int           @default(16000) @map("max_tokens")
-  outputSchema        Json?         @map("output_schema")
-  isActive            Boolean       @default(true) @map("is_active")
-  createdAt           DateTime      @default(now()) @map("created_at")
-  updatedAt           DateTime      @updatedAt @map("updated_at")
-  defaultInstructions String?       @map("default_instructions")
-  promptTemplate      String?       @map("prompt_template")
-  slug                String?       @unique
-  pluginSkills        PluginSkill[]
-
-  @@index([name])
-  @@map("skills")
-}
-
-model Plugin {
-  id           String         @id @default(uuid())
-  name         String         @unique
-  description  String?
-  category     PluginCategory
-  isActive     Boolean        @default(true) @map("is_active")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
-  slug         String?        @unique
-  pluginSkills PluginSkill[]
-
-  @@index([category])
-  @@map("plugins")
-}
-
-model PluginSkill {
-  id       String @id @default(uuid())
-  pluginId String @map("plugin_id")
-  skillId  String @map("skill_id")
-  order    Int
-  plugin   Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
-  skill    Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
-
-  @@unique([pluginId, skillId])
-  @@unique([pluginId, order])
-  @@index([pluginId])
-  @@index([skillId])
-  @@map("plugin_skills")
-}
-
-model ExtractedSignal {
-  id              String           @id @default(uuid())
-  call_id         String
-  ticker          String
-  company         String
-  fiscal_year     String?
-  quarter         String?
-  call_date       String?
-  source_type     SignalSourceType
-  signal_type     String
-  metric          String
-  value           Float?
-  raw_value       String?
-  unit            String?
-  multiplier      Float            @default(1)
-  w               Float            @default(1.0)
-  b               Float            @default(0.0)
-  confidence      Float?
-  time_horizon    String?
-  esg_tag         String?
-  risk_tag        String?
-  sector          String?
-  metric_family   String?
-  source_hash     String
-  prompt_v        String
-  schema_v        String           @default("2.0.0")
-  extractor_model String
-  lineage_id      String
-  statement       String?
-  start_date      String?
-  end_date        String?
-  period_type     String?
-  is_invalidated  Boolean          @default(false)
-  created_at      DateTime         @default(now())
-  updated_at      DateTime         @updatedAt
-  impact          String?
-  severity        String?
-
-  @@unique([call_id, signal_type, metric, source_hash, prompt_v, start_date])
-  @@index([ticker])
-  @@index([call_id])
-  @@index([ticker, metric_family])
-  @@index([source_hash])
-  @@map("extracted_signals")
-}
-
-model TranscriptSignalV2 {
-  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  call_id         String
-  ticker          String
-  company         String
-  fiscal_year     String?
-  quarter         String?
-  call_date       String?
-  signal_type     String
-  source_context  String?
-  source_stmt_id  String?
-  signal_seq_id   String?
-  metric          String?
-  impact          String?
-  severity        String?
-  statement       String?
-  data            Json
-  source_hash     String
-  prompt_v        String
-  extractor_model String
-  lineage_id      String
-  is_invalidated  Boolean  @default(false)
-  created_at      DateTime @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-  source_doc_type String?
-
-  @@index([source_doc_type])
-  @@index([call_id], map: "tsv2_call_id")
-  @@index([call_id, signal_type], map: "tsv2_call_type")
-  @@index([lineage_id], map: "tsv2_lineage")
-  @@index([source_hash], map: "tsv2_src_hash")
-  @@index([ticker, signal_type], map: "tsv2_tick_type")
-  @@index([ticker], map: "tsv2_ticker")
-  @@map("transcript_signals_v2")
-}
-
-model LensConfig {
-  id          String   @id @default(uuid())
-  slug        String   @unique
-  name        String
-  description String?
-  is_active   Boolean  @default(true)
-  version     String   @default("1.0.0")
-  config      Json
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-  category    String?
-
-  @@index([slug])
-  @@index([category])
-  @@map("lens_configs")
-}
-
-model LensScore {
-  id               String   @id @default(uuid())
-  call_id          String
-  ticker           String
-  lens_slug        String
-  z_score          Float
-  confidence_lo    Float?
-  confidence_hi    Float?
-  signal_count     Int
-  lens_config_v    String
-  signals_snapshot Json
-  is_stale         Boolean  @default(false)
-  computed_at      DateTime @default(now())
-  updated_at       DateTime @updatedAt
-  lens_data        Json?
-  signals_hash     String?
-
-  @@unique([call_id, lens_slug])
-  @@index([ticker, lens_slug])
-  @@index([call_id])
-  @@map("lens_scores")
-}
-
-model PipelineJobFailure {
-  id              String   @id @default(uuid())
-  queue           String
-  bullmq_job_id   String   @unique
-  call_id         String
-  source_doc_type String
-  chunk_index     Int?
-  total_chunks    Int?
-  lineage_id      String?
-  error_message   String?
-  attempts_made   Int?
-  failed_at       DateTime @default(now())
-
-  @@index([call_id])
-  @@index([source_doc_type])
-  @@index([failed_at])
-  @@map("pipeline_job_failures")
-}
-
-enum DenominationType {
-  rupee
-  percentage
-  ratio
-  other
-}
-
-enum KpiSource {
-  transcript
-  QE
-}
-
-enum KpiTypeCategory {
-  assets
-  liabilities
-  equity
-  revenue
-  cogs
-  operating_expenses
-  profit_lines
-  cashflow
-  customer_kpis
-  industry_specific
-}
-
-enum WealthClientSegment {
-  HNI
-  UHNI
-  Retail
-  Institutional
-  Private
-}
-
-enum WealthRiskProfile {
-  conservative
-  moderate
-  aggressive
-}
-
-enum WealthInteractionType {
-  call
-  email
-  whatsapp
-  meeting
-  sms
-}
-
-enum WealthSuggestionPriority {
-  HIGH
-  MEDIUM
-  LOW
-}
-
-enum WealthSuggestionStatus {
-  pending
-  used
-  ignored
-}
-
-enum WealthModelType {
-  equity
-  debt
-  hybrid
-  structured
-  pms
-  aif
-}
-
-enum AccountType {
-  manager
-  investor
-}
-
-enum PluginCategory {
-  management
-  deal
-  opportunity
-  wealthos
-  technicals
-  private_equity
-  fundamentals
-}
-
-// ─── HTML Skills ─────────────────────────────────────────────────────────────
-
-model HtmlSkill {
-  id                          String                   @id @default(uuid())
-  slug                        String                   @unique
-  name                        String
-  skill_prompt                String
-  transcript_signal_types     String[]
-  ppt_signal_types            String[]
-  annual_report_signal_types  String[]
-  category                    PluginCategory
-  model                       String                   @default("~anthropic/claude-haiku-latest")
-  max_tokens                  Int                      @default(16000)
-  max_transcript_qtrs         Int?
-  max_ppt_qtrs                Int?
-  max_annual_report_years     Int?
-  market_data_signal_types    String[]
-  max_market_data_months      Int?
-  is_active                   Boolean                  @default(true)
-  created_at                  DateTime                 @default(now())
-  updated_at                  DateTime                 @updatedAt
-
-  outputs      HtmlSkillOutput[]
-
-  @@index([slug])
-  @@index([category])
-  @@map("html_skills")
-}
-
-model HtmlSkillOutput {
-  id            String    @id @default(uuid())
-  skill_id      String    @map("skill_id")
-  ticker        String
-  call_id       String?   @map("call_id")
-  fiscal_year   String?   @map("fiscal_year")
-  quarter       String?
-  raw_html      String
-  prompt_v      String    @map("prompt_v")
-  model         String
-  input_tokens  Int?      @map("input_tokens")
-  output_tokens Int?      @map("output_tokens")
-  cost_usd      Float?    @map("cost_usd")
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
-
-  skill         HtmlSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
-
-  @@unique([skill_id, ticker, fiscal_year, quarter])
-  @@index([ticker])
-  @@index([skill_id])
-  @@index([call_id])
-  @@map("html_skill_outputs")
-}
-
-enum TranscriptSignalTypeV2 {
-  guidance
-  industry_signal
-  capital_allocation
-  disclosure_quality
-  distribution_customer
-  growth_forecast
-  earnings_quality
-  kpi
-  mgmt_tone
-  analyst_questions
-  guidance_revision
-  pricing_power
-  competitive_position
-  milestone
-  ongoing
-}
-
-enum SignalSourceType {
-  transcript
-  qe
-  management
-  ofactor
-  prowess
-}
-
-// ─── User & Auth ──────────────────────────────────────────────────────────────
-
-enum SubscriptionPlan {
-  trial
-  monthly
-  annual
-}
-
-enum SubscriptionStatus {
-  trialing
-  active
-  expired
-  cancelled
-  past_due
-}
-
-enum TransactionStatus {
-  pending
-  captured
-  failed
-  refunded
-}
-
-enum DiscountType {
-  percentage
-  fixed
-}
-
-enum PaymentMethodType {
-  card
-  upi
-  netbanking
-  wallet
-}
-
-enum RiskProfile {
-  conservative
-  moderate
-  aggressive
-}
-
-enum OnboardingStep {
-  profile
-  portfolio_setup
-  plan_selection
-  done
-}
-
-enum SmallcaseOrderStatus {
-  pending
-  placed
-  completed
-  failed
-  cancelled
-}
-
-enum SmallcaseOrderType {
-  buy
-  sell
-  rebalance
-  sip
-}
-
-// ─── User Profile ─────────────────────────────────────────────────────────────
-
-model UserProfile {
-  id                   String         @id @default(uuid())
-  user_id              String         @unique @map("user_id")
-  full_name            String?        @map("full_name")
-  phone                String?
-  date_of_birth        DateTime?      @map("date_of_birth") @db.Date
-  risk_profile         RiskProfile?   @map("risk_profile")
-  onboarding_completed Boolean        @default(false) @map("onboarding_completed")
-  onboarding_step      OnboardingStep @default(profile) @map("onboarding_step")
-  created_at           DateTime       @default(now())
-  updated_at           DateTime       @updatedAt
-  user                 User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@index([user_id])
-  @@map("qc_user_profiles")
-}
-
-// ─── Billing: Products + Prices ───────────────────────────────────────────────
+// ─── Billing ──────────────────────────────────────────────────────────────────
 
 model Product {
   id          String   @id @default(uuid())
@@ -1330,8 +996,6 @@ model Price {
   @@map("qc_prices")
 }
 
-// ─── Billing: Coupons + Discounts ─────────────────────────────────────────────
-
 model Coupon {
   id             String       @id @default(uuid())
   code           String       @unique
@@ -1364,8 +1028,6 @@ model Discount {
   @@map("qc_discounts")
 }
 
-// ─── Billing: Payment Methods ─────────────────────────────────────────────────
-
 model PaymentMethod {
   id                   String            @id @default(uuid())
   user_id              String            @map("user_id")
@@ -1382,8 +1044,6 @@ model PaymentMethod {
   @@index([user_id])
   @@map("qc_payment_methods")
 }
-
-// ─── Billing: Subscriptions ───────────────────────────────────────────────────
 
 model UserSubscription {
   id                       String             @id @default(uuid())
@@ -1408,8 +1068,6 @@ model UserSubscription {
   @@index([trial_ends_at])
   @@map("qc_user_subscriptions")
 }
-
-// ─── Billing: Transactions ────────────────────────────────────────────────────
 
 model Transaction {
   id                  String            @id @default(uuid())
@@ -1437,17 +1095,17 @@ model Transaction {
 // ─── Smallcase ────────────────────────────────────────────────────────────────
 
 model SmallcaseUser {
-  id                String             @id @default(uuid())
-  user_id           String             @unique @map("user_id")
-  smallcase_user_id String?            @map("smallcase_user_id")
-  auth_token        String?            @map("auth_token")
+  id                String              @id @default(uuid())
+  user_id           String              @unique @map("user_id")
+  smallcase_user_id String?             @map("smallcase_user_id")
+  auth_token        String?             @map("auth_token")
   broker            String?
-  broker_client_id  String?            @map("broker_client_id")
-  is_connected      Boolean            @default(false) @map("is_connected")
-  last_synced_at    DateTime?          @map("last_synced_at")
-  created_at        DateTime           @default(now())
-  updated_at        DateTime           @updatedAt
-  user              User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  broker_client_id  String?             @map("broker_client_id")
+  is_connected      Boolean             @default(false) @map("is_connected")
+  last_synced_at    DateTime?           @map("last_synced_at")
+  created_at        DateTime            @default(now())
+  updated_at        DateTime            @updatedAt
+  user              User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
   holdings          SmallcaseHolding[]
   orders            SmallcaseOrder[]
   portfolio         SmallcasePortfolio?
@@ -1514,4 +1172,361 @@ model SmallcaseOrder {
   @@index([status])
   @@index([placed_at])
   @@map("qc_smallcase_orders")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum DenominationType {
+  rupee
+  percentage
+  ratio
+  other
+}
+
+enum KpiSource {
+  transcript
+  QE
+}
+
+enum KpiTypeCategory {
+  assets
+  liabilities
+  equity
+  revenue
+  cogs
+  operating_expenses
+  profit_lines
+  cashflow
+  customer_kpis
+  industry_specific
+}
+
+enum TranscriptSignalTypeV2 {
+  guidance
+  industry_signal
+  capital_allocation
+  disclosure_quality
+  distribution_customer
+  growth_forecast
+  earnings_quality
+  kpi
+  mgmt_tone
+  analyst_questions
+  guidance_revision
+  pricing_power
+  competitive_position
+  milestone
+  ongoing
+}
+
+enum SignalSourceType {
+  transcript
+  qe
+  management
+  ofactor
+  prowess
+}
+
+enum PluginCategory {
+  management
+  deal
+  opportunity
+  wealthos
+  technicals
+  private_equity
+  fundamentals
+}
+
+enum AccountType {
+  manager
+  investor
+}
+
+enum WealthClientSegment {
+  HNI
+  UHNI
+  Retail
+  Institutional
+  Private
+}
+
+enum WealthRiskProfile {
+  conservative
+  moderate
+  aggressive
+}
+
+enum WealthInteractionType {
+  call
+  email
+  whatsapp
+  meeting
+  sms
+}
+
+enum WealthSuggestionPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum WealthSuggestionStatus {
+  pending
+  used
+  ignored
+}
+
+enum WealthModelType {
+  equity
+  debt
+  hybrid
+  structured
+  pms
+  aif
+}
+
+enum SubscriptionPlan {
+  trial
+  monthly
+  annual
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  expired
+  cancelled
+  past_due
+}
+
+enum TransactionStatus {
+  pending
+  captured
+  failed
+  refunded
+}
+
+enum DiscountType {
+  percentage
+  fixed
+}
+
+enum PaymentMethodType {
+  card
+  upi
+  netbanking
+  wallet
+}
+
+enum RiskProfile {
+  conservative
+  moderate
+  aggressive
+}
+
+enum OnboardingStep {
+  profile
+  portfolio_setup
+  plan_selection
+  done
+}
+
+enum SmallcaseOrderStatus {
+  pending
+  placed
+  completed
+  failed
+  cancelled
+}
+
+enum SmallcaseOrderType {
+  buy
+  sell
+  rebalance
+  sip
+}
+
+// ─── DEPRECATED ───────────────────────────────────────────────────────────────
+// Tables below have no active callers. Physical tables retained in Postgres
+// until end-to-end testing confirms safe DROP. Remove this block + run
+// db:migrate when ready.
+
+// Replaced by nse_equity_new (added eps, company_name; Date PK instead of autoincrement id)
+model nse_equity {
+  id            Int       @id(map: "nse_daily_data_pkey") @default(autoincrement())
+  symbol        String?
+  datetime      DateTime? @db.Timestamp(6)
+  open          Float?
+  high          Float?
+  low           Float?
+  close         Float?
+  volume        BigInt?
+  pe            Float?
+  market_cap_cr Float?
+
+  @@unique([symbol, datetime], map: "unique_symbol_datetime")
+  @@index([symbol])
+}
+
+// Temporary clones used during earnings_calls migration — superseded by earnings_calls
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model earnings_calls_1 {
+  id              String    @id(map: "earnings_calls_test_pkey")
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  transcript_url  String?
+  transcript_text String?
+  ppt_url         String?
+  ppt_text        String?
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  updated_at      DateTime? @default(now()) @db.Timestamp(6)
+  basic_industry  String?
+  company_name    String?
+
+  @@index([company, fiscal_year, quarter], map: "earnings_calls_test_company_fiscal_year_quarter_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model earnings_calls_2 {
+  id              String    @id(map: "earnings_calls_new_pkey")
+  company         String
+  fiscal_year     String?
+  quarter         String?
+  call_date       String?
+  transcript_url  String?
+  transcript_text String?
+  ppt_url         String?
+  ppt_text        String?
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  updated_at      DateTime? @default(now()) @db.Timestamp(6)
+  basic_industry  String?
+  company_name    String?
+
+  @@index([company, fiscal_year, quarter], map: "earnings_calls_new_company_fiscal_year_quarter_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model earnings_calls_test {
+  id                    String    @id(map: "earnings_calls_pkey")
+  company               String
+  fiscal_year           String?
+  quarter               String?
+  call_date             String?
+  transcript_url        String?
+  transcript_text       String?
+  ppt_url               String?
+  ppt_text              String?
+  created_at            DateTime? @default(now()) @db.Timestamp(6)
+  updated_at            DateTime? @default(now()) @db.Timestamp(6)
+  quarterly_result      String?
+  quarterly_result_url  String?
+  quarterly_result_text String?
+  updated_ppt_text      String?
+
+  @@index([company, fiscal_year, quarter], map: "idx_company_fy_quarter")
+}
+
+// UUID-suffixed KV store — purpose unknown, no active callers
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model kv_store_abda8bef {
+  key   String @id
+  value Json
+
+  @@index([key])
+  @@index([key], map: "kv_store_abda8bef_key_idx1")
+  @@index([key], map: "kv_store_abda8bef_key_idx2")
+  @@index([key], map: "kv_store_abda8bef_key_idx3")
+}
+
+// V1 summary output from deprecated summarization worker — replaced by SummaryNew + TranscriptSignalV2
+model Summary {
+  id                String   @id @default(uuid())
+  callId            String   @unique @map("call_id")
+  entities          Json?
+  milestones        Json?
+  governanceSignals Json?    @map("governance_signals")
+  confidence        String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  riskDisclosures   Json?    @map("risk_disclosures")
+  tone              String?
+  industryAnalysis  Json?    @map("industry_analysis")
+  kpis              Json?
+
+  @@index([callId])
+  @@map("summaries")
+}
+
+// Guidance milestone targets from v1 summarization — no active callers
+model MilestoneKpiTarget {
+  id                String   @id @default(uuid())
+  callId            String   @map("call_id")
+  company           String
+  fiscal_year       String?
+  quarter           String?
+  call_date         String?
+  category          String
+  kpi_abbr          String
+  statement         String?
+  current_value     Float?   @map("current_value")
+  targeted_value    Float?   @map("targeted_value")
+  initial_time      String?  @map("initial_time")
+  target_time       String?  @map("target_time")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  multiplier        Int      @default(1)
+  currency          String?  @map("currency")
+  cumulative_period Int?     @map("cumulative_period")
+
+  @@index([callId])
+  @@index([company, kpi_abbr])
+  @@index([kpi_abbr])
+  @@map("milestone_kpi_targets")
+}
+
+// PPT store superseded by ppt_url + ppt_text columns on earnings_calls
+model investor_presentations_ppt {
+  id             String    @id
+  company        String?
+  fiscal_year    String?
+  quarter        String?
+  call_date      String?
+  ppt_url        String?
+  ppt_text       String?
+  basic_industry String?
+  company_name   String?
+  created_at     DateTime? @db.Timestamp(6)
+  updated_at     DateTime? @db.Timestamp(6)
+}
+
+// Intermediate Prowess import table — superseded by prowess_values_new
+model prowess_kpi_values {
+  id          String
+  call_id     String
+  company     String
+  fiscal_year String?
+  quarter     String?
+  call_date   String?
+  kpi_abbr    String
+  value       Float?
+  raw_value   String?
+  unit        String?
+  multiplier  Int       @default(1)
+  source      KpiSource
+  source_path String    @default("")
+  statement   String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime
+  end_date    String?
+  start_date  String?
+  period_type String?
+
+  @@unique([call_id, kpi_abbr], map: "prowess_kv_call_kpi_unique")
+  @@index([call_id], map: "idx_pkv_call_id")
+  @@index([company, fiscal_year, quarter], map: "idx_pkv_company_fy_q")
+  @@index([company, kpi_abbr], map: "idx_pkv_company_kpi")
+  @@index([kpi_abbr], map: "idx_pkv_kpi")
+  @@index([kpi_abbr, period_type], map: "idx_pkv_kpi_period")
 }
