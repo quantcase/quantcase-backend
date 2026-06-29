@@ -903,31 +903,36 @@ model HoldingNote {
   @@map("qc_holding_notes")
 }
 
-model Watchlist {
-  id           String           @id @default(uuid())
-  user_id      String
-  name         String
-  total_assets Int              @default(0) @map("total_assets")
-  created_at   DateTime         @default(now())
-  updated_at   DateTime         @updatedAt
-  assets       WatchlistAsset[]
+model InvestmentJournal {
+  id               String                   @id @default(uuid())
+  user_id          String                   @map("user_id")
+  ticker           String
+  portfolio_type   String                   @map("portfolio_type") @default("user") // "user" | "shadow"
+  dimension        String
+  sub_factors      Json                     @map("sub_factors")
+  thesis           String
+  conviction       Int
+  scores_snapshot  Json?                    @map("scores_snapshot")
+  created_at       DateTime                 @default(now())
+  updated_at       DateTime                 @updatedAt
+  health           InvestmentJournalHealth?
 
+  @@unique([user_id, ticker, portfolio_type])
   @@index([user_id])
-  @@map("watchlists")
+  @@index([ticker])
+  @@map("qc_investment_journals")
 }
 
-model WatchlistAsset {
-  id           String    @id @default(uuid())
-  watchlist_id String
-  symbol       String
-  added_on     DateTime  @default(now())
-  notes        String?
-  watchlist    Watchlist @relation(fields: [watchlist_id], references: [id], onDelete: Cascade)
+model InvestmentJournalHealth {
+  id            String           @id @default(uuid())
+  journal_id    String           @unique @map("journal_id")
+  thesis_health String           @map("thesis_health")
+  ai_nudge      String?          @map("ai_nudge")
+  evaluated_at  DateTime         @default(now()) @map("evaluated_at")
+  journal       InvestmentJournal @relation(fields: [journal_id], references: [id], onDelete: Cascade)
 
-  @@unique([watchlist_id, symbol])
-  @@index([watchlist_id])
-  @@index([symbol])
-  @@map("watchlist_assets")
+  @@index([journal_id])
+  @@map("qc_investment_journal_health")
 }
 
 model MutualFundScheme {
