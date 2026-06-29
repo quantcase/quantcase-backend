@@ -241,6 +241,7 @@ async function getTickerInfo(req, res, next) {
       return res.status(404).json({ error: `Symbol "${sym}" not found` });
     }
 
+    const today         = latest ?? null;
     const price         = latest?.close ?? null;
     const prevClose     = prev?.close   ?? null;
     const change        = price != null && prevClose != null ? r2(price - prevClose) : null;
