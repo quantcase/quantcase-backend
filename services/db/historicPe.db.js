@@ -1,54 +1,47 @@
 // services/db/historicPe.db.js
-// Moved from db-utils/getHistoricPe.js
 
 const prisma = require('../../config/prisma');
 
-/**
- * Map a Date object to a quarter label ("YYYYQN").
- * e.g. 2024-04-15 → "2024Q2"
- */
 function dateToQuarterKey(date) {
-  const year = date.getFullYear();
+  const year    = date.getFullYear();
   const quarter = Math.floor(date.getMonth() / 3) + 1;
   return `${year}Q${quarter}`;
 }
 
 /**
- * Fetch weekly PE history for a single ticker from the pe_data table,
+ * Fetch PE history for a single ticker from nse_equity_new,
  * average it into quarterly buckets, and return the last 12 quarters (3 years).
  */
 async function fetchTickerPeHistory(ticker) {
   const threeYearsAgo = new Date();
   threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
 
-  const rows = await prisma.pe_data.findMany({
+  const rows = await prisma.nse_equity_new.findMany({
     where: {
-      company: ticker,
-      date: { gte: threeYearsAgo },
-      pe: { not: null },
+      symbol:   ticker,
+      datetime: { gte: threeYearsAgo },
+      pe:       { not: null },
     },
-    select: { date: true, pe: true },
-    orderBy: { date: 'asc' },
+    select:  { datetime: true, pe: true },
+    orderBy: { datetime: 'asc' },
   });
 
-  // Group weekly rows into quarterly buckets
-  const quarterMap = new Map(); // "YYYYQN" → { sum, count }
+  const quarterMap = new Map();
   for (const row of rows) {
     if (row.pe == null || row.pe <= 0) continue;
-    const key = dateToQuarterKey(new Date(row.date));
+    const key = dateToQuarterKey(new Date(row.datetime));
     if (!quarterMap.has(key)) quarterMap.set(key, { sum: 0, count: 0 });
     const q = quarterMap.get(key);
-    q.sum += Number(row.pe); // Prisma returns Decimal — must convert to JS number before arithmetic
+    q.sum   += Number(row.pe);
     q.count += 1;
   }
 
-  // Sort ascending by quarter label, keep last 12
   const quarterlyPe = [...quarterMap.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(-12)
     .map(([quarter, { sum, count }]) => ({
       quarter,
-      avgPe: parseFloat((sum / count).toFixed(2)),
+      avgPe:      parseFloat((sum / count).toFixed(2)),
       dataPoints: count,
     }));
 
@@ -57,19 +50,16 @@ async function fetchTickerPeHistory(ticker) {
 
 /**
  * Fetch quarterly-averaged PE history for multiple tickers in parallel.
- * Failed tickers return { ticker, error } — one failure won't abort the batch.
+ * Failed tickers return { ticker, error }.
  */
 async function getHistoricPeForTickers(tickers) {
   const results = await Promise.allSettled(
-    tickers.map((ticker) => fetchTickerPeHistory(ticker))
+    tickers.map(ticker => fetchTickerPeHistory(ticker))
   );
 
   return results.map((result, i) => {
     if (result.status === 'fulfilled') return result.value;
-    return {
-      ticker: tickers[i],
-      error: result.reason?.message ?? 'Unknown error',
-    };
+    return { ticker: tickers[i], error: result.reason?.message ?? 'Unknown error' };
   });
 }
 

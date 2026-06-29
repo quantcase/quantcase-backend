@@ -3,7 +3,7 @@
 const { Worker }     = require('bullmq');
 const connection     = require('../config/redis');
 const prisma         = require('../config/prisma');
-const { llmStream, parseJson }             = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage }   = require('../utils/workerUtils');
 const { loadSkillConfig }                  = require('../utils/skillConfig');
 const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash');
 const { getIdentity }                      = require('../lib/peerIdentity');
@@ -77,12 +77,13 @@ async function processOverviewSynthesisJob(job) {
 
     // ── 6. LLM call ───────────────────────────────────────────────────────────
     console.log('[OverviewSynthesis] Calling LLM...');
-    const responseText = await llmStream({
+    const { text: responseText, usage } = await llmStream({
       model,
       max_tokens:      maxTokens,
       messages:        [{ role: 'user', content: prompt }],
       response_format: overviewOutputSchema,
     });
+    logUsage('OverviewSynthesis', usage);
     await job.updateProgress(85);
 
     if (!responseText) throw new Error('Empty response from LLM');

@@ -2,6 +2,24 @@
 
 const openRouter = require('../config/llm');
 
+// ─── Colored logger ───────────────────────────────────────────────────────────
+
+const c = {
+  gray:   s => `\x1b[90m${s}\x1b[0m`,
+  green:  s => `\x1b[32m${s}\x1b[0m`,
+  yellow: s => `\x1b[1;33m${s}\x1b[0m`,
+  cyan:   s => `\x1b[36m${s}\x1b[0m`,
+  red:    s => `\x1b[31m${s}\x1b[0m`,
+};
+
+const wlog = {
+  info:  msg => console.log(c.gray(msg)),
+  done:  msg => console.log(c.green(msg)),
+  cost:  msg => console.log(c.yellow(msg)),
+  warn:  msg => console.warn(c.cyan(msg)),
+  error: msg => console.error(c.red(msg)),
+};
+
 /**
  * Parse JSON from LLM response text, handling markdown code-fenced blocks.
  */
@@ -31,29 +49,38 @@ async function llmStream(params) {
   } catch (err) {
     const status = err?.status ?? err?.response?.status;
     const body   = err?.error ?? err?.response?.data ?? err?.message;
-    console.error(`[llmStream] API error (HTTP ${status ?? '?'}):`, JSON.stringify(body, null, 2));
-    // Log the full response_format that was sent so schema issues are immediately visible
+    const detail = typeof body === 'object' ? JSON.stringify(body) : String(body ?? err.message);
+    console.error(`[llmStream] API error (HTTP ${status ?? '?'}):`, detail);
     if (status === 400 && params.response_format) {
       console.error('[llmStream] response_format sent:', JSON.stringify(params.response_format, null, 2));
     }
-    throw err;
+    const enriched    = new Error(`[llmStream] HTTP ${status ?? '?'}: ${detail}`);
+    enriched.status   = status;
+    enriched.original = err;
+    throw enriched;
   }
   let text = '';
   let finishReason;
+  let usage = null;
   try {
     for await (const chunk of stream) {
       text += chunk.choices[0]?.delta?.content ?? '';
       if (chunk.choices[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
+      if (chunk.usage) usage = chunk.usage;
     }
   } catch (err) {
-    const body = err?.error ?? err?.response?.data ?? err?.message;
-    console.error('[llmStream] stream error:', JSON.stringify(body, null, 2));
-    throw err;
+    const body   = err?.error ?? err?.response?.data ?? err?.message;
+    const detail = typeof body === 'object' ? JSON.stringify(body) : String(body ?? err.message);
+    console.error('[llmStream] stream error:', detail);
+    const enriched    = new Error(`[llmStream] ${detail}`);
+    enriched.status   = err?.status ?? err?.response?.status;
+    enriched.original = err;
+    throw enriched;
   }
   if (finishReason === 'length') {
     throw new Error(`[llmStream] Response truncated at token limit (finish_reason=length, ${text.length} chars). Increase maxTokens or reduce input.`);
   }
-  return text;
+  return { text, usage };
 }
 
 /**
@@ -77,4 +104,14 @@ function computePeriodType(startDate, endDate) {
   return 'multi_year';
 }
 
-module.exports = { parseJson, llmStream, applyMultiplier, computePeriodType };
+/**
+ * Log OpenRouter usage stats (tokens + cost) returned in the final stream chunk.
+ */
+function logUsage(tag, usage) {
+  if (!usage) return;
+  const { prompt_tokens, completion_tokens, total_tokens, cost } = usage;
+  const costStr = cost != null ? ` | cost: $${Number(cost).toFixed(6)}` : '';
+  wlog.cost(`[${tag}] tokens: ${prompt_tokens ?? '?'} in / ${completion_tokens ?? '?'} out / ${total_tokens ?? '?'} total${costStr}`);
+}
+
+module.exports = { parseJson, llmStream, logUsage, wlog, applyMultiplier, computePeriodType };

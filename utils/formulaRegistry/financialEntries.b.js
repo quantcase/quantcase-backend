@@ -104,7 +104,7 @@ module.exports = [
   },
 
   // ── Price-based ratios — formula ────────────────────────────────────────────
-  // PRICE and TTM_* values are injected into kpiMap by callers from nse_equity DB.
+  // PRICE and TTM_* values are injected into kpiMap by callers from nse_equity_new.
   // EQ_SHARE_CAP is in Cr; shares = EQ_SHARE_CAP × 1e7 / 10 (face value ₹10).
   // MARKET_CAP_CR = PRICE × EQ_SHARE_CAP / 10  (all in Cr).
 

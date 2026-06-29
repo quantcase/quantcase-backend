@@ -3,34 +3,22 @@
 const asyncHandler  = require('../middleware/asyncHandler');
 const jobsService   = require('../services/jobs.service');
 
-const enqueueSummarization = asyncHandler(async (req, res) => {
+const enqueueSummarizationV2 = asyncHandler(async (req, res) => {
   const { callId } = req.params;
-  const job = await jobsService.addSummarizationJob(callId);
-  res.json({
-    success: true,
-    message: 'Summarization job enqueued',
-    job: { id: job.id, callId, type: 'summarization', status: 'pending' },
-  });
+  const result = await jobsService.addSummarizationV2Jobs(callId);
+  res.json({ success: true, message: 'Summarization V2 jobs enqueued', ...result });
 });
 
-const enqueueQeExtraction = asyncHandler(async (req, res) => {
+const enqueueSummarizationV2Ppt = asyncHandler(async (req, res) => {
   const { callId } = req.params;
-  const job = await jobsService.addQeExtractionJob(callId);
-  res.json({
-    success: true,
-    message: 'QE extraction job created and queued',
-    job: { id: job.id, callId, type: 'qe_extraction', status: 'pending' },
-  });
+  const result = await jobsService.addSummarizationV2PptJobs(callId);
+  res.json({ success: true, message: 'Summarization V2 PPT jobs enqueued', ...result });
 });
 
-const enqueueProwessExtraction = asyncHandler(async (req, res) => {
-  const { callId } = req.params;
-  const job = await jobsService.addProwessExtractionJob(callId);
-  res.json({
-    success: true,
-    message: 'Prowess extraction job created and queued',
-    job: { id: job.id, callId, type: 'prowess_extraction', status: 'pending' },
-  });
+const enqueueSummarizationV2AnnualReport = asyncHandler(async (req, res) => {
+  const { reportId } = req.params;
+  const result = await jobsService.addSummarizationV2AnnualReportJobs(reportId);
+  res.json({ success: true, message: 'Summarization V2 Annual Report jobs enqueued', ...result });
 });
 
 const getJobStatus = asyncHandler(async (req, res) => {
@@ -40,4 +28,4 @@ const getJobStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, data: job });
 });
 
-module.exports = { enqueueSummarization, enqueueQeExtraction, enqueueProwessExtraction, getJobStatus };
+module.exports = { enqueueSummarizationV2, enqueueSummarizationV2Ppt, enqueueSummarizationV2AnnualReport, getJobStatus };

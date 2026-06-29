@@ -3,7 +3,7 @@
 const { Worker }     = require('bullmq');
 const connection     = require('../config/redis');
 const prisma         = require('../config/prisma');
-const { llmStream, parseJson } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { loadSkillConfig }      = require('../utils/skillConfig');
 const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash');
 const { composeAllLenses, getLensScores } = require('../services/lensComposer');
@@ -80,12 +80,13 @@ async function processAiInsightSynthesisJob(job) {
 
     // ── 4. LLM call ───────────────────────────────────────────────────────
     console.log('[AiInsightSynthesis] Calling LLM...');
-    const responseText = await llmStream({
+    const { text: responseText, usage } = await llmStream({
       model,
       max_tokens:      maxTokens,
       messages:        [{ role: 'user', content: prompt }],
       response_format: aiInsightOutputSchema,
     });
+    logUsage('AiInsightSynthesis', usage);
     await job.updateProgress(85);
 
     if (!responseText) throw new Error('Empty response from LLM');

@@ -1,0 +1,141 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * Dispatch v2 L1 extraction for all earnings calls of a given symbol.
+ * Calls POST /api/calls/:callId/summarize-v2 for each call that has a
+ * transcript URL and no existing v2 signals.
+ *
+ * Usage:
+ *   node scripts/analysis/analyze_L1_v2.js <SYMBOL> [--dispatch] [--limit <n>] [--force]
+ *
+ * Flags:
+ *   --dispatch        Actually call the API (dry-run without this flag)
+ *   --limit <n>       Only process the n most recent calls (default: all)
+ *   --force           Invalidate existing v2 signals and reprocess
+ *
+ * Env:
+ *   API_URL           Base URL of the API server (default: http://localhost:8000)
+ */
+
+require('dotenv').config();
+const prisma  = require('../../config/prisma');
+
+const API_URL = process.env.API_URL || 'http://localhost:8000';
+
+const args     = process.argv.slice(2);
+const symbol   = args[0];
+const dispatch = args.includes('--dispatch');
+const force    = args.includes('--force');
+const limIdx   = args.indexOf('--limit');
+const limit    = limIdx !== -1 ? parseInt(args[limIdx + 1], 10) : null;
+
+if (!symbol) {
+  console.error('Usage: node scripts/analysis/analyze_L1_v2.js <SYMBOL> [--dispatch] [--limit <n>]');
+  process.exit(1);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function hasV2Signals(callId) {
+  const count = await prisma.transcriptSignalV2.count({
+    where: { call_id: callId, is_invalidated: false },
+  });
+  return count > 0;
+}
+
+async function invalidateV2Signals(callId) {
+  const result = await prisma.transcriptSignalV2.updateMany({
+    where: { call_id: callId, is_invalidated: false },
+    data:  { is_invalidated: true },
+  });
+  return result.count;
+}
+
+async function dispatchV2(callId) {
+  const res = await fetch(`${API_URL}/api/calls/${callId}/summarize-v2`, { method: 'POST' });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+  return body;
+}
+
+async function main() {
+  const allCalls = await prisma.earnings_calls.findMany({
+    where:   { company: symbol },
+    select:  {
+      id: true, company: true,
+      fiscal_year: true, quarter: true, call_date: true,
+      basic_industry: true, transcript_url: true,
+    },
+    orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
+  });
+
+  if (allCalls.length === 0) {
+    console.log(`No earnings calls found for symbol: ${symbol}`);
+    return;
+  }
+
+  const calls = limit ? allCalls.slice(0, limit) : allCalls;
+
+  console.log(`\nEarnings calls for ${symbol} — ${calls.length} of ${allCalls.length} total${limit ? ` (limited to ${limit})` : ''}\n`);
+  console.log('ID'.padEnd(40), 'FY'.padEnd(8), 'Q'.padEnd(4), 'Date'.padEnd(14), 'URL'.padEnd(6), 'Industry');
+  console.log('-'.repeat(120));
+
+  for (const c of calls) {
+    console.log(
+      (c.id ?? '').padEnd(40),
+      (c.fiscal_year ?? '').padEnd(8),
+      (c.quarter ?? '').padEnd(4),
+      (c.call_date ?? '').padEnd(14),
+      (c.transcript_url ? 'yes' : 'no').padEnd(6),
+      c.basic_industry ?? ''
+    );
+  }
+  console.log();
+
+  if (!dispatch) {
+    console.log('Dry run — pass --dispatch to call the API.\n');
+    return;
+  }
+
+  console.log(`Dispatching to ${API_URL}...\n`);
+  let queued = 0, skipped = 0, noSource = 0, failed = 0;
+
+  for (let i = 0; i < calls.length; i++) {
+    const c = calls[i];
+
+    if (!c.transcript_url) {
+      console.log(`  [SKIP] ${c.id}  — no transcript URL`);
+      noSource++;
+      continue;
+    }
+
+    const already = await hasV2Signals(c.id);
+    if (already) {
+      if (!force) {
+        console.log(`  [SKIP] ${c.id}  — v2 signals already exist (use --force to reprocess)`);
+        skipped++;
+        continue;
+      }
+      const invalidated = await invalidateV2Signals(c.id);
+      console.log(`  [FORCE] ${c.id}  — invalidated ${invalidated} existing signals`);
+    }
+
+    try {
+      const result = await dispatchV2(c.id);
+      console.log(`  [OK]   ${c.id}  ${c.fiscal_year} ${c.quarter}  — ${result.pageCount}pp → ${result.chunks} chunks, jobs: ${result.jobs.map(j => j.id).join(', ')}`);
+      queued += result.jobs.length;
+    } catch (err) {
+      console.log(`  [FAIL] ${c.id}  — ${err.message}`);
+      failed++;
+    }
+
+    if (i < calls.length - 1) await sleep(300);
+  }
+
+  console.log(`\nDone. queued=${queued} jobs  skipped=${skipped}  no-source=${noSource}  failed=${failed}\n`);
+}
+
+main()
+  .catch((err) => { console.error(err); process.exit(1); })
+  .finally(() => prisma.$disconnect());

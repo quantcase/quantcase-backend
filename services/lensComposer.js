@@ -1,13 +1,14 @@
 'use strict';
 
 const prisma = require('../config/prisma');
-const { querySignals } = require('./db/signals.db');
+const { querySignalsV2 } = require('./db/signals.db');
 const { sortLensesByConfig } = require('../lib/insightLenses');
-const { llmStream, parseJson } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { lensOutputSchema } = require('../outputSchemas/lens');
 const { computeSourceHash } = require('../utils/sourceHash');
 const { fetchPeerMetrics, formatPeerMetricsBlock, fetchEquityMetrics, formatEquityMetricsBlock } = require('./peerMetrics');
 const prowess = require('../lib/prowess');
+const { JSON_OUTPUT_CONTRACT } = require('../prompts/jsonOutputContract');
 
 const PEER_LENS_SLUGS = new Set(['competition']);
 
@@ -82,51 +83,150 @@ function buildShareholdingBlock(ticker) {
 // {{LENS_INSTRUCTIONS}} is injected from LensConfig.config.prompt_template (per-lens guidelines).
 // Leave prompt_template null to omit the section entirely.
 
-const L2_DEFAULT_PROMPT = `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings transcripts, financial statements, and management analysis using a rigorous L1 extraction pipeline.
+const L2_DEFAULT_PROMPT = `You are a senior financial analyst. You have received pre-computed signal data for the "{{LENS_NAME}}" analytical lens. The signals have been extracted from earnings call transcripts (guidance and narrative), investor PPTs, the Prowess financial API, and annual reports using a rigorous L1 extraction pipeline.
 
-Your task is to synthesise this compact signal summary into a structured analytical view. Do NOT invent data — work only from the signals provided.
+Your task is to synthesise this compact signal summary into a structured analytical view that conforms EXACTLY to the lens_score JSON schema (defined in lens.js). That schema is the contract. This prompt tells you how to fill it. Guidance_l2_v5_refined.md is the analytical methodology behind these rules; where it differs from this prompt on output shape, enums, or date format, THIS PROMPT WINS.
+
+PROVENANCE GATE — NON-NEGOTIABLE:
+- Do NOT invent data. Work only from the signals provided.
+- Do NOT paraphrase. Every quoted field must be the exact verbatim text from the Data Block.
+- Do NOT backfill. Never use an actual value to infer a guided value that was not explicitly stated.
+- If a guided value, target date, or actual value cannot be traced to a supplied signal, use the sentinel (-1 for numbers, "" for strings). Never substitute an already-achieved number for a missing target.
+
+SOURCE OF TRUTH — STRICT:
+- Guidance commitments (value_targeted / value_targeted_low / value_targeted_high / target_date) come ONLY from earnings call transcripts, and only from signals of type "guidance_timebound" or signals of type "ongoing" with category "timebound".
+- Actual values (actual_value / actual_date) come ONLY from investor PPTs or the Prowess financial API. Never derive an actual from a transcript, an annual report, or a calculation.
+- All other signal types and sources provide narrative context for pattern analysis only — they never populate the guidance commitment fields or the actual fields.
 {{LENS_INSTRUCTIONS}}
 {{DATA_BLOCK}}
+
+=== SHARED CHILD SCHEMA — FIELD BANDS (READ CAREFULLY) ===
+Both "top_signals" and "patterns" are arrays of the SAME child object. The schema has NO nullable fields — every field is required and typed. Express "not applicable" using sentinels: "" for strings, -1 for numbers, [] for the evidence array. You decide which fields are meaningful using the "kind" discriminator:
+
+- Every item in "top_signals" MUST have kind = "signal".
+- Every item in "patterns" MUST have kind = "pattern".
+
+FIELD BANDS — sentinel values by kind:
+
+A) kind = "signal" (guidance track record child):
+   - MUST be meaningful: kind, label, impact, direction, original_statement.
+   - Guidance band — populate when a forward-looking commitment exists (see tense gate): value_targeted OR (value_targeted_low + value_targeted_high), target_date, announcement_date, unit. If no commitment exists, set all guidance-band numbers to -1 and strings to "" and set direction = "none".
+   - Actuals — actual_value, actual_date populated only from PPT/Prowess when available; else actual_value = -1, actual_date = "".
+   - source_ref: the page/timestamp/slide/API anchor if available, else "".
+   - PATTERN BAND SENTINELS: pattern_type = "none", confidence = -1, confidence_reason = "", sentence = "", shape_data = "", shape_label = "", evidence = [].
+   - direction MUST be one of: "beat" | "miss" | "in_line" | "unresolvable" | "none". NEVER use a pattern-vocabulary value here.
+
+B) kind = "pattern" (behavioral pattern child):
+   - MUST be meaningful: kind, label, impact, direction, pattern_type, confidence, confidence_reason, sentence.
+   - evidence MUST contain at least one item with a verbatim quote, signal_id, and ISO period. evidence.value = -1 when no numeric value applies.
+   - shape_data / shape_label: populate where the pattern has a renderable shape; else "".
+   - GUIDANCE BAND SENTINELS: value_targeted = -1, value_targeted_low = -1, value_targeted_high = -1, actual_value = -1, target_date = "", actual_date = "", announcement_date = "", unit = "". signal_id = "" and metric = "" when no single source signal/metric.
+   - direction MUST be one of: "positive" | "negative" | "neutral" | "watch". NEVER use a signal-vocabulary value here.
+
+This banding is enforced by you, not by the schema. The schema will accept a wrong-band value; the analysis will be wrong. Follow the bands exactly.
+
+FORWARD-LOOKING vs. PAST-ACHIEVEMENT GATE:
+Before populating value_targeted/target_date for any signal, classify the source statement by tense:
+- FORWARD-LOOKING (a commitment): contains future-intent language — "we guide", "we expect", "we target", "targeting", "outlook", "anticipate", "project", "forecast" — AND a numeric value. Only these populate value_targeted (or value_targeted_low/high for a range) + target_date.
+- PAST ACHIEVEMENT (an actual): contains past-tense language — "we delivered", "we achieved", "grew", "posted", "reported", "stood at", "came in at". These are NEVER a target. Actuals are sourced only from PPT/Prowess (see Source of Truth) — a past-tense transcript line is not itself an actual.
+- If a statement has no numeric value, or no resolvable target date, set value_targeted = -1 and target_date = "". Do not infer a target from an achieved figure.
 
 WRITING STYLE RULES — apply to every text field:
 - "takeaway": max 30 words, action-oriented, lead with the key finding (e.g. "Margins expanding on operating leverage; FCF conversion risk remains — watch CFO/PAT ratio.")
 - "highlights" items: max 12 words each, start with a verb or metric (e.g. "EBITDA margin up 180 bps YoY on cost discipline.")
 - "risks" items: max 12 words each, start with the risk noun (e.g. "Debt elevated; interest cover below 3x for 2 quarters.")
-- "label" in top_signals: 2–5 words, title-case, human-readable (e.g. "Operating Cash Flow")
-- "statement" in top_signals: ≤80 chars, verbatim or tightly paraphrased evidence
+- "label": 2–5 words, title-case, human-readable (e.g. "Operating Cash Flow")
+- "statement": <=80 chars, VERBATIM excerpt from the source — never paraphrased.
+- "sentence" (patterns): one line, plain-language causal claim leading with the change.
 - Never pad with filler phrases like "It is important to note that…" or "Overall, the company…"
 
-Return a JSON object with this exact structure:
+DATE FORMAT — STRICT ISO 8601, LAST DAY OF PERIOD (NON-NEGOTIABLE):
+Every date field (announcement_date, target_date, actual_date, and evidence.period when it denotes a period) MUST be ISO 8601 (YYYY-MM-DD), resolved to the LAST DAY of the implied period. Never emit free-text period labels like "FY25_END", "FY2026 Q3", or "Q3_FY26".
+- Indian fiscal year ends 31 March. FY2026 -> "2026-03-31". FY2025 -> "2025-03-31".
+- FY quarters: Q1 -> 30 Jun, Q2 -> 30 Sep, Q3 -> 31 Dec, Q4 -> 31 Mar of the FY-ending calendar year.
+  e.g. FY2026 Q3 -> "2025-12-31"; FY2026 Q1 -> "2025-06-30"; FY2025 Q4 -> "2025-03-31".
+Period matching (below) is a string-equal comparison on these ISO dates. A free-text label silently breaks matching and forces everything to "unresolvable".
+
+HIT STATUS — PURE COMPARISON, NO DELTA MATH (kind="signal" only):
+Never compute deltas, percentage changes, or basis-point differences. Resolve "direction" by comparison only:
+- If NO guidance commitment exists on the signal (value_targeted = -1 and both range bounds = -1) → direction = "none".
+- Else if value_targeted = -1 (and both range bounds = -1), OR actual_value = -1, OR target_date and actual_date fall in different periods → direction = "unresolvable".
+- If a guided range is present (value_targeted_low and value_targeted_high are not -1):
+  - actual_value within [low, high] inclusive → "in_line"
+  - actual_value > high → "beat"
+  - actual_value < low → "miss"
+- If value_targeted is a single point (not -1):
+  - actual_value > value_targeted → "beat"
+  - actual_value < value_targeted → "miss"
+  - actual_value == value_targeted → "in_line"
+
+"none" vs "unresolvable" — the boundary:
+- "none" = there was never a guidance commitment to track on this row (narrative/context signal). Excluded from the hit-rate denominator.
+- "unresolvable" = a commitment exists, but it cannot be scored yet (actual missing, not yet due, or period mismatch). Also excluded from the hit-rate denominator, but it IS a tracked open commitment.
+
+PERIOD MATCHING: only resolve direction (beat/miss/in_line) when target_date and actual_date fall in the same period (string-equal ISO dates). If guidance targets FY26 ("2026-03-31") but the only actual available is FY25 ("2025-03-31"), direction = "unresolvable" — never compare across mismatched periods.
+
+SCORE & STATUS DERIVATION (DETERMINISTIC — DO NOT IMPROVISE):
+Compute these in order:
+1. Let RESOLVED = count of top_signals with direction in {beat, in_line, miss}.
+2. Let HITS = count with direction in {beat, in_line}.
+3. If RESOLVED == 0 → score = 50, status = "MODERATE", and takeaway must state "Insufficient resolvable guidance to score." Stop scoring here.
+4. hit_rate = HITS / RESOLVED (0.0–1.0).
+5. base = round(hit_rate * 100).
+6. Coverage adjustment: if RESOLVED < 3, cap score at 60 (low evidence base). Apply: score = min(base, 60) when RESOLVED < 3, else score = base.
+7. status from final score: score >= 70 → "STRONG"; 40 <= score <= 69 → "MODERATE"; score < 40 → "WEAK".
+Report the hit rate in key_metrics as "Hit Rate": "<HITS>/<RESOLVED> (<pct>%)".
+
+Return a JSON object conforming EXACTLY to the lens_score schema. Field reference:
 {
-  "score": <integer 0-100>,
-  "status": <"STRONG" | "MODERATE" | "WEAK">,
+  "score": <integer 0-100, per SCORE & STATUS DERIVATION>,
+  "status": <"STRONG" | "MODERATE" | "WEAK", bucketed from score>,
   "takeaway": <string — max 30 words, action-oriented synthesis leading with the key finding>,
   "key_metrics": { <metric_name>: <formatted_value_string> },
   "highlights": [<up to 3 positive findings, each max 12 words, starting with a verb or metric>],
   "risks": [<up to 2 concerns, each max 12 words, starting with the risk noun>],
-  "top_signals": [
-    {
-      "signal_id": <string — id of the signal from the data block>,
-      "metric": <string — metric name exactly as provided>,
-      "label": <string — 2–5 word title-case human-readable label>,
-      "announcement_date": <string — ISO 8601 date YYYY-MM-DD when management made this statement; OMIT this field entirely if not applicable>,
-      "value_at_announcement": <number — the actual metric value at the time management made the statement (what things looked like when they said it); OMIT this field entirely if not available>,
-      "value_targeted": <number — the number management committed to achieving; OMIT this field entirely if not applicable>,
-      "target_date": <string — ISO 8601 date YYYY-MM-DD, last day of the period by which the target must be achieved, e.g. "2027-03-31" for FY2027, "2026-09-30" for FY2026 Q3; OMIT this field entirely if no deadline exists>,
-      "actual_value": <number — realised/reported value; OMIT this field entirely if not yet reported>,
-      "actual_date": <string — ISO 8601 date YYYY-MM-DD, last day of the reported period, e.g. "2026-09-30" for FY2026 Q3, "2026-03-31" for FY2026; OMIT this field entirely if actuals not yet available>,
-      "unit": <string — e.g. "Cr", "%", "x"; OMIT this field entirely if no unit applies>,
-      "delta": <number — actual_value minus value_targeted; positive means beat, negative means miss; OMIT this field entirely if only one side available>,
-      "delta_pct": <number — percentage delta relative to value_targeted; OMIT this field entirely if not computable>,
-      "direction": <"beat" | "miss" | "in_line" | "tracking" — "tracking" when guidance exists but actuals not yet due; OMIT this field entirely if not applicable>,
-      "impact": <"high" | "medium" | "low">,
-      "statement": <string | null — key evidence quote from the source, ≤80 chars>,
-      "original_statement": <string | null — exact verbatim sentence from the Data Block that this signal is sourced from>
-    }
-  ]
+  "top_signals": [ <child objects with kind="signal" — see FIELD BANDS> ],
+  "patterns":    [ <child objects with kind="pattern" — see FIELD BANDS; [] for non-management lenses> ]
 }
 
-For top_signals: select 8–10 signals that most influenced this lens score — include ALL signals that have meaningful analytical value for this lens, not just the top few. For signals where management gave a forward-looking promise (guidance), populate value_targeted/target_date and compare against actual_value if the period has passed. If no actual is available yet, set direction to "tracking". For all dates use strict ISO 8601 format (YYYY-MM-DD) resolved to the last day of the implied period — never use free-text period labels like "FY2026 Q3".`;
+Child object fields (shared superset — NO nulls; use sentinels: "" for strings, -1 for numbers):
+  kind                — "signal" for top_signals, "pattern" for patterns. REQUIRED.
+  signal_id           — id of the signal from the data block; "" if a pure pattern with no single source signal.
+  metric              — metric name exactly as provided; "" for patterns without a single metric.
+  label               — 2–5 word title-case human-readable label.
+  impact              — "high" | "medium" | "low".
+  direction           — signal: beat|miss|in_line|unresolvable|none. pattern: positive|negative|neutral|watch.
+  statement           — VERBATIM evidence excerpt, <=80 chars; "" if none.
+  original_statement  — exact verbatim source sentence; "" if none.
+  source_ref          — page / timestamp / PPT slide / Prowess call id for tap-to-verify; "" if unavailable.
+  announcement_date   — ISO 8601 (YYYY-MM-DD) when management made the statement; "" if N/A.
+  value_targeted      — single-point committed number; -1 if range or none.
+  value_targeted_low  — range low; -1 otherwise.
+  value_targeted_high — range high; -1 otherwise.
+  target_date         — ISO 8601 last day of target period; "" if no deadline.
+  actual_value        — realised value verbatim from PPT/Prowess; never calculated; -1 if not reported.
+  actual_date         — ISO 8601 last day of reported period; "" if actuals unavailable.
+  unit                — "Cr" | "%" | "x" | "bps"; "" if none.
+  pattern_type        — one of the 6 pattern types; "none" for kind="signal".
+  confidence          — 0.0–1.0 evidence strength of an INCLUDED pattern; -1 for kind="signal".
+  confidence_reason   — why this confidence; "" for kind="signal".
+  sentence            — full one-line causal claim; "" for kind="signal".
+  shape_data          — JSON-stringified shape array; "" if none.
+  shape_label         — human label for the shape; "" if none.
+  evidence            — array of {period, signal_id, value, quote}; [] for kind="signal". evidence.value = -1 when no numeric count.
+
+For top_signals: select 8–10 signals that most influenced this lens score — include ALL signals that have meaningful analytical value for this lens, not just the top few. For signals with a forward-looking commitment (subject to Source of Truth and the tense gate), populate the guidance band and resolve direction against actual_value when target and actual periods match; otherwise "unresolvable". If no guidance was stated, set all guidance-band numbers to -1 and strings to "" and set direction = "none".
+
+PATTERN ANALYSIS — INDEPENDENT OF GUIDANCE TRACK RECORD:
+Behavioral patterns (drumbeat, emergence, narrative_gap, tone_divergence, going_quiet, street_pressure) are a SEPARATE analysis from the guidance track record above. They draw on ALL L1 signals from ALL sources — earnings transcripts (every mention, not just guidance), PPTs, the Prowess API, and annual reports — plus analyst question clustering. Pattern analysis neither reads from nor writes to the top_signals comparison logic; the two are orthogonal.
+
+PATTERN INCLUSION vs CONFIDENCE (reconciled):
+- INCLUSION is gated by the v5 Pattern Threshold Table (minimum quarters, mention jumps, gap thresholds). A pattern that does NOT meet its threshold is NOT emitted at all — do not force it.
+- For each pattern you DO emit, "confidence" (0.0–1.0) expresses how strong the evidence is: 1.0 = strong multi-quarter evidence with exact quotes and signal IDs; lower = thinner but still threshold-clearing evidence. Never emit a sub-threshold pattern with low confidence — drop it instead.
+- Emit patterns for management-style lenses; emit an empty array [] for non-management lenses.
+
+For all dates use strict ISO 8601 format (YYYY-MM-DD) resolved to the last day of the implied period — never use free-text period labels like "FY2026 Q3".
+`;
 
 // ─── Per metric_family normalization ranges ───────────────────────────────────
 
@@ -168,10 +268,14 @@ function computeConfidenceInterval(signals, effectiveWeights) {
 // prefilter: optional object controlling per-type signal filtering before the cap is applied.
 //   { milestone: "trackable_only" } — for milestone signals, only include rows with end_date or time_horizon set.
 //   This is used by guidance-credibility to drop pure success/failure disclosures that have no target deadline.
-function buildSignalSummary(lensName, signals, mathResult, balance, prefilter) {
+function buildSignalSummary(lensName, signals, mathResult, balance, prefilter, opts = {}) {
+  const showMath = opts.show_math_block !== false;
+  const header   = showMath
+    ? `SIGNAL SUMMARY (${signals.length} signals, weighted aggregate z=${mathResult.z_score.toFixed(4)}):`
+    : `SIGNAL SUMMARY (${signals.length} signals):`;
   const lines = [
     `LENS: ${lensName}`,
-    `SIGNAL SUMMARY (${signals.length} signals, weighted aggregate z=${mathResult.z_score.toFixed(4)}):`,
+    header,
     '',
   ];
 
@@ -252,39 +356,20 @@ function buildSignalSummary(lensName, signals, mathResult, balance, prefilter) {
     }
   }
 
-  lines.push('');
-  lines.push(`MATH: z=${mathResult.z_score.toFixed(4)}, CI=[${mathResult.confidence_lo.toFixed(3)}, ${mathResult.confidence_hi.toFixed(3)}], n=${signals.filter(s => s.value != null).length}`);
+  if (showMath) {
+    lines.push('');
+    lines.push(`MATH: z=${mathResult.z_score.toFixed(4)}, CI=[${mathResult.confidence_lo.toFixed(3)}, ${mathResult.confidence_hi.toFixed(3)}], n=${signals.filter(s => s.value != null).length}`);
+  }
 
   return lines.join('\n');
-}
-
-// ─── Source priority deduplication ───────────────────────────────────────────
-// When the same metric/period appears from multiple sources, keep the most
-// authoritative one. prowess = audited financials > qe = interim PDF > transcript = LLM extract.
-
-const SOURCE_PRIORITY = { prowess: 0, qe: 1, transcript: 2 };
-
-function deduplicateSignals(signals) {
-  const best = new Map();
-  for (const sig of signals) {
-    const key = `${sig.metric}|${sig.fiscal_year ?? ''}|${sig.quarter ?? ''}|${sig.start_date ?? ''}|${sig.end_date ?? ''}`;
-    const existing = best.get(key);
-    if (!existing) {
-      best.set(key, sig);
-    } else {
-      const existingPrio = SOURCE_PRIORITY[existing.source_type] ?? 99;
-      const sigPrio      = SOURCE_PRIORITY[sig.source_type]      ?? 99;
-      if (sigPrio < existingPrio) best.set(key, sig);
-    }
-  }
-  return [...best.values()];
 }
 
 // ─── buildPeerSignalsBlock ────────────────────────────────────────────────────
 // Fetches entity + industry L1 signals from each peer's latest call (same basic_industry)
 // and formats them as a compact text block for injection into the competition / industry-analysis prompt.
 
-const PEER_SIGNAL_TYPES  = ['entity', 'industry'];
+// V2 equivalents of old 'entity' + 'industry' signal types
+const PEER_SIGNAL_TYPES  = ['industry_signal', 'competitive_position'];
 const PEER_SIGNALS_CAP   = 10; // max signals shown per peer ticker (after filtering)
 const PEER_IMPACT_ORDER  = { high: 0, medium: 1, low: 2 };
 
@@ -311,12 +396,11 @@ async function buildPeerSignalsBlock(callId, subjectTicker) {
   const lines = ['\nPEER L1 SIGNALS (competitor + industry signals from peer earnings calls):'];
 
   for (const [peerTicker, peerCall] of latestByTicker) {
-    const raw = await prisma.extractedSignal.findMany({
+    const raw = await prisma.transcriptSignalV2.findMany({
       where: {
         call_id:        peerCall.id,
         signal_type:    { in: PEER_SIGNAL_TYPES },
         is_invalidated: false,
-        NOT:            { metric: 'person' }, // exclude analyst/presenter names
       },
     });
     if (raw.length === 0) continue;
@@ -331,8 +415,11 @@ async function buildPeerSignalsBlock(callId, subjectTicker) {
 
     lines.push(`\n  [${peerTicker} — ${peerCall.fiscal_year} ${peerCall.quarter}]`);
     for (const s of sorted) {
-      const stmt = s.statement ? ` — "${s.statement}"` : '';
-      lines.push(`    [id=${s.id}] ${s.metric}: ${s.raw_value ?? s.value ?? 'N/A'} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
+      const data    = s.data ?? {};
+      const primary = Array.isArray(data.measures) ? data.measures.find(m => m.value != null) : null;
+      const dispVal = primary?.value_raw ?? (primary?.value != null ? String(primary.value) : 'N/A');
+      const stmt    = s.statement ? ` — "${s.statement}"` : '';
+      lines.push(`    [id=${s.id}] ${s.metric ?? s.signal_type}: ${dispVal} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
     }
   }
 
@@ -370,14 +457,14 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
   // Use only transcript-based call_ids (exclude prowess synthetic ones) so that
   // the fan-out targets the same call_ids that have real L1 signals.
   const allRows = await prisma.$queryRaw`
-    SELECT DISTINCT ON (es.ticker) es.ticker AS company, es.call_id AS id, es.fiscal_year, es.quarter
-    FROM extracted_signals es
-    WHERE es.is_invalidated = false
-      AND es.call_id NOT LIKE 'prowess%'
-      AND es.call_id IN (
+    SELECT DISTINCT ON (sv.ticker) sv.ticker AS company, sv.call_id AS id, sv.fiscal_year, sv.quarter
+    FROM transcript_signals_v2 sv
+    WHERE sv.is_invalidated = false
+      AND sv.call_id NOT LIKE 'prowess%'
+      AND sv.call_id IN (
         SELECT id FROM earnings_calls WHERE basic_industry = ${industry}
       )
-    ORDER BY es.ticker, es.fiscal_year DESC, es.quarter DESC
+    ORDER BY sv.ticker, sv.fiscal_year DESC, sv.quarter DESC
   `;
   const latestCallByTicker = new Map();
   for (const r of allRows) {
@@ -390,12 +477,11 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
 
   const industrySignalLines = ['\nINDUSTRY L1 SIGNALS (all peer earnings calls):'];
   for (const [ticker, peerCall] of latestCallByTicker) {
-    const raw = await prisma.extractedSignal.findMany({
+    const raw = await prisma.transcriptSignalV2.findMany({
       where: {
         call_id:        peerCall.id,
         signal_type:    { in: PEER_SIGNAL_TYPES },
         is_invalidated: false,
-        NOT:            { metric: 'person' },
       },
     });
     if (raw.length === 0) continue;
@@ -407,8 +493,11 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
     }).slice(0, PEER_SIGNALS_CAP);
     industrySignalLines.push(`\n  [${ticker} — ${peerCall.fiscal_year} ${peerCall.quarter}]`);
     for (const s of sorted) {
-      const stmt = s.statement ? ` — "${s.statement}"` : '';
-      industrySignalLines.push(`    [id=${s.id}] ${s.metric}: ${s.raw_value ?? s.value ?? 'N/A'} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
+      const data    = s.data ?? {};
+      const primary = Array.isArray(data.measures) ? data.measures.find(m => m.value != null) : null;
+      const dispVal = primary?.value_raw ?? (primary?.value != null ? String(primary.value) : 'N/A');
+      const stmt    = s.statement ? ` — "${s.statement}"` : '';
+      industrySignalLines.push(`    [id=${s.id}] ${s.metric ?? s.signal_type}: ${dispVal} (${s.signal_type} impact=${s.impact ?? 'N/A'})${stmt}`);
     }
   }
   const peerSignalsBlock = industrySignalLines.length > 1 ? industrySignalLines.join('\n') + '\n' : '';
@@ -448,19 +537,20 @@ async function composeIndustryLens(callId, lensSlug, lensConfig) {
   const outputSchema = lensConfig.config.output_schema ?? lensOutputSchema;
 
   console.log(`[lensComposer] Industry LLM call for "${lensSlug}" / "${industry}" (${peerCallIds.length} peers, prompt: ${prompt.length} chars)`);
-  const responseText = await llmStream({
+  const { text: responseText, usage: industryUsage } = await llmStream({
     model,
     max_tokens:      maxTokens,
     messages:        [{ role: 'user', content: prompt }],
     response_format: outputSchema,
   });
+  logUsage(`lensComposer/industry/${lensSlug}`, industryUsage);
 
   let lensResult;
   try {
     lensResult = parseJson(responseText);
   } catch (e) {
     console.error(`[lensComposer] Failed to parse industry LLM response for "${lensSlug}":`, e.message);
-    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [] };
+    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [], patterns: [] };
   }
 
   const numericScore = typeof lensResult.score === 'number' ? lensResult.score / 100 : 0;
@@ -541,49 +631,39 @@ async function composeLens(callId, lensSlug) {
 
   const { signal_filters: filters, weights: weightOverrides = [], aggregation = 'weighted_sum',
           model: cfgModel, max_tokens: cfgMaxTokens, prompt_template: cfgPromptTemplate,
-          balance: cfgBalance, prefilter: cfgPrefilter } = lensConfig.config;
+          balance: cfgBalance, prefilter: cfgPrefilter,
+          show_math_block: cfgShowMathBlock } = lensConfig.config;
 
   const { include_historical, current_call_only_types, ...signalFilters } = filters ?? {};
 
-  const currentSignals = await querySignals({ callId, ...signalFilters });
+  const currentSignals = await querySignalsV2({ callId, ...signalFilters });
 
   let signals = currentSignals;
   if (include_historical) {
-    // Resolve ticker from current signals; if none matched the filter, fall back to any signal on this call
     let ticker = currentSignals[0]?.ticker;
     if (!ticker) {
-      const anySignal = await prisma.extractedSignal.findFirst({ where: { call_id: callId, is_invalidated: false } });
+      const anySignal = await prisma.transcriptSignalV2.findFirst({ where: { call_id: callId, is_invalidated: false } });
       ticker = anySignal?.ticker;
     }
     if (ticker) {
-      // current_call_only_types are excluded from the historical query (e.g. 'kpi' prowess data
-      // spans all periods — only the current call's kpis are relevant for guidance tracking)
-      const historicalFilters = { ...signalFilters };
-      if (current_call_only_types?.length > 0 && historicalFilters.signal_types) {
-        historicalFilters.signal_types = historicalFilters.signal_types.filter(
-          t => !current_call_only_types.includes(t)
-        );
-      }
-      if (!historicalFilters.signal_types || historicalFilters.signal_types.length > 0) {
-        const historicalSignals = await querySignals({ ticker, excludeCallId: callId, ...historicalFilters });
-        if (historicalSignals.length > 0) {
-          console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
-          signals = [...currentSignals, ...historicalSignals];
-        }
+      const historicalSignals = await querySignalsV2({ ticker, excludeCallId: callId, ...signalFilters });
+      if (historicalSignals.length > 0) {
+        console.log(`[lensComposer] "${lensSlug}" — appending ${historicalSignals.length} historical signals for ticker ${ticker}`);
+        signals = [...currentSignals, ...historicalSignals];
       }
     }
   }
 
-  const deduped = deduplicateSignals(signals);
-  if (deduped.length < signals.length) {
-    console.log(`[lensComposer] "${lensSlug}" — dropped ${signals.length - deduped.length} duplicate signals (prowess > qe > transcript)`);
+  const SIGNAL_CAP = 3000;
+  if (signals.length > SIGNAL_CAP) {
+    console.log(`[lensComposer] "${lensSlug}" — capping signals ${signals.length} → ${SIGNAL_CAP} (current call first)`);
+    signals = [...currentSignals, ...signals.filter(s => s.call_id !== callId)].slice(0, SIGNAL_CAP);
   }
-  signals = deduped;
 
   if (signals.length === 0) {
     const empty = {
       score: null, status: 'WEAK', takeaway: 'No signals available for this lens.',
-      key_metrics: {}, highlights: [], risks: [], top_signals: [],
+      key_metrics: {}, highlights: [], risks: [], top_signals: [], patterns: [],
       z_score: 0, confidence_lo: 0, confidence_hi: 0, signal_count: 0, signals_snapshot: [],
     };
     await prisma.lensScore.upsert({
@@ -634,14 +714,14 @@ async function composeLens(callId, lensSlug) {
     where: { call_id_lens_slug: { call_id: callId, lens_slug: lensSlug } },
   });
   const cachedLensData = existing?.lens_data;
-  const hasCachedTopSignals = Array.isArray(cachedLensData?.top_signals);
+  const hasCachedTopSignals = Array.isArray(cachedLensData?.top_signals) && Array.isArray(cachedLensData?.patterns);
   if (existing && existing.signals_hash === signalsHash && existing.lens_config_v === lensConfig.version && !existing.is_stale && cachedLensData && hasCachedTopSignals) {
     console.log(`[lensComposer] Cache hit for ${lensSlug}/${callId} — signals_hash match, skipping L2 LLM`);
     return { ...cachedLensData, z_score: existing.z_score, signals_snapshot: existing.signals_snapshot };
   }
 
   // ── Build compact signal summary → L2 LLM call ───────────────────────────
-  const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance, cfgPrefilter);
+  const signalSummary = buildSignalSummary(lensConfig.name, signals, mathResult, cfgBalance, cfgPrefilter, { show_math_block: cfgShowMathBlock });
   const promptTemplate = cfgPromptTemplate || L2_DEFAULT_PROMPT;
 
   const lensInstructions = cfgPromptTemplate ? '' : '';
@@ -667,29 +747,34 @@ async function composeLens(callId, lensSlug) {
   const em = await fetchEquityMetrics(callId);
   const equityBlock = formatEquityMetricsBlock(em);
 
-  const prompt = promptTemplate
+  const cfgBridgePrompt = lensConfig.config.bridge_prompt ?? false;
+
+  let prompt = promptTemplate
     .replace('{{LENS_NAME}}', lensConfig.name)
     .replace('{{LENS_INSTRUCTIONS}}', lensInstructions)
     .replace('{{DATA_BLOCK}}', signalSummary + shareholdingBlock + peerBlock + equityBlock);
+
+  // if (cfgBridgePrompt) prompt += JSON_OUTPUT_CONTRACT;
 
   const model          = cfgModel     ?? 'anthropic/claude-haiku-4.5';
   const maxTokens      = cfgMaxTokens ?? 8000;
   const outputSchema   = lensConfig.config.output_schema ?? lensOutputSchema;
 
   console.log(`[lensComposer] Calling L2 LLM for lens "${lensSlug}" (${signals.length} signals, prompt: ${prompt.length} chars)`);
-  const responseText = await llmStream({
+  const { text: responseText, usage: l2Usage } = await llmStream({
     model,
     max_tokens:      maxTokens,
     messages:        [{ role: 'user', content: prompt }],
     response_format: outputSchema,
   });
+  logUsage(`lensComposer/L2/${lensSlug}`, l2Usage);
 
   let lensResult;
   try {
     lensResult = parseJson(responseText);
   } catch (e) {
     console.error(`[lensComposer] Failed to parse L2 LLM response for "${lensSlug}":`, e.message);
-    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [] };
+    lensResult = { score: null, status: 'WEAK', takeaway: 'Parsing error — see logs.', key_metrics: {}, highlights: [], risks: [], top_signals: [], patterns: [] };
   }
 
   // Normalize the score from 0-100 to a z_score; prefer math z_score if LLM score absent
@@ -811,6 +896,7 @@ async function getLensesByCategory(callId, category) {
       highlights:   ld.highlights   ?? [],
       risks:        ld.risks        ?? [],
       top_signals:  ld.top_signals  ?? [],
+      patterns:     ld.patterns     ?? [],
       z_score:      ls?.z_score     ?? null,
       signal_count: ls?.signal_count ?? 0,
       computed_at:  ls?.computed_at  ?? null,
@@ -831,4 +917,10 @@ module.exports = {
   markLensStaleBySlug,
   getLensScores,
   getLensesByCategory,
+  // Exported for debug scripts
+  buildSignalSummary,
+  buildShareholdingBlock,
+  normalizeValue,
+  computeConfidenceInterval,
+  L2_DEFAULT_PROMPT,
 };

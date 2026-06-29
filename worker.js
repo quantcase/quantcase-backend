@@ -3,15 +3,16 @@ const connection = require('./config/redis');
 const prisma     = require('./config/prisma');
 
 // Start all workers
-require('./workers/summarization');
-require('./workers/qe');
+require('./workers/summarization_v2');
+require('./workers/summarization_v2_ppt');
+require('./workers/summarization_v2_annual_report');
 require('./workers/wealthos.suggestion');
 require('./workers/wealthos.message');
 require('./workers/technicals');
 require('./workers/aiInsightSynthesis');
 require('./workers/overviewSynthesis');
-require('./workers/prowess');
 require('./workers/lensComputation');
+require('./workers/htmlSkill');
 
 console.log('All workers started');
 

@@ -3,7 +3,7 @@
 const { Worker }    = require('bullmq');
 const connection    = require('../config/redis');
 const prisma        = require('../config/prisma');
-const { llmStream, parseJson } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { suggestionGenerationPrompt } = require('../prompts/wealthos/suggestion_generation');
 const { validateSuggestionOutput }   = require('../services/wealthos/compliance.service');
 const { loadSkillConfig }            = require('../utils/skillConfig');
@@ -19,12 +19,13 @@ async function processSuggestionJob(job) {
   console.log(`[wealthos_suggestion] Prompt length: ${prompt.length} chars`);
 
   await job.updateProgress(25);
-  const responseText = await llmStream({
+  const { text: responseText, usage } = await llmStream({
     model,
     max_tokens:      maxTokens,
     messages:        [{ role: 'user', content: prompt }],
     ...(outputSchema && { response_format: outputSchema }),
   });
+  logUsage('wealthos_suggestion', usage);
 
   await job.updateProgress(60);
 

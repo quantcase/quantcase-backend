@@ -36,15 +36,17 @@ const prisma = require('../../config/prisma');
 //   'BHARTIARTL', 'TATACOMM', 'TTML',
 //   'INDUSTOWER', 'HFCL', 'VINDHYATEL',
 //   'TATAPOWER', 'ADANIPOWER', 'TORNTPOWER',
-//   'WABAG', 'IONEXCHANG', 'JITFINFRA'
+//   'WABAG', 'IONEXCHANG', 'JITFINFRA',
+//   'HDFCBANK', 'AXISBANK', 'IDBI', 
+//   'INDIGOPNTS', 'MSUMI', 'IEX'
 // ];
 
 // const TARGET_TICKERS = ['HDFCBANK', 'AXISBANK', 'IDBI', 'ASIANPAINT', 'INDIGOPNTS', 'BERGEPAINT', 'RELIANCE'];
-const TARGET_TICKERS = ['CANBK', 'MSUMI', 'IEX'];
-// const TARGET_TICKERS = ['IEX'];
+// const TARGET_TICKERS = ['CANBK'];
+const TARGET_TICKERS = ['HDFCBANK', 'RELIANCE'];
 
 const TARGET_LENSES  = [
-  // 'guidance-credibility',
+  'guidance-credibility',
   // 'disclosure-honesty',
   // 'capital-allocation',
   // 'promoter-activity',
@@ -54,7 +56,7 @@ const TARGET_LENSES  = [
   // 'competition',
   // "earning-quality",
   // "earnings-forecast",
-  "pe-rerating-potential",
+  // "pe-rerating-potential",
   // "target-price-matrix"
 ];
 

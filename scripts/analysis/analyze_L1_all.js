@@ -42,12 +42,6 @@ async function postJob(callId, endpoint) {
 async function main() {
   const rows = await prisma.earnings_calls.groupBy({
     by: ['company'],
-    where: {
-      OR: [
-        { transcript_text: { not: null }, NOT: { transcript_text: '' } },
-        { ppt_text: { not: null }, NOT: { ppt_text: '' } },
-      ],
-    },
     _count: { company: true },
     orderBy: { _count: { company: 'desc' } },
   });
@@ -58,13 +52,7 @@ async function main() {
 
   for (const symbol of companies) {
     const calls = await prisma.earnings_calls.findMany({
-      where: {
-        company: symbol,
-        OR: [
-          { transcript_text: { not: null }, NOT: { transcript_text: '' } },
-          { ppt_text: { not: null }, NOT: { ppt_text: '' } },
-        ],
-      },
+      where: { company: symbol },
       select: {
         id: true,
         company: true,
@@ -115,8 +103,8 @@ async function main() {
       const done = new Set(existingCounts.filter((r) => r._count.source_type > 0).map((r) => r.source_type));
 
       const jobs = [];
-      // if (!done.has('transcript')) jobs.push(postJob(callId, 'summarize'));
-      // else console.log(`  [SKIP] summarize         → ${callId}  (transcript signals exist)`);
+      if (!done.has('transcript')) jobs.push(postJob(callId, 'summarize'));
+      else console.log(`  [SKIP] summarize         → ${callId}  (transcript signals exist)`);
 
       if (!done.has('prowess'))    jobs.push(postJob(callId, 'extract-prowess'));
       else console.log(`  [SKIP] extract-prowess   → ${callId}  (prowess signals exist)`);

@@ -62,17 +62,26 @@ async function main() {
   // Query all lens_scores for these call_ids in one shot
   const callIds = latestSignals.map((s) => s.call_id);
   const lensRows = await prisma.$queryRawUnsafe(`
-    SELECT call_id, lens_slug, (lens_data->>'score')::numeric AS score
+    SELECT call_id, lens_slug,
+           (lens_data->>'score')::numeric AS score,
+           jsonb_typeof(lens_data->'patterns') = 'array'
+             AND jsonb_array_length(lens_data->'patterns') > 0 AS has_patterns
     FROM lens_scores
     WHERE call_id = ANY($1::text[])
       AND is_stale = false
   `, callIds);
 
-  // Build map: call_id -> Set of lens slugs that are properly populated
+  // Build map: call_id -> Set of lens slugs that are properly populated.
+  // For guidance-credibility: also require the patterns array (v2.0.0 schema) —
+  // old scores have a valid score but no patterns and must be recomputed.
   const goodLenses = new Map();
   for (const row of lensRows) {
     const score  = row.score != null ? parseFloat(row.score) : null;
-    const isGood = score != null;
+    let isGood   = score != null;
+    if (isGood && row.lens_slug === 'guidance-credibility') {
+      // patterns is a jsonb array column in lens_data; treat absence as broken
+      isGood = row.has_patterns === true;
+    }
     if (isGood) {
       if (!goodLenses.has(row.call_id)) goodLenses.set(row.call_id, new Set());
       goodLenses.get(row.call_id).add(row.lens_slug);

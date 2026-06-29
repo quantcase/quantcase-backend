@@ -1,0 +1,296 @@
+'use strict';
+
+const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+// ── Bar aggregation (shared utility) ─────────────────────────────────────────
+// rows must be sorted ascending by datetime.
+
+function aggregateBars(rows, interval) {
+  if (!rows || rows.length === 0) return [];
+
+  function bucketKey(d) {
+    const dt = d instanceof Date ? d : new Date(d);
+    if (interval === '1d')  return dt.toISOString().slice(0, 10);
+    if (interval === '1wk') {
+      const day  = dt.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      const mon  = new Date(dt);
+      mon.setDate(dt.getDate() + diff);
+      return mon.toISOString().slice(0, 10);
+    }
+    if (interval === '1mo') return dt.toISOString().slice(0, 7);
+    return dt.toISOString().slice(0, 10);
+  }
+
+  const buckets = new Map();
+  for (const r of rows) {
+    const closeVal = parseFloat(r.close);
+    if (!isFinite(closeVal)) continue;
+    const dt       = r.datetime instanceof Date ? r.datetime : new Date(r.datetime);
+    const key      = bucketKey(dt);
+    const highVal  = isFinite(parseFloat(r.high))  ? parseFloat(r.high)  : closeVal;
+    const lowVal   = isFinite(parseFloat(r.low))   ? parseFloat(r.low)   : closeVal;
+    const openVal  = isFinite(parseFloat(r.open))  ? parseFloat(r.open)  : closeVal;
+    if (!buckets.has(key)) {
+      buckets.set(key, { date: key, open: openVal, high: highVal, low: lowVal, close: closeVal, volume: Number(r.volume ?? 0) });
+    } else {
+      const b  = buckets.get(key);
+      b.high   = Math.max(b.high, highVal);
+      b.low    = Math.min(b.low,  lowVal);
+      b.close  = closeVal;
+      b.volume += Number(r.volume ?? 0);
+    }
+  }
+
+  return [...buckets.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// nse_index uses Decimal columns — convert before calling aggregateBars.
+function aggregateIndexBars(rows, interval) {
+  if (!rows || rows.length === 0) return [];
+  return aggregateBars(
+    rows.map(r => ({
+      datetime: r.datetime,
+      open:     r.open   != null ? parseFloat(r.open)   : null,
+      high:     r.high   != null ? parseFloat(r.high)   : null,
+      low:      r.low    != null ? parseFloat(r.low)    : null,
+      close:    r.close  != null ? parseFloat(r.close)  : null,
+      volume:   r.volume != null ? Number(r.volume)     : 0,
+    })),
+    interval,
+  );
+}
+
+// ── nse_equity_new fetchers ───────────────────────────────────────────────────
+
+/**
+ * Fetch OHLCV bars for a symbol from nse_equity_new.
+ * Returns daily / weekly / monthly bars plus a synthetic quote, ATH/ATL and 52w dates.
+ * Mirrors the shape that technicalAnalysis.fetchMarketData() previously built internally.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} symbol
+ * @param {{ since?: Date }} [opts]  defaults to 3 years back
+ */
+async function fetchOhlcvBars(prisma, symbol, { since } = {}) {
+  const now       = Date.now();
+  const threeYrsAgo = since ?? new Date(now - 3 * ONE_YEAR_MS);
+  const oneYearAgo  = new Date(now - ONE_YEAR_MS);
+  const twoYrsAgo   = new Date(now - 2 * ONE_YEAR_MS);
+
+  const [allRows, athAtlRows] = await Promise.all([
+    prisma.nse_equity_new.findMany({
+      where:   { symbol, datetime: { gte: threeYrsAgo } },
+      orderBy: { datetime: 'asc' },
+      select:  { datetime: true, open: true, high: true, low: true, close: true, volume: true },
+    }),
+    prisma.$queryRaw`
+      SELECT
+        MAX(high)::float AS ath,
+        MIN(low)::float  AS atl,
+        (SELECT datetime FROM nse_equity_new WHERE symbol = ${symbol} AND high = (SELECT MAX(high) FROM nse_equity_new WHERE symbol = ${symbol}) ORDER BY datetime DESC LIMIT 1) AS ath_date,
+        (SELECT datetime FROM nse_equity_new WHERE symbol = ${symbol} AND low  = (SELECT MIN(low)  FROM nse_equity_new WHERE symbol = ${symbol}) ORDER BY datetime DESC LIMIT 1) AS atl_date
+      FROM nse_equity_new
+      WHERE symbol = ${symbol}
+    `,
+  ]);
+
+  const dailyRaw   = allRows.filter(r => new Date(r.datetime) >= oneYearAgo);
+  const weeklyRaw  = allRows.filter(r => new Date(r.datetime) >= twoYrsAgo);
+  const monthlyRaw = allRows;
+
+  const dailyBars   = aggregateBars(dailyRaw,   '1d');
+  const weeklyBars  = aggregateBars(weeklyRaw,  '1wk');
+  const monthlyBars = aggregateBars(monthlyRaw, '1mo');
+
+  const latest = dailyBars.at(-1) ?? null;
+  const prev   = dailyBars.length > 1 ? dailyBars.at(-2) : null;
+  const quote  = latest ? {
+    regularMarketPrice:          latest.close,
+    regularMarketPreviousClose:  prev?.close ?? latest.open,
+    regularMarketOpen:           latest.open,
+    regularMarketDayHigh:        latest.high,
+    regularMarketDayLow:         latest.low,
+    regularMarketVolume:         latest.volume,
+    fiftyTwoWeekHigh:            dailyBars.length ? Math.max(...dailyBars.map(b => b.high)) : null,
+    fiftyTwoWeekLow:             dailyBars.length ? Math.min(...dailyBars.map(b => b.low))  : null,
+  } : null;
+
+  const athAtl = athAtlRows[0] ?? {};
+  const allTimeHigh     = athAtl.ath     != null ? parseFloat(athAtl.ath)     : null;
+  const allTimeLow      = athAtl.atl     != null ? parseFloat(athAtl.atl)     : null;
+  const allTimeHighDate = athAtl.ath_date ? new Date(athAtl.ath_date).toISOString().slice(0, 10) : null;
+  const allTimeLowDate  = athAtl.atl_date ? new Date(athAtl.atl_date).toISOString().slice(0, 10) : null;
+
+  let high52wDate = null, low52wDate = null;
+  if (dailyBars.length) {
+    high52wDate = dailyBars.reduce((a, b) => b.high > a.high ? b : a).date;
+    low52wDate  = dailyBars.reduce((a, b) => b.low  < a.low  ? b : a).date;
+  }
+
+  return { dailyBars, weeklyBars, monthlyBars, quote, nextEarningsDate: null, allTimeHigh, allTimeLow, allTimeHighDate, allTimeLowDate, high52wDate, low52wDate };
+}
+
+/**
+ * Latest single-row snapshot: close, pe, eps, market_cap_cr, datetime.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} symbol
+ * @returns {Promise<{ close, pe, eps, market_cap_cr, datetime }|null>}
+ */
+async function fetchMarketSnapshot(prisma, symbol) {
+  const row = await prisma.nse_equity_new.findFirst({
+    where:   { symbol, close: { not: null } },
+    orderBy: { datetime: 'desc' },
+    select:  { close: true, pe: true, eps: true, market_cap_cr: true, datetime: true },
+  });
+  if (!row) return null;
+  return {
+    close:         row.close         != null ? parseFloat(row.close)         : null,
+    pe:            row.pe            != null ? parseFloat(row.pe)            : null,
+    eps:           row.eps           != null ? parseFloat(row.eps)           : null,
+    market_cap_cr: row.market_cap_cr != null ? parseFloat(row.market_cap_cr) : null,
+    datetime:      row.datetime instanceof Date ? row.datetime.toISOString().slice(0, 10) : null,
+  };
+}
+
+/**
+ * Bulk latest snapshot for multiple tickers.
+ * Returns a plain object: { [SYMBOL]: { close, prevClose, pe, eps, market_cap_cr } }
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string[]} symbols
+ */
+async function fetchMarketSnapshots(prisma, symbols) {
+  if (!symbols.length) return {};
+  const rows = await prisma.$queryRaw`
+    SELECT symbol, close::float, pe::float, eps::float, market_cap_cr::float, datetime
+    FROM (
+      SELECT symbol, close, pe, eps, market_cap_cr, datetime,
+             ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY datetime DESC) AS rn
+      FROM nse_equity_new
+      WHERE symbol = ANY(${symbols}) AND close IS NOT NULL
+    ) sub
+    WHERE rn <= 2
+    ORDER BY symbol, rn
+  `;
+
+  const map = {};
+  for (const row of rows) {
+    const sym = row.symbol.toUpperCase();
+    if (!map[sym]) map[sym] = { close: null, prevClose: null, pe: null, eps: null, market_cap_cr: null };
+    const snap = map[sym];
+    if (snap.close === null) {
+      snap.close         = row.close         != null ? parseFloat(row.close)         : null;
+      snap.pe            = row.pe            != null ? parseFloat(row.pe)            : null;
+      snap.eps           = row.eps           != null ? parseFloat(row.eps)           : null;
+      snap.market_cap_cr = row.market_cap_cr != null ? parseFloat(row.market_cap_cr) : null;
+    } else {
+      snap.prevClose = row.close != null ? parseFloat(row.close) : null;
+    }
+  }
+  return map;
+}
+
+/**
+ * PE time-series from nse_equity_new (replaces pe_data table).
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} symbol
+ * @param {{ months?: number, since?: Date }} [opts]
+ * @returns {Promise<Array<{ date: string, pe: number }>>}
+ */
+async function fetchPeTimeSeries(prisma, symbol, { months, since } = {}) {
+  const cutoff = since ?? (months != null
+    ? new Date(Date.now() - months * 30 * 24 * 60 * 60 * 1000)
+    : null);
+
+  const rows = await prisma.nse_equity_new.findMany({
+    where: {
+      symbol,
+      pe: { not: null },
+      ...(cutoff ? { datetime: { gte: cutoff } } : {}),
+    },
+    orderBy: { datetime: 'asc' },
+    select:  { datetime: true, pe: true },
+  });
+
+  return rows.map(r => ({
+    date: r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
+    pe:   r.pe != null ? parseFloat(r.pe) : null,
+  }));
+}
+
+/**
+ * Monthly-aggregated close series (for stock-price CAGR and charts).
+ * Uses DATE_TRUNC on the Date column — returns month buckets.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} symbol
+ * @param {{ since: Date }} opts
+ * @returns {Promise<Array<{ month: Date, close: number }>>}
+ */
+async function fetchMonthlyClose(prisma, symbol, { since }) {
+  const rows = await prisma.$queryRaw`
+    SELECT DATE_TRUNC('month', datetime) AS month, AVG(close)::float AS close
+    FROM nse_equity_new
+    WHERE symbol = ${symbol} AND datetime >= ${since}
+    GROUP BY DATE_TRUNC('month', datetime)
+    ORDER BY month ASC
+  `;
+  return rows;
+}
+
+/**
+ * Monthly OHLCV + volume (for price chart group in prowess/financials views).
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} symbol
+ * @param {{ since: Date }} opts
+ */
+async function fetchMonthlyOhlcv(prisma, symbol, { since }) {
+  const rows = await prisma.$queryRaw`
+    SELECT DATE_TRUNC('month', datetime) AS month,
+           AVG(close)::float  AS close,
+           SUM(volume)::float AS volume
+    FROM nse_equity_new
+    WHERE symbol = ${symbol} AND datetime >= ${since}
+    GROUP BY DATE_TRUNC('month', datetime)
+    ORDER BY month ASC
+  `;
+  return rows;
+}
+
+// ── nse_index fetchers ────────────────────────────────────────────────────────
+
+/**
+ * Fetch OHLCV bars for an index sector from nse_index.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} sector
+ * @param {{ since?: Date }} [opts]
+ */
+async function fetchIndexBars(prisma, sector, { since } = {}) {
+  const cutoff = since ?? new Date(Date.now() - 3 * ONE_YEAR_MS);
+  const rows = await prisma.nse_index.findMany({
+    where:   { sector, datetime: { gte: cutoff } },
+    orderBy: { datetime: 'asc' },
+  });
+  return {
+    daily:   aggregateIndexBars(rows.filter(r => new Date(r.datetime) >= new Date(Date.now() - ONE_YEAR_MS)), '1d'),
+    weekly:  aggregateIndexBars(rows.filter(r => new Date(r.datetime) >= new Date(Date.now() - 2 * ONE_YEAR_MS)), '1wk'),
+    monthly: aggregateIndexBars(rows, '1mo'),
+  };
+}
+
+module.exports = {
+  aggregateBars,
+  aggregateIndexBars,
+  fetchOhlcvBars,
+  fetchMarketSnapshot,
+  fetchMarketSnapshots,
+  fetchPeTimeSeries,
+  fetchMonthlyClose,
+  fetchMonthlyOhlcv,
+  fetchIndexBars,
+};

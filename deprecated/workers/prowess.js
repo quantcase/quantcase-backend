@@ -5,7 +5,7 @@ const { randomUUID } = require('crypto');
 const connection     = require('../config/redis');
 const prisma         = require('../config/prisma');
 const openRouter     = require('../config/llm');
-const { parseJson }  = require('../utils/workerUtils');
+const { parseJson, logUsage } = require('../utils/workerUtils');
 const { prowessExtractionPrompt, assembleSignal } = require('../prompts/prowess_extraction');
 const { loadSkillConfig }         = require('../utils/skillConfig');
 const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash');
@@ -146,7 +146,12 @@ async function processProwessJob(job) {
 
   const stream = await openRouter.chat.completions.create(params);
   let responseText = '';
-  for await (const chunk of stream) responseText += chunk.choices[0]?.delta?.content ?? '';
+  let prowessUsage = null;
+  for await (const chunk of stream) {
+    responseText += chunk.choices[0]?.delta?.content ?? '';
+    if (chunk.usage) prowessUsage = chunk.usage;
+  }
+  logUsage('prowess', prowessUsage);
   await job.updateProgress(75);
 
   if (!responseText) throw new Error('Empty response from LLM');

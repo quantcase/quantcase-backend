@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma = require('../../config/prisma');
+const { fetchMarketSnapshots } = require('../../utils/formulaRegistry/dataFetcherMarket');
 
 const CONVICTION_MAP = {
   'STRONG BUY':    'POSITIVE',
@@ -13,7 +14,7 @@ const CONVICTION_MAP = {
  * Bulk-fetch market enrichment for a list of tickers.
  * Returns a map: { [TICKER]: { ltp, change, change_percent, qc_score, conviction, thesis_tags } }
  *
- * - ltp / change / change_percent : latest close + 1D move from nse_equity
+ * - ltp / change / change_percent : latest close + 1D move from nse_equity_new
  * - qc_score                      : composite_score from iit_weekly_stock_scores (latest week)
  * - conviction                    : POSITIVE | NEUTRAL | WATCH — derived from ai_insights verdict_band
  * - thesis_tags                   : which of MANAGEMENT | OPPORTUNITY | DEAL have an ai_insights row
@@ -23,19 +24,8 @@ async function enrichHoldings(tickers) {
 
   const symbols = tickers.map(t => t.toUpperCase());
 
-  const [priceRows, scoreRows, insightRows] = await Promise.all([
-    // Latest 2 closes per symbol to compute LTP + 1D change
-    prisma.$queryRaw`
-      SELECT symbol, close, datetime
-      FROM (
-        SELECT symbol, close, datetime,
-               ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY datetime DESC) AS rn
-        FROM nse_equity
-        WHERE symbol = ANY(${symbols}) AND close IS NOT NULL
-      ) sub
-      WHERE rn <= 2
-      ORDER BY symbol, rn
-    `,
+  const [priceSnaps, scoreRows, insightRows] = await Promise.all([
+    fetchMarketSnapshots(prisma, symbols),
 
     // Latest week IIT composite score per ticker
     prisma.$queryRaw`
@@ -56,14 +46,6 @@ async function enrichHoldings(tickers) {
     `,
   ]);
 
-  // Build per-symbol price map: symbol → [row1 (latest), row2 (prev)]
-  const priceMap = {};
-  for (const row of priceRows) {
-    const sym = row.symbol.toUpperCase();
-    if (!priceMap[sym]) priceMap[sym] = [];
-    priceMap[sym].push(row);
-  }
-
   // IIT score map
   const scoreMap = {};
   for (const row of scoreRows) {
@@ -80,11 +62,9 @@ async function enrichHoldings(tickers) {
 
   const result = {};
   for (const sym of symbols) {
-    const prices     = priceMap[sym] || [];
-    const latest     = prices[0];
-    const prev       = prices[1];
-    const ltp        = latest?.close != null ? parseFloat(latest.close) : null;
-    const prevClose  = prev?.close   != null ? parseFloat(prev.close)   : null;
+    const snap       = priceSnaps[sym] ?? null;
+    const ltp        = snap?.close     ?? null;
+    const prevClose  = snap?.prevClose ?? null;
 
     const change         = ltp != null && prevClose != null ? Math.round((ltp - prevClose) * 100) / 100 : null;
     const change_percent = ltp != null && prevClose != null && prevClose !== 0

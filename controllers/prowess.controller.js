@@ -10,6 +10,7 @@ const {
 } = require('../lib/prowess');
 
 const prisma = require('../config/prisma');
+const { fetchMonthlyOhlcv } = require('../utils/formulaRegistry/dataFetcherMarket');
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 
@@ -40,19 +41,10 @@ async function getCharts(req, res, next) {
     const periods = Array.from({ length: FUND_PERIOD_COUNT }, (_, i) => fundPeriodData(companyRow, i));
     const quarterLabel = quarterLabels[FUND_PERIOD_COUNT - 1];
 
-    // ── 1. Price group — nse_equity ───────────────────────────────────────────
+    // ── 1. Price group — nse_equity_new ──────────────────────────────────────
     const tenYearsAgo = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000);
 
-    const monthlyPriceRows = await prisma.$queryRaw`
-      SELECT
-        DATE_TRUNC('month', datetime) AS month,
-        AVG(close)  AS close,
-        SUM(volume) AS volume
-      FROM nse_equity
-      WHERE symbol = ${symbol} AND datetime >= ${tenYearsAgo}
-      GROUP BY DATE_TRUNC('month', datetime)
-      ORDER BY month ASC
-    `;
+    const monthlyPriceRows = await fetchMonthlyOhlcv(prisma, symbol, { since: tenYearsAgo });
 
     const monthlyQuotes = monthlyPriceRows
       .filter((q) => q.close != null)

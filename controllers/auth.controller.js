@@ -1,9 +1,28 @@
 'use strict';
 
-const jwt    = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const prisma  = require('../config/prisma');
+const jwt         = require('jsonwebtoken');
+const bcrypt      = require('bcryptjs');
+const prisma      = require('../config/prisma');
 const { jwtSecret, jwtRefreshSecret, jwtExpiresIn, jwtRefreshExpiresIn } = require('../config/auth');
+const authService = require('../services/auth.service');
+
+function issueTokens(user) {
+  const payload = { sub: user.id, email: user.email, accountType: user.account_type };
+  return {
+    access_token:  jwt.sign(payload, jwtSecret,        { expiresIn: jwtExpiresIn }),
+    refresh_token: jwt.sign(payload, jwtRefreshSecret, { expiresIn: jwtRefreshExpiresIn }),
+  };
+}
+
+const register = async (req, res) => {
+  const { email, mobile, password, display_name } = req.body;
+  const user = await authService.register({ email, mobile, password, display_name });
+  const tokens = issueTokens(user);
+  return res.status(201).json({
+    ...tokens,
+    user: { id: user.id, email: user.email, accountType: user.account_type },
+  });
+};
 
 const signin = async (req, res) => {
   const { email, password } = req.body;
@@ -13,11 +32,7 @@ const signin = async (req, res) => {
   }
 
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-
-  if (!user.password_hash) {
+  if (!user || !user.password_hash) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
@@ -26,17 +41,17 @@ const signin = async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  const payload = { sub: user.id, email: user.email, accountType: user.account_type };
-
-  const accessToken  = jwt.sign(payload, jwtSecret,        { expiresIn: jwtExpiresIn });
-  const refreshToken = jwt.sign(payload, jwtRefreshSecret, { expiresIn: jwtRefreshExpiresIn });
-
-  return res.json({ access_token: accessToken, refresh_token: refreshToken });
+  return res.json(issueTokens(user));
 };
 
-const getMe = (req, res) => {
-  const { sub: id, email, accountType } = req.user;
-  return res.json({ id, email, accountType });
+const getMe = async (req, res) => {
+  const profile = await authService.getFullProfile(req.user.sub);
+  return res.json(profile);
 };
 
-module.exports = { signin, getMe };
+const updateOnboarding = async (req, res) => {
+  const profile = await authService.updateOnboarding(req.user.sub, req.body);
+  return res.json({ success: true, data: profile });
+};
+
+module.exports = { register, signin, getMe, updateOnboarding };
