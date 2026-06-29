@@ -144,7 +144,7 @@ function _quarterLabelToYear(label) {
 }
 
 /**
- * PE CAGR for a single stock from quarterly pe_data buckets.
+ * PE CAGR for a single stock from nse_equity_new PE data, averaged into quarterly buckets.
  * @returns {{ value, type, spanYears, periodsUsed, firstPe, latestPe, avgPe }}
  */
 async function fetchStockPeCagr(prisma, ticker, targetYears = 5) {

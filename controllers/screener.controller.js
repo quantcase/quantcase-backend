@@ -9,6 +9,7 @@ const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_inte
 const { loadSkillConfig } = require('../utils/skillConfig');
 const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { resolveMetric, resolveIndicatorSeries } = require('../utils/formulaRegistry/index');
+const { fetchOhlcvBars, fetchMarketSnapshot, fetchMarketSnapshots, fetchMonthlyOhlcv, fetchPeTimeSeries } = require('../utils/formulaRegistry/dataFetcherMarket');
 const prisma    = require('../config/prisma');
 const jobQueue  = require('../lib/jobQueue');
 
@@ -203,42 +204,10 @@ async function getTickerInfo(req, res, next) {
       : null;
     const epsForward    = null;
 
-    // ── 2. Price data from nse_equity ──────────────────────────────────────
-    const oneYearAgo   = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
-    const fiftyDaysAgo = new Date(Date.now() -  50 * 24 * 60 * 60 * 1000);
-    const twohundDaysAgo = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
-
-    const [latestPriceRows, yearPriceRows, mktCapRows, peRows, annualRows, quarterlyRows, priceAvgRows, priceYearAgoRows] = await Promise.all([
-      // Latest 2 rows to compute day change
-      prisma.$queryRaw`
-        SELECT datetime, open, high, low, close, volume
-        FROM nse_equity
-        WHERE symbol = ${sym}
-        ORDER BY datetime DESC
-        LIMIT 2
-      `,
-      // Last 1 year for 52W high/low
-      prisma.$queryRaw`
-        SELECT high, low
-        FROM nse_equity
-        WHERE symbol = ${sym} AND datetime >= ${oneYearAgo}
-      `,
-      // Latest market cap from nse_equity
-      prisma.$queryRaw`
-        SELECT market_cap_cr, datetime AS date
-        FROM nse_equity
-        WHERE symbol = ${sym} AND market_cap_cr IS NOT NULL
-        ORDER BY datetime DESC
-        LIMIT 1
-      `,
-      // Latest P/E from nse_equity (keyed by symbol)
-      prisma.$queryRaw`
-        SELECT pe, datetime AS date
-        FROM nse_equity
-        WHERE symbol = ${sym} AND pe IS NOT NULL
-        ORDER BY datetime DESC
-        LIMIT 1
-      `,
+    // ── 2. Price + market data from nse_equity_new ────────────────────────
+    const [marketData, marketSnap, annualRows, quarterlyRows] = await Promise.all([
+      fetchOhlcvBars(prisma, sym),
+      fetchMarketSnapshot(prisma, sym),
       // Annual KPI values — last 6 fiscal years covers YoY, 3Y CAGR, and all ratio lookbacks
       companyName
         ? prisma.$queryRaw`
@@ -261,56 +230,38 @@ async function getTickerInfo(req, res, next) {
             ORDER BY fiscal_year ASC, quarter ASC
           `
         : Promise.resolve([]),
-      // 50d and 200d averages
-      prisma.$queryRaw`
-        SELECT
-          AVG(close::numeric) FILTER (WHERE datetime >= ${fiftyDaysAgo})    AS avg50,
-          AVG(close::numeric) FILTER (WHERE datetime >= ${twohundDaysAgo})  AS avg200
-        FROM nse_equity WHERE symbol = ${sym}
-      `,
-      // Price ~1 year ago for 52W change
-      prisma.$queryRaw`
-        SELECT close FROM nse_equity
-        WHERE symbol = ${sym} AND datetime <= ${oneYearAgo}
-        ORDER BY datetime DESC LIMIT 1
-      `,
     ]);
 
     // ── 3. Price calculations ──────────────────────────────────────────────
-    const today    = latestPriceRows[0] ?? null;
-    const prevDay  = latestPriceRows[1] ?? null;
+    const dailyBars = marketData.dailyBars;
+    const latest    = dailyBars.at(-1) ?? null;
+    const prev      = dailyBars.length > 1 ? dailyBars.at(-2) : null;
 
-    if (!today && !companyName) {
+    if (!latest && !companyName) {
       return res.status(404).json({ error: `Symbol "${sym}" not found` });
     }
 
-    const price         = today?.close != null ? parseFloat(today.close) : null;
-    const prevClose     = prevDay?.close != null ? parseFloat(prevDay.close) : null;
+    const price         = latest?.close ?? null;
+    const prevClose     = prev?.close   ?? null;
     const change        = price != null && prevClose != null ? r2(price - prevClose) : null;
     const changePercent = price != null && prevClose != null && prevClose !== 0
       ? r2((price - prevClose) / prevClose) : null;
 
-    const week52High = yearPriceRows.length > 0
-      ? r2(Math.max(...yearPriceRows.map((r) => parseFloat(r.high ?? 0)).filter(Boolean)))
-      : null;
-    const week52Low = yearPriceRows.length > 0
-      ? r2(Math.min(...yearPriceRows.map((r) => parseFloat(r.low ?? Infinity)).filter((v) => v !== Infinity)))
-      : null;
+    const week52High = dailyBars.length ? r2(Math.max(...dailyBars.map(b => b.high))) : null;
+    const week52Low  = dailyBars.length ? r2(Math.min(...dailyBars.map(b => b.low)))  : null;
 
-    const avgRow = priceAvgRows[0] ?? null;
-    const fiftyDayAverage      = avgRow?.avg50  != null ? r2(parseFloat(avgRow.avg50))  : null;
-    const twoHundredDayAverage = avgRow?.avg200 != null ? r2(parseFloat(avgRow.avg200)) : null;
+    const last50Closes  = dailyBars.slice(-50).map(b => b.close).filter(v => v != null);
+    const last200Closes = dailyBars.slice(-200).map(b => b.close).filter(v => v != null);
+    const fiftyDayAverage      = last50Closes.length  ? r2(last50Closes.reduce((s, v) => s + v, 0)  / last50Closes.length)  : null;
+    const twoHundredDayAverage = last200Closes.length ? r2(last200Closes.reduce((s, v) => s + v, 0) / last200Closes.length) : null;
 
-    const priceYearAgoVal = priceYearAgoRows[0]?.close != null ? parseFloat(priceYearAgoRows[0].close) : null;
+    const priceYearAgoVal = dailyBars[0]?.close ?? null;
     const week52Change = price != null && priceYearAgoVal != null && priceYearAgoVal !== 0
       ? r2((price - priceYearAgoVal) / Math.abs(priceYearAgoVal))
       : null;
 
     // ── 4. Market cap ──────────────────────────────────────────────────────
-    const mktCapRow = mktCapRows[0] ?? null;
-    // market_cap(Cr) column is stored as market_cap_cr in schema
-    const marketCapCr  = mktCapRow?.market_cap_cr != null ? parseFloat(mktCapRow.market_cap_cr) : null;
-    // Convert Cr → absolute (1 Cr = 10M = 1e7)
+    const marketCapCr  = marketSnap?.market_cap_cr ?? null;
     const marketCapAbs = marketCapCr != null ? marketCapCr * 1e7 : null;
 
     function marketCapLabel(capCr) {
@@ -321,9 +272,7 @@ async function getTickerInfo(req, res, next) {
     }
 
     // ── 5. P/E ─────────────────────────────────────────────────────────────
-    const peRow     = peRows[0] ?? null;
-    // pe_data stores PE keyed by company name. Fallback: marketCap / annualised PAT.
-    let trailingPE = peRow?.pe != null ? r2(parseFloat(peRow.pe)) : null;
+    let trailingPE = marketSnap?.pe != null ? r2(marketSnap.pe) : null;
 
     // ── 6. KPI helpers — built from annual (audited) rows only ─────────────
     // Pick latest consolidated value per abbr (ORDER BY ensures C before S for same period)
@@ -378,7 +327,7 @@ async function getTickerInfo(req, res, next) {
       return r2((curr - prev) / Math.abs(prev));
     }
 
-    // ── 7. PE fallback from market cap / PAT (if pe_data had no entry) ────
+    // ── 7. PE fallback from market cap / PAT ──────────────────────────────
     if (trailingPE == null && marketCapAbs != null) {
       const patForPe = kpiVal('PAT');
       if (patForPe != null && patForPe !== 0) {
@@ -947,7 +896,7 @@ async function getPrices(req, res, next) {
       : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000); // default: 1 year
     const period2 = req.query.to ? new Date(req.query.to) : new Date();
 
-    const rows = await prisma.nse_equity.findMany({
+    const rows = await prisma.nse_equity_new.findMany({
       where: {
         symbol,
         datetime: { gte: period1, lte: period2 },
@@ -1004,37 +953,21 @@ async function getCharts(req, res, next) {
     const tenYearsAgo = new Date(now - 10 * 365 * 24 * 60 * 60 * 1000);
     const twoYearsAgo = new Date(now -  2 * 365 * 24 * 60 * 60 * 1000);
 
-    const [monthlyPriceRows, quarterlyPriceRows, peRowsRes, prowessRows] = await Promise.all([
-      // Monthly OHLCV aggregated from nse_equity (price group)
-      prisma.$queryRaw`
-        SELECT
-          DATE_TRUNC('month', datetime) AS month,
-          AVG(close)  AS close,
-          SUM(volume) AS volume
-        FROM nse_equity
-        WHERE symbol = ${symbol} AND datetime >= ${tenYearsAgo}
-        GROUP BY DATE_TRUNC('month', datetime)
-        ORDER BY month ASC
-      `,
+    const [monthlyPriceRows, quarterlyPriceRows, peRows, prowessRows] = await Promise.all([
+      fetchMonthlyOhlcv(prisma, symbol, { since: tenYearsAgo }),
 
       // Quarterly last-close for ratio chart price lookups
       prisma.$queryRaw`
         SELECT
           DATE_TRUNC('quarter', datetime) AS quarter_date,
-          (ARRAY_AGG(close ORDER BY datetime DESC))[1] AS close
-        FROM nse_equity
+          (ARRAY_AGG(close ORDER BY datetime DESC))[1]::float AS close
+        FROM nse_equity_new
         WHERE symbol = ${symbol} AND datetime >= ${tenYearsAgo}
         GROUP BY DATE_TRUNC('quarter', datetime)
         ORDER BY quarter_date ASC
       `,
 
-      // PE history from nse_equity (keyed by symbol)
-      prisma.$queryRaw`
-        SELECT pe, datetime AS date
-        FROM nse_equity
-        WHERE symbol = ${symbol} AND pe IS NOT NULL
-        ORDER BY datetime ASC
-      `,
+      fetchPeTimeSeries(prisma, symbol, { since: tenYearsAgo }),
 
       // Quarterly prowess KPIs — standalone quarterly P&L + balance sheet for charts
       companyName
@@ -1047,8 +980,6 @@ async function getCharts(req, res, next) {
           `
         : Promise.resolve([]),
     ]);
-
-    const peRows = peRowsRes;
 
     // ── 3. Organise prowess rows into quarterly periods ────────────────────
     // Build { "FY2024|Q1": { REV_OP: X, PAT: Y, ... }, ... }
@@ -1358,25 +1289,8 @@ async function getPeers(req, res, next) {
     const nseSymbols = peerRows.map((r) => (r[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase()).filter(Boolean);
 
     // ── 4. Bulk-fetch CMP, Market Cap, PE, and AI insight scores from DB ────────────────────────
-    const [latestPrices, latestMktCap, latestPe, aiInsightRows] = await Promise.all([
-      prisma.$queryRaw`
-        SELECT DISTINCT ON (symbol) symbol, close
-        FROM nse_equity
-        WHERE symbol = ANY(${nseSymbols})
-        ORDER BY symbol, datetime DESC
-      `,
-      prisma.$queryRaw`
-        SELECT DISTINCT ON (symbol) symbol, market_cap_cr
-        FROM nse_equity
-        WHERE symbol = ANY(${nseSymbols}) AND market_cap_cr IS NOT NULL
-        ORDER BY symbol, datetime DESC
-      `,
-      prisma.$queryRaw`
-        SELECT DISTINCT ON (symbol) symbol, pe
-        FROM nse_equity
-        WHERE symbol = ANY(${nseSymbols}) AND pe IS NOT NULL
-        ORDER BY symbol, datetime DESC
-      `,
+    const [snapsMap, aiInsightRows] = await Promise.all([
+      fetchMarketSnapshots(prisma, nseSymbols),
       prisma.aiInsight.findMany({
         where: { ticker: { in: nseSymbols }, type: { in: ['management', 'opportunity', 'deal'] } },
         select: { ticker: true, type: true, insight: true },
@@ -1395,20 +1309,9 @@ async function getPeers(req, res, next) {
       };
     }
 
-    const cmpMap = {};
-    for (const row of latestPrices) {
-      if (row.close != null) cmpMap[row.symbol.toUpperCase()] = parseFloat(row.close);
-    }
-
-    const mktCapMap = {};
-    for (const row of latestMktCap) {
-      if (row.market_cap_cr != null) mktCapMap[row.symbol.toUpperCase()] = parseFloat(row.market_cap_cr);
-    }
-
-    const peDbMap = {};
-    for (const row of latestPe) {
-      if (row.pe != null) peDbMap[row.symbol.toUpperCase()] = parseFloat(row.pe);
-    }
+    const cmpMap    = Object.fromEntries(Object.entries(snapsMap).map(([sym, s]) => [sym, s.close]));
+    const mktCapMap = Object.fromEntries(Object.entries(snapsMap).map(([sym, s]) => [sym, s.market_cap_cr]));
+    const peDbMap   = Object.fromEntries(Object.entries(snapsMap).map(([sym, s]) => [sym, s.pe]));
 
     const modMap = loadModData();
 

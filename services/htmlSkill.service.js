@@ -9,36 +9,6 @@ const PREVIEW_SKILL_SLUG = '__preview__';
 
 // ── nse_equity_new market data helpers ───────────────────────────────────────
 
-/**
- * Aggregate an array of { date, value } daily rows into monthly and quarterly buckets.
- */
-function aggregateTimeseries(rows) {
-  const monthMap = new Map();
-  const qMap     = new Map();
-
-  for (const r of rows) {
-    const d    = r.date instanceof Date ? r.date : new Date(r.date);
-    const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const qKey = `${d.getFullYear()}Q${Math.floor(d.getMonth() / 3) + 1}`;
-
-    if (!monthMap.has(mKey)) monthMap.set(mKey, { sum: 0, count: 0 });
-    if (!qMap.has(qKey))     qMap.set(qKey,     { sum: 0, count: 0 });
-
-    if (r.value != null) {
-      const m = monthMap.get(mKey); m.sum += r.value; m.count++;
-      const q = qMap.get(qKey);     q.sum += r.value; q.count++;
-    }
-  }
-
-  const monthly   = [...monthMap.entries()].map(([period, m]) => ({ period, avg: m.count ? parseFloat((m.sum / m.count).toFixed(2)) : null }));
-  const quarterly = [...qMap.entries()].map(([period, q])     => ({ period, avg: q.count ? parseFloat((q.sum / q.count).toFixed(2)) : null }));
-  return { monthly, quarterly };
-}
-
-/**
- * Fetch P/E time-series from nse_equity_new for a ticker over the given months window.
- * Returns { latest, daily, monthly, quarterly } or null when no data.
- */
 async function fetchNsePeTimeseries(ticker, months) {
   const rows = await prisma.$queryRawUnsafe(`
     SELECT datetime AS date, pe::float AS value
@@ -51,19 +21,13 @@ async function fetchNsePeTimeseries(ticker, months) {
 
   if (!rows || rows.length === 0) return null;
 
-  const daily = rows.map(r => ({
+  const series = rows.map(r => ({
     date:  (r.date instanceof Date ? r.date : new Date(r.date)).toISOString().slice(0, 10),
     value: r.value != null ? parseFloat(r.value.toFixed(2)) : null,
   }));
-
-  const { monthly, quarterly } = aggregateTimeseries(rows);
-  return { latest: daily.at(-1), daily, monthly, quarterly };
+  return { latest: series.at(-1), series };
 }
 
-/**
- * Fetch CMP time-series from nse_equity_new for a ticker over the given months window.
- * Returns { latest, daily, monthly, quarterly } or null when no data.
- */
 async function fetchNseCmpTimeseries(ticker, months) {
   const rows = await prisma.$queryRawUnsafe(`
     SELECT datetime AS date, close::float AS value
@@ -76,35 +40,20 @@ async function fetchNseCmpTimeseries(ticker, months) {
 
   if (!rows || rows.length === 0) return null;
 
-  const daily = rows.map(r => ({
+  const series = rows.map(r => ({
     date:  (r.date instanceof Date ? r.date : new Date(r.date)).toISOString().slice(0, 10),
     value: r.value != null ? parseFloat(r.value.toFixed(2)) : null,
   }));
-
-  const { monthly, quarterly } = aggregateTimeseries(rows);
-  return { latest: daily.at(-1), daily, monthly, quarterly };
+  return { latest: series.at(-1), series };
 }
 
-/**
- * Build a TSV prompt block for a single market metric (P/E or CMP).
- * All three frequency views (daily/monthly/quarterly) are included so the
- * LLM-generated HTML can render a time-frequency toggle.
- */
 function buildMetricBlock(label, unit, data) {
   if (!data) return '';
-
   const lines = [
     `${label} (${unit}) — latest: ${data.latest?.value ?? 'N/A'} as_of ${data.latest?.date ?? 'N/A'}`,
-    '',
-    'Daily:',
     'date\tvalue',
   ];
-  for (const r of data.daily)     lines.push(`${r.date}\t${r.value ?? ''}`);
-  lines.push('', 'Monthly averages:', 'period\tavg');
-  for (const r of data.monthly)   lines.push(`${r.period}\t${r.avg ?? ''}`);
-  lines.push('', 'Quarterly averages:', 'period\tavg');
-  for (const r of data.quarterly) lines.push(`${r.period}\t${r.avg ?? ''}`);
-
+  for (const r of data.series) lines.push(`${r.date}\t${r.value ?? ''}`);
   return lines.join('\n');
 }
 

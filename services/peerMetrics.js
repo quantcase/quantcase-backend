@@ -307,7 +307,7 @@ function formatPeerMetricsBlock(pm) {
 }
 
 /**
- * Fetch PE and market-cap from nse_equity for the subject ticker and all
+ * Fetch PE and market-cap from nse_equity_new for the subject ticker and all
  * industry peers (derived from earnings_calls.basic_industry).
  *
  * Returns the latest available row per symbol (data is monthly/yearly snapshots).

@@ -4,7 +4,6 @@ const { randomUUID }    = require('crypto');
 const { PDFDocument }   = require('pdf-lib');
 const prisma            = require('../config/prisma');
 const jobQueue          = require('../lib/jobQueue');
-const { ProwessHelper } = require('../utils/prowessHelper');
 
 const V2_PAGES_PER_CHUNK    = 15;
 const V2_MAX_CHUNKS         = 4;
@@ -19,84 +18,6 @@ const STATE_TO_STATUS = {
   failed:    'failed',
 };
 
-async function addSummarizationJob(callId) {
-  const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
-  if (!call) {
-    const err = new Error('Call not found');
-    err.status = 404;
-    throw err;
-  }
-
-  const hasTranscript = call.transcript_text && call.transcript_text.trim().length > 0;
-  const hasPPT        = call.ppt_text && call.ppt_text.trim().length > 0;
-
-  if (!hasTranscript && !hasPPT) {
-    const hasTranscriptUrl = call.transcript_url && call.transcript_url.trim().length > 0;
-    const hasPptUrl        = call.ppt_url && call.ppt_url.trim().length > 0;
-    if (!hasTranscriptUrl && !hasPptUrl) {
-      const err = new Error('No transcript or PPT text available for this call');
-      err.status = 400;
-      throw err;
-    }
-    return jobQueue.addJob('summarization', {
-      callId,
-      transcriptUrl: hasTranscriptUrl ? call.transcript_url : null,
-      pptUrl:        hasPptUrl        ? call.ppt_url        : null,
-      type:          'summarization',
-    });
-  }
-
-  return jobQueue.addJob('summarization', {
-    callId,
-    transcriptText: call.transcript_text,
-    pptText:        call.ppt_text,
-    type:           'summarization',
-  });
-}
-
-async function addQeExtractionJob(callId) {
-  const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
-  if (!call) {
-    const err = new Error('Call not found');
-    err.status = 404;
-    throw err;
-  }
-  if (!call.quarterly_result_url?.trim()) {
-    const err = new Error('No quarterly_result_url for this call');
-    err.status = 400;
-    throw err;
-  }
-
-  return jobQueue.addJob('qe_extraction', { callId, type: 'qe_extraction' });
-}
-
-async function addProwessExtractionJob(callId) {
-  const call = await prisma.earnings_calls.findUnique({ where: { id: callId } });
-  if (!call) {
-    const err = new Error('Call not found');
-    err.status = 404;
-    throw err;
-  }
-
-  // Verify prowess company mapping and data exist before enqueuing
-  const helper = new ProwessHelper(prisma);
-  const prowessName = await helper.resolveProwessName(call.company);
-  if (!prowessName) {
-    const err = new Error(`No Prowess company mapping found for ticker "${call.company}"`);
-    err.status = 400;
-    throw err;
-  }
-  const rowCount = await prisma.prowessValueNew.count({
-    where: { company: prowessName, fiscal_year: { lte: call.fiscal_year } },
-  });
-  if (!rowCount) {
-    const err = new Error(`No Prowess data found for "${prowessName}" up to ${call.fiscal_year}`);
-    err.status = 400;
-    throw err;
-  }
-
-  return jobQueue.addJob('prowess_extraction', { callId, type: 'prowess_extraction' });
-}
 
 async function addHtmlSkillJob({
   slug, ticker, fiscal_year = null, quarter = null, force = false,
@@ -127,7 +48,7 @@ async function addHtmlSkillPreviewJob({ ticker, skill_prompt, transcript_signal_
 }
 
 async function findJob(jobId) {
-  const queues = ['summarization', 'qe_extraction', 'prowess_extraction', 'ai_insight_synthesis', 'html_skill', 'html_skill_preview'];
+  const queues = ['ai_insight_synthesis', 'html_skill', 'html_skill_preview'];
   for (const q of queues) {
     const job = await jobQueue.getJobStatus(q, jobId);
     if (job) {
@@ -294,9 +215,6 @@ async function addSummarizationV2AnnualReportJobs(reportId) {
 }
 
 module.exports = {
-  addSummarizationJob,
-  addQeExtractionJob,
-  addProwessExtractionJob,
   addLensComputationJob,
   addSummarizationV2Jobs,
   addSummarizationV2PptJobs,
