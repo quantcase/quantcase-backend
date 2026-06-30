@@ -3,9 +3,10 @@
 const router = require('express').Router();
 const { z }  = require('zod');
 const validate = require('../middleware/validate');
-const adminController    = require('../controllers/admin.controller');
-const skillsController   = require('../controllers/admin.skills.controller');
-const pluginsController  = require('../controllers/admin.plugins.controller');
+const adminController     = require('../controllers/admin.controller');
+const skillsController    = require('../controllers/admin.skills.controller');
+const pluginsController   = require('../controllers/admin.plugins.controller');
+const schedulerController = require('../controllers/admin.scheduler.controller');
 
 // ─── Existing admin routes ────────────────────────────────────────────────────
 
@@ -80,5 +81,15 @@ router.get(   '/plugins/:id/skills',           pluginsController.listPluginSkill
 router.post(  '/plugins/:id/skills',           validate(addSkillSchema, 'body'), pluginsController.addSkillToPlugin);
 router.delete('/plugins/:id/skills/:skillId',  pluginsController.removeSkillFromPlugin);
 router.put(   '/plugins/:id/skills/order',     validate(reorderSchema, 'body'), pluginsController.reorderPluginSkills);
+
+// ─── Scheduler Jobs CRUD ─────────────────────────────────────────────────────
+
+router.get(   '/scheduler-jobs',               schedulerController.listJobs);
+router.post(  '/scheduler-jobs',               schedulerController.createJob);
+router.get(   '/scheduler-jobs/:slug',         schedulerController.getJob);
+router.put(   '/scheduler-jobs/:slug',         schedulerController.updateJob);
+router.delete('/scheduler-jobs/:slug',         schedulerController.deleteJob);
+router.get(   '/scheduler-jobs/:slug/runs',    schedulerController.getJobRuns);
+router.post(  '/scheduler-jobs/:slug/run',     schedulerController.triggerJob);
 
 module.exports = router;

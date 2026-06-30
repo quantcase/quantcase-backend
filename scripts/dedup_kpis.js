@@ -445,21 +445,27 @@ async function phase6() {
   log('\n══ PHASE 6 — Per-industry KPI cap ══');
 
   // 1. Company count per industry
-  const companyRows = await prisma.$queryRaw`
-    SELECT basic_industry, COUNT(DISTINCT company)::int AS company_count
-    FROM earnings_calls
-    WHERE basic_industry IS NOT NULL
-    GROUP BY basic_industry
-  `;
+  const [, companyRows] = await prisma.$transaction([
+    prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
+    prisma.$queryRaw`
+      SELECT basic_industry, COUNT(DISTINCT company)::int AS company_count
+      FROM earnings_calls
+      WHERE basic_industry IS NOT NULL
+      GROUP BY basic_industry
+    `,
+  ]);
   const companyCountMap = new Map(companyRows.map(r => [r.basic_industry, Number(r.company_count)]));
 
   // 2. Cross-company signal count per KPI
-  const signalRows = await prisma.$queryRaw`
-    SELECT metric, COUNT(DISTINCT call_id)::int AS co_count
-    FROM transcript_signals_v2
-    WHERE is_invalidated = false
-    GROUP BY metric
-  `;
+  const [, signalRows] = await prisma.$transaction([
+    prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
+    prisma.$queryRaw`
+      SELECT metric, COUNT(DISTINCT call_id)::int AS co_count
+      FROM transcript_signals_v2
+      WHERE is_invalidated = false
+      GROUP BY metric
+    `,
+  ]);
   const signalMap = new Map(signalRows.map(r => [r.metric, Number(r.co_count)]));
 
   // 3. All transcript KPIs with their industry arrays

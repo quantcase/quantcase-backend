@@ -9,10 +9,14 @@
     "worker": "node --max-old-space-size=8192 worker.js",
     "worker:dev": "nodemon --exec 'node --max-old-space-size=8192' worker.js",
     "admin": "node lib/admin.js",
+    "scheduler": "node scheduler.js",
+    "scheduler:dev": "nodemon scheduler.js",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "db:seed:billing": "node prisma/seedBilling.js"
+    "db:seed:billing": "node prisma/seedBilling.js",
+    "db:seed:scheduler": "node scripts/seedSchedulerJobs.js",
+    "db:create:bse": "node scripts/createBseDiscoveredUrls.js"
   },
   "keywords": [],
   "author": "",

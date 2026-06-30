@@ -80,7 +80,7 @@ NIFTY50 = {
 # Only these two subcategories are relevant; all other announcement types
 # (board meetings, dividends, regulatory filings, etc.) are filtered out.
 # ---------------------------------------------------------------------------
-TARGET_SUBCATS = {"Investor Presentation", "Earnings Call Transcript"}
+TARGET_SUBCATS = {"Investor Presentation", "Earnings Call Transcript", "Analyst / Investor Meet"}
 
 # ---------------------------------------------------------------------------
 # Date range: how far back to fetch announcements.
@@ -97,7 +97,7 @@ SLEEP_BETWEEN_STOCKS = 0.5  # seconds
 
 # Base URL for downloading the actual PDF attachment.
 # ATTACHMENTNAME from the API is a UUID filename (e.g. "abc123.pdf").
-ATTACHMENT_BASE_URL = "https://www.bseindia.com/xml-data/corpfiling/AttachLive/"
+ATTACHMENT_BASE_URL = "https://www.bseindia.com/xml-data/corpfiling/AttachHis/"
 
 
 def fetch_page(scrip: int, page: int, from_date: str, to_date: str) -> dict:
