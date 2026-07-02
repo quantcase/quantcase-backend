@@ -32,6 +32,15 @@ async function addHtmlSkillJob({
   });
 }
 
+async function addHtmlIncrementalSkillJob({
+  slug, ticker, callId, force = false, historic = false,
+}) {
+  return jobQueue.addJob('html_skill_incremental', {
+    slug, ticker, callId, force, historic,
+    type: 'html_skill_incremental',
+  });
+}
+
 async function addHtmlSkillPreviewJob({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types = [], max_market_data_months = null, force = false }) {
   return jobQueue.addJob('html_skill_preview', {
     ticker, skill_prompt,
@@ -48,7 +57,7 @@ async function addHtmlSkillPreviewJob({ ticker, skill_prompt, transcript_signal_
 }
 
 async function findJob(jobId) {
-  const queues = ['ai_insight_synthesis', 'html_skill', 'html_skill_preview'];
+  const queues = ['ai_insight_synthesis', 'html_skill', 'html_skill_preview', 'html_skill_incremental'];
   for (const q of queues) {
     const job = await jobQueue.getJobStatus(q, jobId);
     if (job) {
@@ -221,5 +230,6 @@ module.exports = {
   addSummarizationV2AnnualReportJobs,
   addHtmlSkillJob,
   addHtmlSkillPreviewJob,
+  addHtmlIncrementalSkillJob,
   findJob,
 };

@@ -385,6 +385,74 @@ model HtmlSkillOutput {
   @@map("html_skill_outputs")
 }
 
+model HtmlIncrementalSkill {
+  id                             String                         @id @default(uuid())
+  slug                           String                         @unique
+  name                           String
+  skill_prompt                   String
+  category                       PluginCategory
+  model                          String                         @default("~anthropic/claude-haiku-latest")
+  max_tokens                     Int                            @default(16000)
+  transcript_signal_types        String[]
+  ppt_signal_types               String[]
+  annual_report_signal_types     String[]
+  // Incremental (historic=false) mode: max NEW distinct periods (since the base
+  // output was last generated) to include per source type — not a trailing window.
+  max_transcript_qtrs            Int?
+  max_ppt_qtrs                   Int?
+  max_annual_report_years        Int?
+  market_data_signal_types       String[]
+  max_market_data_months         Int?
+  // Wider, trailing-window signal windows used for historic=true runs
+  // (cold-start / full-history recompute). Null = fall back to the fields above.
+  historic_max_transcript_qtrs       Int?
+  historic_max_ppt_qtrs              Int?
+  historic_max_annual_report_years   Int?
+  historic_max_market_data_months    Int?
+  strip_html                     Boolean                        @default(true)
+  max_base_analyses              Int                            @default(1)
+  is_active                      Boolean                        @default(true)
+  created_at                     DateTime                       @default(now())
+  updated_at                     DateTime                       @updatedAt
+  outputs                        HtmlIncrementalSkillOutput[]
+
+  @@index([slug])
+  @@index([category])
+  @@map("html_incremental_skills")
+}
+
+model HtmlIncrementalSkillOutput {
+  id            String               @id @default(uuid())
+  skill_id      String
+  ticker        String
+  call_id       String
+  fiscal_year   String?
+  quarter       String?
+  raw_html      String
+  text_summary  String?
+  prompt_v      String
+  model         String
+  input_tokens  Int?
+  output_tokens Int?
+  cost_usd      Float?
+  is_historic   Boolean              @default(false)
+  // Per-ticker admin pin: when true, this row is always used as the base context
+  // for this ticker's incremental runs, overriding the "N most recent" default.
+  // At most one pinned row per (skill_id, ticker) — enforced in application code.
+  is_pinned_base Boolean             @default(false)
+  created_at    DateTime             @default(now())
+  updated_at    DateTime             @updatedAt
+  skill         HtmlIncrementalSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  // is_historic is part of the identity so a historic run and an incremental run
+  // for the same period never collide/overwrite each other.
+  @@unique([skill_id, ticker, fiscal_year, quarter, is_historic], name: "skill_ticker_period_mode", map: "html_incremental_skill_outputs_ticker_period_mode_key")
+  @@index([skill_id, ticker])
+  @@index([ticker])
+  @@index([call_id])
+  @@map("html_incremental_skill_outputs")
+}
+
 model Skill {
   id                  String        @id @default(uuid())
   name                String        @unique
