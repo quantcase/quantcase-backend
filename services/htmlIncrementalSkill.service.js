@@ -110,15 +110,22 @@ async function resolveBaseAnchorPeriod(baseOutputs) {
 }
 
 /**
- * Incremental-mode signal window: only signals strictly newer than the base's own
- * anchor period are eligible — this is the actual cost-saving mechanism (only the
- * genuine delta since the base was last computed goes to the LLM). Also bounded
- * above by the target call's own period so a run for e.g. Q3 doesn't accidentally
- * pull in Q4 data that already landed in the DB. Capped to N distinct periods per
- * source type via applySignalLimits on top. If the base has no resolvable anchor
- * (e.g. a seeded row), falls back to no lower bound — plain applySignalLimits
- * trailing-window behavior — so a first incremental run over a legacy base doesn't
- * hard-fail or return nothing.
+ * Period-bounded signal window shared by both modes — always bounded above by the
+ * target call's own period, so a run for e.g. Q3 never accidentally pulls in Q4
+ * data that already landed in the DB. Capped to N distinct periods per source type
+ * via applySignalLimits on top.
+ *
+ * - Incremental mode: anchor = the base's own resolved period (exclusive lower
+ *   bound) — only the genuine delta since the base was last computed goes to the
+ *   LLM. Callers must ensure at least one base output exists before calling
+ *   assemblePrompt in incremental mode — see the "no base analysis found" gate in
+ *   buildIncrementalHtmlSkillPrompt/runIncrementalHtmlSkill. If a base exists but
+ *   its own period still can't be resolved (defensive fallback only — real and
+ *   backfilled-seeded rows always have a period), this falls back to no lower
+ *   bound rather than hard-failing.
+ * - Historic mode: anchor = { fiscal_year: null, quarter: null } (no lower bound)
+ *   — pulls up to N periods as of the target call, never leaking data from calls
+ *   that landed in the DB after it.
  */
 // Recency rank used purely to ORDER the eligible pool before capping to N periods.
 // applySignalLimits picks the first N distinct period keys it encounters, assuming
@@ -133,7 +140,7 @@ function periodRankForSort(s) {
     : (transcriptPeriodRank(s.fiscal_year, s.quarter) ?? -Infinity);
 }
 
-function applySinceBaseWindow(signals, anchor, target, limits) {
+function applyPeriodBoundedWindow(signals, anchor, target, limits) {
   const anchorRank = transcriptPeriodRank(anchor.fiscal_year, anchor.quarter);
   const anchorYear = parseFiscalYear(anchor.fiscal_year);
   const targetRank = transcriptPeriodRank(target.fiscal_year, target.quarter);
@@ -188,24 +195,39 @@ async function assemblePrompt(skill, ticker, baseContextBlock, historic = false,
     annual_report_signal_types: skill.annual_report_signal_types,
   };
 
-  const signals = historic
-    ? applySignalLimits(rawSignals, {
+  const anchor = historic
+    ? { fiscal_year: null, quarter: null }
+    : await resolveBaseAnchorPeriod(baseOutputs);
+
+  const limits = historic
+    ? {
         max_transcript_qtrs:     skill.historic_max_transcript_qtrs     ?? skill.max_transcript_qtrs,
         max_ppt_qtrs:            skill.historic_max_ppt_qtrs            ?? skill.max_ppt_qtrs,
         max_annual_report_years: skill.historic_max_annual_report_years ?? skill.max_annual_report_years,
         ...signalTypeLimits,
-      })
-    : applySinceBaseWindow(
-        rawSignals,
-        await resolveBaseAnchorPeriod(baseOutputs),
-        { fiscal_year: targetFiscalYear, quarter: targetQuarter },
-        {
-          max_transcript_qtrs:     skill.max_transcript_qtrs,
-          max_ppt_qtrs:            skill.max_ppt_qtrs,
-          max_annual_report_years: skill.max_annual_report_years,
-          ...signalTypeLimits,
-        },
-      );
+      }
+    : {
+        max_transcript_qtrs:     skill.max_transcript_qtrs,
+        max_ppt_qtrs:            skill.max_ppt_qtrs,
+        max_annual_report_years: skill.max_annual_report_years,
+        ...signalTypeLimits,
+      };
+
+  const signals = applyPeriodBoundedWindow(
+    rawSignals,
+    anchor,
+    { fiscal_year: targetFiscalYear, quarter: targetQuarter },
+    limits,
+  );
+
+  if (!signals.length) {
+    const period = [targetFiscalYear, targetQuarter].filter(Boolean).join(' ') || 'the selected call';
+    throw Object.assign(
+      new Error(`No signals found for ${ticker} at or before ${period} on skill '${skill.slug}' — documents may not be ingested yet for this call. Select a call with ingested documents.`),
+      { status: 400 },
+    );
+  }
+
   const dataBlock = buildDataBlock(signals);
 
   const mdTypes  = new Set(skill.market_data_signal_types ?? []);
@@ -241,6 +263,12 @@ async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic 
 
   const { fiscal_year, quarter } = await resolveCallMeta(callId);
   const baseOutputs              = historic ? [] : await fetchBaseContextOutputs(skill, ticker, fiscal_year, quarter);
+  if (!historic && !baseOutputs.length) {
+    throw Object.assign(
+      new Error(`No base analysis found for ${ticker} on skill '${slug}' — run historic mode first before incremental.`),
+      { status: 400 },
+    );
+  }
   const baseContextBlock         = formatBaseContextBlock(baseOutputs, skill.strip_html);
 
   const { systemPrompt, userPrompt, signals, rawSignals } = await assemblePrompt(skill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
@@ -275,7 +303,13 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
     if (cached && cached.prompt_v === prompt_v) return { cached: true, output: cached };
   }
 
-  const baseOutputs      = historic ? [] : await fetchBaseContextOutputs(skill, ticker, fiscal_year, quarter);
+  const baseOutputs = historic ? [] : await fetchBaseContextOutputs(skill, ticker, fiscal_year, quarter);
+  if (!historic && !baseOutputs.length) {
+    throw Object.assign(
+      new Error(`No base analysis found for ${ticker} on skill '${slug}' — run historic mode first before incremental.`),
+      { status: 400 },
+    );
+  }
   const baseContextBlock = formatBaseContextBlock(baseOutputs, skill.strip_html);
 
   const { systemPrompt, userPrompt } = await assemblePrompt(skill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
@@ -327,4 +361,11 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
   return { cached: false, output };
 }
 
-module.exports = { buildIncrementalHtmlSkillPrompt, runIncrementalHtmlSkill };
+module.exports = {
+  buildIncrementalHtmlSkillPrompt,
+  runIncrementalHtmlSkill,
+  fetchBaseContextOutputs,
+  resolveBaseAnchorPeriod,
+  transcriptPeriodRank,
+  parseFiscalYear,
+};

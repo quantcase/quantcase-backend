@@ -3,7 +3,14 @@
 const { Router } = require('express');
 const prisma = require('../config/prisma');
 const { addHtmlIncrementalSkillJob } = require('../services/jobs.service');
-const { buildIncrementalHtmlSkillPrompt } = require('../services/htmlIncrementalSkill.service');
+const {
+  buildIncrementalHtmlSkillPrompt,
+  fetchBaseContextOutputs,
+  resolveBaseAnchorPeriod,
+  transcriptPeriodRank,
+  parseFiscalYear,
+} = require('../services/htmlIncrementalSkill.service');
+const { applySignalLimits } = require('../services/htmlSkill.service');
 
 const router = Router();
 
@@ -123,28 +130,179 @@ router.delete('/:slug', async (req, res, next) => {
 // ── Signal count (same helper as original flow, for admin) ────────────────────
 
 // GET /api/html-incremental-skills/signals/count/:ticker
+// Lightweight per-source-doc-type signal count for config-editor badges — mirrors
+// GET /api/html-skills/signals/count/:ticker exactly (same by_source shape), plus
+// two additions for this flow's two modes:
+//
+//   - historic=true (default): unscoped by any base — same semantics as the
+//     original endpoint. Pass max_transcript_qtrs / max_ppt_qtrs /
+//     max_annual_report_years / transcript_signal_types / ppt_signal_types /
+//     annual_report_signal_types as a live preview of hypothetical caps while
+//     editing; omit them for the unfiltered total.
+//
+//   - historic=false: requires slug. Bounded below by the *current* base's
+//     anchor period first (pin-aware — same fetchBaseContextOutputs/
+//     resolveBaseAnchorPeriod logic as GET /:slug/signals/:ticker?historic=false
+//     and the real incremental run, so this can't drift from either), then the
+//     same optional override caps are applied on top for the live-editing
+//     preview. Returns base_context_count/base_missing alongside by_source.
 router.get('/signals/count/:ticker', async (req, res, next) => {
   try {
     const { ticker } = req.params;
-    const count = await prisma.transcriptSignalV2.count({
-      where: { ticker, is_invalidated: false },
+    const {
+      slug, historic,
+      max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+      transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+    } = req.query;
+
+    const isHistoric = historic !== 'false';
+    if (!isHistoric && !slug) {
+      return res.status(400).json({ error: 'slug is required when historic=false' });
+    }
+
+    const parseLimit = v => (v != null ? parseInt(v, 10) : null);
+    const parseTypes = v => (v ? decodeURIComponent(v).split(',').map(s => s.trim()).filter(Boolean) : null);
+    const limits = {
+      max_transcript_qtrs:        parseLimit(max_transcript_qtrs),
+      max_ppt_qtrs:               parseLimit(max_ppt_qtrs),
+      max_annual_report_years:    parseLimit(max_annual_report_years),
+      transcript_signal_types:    parseTypes(transcript_signal_types),
+      ppt_signal_types:           parseTypes(ppt_signal_types),
+      annual_report_signal_types: parseTypes(annual_report_signal_types),
+    };
+    const hasLimits = Object.values(limits).some(v => v != null);
+
+    const rows = await prisma.transcriptSignalV2.findMany({
+      where:   { ticker, is_invalidated: false },
+      select:  { signal_type: true, fiscal_year: true, quarter: true, source_doc_type: true, call_date: true },
+      orderBy: [{ call_date: 'desc' }],
     });
-    res.json({ ticker, total: count });
+
+    let pool                = rows;
+    let base_context_count  = 0;
+    let base_missing        = false;
+
+    if (!isHistoric) {
+      const skill = await prisma.htmlIncrementalSkill.findUnique({
+        where:  { slug },
+        select: { id: true, max_base_analyses: true },
+      });
+      if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+      const baseOutputs  = await fetchBaseContextOutputs(skill, ticker, null, null);
+      base_context_count = baseOutputs.length;
+      base_missing        = baseOutputs.length === 0;
+
+      if (base_missing) {
+        pool = [];
+      } else {
+        const anchor     = await resolveBaseAnchorPeriod(baseOutputs);
+        const anchorRank = transcriptPeriodRank(anchor.fiscal_year, anchor.quarter);
+        const anchorYear = parseFiscalYear(anchor.fiscal_year);
+
+        pool = rows.filter(r => {
+          if (r.source_doc_type === 'annual_report') {
+            const y = parseFiscalYear(r.fiscal_year);
+            return y == null || anchorYear == null || y > anchorYear;
+          }
+          const rank = transcriptPeriodRank(r.fiscal_year, r.quarter);
+          return rank == null || anchorRank == null || rank > anchorRank;
+        });
+      }
+    }
+
+    const filtered = hasLimits ? applySignalLimits(pool, limits) : pool;
+
+    const sources = { transcript: {}, ppt: {}, annual_report: {} };
+    const transcriptPeriods = new Set();
+    const pptPeriods        = new Set();
+    const annualPeriods     = new Set();
+
+    for (const s of filtered) {
+      const docType = s.source_doc_type ?? 'transcript';
+      const bucket  = sources[docType] ?? (sources[docType] = {});
+      bucket[s.signal_type] = (bucket[s.signal_type] ?? 0) + 1;
+
+      if (docType === 'annual_report') {
+        annualPeriods.add(s.fiscal_year);
+      } else if (docType === 'ppt') {
+        pptPeriods.add(`${s.fiscal_year}|${s.quarter}`);
+      } else {
+        transcriptPeriods.add(`${s.fiscal_year}|${s.quarter}`);
+      }
+    }
+
+    const toSignalCounts = bucket =>
+      Object.entries(bucket)
+        .map(([signal_type, count]) => ({ signal_type, count }))
+        .sort((a, b) => a.signal_type.localeCompare(b.signal_type));
+
+    const toQtrPeriods = set =>
+      [...set].map(k => { const [fiscal_year, quarter] = k.split('|'); return { fiscal_year, quarter }; });
+
+    const toYearPeriods = set =>
+      [...set].map(fiscal_year => ({ fiscal_year }));
+
+    const transcriptCounts = toSignalCounts(sources.transcript);
+    const pptCounts        = toSignalCounts(sources.ppt);
+    const annualCounts     = toSignalCounts(sources.annual_report);
+
+    res.json({
+      ticker,
+      historic: isHistoric,
+      base_context_count,
+      base_missing,
+      total: filtered.length,
+      by_source: {
+        transcript: {
+          total:         transcriptCounts.reduce((s, r) => s + r.count, 0),
+          periods_count: transcriptPeriods.size,
+          periods:       toQtrPeriods(transcriptPeriods),
+          signal_counts: transcriptCounts,
+        },
+        ppt: {
+          total:         pptCounts.reduce((s, r) => s + r.count, 0),
+          periods_count: pptPeriods.size,
+          periods:       toQtrPeriods(pptPeriods),
+          signal_counts: pptCounts,
+        },
+        annual_report: {
+          total:         annualCounts.reduce((s, r) => s + r.count, 0),
+          periods_count: annualPeriods.size,
+          periods:       toYearPeriods(annualPeriods),
+          signal_counts: annualCounts,
+        },
+      },
+    });
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/html-incremental-skills/:slug/signals/:ticker
-// Returns the exact signals that would be sent to the LLM when running this skill,
-// with all signal-content fields included.
+// GET /api/html-incremental-skills/:slug/signals/:ticker?historic=true|false
+// Returns the exact signals that would be sent to the LLM when running this skill.
+// - historic=true (default): full raw pool of matching-type signals, unfiltered —
+//   the same for both modes today, since historic has no lower bound.
+// - historic=false: bounded below by the current base's own anchor period (the
+//   live pinned base if one is set, else the N-most-recent per max_base_analyses)
+//   — i.e. only signals that are actually new since the base, matching what an
+//   incremental run would pull. No callId/target upper bound yet since no call
+//   has been picked at this point in the UI flow. Re-fetch this after pinning/
+//   unpinning a base — the anchor (and therefore this count) changes with it.
 router.get('/:slug/signals/:ticker', async (req, res, next) => {
   try {
     const { slug, ticker } = req.params;
+    const historic = req.query.historic !== 'false';
 
     const skill = await prisma.htmlIncrementalSkill.findUnique({
       where:  { slug },
-      select: { id: true, transcript_signal_types: true, ppt_signal_types: true, annual_report_signal_types: true },
+      select: {
+        id: true,
+        transcript_signal_types: true,
+        ppt_signal_types: true,
+        annual_report_signal_types: true,
+        max_base_analyses: true,
+      },
     });
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
@@ -161,7 +319,34 @@ router.get('/:slug/signals/:ticker', async (req, res, next) => {
       orderBy: [{ call_date: 'desc' }, { created_at: 'desc' }],
     });
 
-    const signals = rows.map(r => ({
+    let poolRows          = rows;
+    let base_context_count = 0;
+    let base_missing       = false;
+
+    if (!historic) {
+      const baseOutputs = await fetchBaseContextOutputs(skill, ticker, null, null);
+      base_context_count = baseOutputs.length;
+      base_missing        = baseOutputs.length === 0;
+
+      if (base_missing) {
+        poolRows = [];
+      } else {
+        const anchor     = await resolveBaseAnchorPeriod(baseOutputs);
+        const anchorRank = transcriptPeriodRank(anchor.fiscal_year, anchor.quarter);
+        const anchorYear = parseFiscalYear(anchor.fiscal_year);
+
+        poolRows = rows.filter(r => {
+          if (r.source_doc_type === 'annual_report') {
+            const y = parseFiscalYear(r.fiscal_year);
+            return y == null || anchorYear == null || y > anchorYear;
+          }
+          const rank = transcriptPeriodRank(r.fiscal_year, r.quarter);
+          return rank == null || anchorRank == null || rank > anchorRank;
+        });
+      }
+    }
+
+    const signals = poolRows.map(r => ({
       id:              r.id,
       call_id:         r.call_id,
       ticker:          r.ticker,
@@ -179,7 +364,7 @@ router.get('/:slug/signals/:ticker', async (req, res, next) => {
       data:            r.data,
     }));
 
-    res.json({ ticker, slug, total: signals.length, signals });
+    res.json({ ticker, slug, historic, base_context_count, base_missing, total: signals.length, signals });
   } catch (err) {
     next(err);
   }
