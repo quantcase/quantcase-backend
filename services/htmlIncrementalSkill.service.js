@@ -36,12 +36,27 @@ async function resolveCallMeta(callId) {
 
 const BASE_OUTPUT_SELECT = { id: true, raw_html: true, text_summary: true, call_id: true, fiscal_year: true, quarter: true };
 
+// If the skill has a global pin set, the base is ALWAYS that exact
+// (fiscal_year, quarter, is_historic) — the same period for every ticker, no
+// per-ticker "most recent" fallback. A ticker without an output at that exact
+// period has no base at all (returns []), which callers already treat as "run
+// historic first" — this keeps the anchor genuinely global rather than quietly
+// drifting to a different period per ticker. Setting the pin doesn't backfill
+// anything itself; it only changes which existing output counts as base.
 async function fetchBaseContextOutputs(skill, ticker, excludeFiscalYear, excludeQuarter) {
-  const pinned = await prisma.htmlIncrementalSkillOutput.findFirst({
-    where:  { skill_id: skill.id, ticker, is_pinned_base: true },
-    select: BASE_OUTPUT_SELECT,
-  });
-  if (pinned) return [pinned];
+  if (skill.pinned_fiscal_year != null) {
+    const pinned = await prisma.htmlIncrementalSkillOutput.findFirst({
+      where: {
+        skill_id:    skill.id,
+        ticker,
+        fiscal_year: skill.pinned_fiscal_year,
+        quarter:     skill.pinned_quarter ?? null,
+        is_historic: skill.pinned_historic ?? true,
+      },
+      select: BASE_OUTPUT_SELECT,
+    });
+    return pinned ? [pinned] : [];
+  }
 
   return prisma.htmlIncrementalSkillOutput.findMany({
     where: {

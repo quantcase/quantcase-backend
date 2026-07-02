@@ -411,6 +411,16 @@ model HtmlIncrementalSkill {
   historic_max_market_data_months    Int?
   strip_html                     Boolean                        @default(true)
   max_base_analyses              Int                            @default(1)
+  // Global base pin: one admin decision applies to every ticker for this skill —
+  // an incremental run for ticker X uses whichever of X's outputs matches this
+  // exact (fiscal_year, quarter, is_historic), never a per-ticker "most recent"
+  // fallback. Setting this doesn't backfill missing tickers' outputs itself —
+  // that's the scheduler's job (generating historic runs at this period across
+  // tickers); this field only controls which existing output counts as base.
+  // Null = no global pin set, falls back to per-ticker "N most recent" behavior.
+  pinned_fiscal_year             String?
+  pinned_quarter                 String?
+  pinned_historic                Boolean?
   is_active                      Boolean                        @default(true)
   created_at                     DateTime                       @default(now())
   updated_at                     DateTime                       @updatedAt
@@ -436,9 +446,11 @@ model HtmlIncrementalSkillOutput {
   output_tokens Int?
   cost_usd      Float?
   is_historic   Boolean              @default(false)
-  // Per-ticker admin pin: when true, this row is always used as the base context
-  // for this ticker's incremental runs, overriding the "N most recent" default.
-  // At most one pinned row per (skill_id, ticker) — enforced in application code.
+  // LEGACY — superseded by HtmlIncrementalSkill.pinned_fiscal_year/pinned_quarter/
+  // pinned_historic (a single global pin per skill, applied per-ticker at lookup
+  // time). No longer read or written anywhere. Left in place rather than dropped
+  // since it still holds real historical pin state; safe to drop once confirmed
+  // nothing depends on it.
   is_pinned_base Boolean             @default(false)
   created_at    DateTime             @default(now())
   updated_at    DateTime             @updatedAt

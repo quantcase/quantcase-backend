@@ -52,6 +52,7 @@ router.post('/', async (req, res, next) => {
       market_data_signal_types, max_market_data_months,
       historic_max_transcript_qtrs, historic_max_ppt_qtrs, historic_max_annual_report_years, historic_max_market_data_months,
       strip_html, max_base_analyses,
+      pinned_fiscal_year, pinned_quarter, pinned_historic,
       is_active,
     } = req.body;
 
@@ -78,6 +79,9 @@ router.post('/', async (req, res, next) => {
         ...(historic_max_market_data_months  != null && { historic_max_market_data_months }),
         ...(strip_html               != null && { strip_html }),
         ...(max_base_analyses        != null && { max_base_analyses }),
+        ...(pinned_fiscal_year       != null && { pinned_fiscal_year }),
+        ...(pinned_quarter           != null && { pinned_quarter }),
+        ...(pinned_historic          != null && { pinned_historic }),
         ...(is_active                != null && { is_active }),
       },
     });
@@ -97,7 +101,9 @@ router.put('/:slug', async (req, res, next) => {
       'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years',
       'market_data_signal_types', 'max_market_data_months',
       'historic_max_transcript_qtrs', 'historic_max_ppt_qtrs', 'historic_max_annual_report_years', 'historic_max_market_data_months',
-      'strip_html', 'max_base_analyses', 'is_active',
+      'strip_html', 'max_base_analyses',
+      'pinned_fiscal_year', 'pinned_quarter', 'pinned_historic',
+      'is_active',
     ];
     const data = {};
     for (const key of allowed) {
@@ -185,7 +191,7 @@ router.get('/signals/count/:ticker', async (req, res, next) => {
     if (!isHistoric) {
       const skill = await prisma.htmlIncrementalSkill.findUnique({
         where:  { slug },
-        select: { id: true, max_base_analyses: true },
+        select: { id: true, max_base_analyses: true, pinned_fiscal_year: true, pinned_quarter: true, pinned_historic: true },
       });
       if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
@@ -302,6 +308,9 @@ router.get('/:slug/signals/:ticker', async (req, res, next) => {
         ppt_signal_types: true,
         annual_report_signal_types: true,
         max_base_analyses: true,
+        pinned_fiscal_year: true,
+        pinned_quarter: true,
+        pinned_historic: true,
       },
     });
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
@@ -490,7 +499,7 @@ router.get('/:slug/outputs/:ticker/history', async (req, res, next) => {
         select: {
           id: true, ticker: true, call_id: true,
           fiscal_year: true, quarter: true,
-          prompt_v: true, model: true, is_historic: true, is_pinned_base: true,
+          prompt_v: true, model: true, is_historic: true,
           input_tokens: true, output_tokens: true, cost_usd: true,
           created_at: true, updated_at: true,
         },
@@ -503,69 +512,12 @@ router.get('/:slug/outputs/:ticker/history', async (req, res, next) => {
   }
 });
 
-// ── Base pin (per ticker) ───────────────────────────────────────────────────────
-// Pinning a specific output forces incremental runs for that ticker to always use it
-// as base context, overriding the "N most recent outputs" default. At most one
-// pinned row per (skill, ticker) — setting a new pin clears any previous one.
-
-// POST /api/html-incremental-skills/:slug/outputs/:ticker/pin
-// Body: { fiscal_year, quarter, historic? }  — identifies the exact output row to pin.
-router.post('/:slug/outputs/:ticker/pin', async (req, res, next) => {
-  try {
-    const skill = await prisma.htmlIncrementalSkill.findUnique({
-      where:  { slug: req.params.slug },
-      select: { id: true },
-    });
-    if (!skill) return res.status(404).json({ error: 'Skill not found' });
-
-    const { ticker } = req.params;
-    const { fiscal_year = null, quarter = null, historic = false } = req.body;
-
-    // findFirst, not findUnique: Postgres doesn't treat NULL = NULL in unique
-    // constraints, so findUnique on the compound key rejects lookups where
-    // fiscal_year/quarter are null (true for all seeded rows).
-    const target = await prisma.htmlIncrementalSkillOutput.findFirst({
-      where: { skill_id: skill.id, ticker, fiscal_year, quarter, is_historic: historic === true },
-    });
-    if (!target) return res.status(404).json({ error: 'Output not found for that ticker/period/mode' });
-
-    const [, pinned] = await prisma.$transaction([
-      prisma.htmlIncrementalSkillOutput.updateMany({
-        where: { skill_id: skill.id, ticker, is_pinned_base: true },
-        data:  { is_pinned_base: false },
-      }),
-      prisma.htmlIncrementalSkillOutput.update({
-        where: { id: target.id },
-        data:  { is_pinned_base: true },
-      }),
-    ]);
-
-    res.json({ success: true, pinned });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// DELETE /api/html-incremental-skills/:slug/outputs/:ticker/pin
-// Clears any pinned base for the ticker, reverting to the "N most recent outputs" default.
-router.delete('/:slug/outputs/:ticker/pin', async (req, res, next) => {
-  try {
-    const skill = await prisma.htmlIncrementalSkill.findUnique({
-      where:  { slug: req.params.slug },
-      select: { id: true },
-    });
-    if (!skill) return res.status(404).json({ error: 'Skill not found' });
-
-    const result = await prisma.htmlIncrementalSkillOutput.updateMany({
-      where: { skill_id: skill.id, ticker: req.params.ticker, is_pinned_base: true },
-      data:  { is_pinned_base: false },
-    });
-
-    res.json({ success: true, unpinned: result.count });
-  } catch (err) {
-    next(err);
-  }
-});
+// ── Base pin (global, per skill) ────────────────────────────────────────────
+// Pinning is set via the skill config itself (PUT /:slug with
+// pinned_fiscal_year/pinned_quarter/pinned_historic) — one decision applies to
+// every ticker: an incremental run for ticker X uses X's output at that exact
+// period as base, or has no base at all if X doesn't have one there yet. See
+// fetchBaseContextOutputs in services/htmlIncrementalSkill.service.js.
 
 // GET /api/html-incremental-skills/:slug/outputs/:ticker/:fiscal_year/:quarter?historic=true|false
 // Fetch one exact output by period (use quarter "null" for annual-report-only periods).
