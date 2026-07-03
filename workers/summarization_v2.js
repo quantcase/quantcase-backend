@@ -13,6 +13,26 @@ const { downloadPdfCached }             = require('../utils/pdfCache');
 
 const FISCAL_YEAR_END = process.env.FISCAL_YEAR_END || '03-31';
 
+// PDFDocument.load() expands a PDF 3-5x in heap. Cap concurrent loads so
+// chunk-jobs for the same PDF don't each hold a full copy simultaneously.
+const PDF_LOAD_CONCURRENCY = 1;
+const pdfSemaphore = (() => {
+  let active = 0;
+  const queue = [];
+  return {
+    acquire() {
+      return new Promise(resolve => {
+        if (active < PDF_LOAD_CONCURRENCY) { active++; resolve(); }
+        else queue.push(resolve);
+      });
+    },
+    release() {
+      if (queue.length) queue.shift()();
+      else active--;
+    },
+  };
+})();
+
 // ─── PDF helpers ──────────────────────────────────────────────────────────────
 
 async function extractPageRange(arrayBuffer, pageStart, pageEnd) {
@@ -139,13 +159,21 @@ async function processSummarizationV2Job(job) {
   await job.updateProgress(20);
 
   wlog.info(`[summarization-v2] Downloading PDF (cached)...`);
-  const arrayBuffer = await downloadPdfCached(transcriptUrl);
-  const base64      = await extractPageRange(arrayBuffer, pageStart, pageEnd);
+  await pdfSemaphore.acquire();
+  let base64;
+  try {
+    let arrayBuffer = await downloadPdfCached(transcriptUrl);
+    base64          = await extractPageRange(arrayBuffer, pageStart, pageEnd);
+    arrayBuffer     = null;
+  } finally {
+    pdfSemaphore.release();
+  }
   await job.updateProgress(40);
 
   const { model, maxTokens, outputSchema } = skillConfig;
   const promptText = transcriptExtractorPromptV2('', existingKpis, callMeta.call_date, FISCAL_YEAR_END);
   const content    = [{ type: 'text', text: promptText }, pdfContent(base64)];
+  base64 = null; // base64 is now embedded in content; release the duplicate reference
 
   const llmParams = { model, max_tokens: maxTokens, messages: [{ role: 'user', content }] };
   if (outputSchema) llmParams.response_format = outputSchema;
@@ -182,7 +210,7 @@ async function processSummarizationV2Job(job) {
 
 const worker = new Worker('summarization_v2', processSummarizationV2Job, {
   connection,
-  concurrency: 50,
+  concurrency: 25,
   limiter: { max: 50, duration: 1000 },
   lockDuration: 300000, // 5 min — LLM calls can take 60–120s; default 30s causes lock renewal failures
 });
