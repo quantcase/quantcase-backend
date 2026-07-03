@@ -23,11 +23,13 @@ const signalsRouter       = require('./signals.routes');
 const lensesRouter        = require('./lenses.routes');
 const analysisRouter      = require('./analysis.routes');
 const annualReportsRouter     = require('./annual_reports.routes');
-const htmlSkillsRouter        = require('./htmlSkills.routes');
+const htmlSkillsRouter             = require('./htmlSkills.routes');
+const htmlIncrementalSkillsRouter  = require('./htmlIncrementalSkills.routes');
 const billingRouter           = require('./billing.routes');
 const smallcaseRouter         = require('./smallcase.routes');
 const pipelineRouter          = require('./pipeline.routes');
 const journalRouter           = require('./journal.routes');
+const monitoringRouter        = require('./monitoring.routes');
 
 // Standalone health check
 router.get('/health', healthController.healthCheck);
@@ -75,11 +77,13 @@ router.use('/api/signals',  signalsRouter);
 router.use('/api/lenses',   lensesRouter);
 router.use('/api/analysis', analysisRouter);
 router.use('/api/annual-reports', annualReportsRouter);
-router.use('/api/html-skills',   htmlSkillsRouter);
+router.use('/api/html-skills',             htmlSkillsRouter);
+router.use('/api/html-incremental-skills', htmlIncrementalSkillsRouter);
 router.use('/api/billing',       billingRouter);
 router.use('/api/smallcase',     smallcaseRouter);
 router.use('/api/pipeline',      pipelineRouter);
 router.use('/api/journal',       journalRouter);
+router.use('/api/monitoring',    monitoringRouter);
 
 // Admin routes
 router.use('/admin', adminRouter);

@@ -13,6 +13,7 @@ require('./workers/aiInsightSynthesis');
 require('./workers/overviewSynthesis');
 require('./workers/lensComputation');
 require('./workers/htmlSkill');
+require('./workers/htmlIncrementalSkill');
 
 console.log('All workers started');
 

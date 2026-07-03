@@ -39,9 +39,13 @@ async function getTranscriptCalls(symbol) {
   const calls = await prisma.earnings_calls.findMany({
     where: {
       company: symbol,
+      // URL presence, not text presence — a call can be ingested and even
+      // L1-extracted via its PDF without ever backfilling transcript_text/
+      // ppt_text on this row (e.g. HDFCBANK FY2026 Q4: has ppt_url and an
+      // extracted signal, but ppt_text is still null).
       OR: [
-        { transcript_text: { not: null } },
-        { ppt_text: { not: null } },
+        { transcript_url: { not: null } },
+        { ppt_url:        { not: null } },
       ],
     },
     select: {

@@ -489,4 +489,14 @@ async function runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_typ
   return { cached: false, output };
 }
 
-module.exports = { runHtmlSkill, runHtmlSkillPreview, buildHtmlSkillPrompt, applySignalLimits };
+module.exports = {
+  runHtmlSkill,
+  runHtmlSkillPreview,
+  buildHtmlSkillPrompt,
+  applySignalLimits,
+  buildDataBlock,
+  stripMarkdownFences,
+  fetchNsePeTimeseries,
+  fetchNseCmpTimeseries,
+  buildMarketDataBlock,
+};
