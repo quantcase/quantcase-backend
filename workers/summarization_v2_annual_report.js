@@ -14,6 +14,26 @@ const { downloadPdfCached }              = require('../utils/pdfCache');
 const SKILL_SLUG      = 'summarization-v2-annual-report';
 const FISCAL_YEAR_END = process.env.FISCAL_YEAR_END || '03-31';
 
+// PDFDocument.load() expands a PDF 3-5x in heap. Cap concurrent loads so
+// 10-12 chunk-jobs for the same PDF don't each hold a full copy simultaneously.
+const PDF_LOAD_CONCURRENCY = 1;
+const pdfSemaphore = (() => {
+  let active = 0;
+  const queue = [];
+  return {
+    acquire() {
+      return new Promise(resolve => {
+        if (active < PDF_LOAD_CONCURRENCY) { active++; resolve(); }
+        else queue.push(resolve);
+      });
+    },
+    release() {
+      if (queue.length) queue.shift()();
+      else active--;
+    },
+  };
+})();
+
 // ─── PDF helpers ──────────────────────────────────────────────────────────────
 
 async function extractPageRange(arrayBuffer, pageStart, pageEnd) {
@@ -175,8 +195,15 @@ async function processSummarizationV2AnnualReportJob(job) {
   const priorArFyEnd = derivePriorArFyEnd(arFyEnd);
 
   wlog.info(`[${SKILL_SLUG}] Downloading annual report PDF (cached)...`);
-  const arrayBuffer = await downloadPdfCached(annualReportUrl);
-  const base64      = await extractPageRange(arrayBuffer, pageStart, pageEnd);
+  await pdfSemaphore.acquire();
+  let base64;
+  try {
+    let arrayBuffer = await downloadPdfCached(annualReportUrl);
+    base64          = await extractPageRange(arrayBuffer, pageStart, pageEnd);
+    arrayBuffer     = null;
+  } finally {
+    pdfSemaphore.release();
+  }
   await job.updateProgress(40);
 
   const { model, maxTokens, outputSchema } = skillConfig;
@@ -190,6 +217,7 @@ async function processSummarizationV2AnnualReportJob(job) {
     report.call_date,
   );
   const content = [{ type: 'text', text: promptText }, pdfContent(base64)];
+  base64 = null; // base64 is now embedded in content; release the duplicate reference
 
   const llmParams = { model, max_tokens: maxTokens, messages: [{ role: 'user', content }] };
   if (outputSchema) llmParams.response_format = outputSchema;
@@ -228,7 +256,7 @@ const worker = new Worker('summarization_v2_annual_report', processSummarization
   connection,
   concurrency: 50,
   limiter: { max: 50, duration: 1000 },
-  lockDuration: 300000, // 5 min — LLM calls can take 60–120s; default 30s causes lock renewal failures
+  lockDuration: 300000,
 });
 
 worker.on('completed', job       => wlog.done(`[${SKILL_SLUG}] Job ${job.id} completed`));
