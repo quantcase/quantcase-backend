@@ -133,6 +133,148 @@ router.delete('/:slug', async (req, res, next) => {
   }
 });
 
+// ── Configs (named, alternate settings bundles for a skill) ───────────────────
+// Purely additive: a skill keeps behaving exactly as it does today when no
+// config is selected. Configs let an admin save multiple full settings bundles
+// (prompt + filters + caps + model) under one skill — e.g. one per data-
+// availability shape — and pick one explicitly by key on /run or /prompt.
+// There's no auto-detection here; availability is checked in the monitoring
+// system, and the admin selects a config only once they've confirmed it fits.
+
+const CONFIG_FIELDS = [
+  'name', 'skill_prompt',
+  'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types',
+  'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years',
+  'market_data_signal_types', 'max_market_data_months',
+  'historic_max_transcript_qtrs', 'historic_max_ppt_qtrs', 'historic_max_annual_report_years', 'historic_max_market_data_months',
+  'model', 'max_tokens', 'strip_html',
+  'is_active',
+];
+
+// GET /api/html-incremental-skills/:slug/configs
+router.get('/:slug/configs', async (req, res, next) => {
+  try {
+    const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug: req.params.slug }, select: { id: true } });
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const configs = await prisma.htmlIncrementalSkillConfig.findMany({
+      where:   { skill_id: skill.id },
+      orderBy: { key: 'asc' },
+    });
+    res.json({ count: configs.length, configs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/html-incremental-skills/:slug/configs/:key
+router.get('/:slug/configs/:key', async (req, res, next) => {
+  try {
+    const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug: req.params.slug }, select: { id: true } });
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const config = await prisma.htmlIncrementalSkillConfig.findUnique({
+      where: { skill_id_key: { skill_id: skill.id, key: req.params.key } },
+    });
+    if (!config) return res.status(404).json({ error: 'Config not found' });
+    res.json(config);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/html-incremental-skills/:slug/configs
+// Body: { key, name, skill_prompt, transcript_signal_types?, ppt_signal_types?, annual_report_signal_types?,
+//         max_transcript_qtrs?, max_ppt_qtrs?, max_annual_report_years?,
+//         market_data_signal_types?, max_market_data_months?,
+//         historic_max_transcript_qtrs?, historic_max_ppt_qtrs?, historic_max_annual_report_years?, historic_max_market_data_months?,
+//         model?, max_tokens?, strip_html? }
+router.post('/:slug/configs', async (req, res, next) => {
+  try {
+    const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug: req.params.slug }, select: { id: true } });
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const {
+      key, name, skill_prompt,
+      transcript_signal_types, ppt_signal_types, annual_report_signal_types,
+      max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+      market_data_signal_types, max_market_data_months,
+      historic_max_transcript_qtrs, historic_max_ppt_qtrs, historic_max_annual_report_years, historic_max_market_data_months,
+      model, max_tokens, strip_html,
+    } = req.body;
+
+    if (!key || !name || !skill_prompt) {
+      return res.status(400).json({ error: 'key, name, and skill_prompt are required' });
+    }
+
+    const config = await prisma.htmlIncrementalSkillConfig.create({
+      data: {
+        skill_id: skill.id,
+        key, name, skill_prompt,
+        transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
+        ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
+        annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],
+        market_data_signal_types:   Array.isArray(market_data_signal_types)   ? market_data_signal_types   : [],
+        ...(max_transcript_qtrs               != null && { max_transcript_qtrs }),
+        ...(max_ppt_qtrs                      != null && { max_ppt_qtrs }),
+        ...(max_annual_report_years           != null && { max_annual_report_years }),
+        ...(max_market_data_months            != null && { max_market_data_months }),
+        ...(historic_max_transcript_qtrs      != null && { historic_max_transcript_qtrs }),
+        ...(historic_max_ppt_qtrs             != null && { historic_max_ppt_qtrs }),
+        ...(historic_max_annual_report_years  != null && { historic_max_annual_report_years }),
+        ...(historic_max_market_data_months   != null && { historic_max_market_data_months }),
+        ...(model      != null && { model }),
+        ...(max_tokens != null && { max_tokens }),
+        ...(strip_html != null && { strip_html }),
+      },
+    });
+    res.status(201).json(config);
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error: `Config with key "${req.body.key}" already exists for this skill` });
+    next(err);
+  }
+});
+
+// PUT /api/html-incremental-skills/:slug/configs/:key
+router.put('/:slug/configs/:key', async (req, res, next) => {
+  try {
+    const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug: req.params.slug }, select: { id: true } });
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const data = {};
+    for (const field of CONFIG_FIELDS) {
+      if (req.body[field] !== undefined) data[field] = req.body[field];
+    }
+    if (Object.keys(data).length === 0) return res.status(400).json({ error: 'No updatable fields provided' });
+
+    const config = await prisma.htmlIncrementalSkillConfig.update({
+      where: { skill_id_key: { skill_id: skill.id, key: req.params.key } },
+      data,
+    });
+    res.json(config);
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Config not found' });
+    next(err);
+  }
+});
+
+// DELETE /api/html-incremental-skills/:slug/configs/:key  (soft delete)
+router.delete('/:slug/configs/:key', async (req, res, next) => {
+  try {
+    const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug: req.params.slug }, select: { id: true } });
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const config = await prisma.htmlIncrementalSkillConfig.update({
+      where: { skill_id_key: { skill_id: skill.id, key: req.params.key } },
+      data:  { is_active: false },
+    });
+    res.json({ success: true, key: config.key, is_active: false });
+  } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Config not found' });
+    next(err);
+  }
+});
+
 // ── Signal count (same helper as original flow, for admin) ────────────────────
 
 // GET /api/html-incremental-skills/signals/count/:ticker
@@ -381,18 +523,22 @@ router.get('/:slug/signals/:ticker', async (req, res, next) => {
 
 // ── Prompt preview (dry-run) ──────────────────────────────────────────────────
 
-// GET /api/html-incremental-skills/:slug/prompt/:ticker?callId=&historic=true
+// GET /api/html-incremental-skills/:slug/prompt/:ticker?callId=&historic=true&configKey=
+// configKey is optional — selects a saved HtmlIncrementalSkillConfig (see the
+// Configs section below) in place of the skill's own top-level fields. Omit
+// it to preview the skill's default behavior, unchanged from before.
 router.get('/:slug/prompt/:ticker', async (req, res, next) => {
   try {
     const { slug, ticker } = req.params;
-    const { callId, historic } = req.query;
+    const { callId, historic, configKey } = req.query;
 
-    const result = await buildIncrementalHtmlSkillPrompt({ slug, ticker, callId: callId ?? null, historic: historic === 'true' });
+    const result = await buildIncrementalHtmlSkillPrompt({ slug, ticker, callId: callId ?? null, historic: historic === 'true', configKey: configKey ?? null });
     res.json({
       slug,
       ticker,
       callId:             callId ?? null,
       historic:           result.historic,
+      configKey:          result.configKey,
       fiscal_year:        result.fiscal_year,
       quarter:            result.quarter,
       signal_count:       result.signal_count,
@@ -410,13 +556,16 @@ router.get('/:slug/prompt/:ticker', async (req, res, next) => {
 // ── Run ───────────────────────────────────────────────────────────────────────
 
 // POST /api/html-incremental-skills/:slug/run
-// Body: { ticker, callId, force?, historic? }
+// Body: { ticker, callId, force?, historic?, configKey? }
 // historic=true skips base-context stitching and uses the skill's historic_* signal windows
 // (falling back to the normal windows if unset) — for first-ever runs on a ticker or a
 // deliberate full-history recompute. Frontend should offer this when GET .../outputs/:ticker 404s.
+// configKey (optional) runs a saved config's prompt/filters/caps instead of the skill's own —
+// pick one explicitly once you've confirmed (elsewhere, in the monitoring system) which
+// sources are actually available for this ticker. Omit for the skill's default behavior.
 router.post('/:slug/run', async (req, res, next) => {
   try {
-    const { ticker, callId, force, historic } = req.body;
+    const { ticker, callId, force, historic, configKey } = req.body;
     if (!ticker) return res.status(400).json({ error: 'ticker is required' });
     if (!callId) return res.status(400).json({ error: 'callId is required' });
 
@@ -433,12 +582,13 @@ router.post('/:slug/run', async (req, res, next) => {
       callId,
       force:    force    === true,
       historic: historic === true,
+      configKey: configKey ?? null,
     });
 
     res.json({
       success: true,
       message: 'Incremental skill job enqueued',
-      job: { id: job.id, slug: req.params.slug, ticker, callId, historic: historic === true, type: 'html_skill_incremental', status: 'pending' },
+      job: { id: job.id, slug: req.params.slug, ticker, callId, historic: historic === true, configKey: configKey ?? null, type: 'html_skill_incremental', status: 'pending' },
     });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });

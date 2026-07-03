@@ -22,12 +22,12 @@ function rethrowIfUnrecoverable(err) {
 }
 
 async function processHtmlIncrementalSkillJob(job) {
-  const { slug, ticker, callId, force, historic } = job.data;
-  console.log(`[htmlIncrementalSkill] Processing job ${job.id} (skill: ${slug}, ticker: ${ticker}, callId: ${callId}, historic: ${!!historic})`);
+  const { slug, ticker, callId, force, historic, configKey } = job.data;
+  console.log(`[htmlIncrementalSkill] Processing job ${job.id} (skill: ${slug}, ticker: ${ticker}, callId: ${callId}, historic: ${!!historic}, configKey: ${configKey ?? 'none'})`);
 
   try {
     await job.updateProgress(10);
-    const result = await runIncrementalHtmlSkill({ slug, ticker, callId, force, historic });
+    const result = await runIncrementalHtmlSkill({ slug, ticker, callId, force, historic, configKey });
     await job.updateProgress(100);
 
     console.log(`[htmlIncrementalSkill] Job ${job.id} done — cached: ${result.cached}`);

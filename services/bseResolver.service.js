@@ -68,8 +68,22 @@ function fetchBuffer(url, depth = 0) {
   });
 }
 
+// Reconstructs URLs that wrap across a line inside the PDF. pdf.js rejoins
+// wrapped text with a single space, and the hyphen at the break point can end
+// up glued to the prior fragment ("financial-" / "reports") or floating as its
+// own token ("annual" / "-" / "reports") — a real URL never contains a literal
+// space, so stitch fragments separated by "<hyphen><whitespace>" back together.
+const HYPHEN_WRAP_RE = /(https?:\/\/[^\s"'<>()\[\]{}|\\^`]*?)\s*-\s+([a-z0-9])/gi;
+
 function extractUrlsFromText(text) {
-  const matches = text.match(/https?:\/\/[^\s"'<>()\[\]{}|\\^`]{20,}/g) || [];
+  let stitched = text;
+  let prev;
+  do {
+    prev = stitched;
+    stitched = stitched.replace(HYPHEN_WRAP_RE, '$1-$2');
+  } while (stitched !== prev);
+
+  const matches = stitched.match(/https?:\/\/[^\s"'<>()\[\]{}|\\^`]{20,}/g) || [];
   return [...new Set(
     matches
       .map(u => u.replace(/[.,;:!?)]+$/, '')) // strip trailing punctuation

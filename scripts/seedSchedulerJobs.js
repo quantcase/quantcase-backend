@@ -49,6 +49,15 @@ const JOBS = [
     is_active:       true,
     config:          { sources: ['transcript', 'ppt', 'annual_report'], limit: null, force: false },
   },
+  {
+    slug:            'pipeline-dispatch-l1-multi',
+    name:            'Pipeline Dispatch — L1 Multi (manual)',
+    description:     'Admin-triggered L1 dispatch (transcript/ppt/annual report) for a chosen ticker set. Manual only — never cron-fires.',
+    job_type:        'pipeline_dispatch_l1_multi',
+    cron_expression: '0 0 1 1 *', // inert placeholder — is_active:false means it's never registered
+    is_active:       false,
+    config:          {}, // defaults come from services/pipelineDispatch/targetTickers.js
+  },
 ];
 
 async function main() {

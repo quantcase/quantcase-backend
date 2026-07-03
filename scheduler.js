@@ -7,9 +7,15 @@ const prisma = require('./config/prisma');
 const { loadAndRegisterAll, reregisterJob, getStatus } = require('./scheduler/index');
 
 const SCHEDULER_PORT = parseInt(process.env.SCHEDULER_PORT ?? '8001', 10);
+// Bind interface for the internal HTTP server. Defaults to loopback (assumes
+// this process is co-located with the API server). If the scheduler instead
+// runs on a separate host (e.g. alongside the worker), set this to '0.0.0.0'
+// (or the host's private IP) and restrict access at the network level
+// (security group / firewall to the API server's IP only) — this endpoint is
+// unauthenticated.
+const SCHEDULER_BIND_HOST = process.env.SCHEDULER_BIND_HOST || '127.0.0.1';
 
 // ── Internal HTTP server ──────────────────────────────────────────────────────
-// Listens only on loopback — not exposed externally.
 // Used by the admin API to trigger job re-registration without a full restart.
 
 const server = http.createServer(async (req, res) => {
@@ -48,8 +54,8 @@ const server = http.createServer(async (req, res) => {
 
 async function start() {
   await loadAndRegisterAll();
-  server.listen(SCHEDULER_PORT, '127.0.0.1', () => {
-    console.log(`[scheduler] Internal API → 127.0.0.1:${SCHEDULER_PORT}`);
+  server.listen(SCHEDULER_PORT, SCHEDULER_BIND_HOST, () => {
+    console.log(`[scheduler] Internal API → ${SCHEDULER_BIND_HOST}:${SCHEDULER_PORT}`);
   });
 }
 

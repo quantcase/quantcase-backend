@@ -7,6 +7,8 @@ const adminController     = require('../controllers/admin.controller');
 const skillsController    = require('../controllers/admin.skills.controller');
 const pluginsController   = require('../controllers/admin.plugins.controller');
 const schedulerController = require('../controllers/admin.scheduler.controller');
+const pipelineDispatchRouter = require('./admin.pipelineDispatch.routes');
+const companyGroupsRouter    = require('./admin.companyGroups.routes');
 
 // ─── Existing admin routes ────────────────────────────────────────────────────
 
@@ -91,5 +93,14 @@ router.put(   '/scheduler-jobs/:slug',         schedulerController.updateJob);
 router.delete('/scheduler-jobs/:slug',         schedulerController.deleteJob);
 router.get(   '/scheduler-jobs/:slug/runs',    schedulerController.getJobRuns);
 router.post(  '/scheduler-jobs/:slug/run',     schedulerController.triggerJob);
+
+// ─── Pipeline Dispatch (manual, admin-triggered) ────────────────────────────
+// L1 today; L2/L3 siblings to follow the same pattern under this namespace.
+
+router.use('/pipeline-dispatch', pipelineDispatchRouter);
+
+// ─── Company Groups (reusable ticker sets, selectable across L1/L2/L3) ──────
+
+router.use('/company-groups', companyGroupsRouter);
 
 module.exports = router;

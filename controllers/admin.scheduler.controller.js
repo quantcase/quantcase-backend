@@ -8,15 +8,21 @@ const UPDATABLE = ['name', 'description', 'job_type', 'cron_expression', 'is_act
 const SCHEDULE_FIELDS = new Set(['cron_expression', 'is_active']);
 
 const SCHEDULER_PORT = parseInt(process.env.SCHEDULER_PORT ?? '8001', 10);
+// Network address of the scheduler process. Defaults to loopback (scheduler
+// co-located with this API process); set to the scheduler's host/private IP
+// when it instead runs alongside the worker on a separate machine.
+const SCHEDULER_HOST = process.env.SCHEDULER_HOST || '127.0.0.1';
 
 async function notifyScheduler(slug) {
   try {
-    await fetch(`http://127.0.0.1:${SCHEDULER_PORT}/reload/${encodeURIComponent(slug)}`, {
+    await fetch(`http://${SCHEDULER_HOST}:${SCHEDULER_PORT}/reload/${encodeURIComponent(slug)}`, {
       method: 'POST',
       signal: AbortSignal.timeout(3000),
     });
   } catch {
-    // Scheduler may not be running — DB is updated, change takes effect on next scheduler start
+    // Scheduler may not be reachable (not running, or SCHEDULER_HOST/PORT
+    // misconfigured) — DB is updated either way, change takes effect on next
+    // scheduler start/restart if the live notify didn't land.
   }
 }
 
@@ -121,25 +127,40 @@ const getJobRuns = async (req, res, next) => {
   }
 };
 
-// POST /admin/scheduler-jobs/:slug/run — manual trigger (imports executor lazily to avoid circular deps)
+// Fire-and-forget trigger by slug, with an optional per-request config override merged
+// over the job's stored default config (override is never persisted back to the DB row).
+// `is_active` only gates cron auto-registration (scheduler/index.js#loadAndRegisterAll) —
+// manual triggering works regardless, which is what lets "manual-only" jobs (is_active:false,
+// e.g. pipeline-dispatch-l1-multi) be admin-triggered on demand.
+// Imports executor/registry lazily to avoid circular deps.
+async function triggerJobBySlug(slug, overrideConfig = {}) {
+  const job = await prisma.schedulerJob.findUnique({ where: { slug } });
+  if (!job) {
+    const err = new Error('Scheduler job not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const runConfig = { ...(job.config ?? {}), ...overrideConfig };
+  const { dispatch } = require('../scheduler/executor');
+  const { logRun, completeRun, failRun } = require('../scheduler/registry');
+  const runId = await logRun(job.id);
+  dispatch(job.job_type, runConfig)
+    .then(meta => completeRun(runId, meta))
+    .catch(err => failRun(runId, err));
+
+  return { run_id: runId, slug: job.slug, job_type: job.job_type };
+}
+
+// POST /admin/scheduler-jobs/:slug/run — manual trigger
 const triggerJob = async (req, res, next) => {
   try {
-    const job = await prisma.schedulerJob.findUnique({ where: { slug: req.params.slug } });
-    if (!job) return res.status(404).json({ error: 'Scheduler job not found' });
-    if (!job.is_active) return res.status(400).json({ error: 'Job is inactive — activate it first or pass force=true in config' });
-
-    // Fire-and-forget: run async, return immediately
-    const { dispatch } = require('../scheduler/executor');
-    const { logRun, completeRun, failRun } = require('../scheduler/registry');
-    const runId = await logRun(job.id);
-    dispatch(job.job_type, job.config)
-      .then(meta  => completeRun(runId, meta))
-      .catch(err  => failRun(runId, err));
-
-    res.json({ success: true, message: 'Job triggered', run_id: runId });
+    const result = await triggerJobBySlug(req.params.slug, req.body?.config ?? {});
+    res.json({ success: true, message: 'Job triggered', run_id: result.run_id });
   } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
     next(err);
   }
 };
 
-module.exports = { listJobs, getJob, createJob, updateJob, deleteJob, getJobRuns, triggerJob };
+module.exports = { listJobs, getJob, createJob, updateJob, deleteJob, getJobRuns, triggerJob, triggerJobBySlug };

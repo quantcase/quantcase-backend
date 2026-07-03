@@ -33,10 +33,10 @@ async function addHtmlSkillJob({
 }
 
 async function addHtmlIncrementalSkillJob({
-  slug, ticker, callId, force = false, historic = false,
+  slug, ticker, callId, force = false, historic = false, configKey = null,
 }) {
   return jobQueue.addJob('html_skill_incremental', {
-    slug, ticker, callId, force, historic,
+    slug, ticker, callId, force, historic, configKey,
     type: 'html_skill_incremental',
   });
 }
