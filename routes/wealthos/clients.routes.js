@@ -27,7 +27,7 @@ const createClientSchema = z.object({
   risk_profile:      z.enum(RISK_PROFILES),
   engagement_score:  z.number().min(0).max(100).optional(),
   churn_probability: z.number().min(0).max(1).optional(),
-  metadata:          z.record(z.unknown()).optional(),
+  metadata:          z.record(z.string(), z.unknown()).optional(),
 });
 
 const updateClientSchema = createClientSchema.partial();
@@ -49,7 +49,7 @@ const interactionSchema = z.object({
   summary:   z.string().optional(),
   sentiment: z.enum(['positive', 'neutral', 'negative']).optional(),
   timestamp: z.string().datetime().optional(),
-  metadata:  z.record(z.unknown()).optional(),
+  metadata:  z.record(z.string(), z.unknown()).optional(),
 });
 
 const paginationSchema = z.object({

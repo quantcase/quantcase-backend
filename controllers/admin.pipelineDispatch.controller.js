@@ -1,11 +1,12 @@
 'use strict';
 
 const prisma = require('../config/prisma');
-const { DEFAULT_TARGET_TICKERS, previewL1MultiDispatch } = require('../services/pipelineDispatch');
+const { DEFAULT_TARGET_TICKERS, previewL1MultiDispatch, previewL1MultiDispatchCsv, previewL2MultiDispatch, previewL2MultiDispatchCsv } = require('../services/pipelineDispatch');
 const { listGroups } = require('../services/companyGroups');
 const { triggerJobBySlug } = require('./admin.scheduler.controller');
 
 const L1_MULTI_SLUG = 'pipeline-dispatch-l1-multi';
+const L2_MULTI_SLUG = 'pipeline-dispatch-l2-multi';
 
 // GET /admin/pipeline-dispatch/l1-multi/options
 const getL1MultiOptions = async (req, res, next) => {
@@ -27,6 +28,22 @@ const previewL1Multi = async (req, res, next) => {
   try {
     const result = await previewL1MultiDispatch(req.body);
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /admin/pipeline-dispatch/l1-multi/preview/csv — full, uncapped
+// document-coverage report as a downloadable CSV (ignores limit/latest/
+// arOnly/noAr — those are run-time caps, not relevant to a coverage report).
+// Same flattened-column format as L2's CSV (see services/pipelineDispatch/csvReport.js),
+// values are 1/0 presence per period rather than a signal count.
+const previewL1MultiCsv = async (req, res, next) => {
+  try {
+    const csv = await previewL1MultiDispatchCsv(req.body);
+    res.set('Content-Type', 'text/csv');
+    res.set('Content-Disposition', 'attachment; filename="l1-document-coverage-report.csv"');
+    res.send(csv);
   } catch (err) {
     next(err);
   }
@@ -61,4 +78,85 @@ const getL1MultiRuns = async (req, res, next) => {
   }
 };
 
-module.exports = { getL1MultiOptions, previewL1Multi, runL1Multi, getL1MultiRuns };
+// GET /admin/pipeline-dispatch/l2-multi/options
+// companyGroups includes config_key so the admin screen can show current
+// tagging state; configKeys is the distinct set of config keys defined
+// across any active skill's configs, for populating the tag-picker dropdown
+// (see PUT /admin/company-groups/:slug { config_key } for the tag action
+// itself — no dedicated tag endpoint, it's just a field on the group).
+const getL2MultiOptions = async (req, res, next) => {
+  try {
+    const [rows, groups, skills, configs] = await Promise.all([
+      prisma.earnings_calls.findMany({ select: { company: true }, distinct: ['company'] }),
+      listGroups(),
+      prisma.htmlIncrementalSkill.findMany({ where: { is_active: true }, select: { slug: true, name: true }, orderBy: { slug: 'asc' } }),
+      prisma.htmlIncrementalSkillConfig.findMany({ where: { is_active: true }, select: { key: true, name: true }, distinct: ['key'] }),
+    ]);
+    const companies = rows.map(r => r.company).filter(Boolean).sort();
+    const companyGroups = groups.map(g => ({ slug: g.slug, name: g.name, filter_type: g.filter_type, config_key: g.config_key }));
+    const configKeys = [...new Map(configs.map(c => [c.key, c])).values()].sort((a, b) => a.key.localeCompare(b.key));
+    res.json({ skills, companies, companyGroups, configKeys });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /admin/pipeline-dispatch/l2-multi/preview — dry run, no jobs enqueued, no LLM calls
+const previewL2Multi = async (req, res, next) => {
+  try {
+    const result = await previewL2MultiDispatch(req.body);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /admin/pipeline-dispatch/l2-multi/preview/csv — same report as
+// /preview, as a downloadable CSV (one row per ticker, source/period columns
+// flattened since CSV has no nested-header concept — see toCsv in
+// l2MultiDispatch.service.js). Same body shape as /preview.
+const previewL2MultiCsv = async (req, res, next) => {
+  try {
+    const csv = await previewL2MultiDispatchCsv(req.body);
+    res.set('Content-Type', 'text/csv');
+    res.set('Content-Disposition', `attachment; filename="l2-signal-report-${req.body.slug}.csv"`);
+    res.send(csv);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+};
+
+// POST /admin/pipeline-dispatch/l2-multi/run — fire-and-forget, logged to scheduler_runs
+const runL2Multi = async (req, res, next) => {
+  try {
+    const result = await triggerJobBySlug(L2_MULTI_SLUG, req.body);
+    res.json({ success: true, message: 'L2 multi-dispatch triggered', run_id: result.run_id });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+};
+
+// GET /admin/pipeline-dispatch/l2-multi/runs
+const getL2MultiRuns = async (req, res, next) => {
+  try {
+    const job = await prisma.schedulerJob.findUnique({ where: { slug: L2_MULTI_SLUG }, select: { id: true } });
+    if (!job) return res.status(404).json({ error: 'Scheduler job not found' });
+
+    const limit = Math.min(parseInt(req.query.limit ?? '20', 10), 100);
+    const runs = await prisma.schedulerRun.findMany({
+      where:   { job_id: job.id },
+      orderBy: { started_at: 'desc' },
+      take:    limit,
+    });
+    res.json({ count: runs.length, runs });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = {
+  getL1MultiOptions, previewL1Multi, previewL1MultiCsv, runL1Multi, getL1MultiRuns,
+  getL2MultiOptions, previewL2Multi, previewL2MultiCsv, runL2Multi, getL2MultiRuns,
+};

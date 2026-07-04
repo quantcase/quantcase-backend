@@ -10,7 +10,10 @@ const companyGroupSchema = z.object({
   slug:          z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slug must be kebab-case').optional(),
   description:   z.string().optional(),
   filter_type:   z.enum(['manual', 'dynamic']),
-  filter_config: z.record(z.any()),
+  filter_config: z.record(z.string(), z.any()),
+  // Which HtmlIncrementalSkillConfig.key every ticker in this group should
+  // run with (see resolveConfigKeyForTicker) — null clears the mapping.
+  config_key:    z.string().nullable().optional(),
 });
 
 const updateCompanyGroupSchema = companyGroupSchema.partial();

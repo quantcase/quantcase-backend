@@ -1755,6 +1755,16 @@ model CompanyGroup {
   description   String?
   filter_type   String
   filter_config Json     @default("{}")
+  // Which HtmlIncrementalSkillConfig.key (e.g. "t1"/"t2"/"t3") every ticker in
+  // this group should run with — a plain string, not an FK, since configs are
+  // saved per-skill but this pairing is skill-agnostic (the same key
+  // convention is expected across skills). Resolved automatically at run time
+  // for any ticker whose configKey wasn't passed explicitly — see
+  // resolveConfigKeyForTicker in services/companyGroups/resolver.js. A ticker
+  // that resolves to no config_key at all (not covered by any config-mapped
+  // group, and no explicit configKey given) blocks the run with a 400 rather
+  // than silently falling back to the skill's own top-level fields.
+  config_key    String?
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 

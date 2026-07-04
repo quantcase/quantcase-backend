@@ -43,26 +43,27 @@ what you get back from `POST` is exactly what a later `GET /:slug` returns.
 ```
 Just an explicit list. Nothing computed.
 
-**`filter_type: "dynamic"`** — `filter_config` can combine any of the four
-keys below. If more than one is present, a company must match **all** of
-them (intersection) to be in the group.
+**`filter_type: "dynamic"`** — `filter_config` is a flat set of independent
+filters. Each one you include is **ANDed** with the others (chained in
+series) — a company must satisfy every filter present to be in the group.
+There's no "OR" between filters; if you want that, make two groups.
 
 ```jsonc
 {
-  // Companies with these documents present in the DB
-  "coverage": {
-    "transcript": true,
-    "ppt": true,
-    "annualReport": false,
-    "match": "any"   // "any" = has at least one of the checked doc types; "all" = has all of them
+  // Ticker starts with a letter in this (inclusive) range
+  "nameRange": { "from": "A", "to": "C" },
+
+  // Transcript-based. status defaults to "present" if omitted.
+  "transcript": {
+    "status": "present",   // "present" | "pending" | "extracted"
+    "lastN": 4              // optional — only look at each company's 4 most recent quarters
   },
 
-  // Companies with these documents present but NOT yet extracted (L1 backlog).
-  // Same shape as `coverage`, one level stricter.
-  "pendingExtraction": {
-    "transcript": true,
-    "match": "any"
-  },
+  // Same shape as transcript, but for PPTs
+  "ppt": { "status": "pending" },
+
+  // Same idea, but lastN counts fiscal years (reports), not quarters
+  "annualReport": { "status": "extracted", "lastN": 2 },
 
   // Market cap range in ₹ crore, using each company's latest known price
   "marketCap": { "min": 5000, "max": null },
@@ -72,13 +73,33 @@ them (intersection) to be in the group.
 }
 ```
 
-Any subset of these four keys is valid — e.g. a group with only `marketCap`
-set, or one combining `industries` + `pendingExtraction` ("mid-cap banks
-still needing L1 extraction").
+Any subset of these six keys is valid — e.g. a group with only `marketCap`
+set, or one combining `industries` + `ppt: {status:"pending"}` ("banks with a
+PPT backlog").
 
-`coverage.match` / `pendingExtraction.match`:
-- `"any"` — company qualifies if it has **any one** of the checked doc types.
-- `"all"` — company must have **every one** of the checked doc types.
+**`status`** (on `transcript` / `ppt` / `annualReport`, default `"present"`):
+- `"present"` — the document exists in the DB (URL is set).
+- `"pending"` — document exists but has **no** non-invalidated L1 signal yet
+  (the extraction backlog for that doc type).
+- `"extracted"` — document exists **and** already has a non-invalidated
+  signal (the inverse of `"pending"`).
+
+**`lastN`** (optional, on `transcript` / `ppt` / `annualReport`): instead of
+checking "ever, across all history", restricts the check to each company's
+own N most recent reporting periods (quarters for transcript/ppt, fiscal
+years for annualReport). Omit it to check all-time. This is what makes
+"latest 2 quarters" groups stay correct forever without editing — there's no
+hardcoded fiscal year/quarter anywhere.
+
+> Known gap: `status: "pending"` or `"extracted"` can time out on this DB.
+> `status: "present"` is always safe (doesn't touch signals at all).
+> `transcript`/`ppt` with `pending`/`extracted` are safe **as long as
+> `lastN` is set** (unscoped all-time checks can time out from candidate-list
+> size). `annualReport` with `pending`/`extracted` timed out even with
+> `lastN: 1` in testing — that doc type needs a backend fix (likely a DB
+> index pass) before it's reliable, independent of `lastN`. Until fixed,
+> the create/edit form should avoid offering `pending`/`extracted` on the
+> Annual report card, or mark it experimental.
 
 ## 3. Endpoint reference
 
@@ -151,12 +172,20 @@ exist yet. When they're built, they'll accept the same `groupSlug` field.
   ticker count (call `/resolve` per row, or lazily on expand if the list is
   long — resolving is a real DB query, not free).
 - Create/edit form: radio between "Manual list" and "Filter-based". For
-  filter-based, expose the four dimensions as independent toggles (coverage,
-  pending extraction, market cap range, industries) — any combination is
-  valid, and none selected means an empty group (worth a warning: *"No
-  filters selected — this group will always be empty."*).
-- `match: "any" | "all"` toggle on coverage/pendingExtraction: label as
-  *"Match any of these"* vs *"Match all of these"*.
+  filter-based, expose each of the six filters as its own independent
+  checkbox/card (matches what's already built): **Alphabet range**,
+  **Transcript**, **PPT**, **Annual report**, **Market cap range**,
+  **Industry**. Checking one reveals its own mini-config inline (e.g.
+  checking "Transcript" reveals a status dropdown + optional "latest N
+  quarters" number field). None selected → warn: *"No filters selected —
+  this group will always be empty."*
+- For Transcript/PPT/Annual report cards, the status dropdown: label the
+  three options as *"Present"*, *"Not yet extracted"* (pending), and
+  *"Already extracted"*. Default to "Present" pre-selected. The "latest N"
+  field is optional — label it *"Only look at the N most recent
+  [quarters/years]"* with a placeholder like *"All history"* when empty.
+- Since filters chain as AND only, don't offer an any/all toggle anymore —
+  if an admin wants "transcript OR ppt", that's two separate groups.
 - On the L1 dispatch screen's group dropdown: show the live count next to
   each group name (e.g. "Large Cap Banks (42)") so the admin isn't surprised
   by scope before hitting Preview.

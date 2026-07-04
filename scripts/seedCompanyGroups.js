@@ -11,38 +11,12 @@ const ALPHA_RANGES = [
   ['P', 'R'], ['S', 'U'], ['V', 'X'], ['Y', 'Z'],
 ];
 
-const GROUPS = [
-  ...ALPHA_RANGES.map(([from, to]) => ({
-    name:          `Companies ${from}-${to}`,
-    description:   `All companies with a ticker starting ${from}–${to}, re-evaluated live.`,
-    filter_type:   'dynamic',
-    filter_config: { nameRange: { from, to } },
-  })),
-  {
-    name:          'FY2026 Q4 — Transcript Extracted',
-    description:   'Companies with a non-invalidated transcript signal for FY2026 Q4.',
-    filter_type:   'dynamic',
-    filter_config: { extracted: { transcript: true, match: 'any', fiscalYear: 'FY2026', quarter: 'Q4' } },
-  },
-  {
-    name:          'FY2026 Q4 — PPT Extracted',
-    description:   'Companies with a non-invalidated PPT signal for FY2026 Q4.',
-    filter_type:   'dynamic',
-    filter_config: { extracted: { ppt: true, match: 'any', fiscalYear: 'FY2026', quarter: 'Q4' } },
-  },
-  {
-    name:          'FY2026 Q4 — Transcript + PPT Extracted',
-    description:   'Companies with BOTH a non-invalidated transcript signal and a non-invalidated PPT signal for FY2026 Q4.',
-    filter_type:   'dynamic',
-    filter_config: { extracted: { transcript: true, ppt: true, match: 'all', fiscalYear: 'FY2026', quarter: 'Q4' } },
-  },
-  {
-    name:          'Annual Report FY2025-26 Extracted',
-    description:   'Companies with a non-invalidated annual report signal for the latest AR cycle (FY2024-25 or FY2025-26).',
-    filter_type:   'dynamic',
-    filter_config: { extracted: { annualReport: true, fiscalYear: ['FY2024-25', 'FY2025-26'] } },
-  },
-];
+const GROUPS = ALPHA_RANGES.map(([from, to]) => ({
+  name:          `Companies ${from}-${to}`,
+  description:   `All companies with a ticker starting ${from}–${to}, re-evaluated live.`,
+  filter_type:   'dynamic',
+  filter_config: { nameRange: { from, to } },
+}));
 
 async function main() {
   console.log(`Seeding ${GROUPS.length} company groups...\n`);

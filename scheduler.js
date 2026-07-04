@@ -5,6 +5,8 @@ require('dotenv').config();
 const http   = require('http');
 const prisma = require('./config/prisma');
 const { loadAndRegisterAll, reregisterJob, getStatus } = require('./scheduler/index');
+const { dispatch }                     = require('./scheduler/executor');
+const { logRun, completeRun, failRun } = require('./scheduler/registry');
 
 const SCHEDULER_PORT = parseInt(process.env.SCHEDULER_PORT ?? '8001', 10);
 // Bind interface for the internal HTTP server. Defaults to loopback (assumes
@@ -18,6 +20,18 @@ const SCHEDULER_BIND_HOST = process.env.SCHEDULER_BIND_HOST || '127.0.0.1';
 // ── Internal HTTP server ──────────────────────────────────────────────────────
 // Used by the admin API to trigger job re-registration without a full restart.
 
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      if (!raw) return resolve({});
+      try { resolve(JSON.parse(raw)); } catch (err) { reject(err); }
+    });
+    req.on('error', reject);
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   const send = (code, body) => {
     res.writeHead(code, { 'Content-Type': 'application/json' });
@@ -30,6 +44,27 @@ const server = http.createServer(async (req, res) => {
     if (reloadMatch) {
       const result = await reregisterJob(decodeURIComponent(reloadMatch[1]));
       return send(200, { ok: true, ...result });
+    }
+
+    // POST /trigger/:slug — run a job now, regardless of is_active/cron.
+    // Fires and returns immediately; the admin API polls scheduler_runs (shared
+    // DB) for status instead of holding this HTTP request open for the job's
+    // full duration (BSE discovery can take a couple of minutes).
+    const triggerMatch = req.method === 'POST' && req.url?.match(/^\/trigger\/([^/]+)$/);
+    if (triggerMatch) {
+      const slug = decodeURIComponent(triggerMatch[1]);
+      const job  = await prisma.schedulerJob.findUnique({ where: { slug } });
+      if (!job) return send(404, { error: `Job "${slug}" not found` });
+
+      const body      = await readJsonBody(req).catch(() => ({}));
+      const runConfig = { ...(job.config ?? {}), ...(body.config ?? {}) };
+
+      const runId = await logRun(job.id);
+      dispatch(job.job_type, runConfig)
+        .then(meta => completeRun(runId, meta))
+        .catch(err => failRun(runId, err));
+
+      return send(200, { ok: true, run_id: runId, slug, job_type: job.job_type });
     }
 
     // POST /reload — re-register all active jobs (full reload)

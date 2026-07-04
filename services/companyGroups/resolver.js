@@ -3,6 +3,25 @@
 /**
  * Dynamic resolution of a CompanyGroup into a ticker list. Always computed
  * fresh from current DB state — groups are never frozen snapshots.
+ *
+ * filter_config is a flat set of independent filters, ANDed together
+ * (chained in series) when more than one is present:
+ *   nameRange:    { from, to }                                — ticker starts with a letter in [from, to]
+ *   transcript:   { status?, lastN? }                         — transcript_url based
+ *   ppt:          { status?, lastN? }                         — ppt_url based
+ *   annualReport: { status?, lastN? }                         — annual_report_url based
+ *   marketCap:    { min?, max? }                               — ₹ crore, latest known price
+ *   industries:   string[]                                    — earnings_calls.basic_industry
+ *
+ * `status` (transcript/ppt/annualReport, default 'present'):
+ *   'present'   — document exists
+ *   'pending'   — document exists, no non-invalidated signal yet (L1 backlog)
+ *   'extracted' — document exists AND a non-invalidated signal already exists
+ *
+ * `lastN` (transcript/ppt/annualReport, optional): restricts the check to
+ * each company's own N most recent reporting periods (quarters for
+ * transcript/ppt, fiscal years for annualReport) instead of "ever, across
+ * all history". Omit for all-time.
  */
 
 const prisma = require('../../config/prisma');
@@ -13,109 +32,60 @@ function intersect(sets) {
   return sets.reduce((acc, s) => new Set([...acc].filter(x => s.has(x))));
 }
 
-// fiscalYear/quarter accept a single value or an array (OR'd together).
-// quarter is meaningless for annual reports (no quarter field) — callers
-// simply don't pass it there.
-function periodMatches(row, { fiscalYear, quarter } = {}) {
-  if (fiscalYear != null) {
-    const years = (Array.isArray(fiscalYear) ? fiscalYear : [fiscalYear]).map(String);
-    if (!years.includes(row.fiscal_year)) return false;
+// Groups rows by `company`, sorts each group descending by sortKeys, keeps
+// only the first `n` per company. n == null returns rows unchanged.
+function latestNPerCompany(rows, n, sortKeys) {
+  if (!n) return rows;
+  const byCompany = new Map();
+  for (const r of rows) {
+    if (!byCompany.has(r.company)) byCompany.set(r.company, []);
+    byCompany.get(r.company).push(r);
   }
-  if (quarter != null) {
-    const quarters = Array.isArray(quarter) ? quarter : [quarter];
-    if (!quarters.includes(row.quarter)) return false;
+  const result = [];
+  for (const list of byCompany.values()) {
+    list.sort((a, b) => {
+      for (const k of sortKeys) {
+        if (a[k] !== b[k]) return a[k] < b[k] ? 1 : -1; // desc
+      }
+      return 0;
+    });
+    result.push(...list.slice(0, n));
   }
-  return true;
+  return result;
 }
 
-async function docTypeCoverageSet(urlField, period) {
+// Shared logic for transcript/ppt: fetch calls with the given URL field
+// present, window to the latest N per company if requested, then filter by
+// status (present/pending/extracted).
+async function docTypeFilterSet(urlField, docType, { status = 'present', lastN } = {}) {
   const rows = await prisma.earnings_calls.findMany({
-    where:  { [urlField]: { not: null }, company: { not: null } },
-    select: { company: true, fiscal_year: true, quarter: true },
-  });
-  return new Set(rows.filter(r => periodMatches(r, period)).map(r => r.company));
-}
-
-async function annualReportCoverageSet({ fiscalYear } = {}) {
-  const rows = await prisma.annual_reports.findMany({
-    where:  { annual_report_url: { not: null }, company: { not: null } },
-    select: { company: true, fiscal_year: true },
-  });
-  return new Set(rows.filter(r => periodMatches(r, { fiscalYear })).map(r => r.company));
-}
-
-// Companies with a call matching urlField+period, split into those with
-// (done) vs without (pending) a non-invalidated `docType` signal.
-async function splitByExtraction(urlField, docType, period) {
-  const rows = await prisma.earnings_calls.findMany({
-    where:  { [urlField]: { not: null }, company: { not: null } },
+    where:  { [urlField]: { not: null } },
     select: { id: true, company: true, fiscal_year: true, quarter: true },
   });
-  const matched = rows.filter(r => periodMatches(r, period));
-  const doneIds = await fetchDoneCallIds(docType, matched.map(r => r.id));
-  return {
-    done:    new Set(matched.filter(r => doneIds.has(r.id)).map(r => r.company)),
-    pending: new Set(matched.filter(r => !doneIds.has(r.id)).map(r => r.company)),
-  };
+  const windowed = latestNPerCompany(rows, lastN, ['fiscal_year', 'quarter']);
+
+  if (status === 'present') return new Set(windowed.map(r => r.company));
+
+  const doneIds = await fetchDoneCallIds(docType, windowed.map(r => r.id));
+  const keep = status === 'extracted' ? r => doneIds.has(r.id) : r => !doneIds.has(r.id);
+  return new Set(windowed.filter(keep).map(r => r.company));
 }
 
-async function splitAnnualReportByExtraction({ fiscalYear } = {}) {
+async function annualReportFilterSet({ status = 'present', lastN } = {}) {
   const rows = await prisma.annual_reports.findMany({
     where:  { annual_report_url: { not: null }, company: { not: null } },
     select: { id: true, company: true, fiscal_year: true },
   });
-  const matched = rows.filter(r => periodMatches(r, { fiscalYear }));
-  const doneIds = await fetchDoneCallIds('annual_report', matched.map(r => r.id.toString()));
-  return {
-    done:    new Set(matched.filter(r => doneIds.has(r.id.toString())).map(r => r.company)),
-    pending: new Set(matched.filter(r => !doneIds.has(r.id.toString())).map(r => r.company)),
-  };
+  const windowed = latestNPerCompany(rows, lastN, ['fiscal_year']);
+
+  if (status === 'present') return new Set(windowed.map(r => r.company));
+
+  const doneIds = await fetchDoneCallIds('annual_report', windowed.map(r => r.id.toString()));
+  const keep = status === 'extracted' ? r => doneIds.has(r.id.toString()) : r => !doneIds.has(r.id.toString());
+  return new Set(windowed.filter(keep).map(r => r.company));
 }
 
-// filter_config.coverage — companies with these documents present (regardless
-// of extraction status). Each requested doc type is checked independently and
-// combined per `match` ('any' = union, 'all' = intersection) — e.g.
-// {transcript:true, ppt:true, match:'all'} requires BOTH, not either.
-// Optional fiscalYear/quarter scope the check to a specific period instead of
-// "ever, across all history".
-async function getCoverageCompanies({ transcript, ppt, annualReport, match = 'any', fiscalYear, quarter }) {
-  const period = { fiscalYear, quarter };
-  const sets = [];
-  if (transcript)   sets.push(await docTypeCoverageSet('transcript_url', period));
-  if (ppt)          sets.push(await docTypeCoverageSet('ppt_url', period));
-  if (annualReport) sets.push(await annualReportCoverageSet({ fiscalYear }));
-
-  if (sets.length === 0) return new Set();
-  return match === 'all' ? intersect(sets) : new Set(sets.flatMap(s => [...s]));
-}
-
-// filter_config.pendingExtraction — same shape as `coverage`, one level
-// stricter: document present but no non-invalidated signal yet (L1 backlog).
-async function getPendingExtractionCompanies({ transcript, ppt, annualReport, match = 'any', fiscalYear, quarter }) {
-  const period = { fiscalYear, quarter };
-  const sets = [];
-  if (transcript)   sets.push((await splitByExtraction('transcript_url', 'transcript', period)).pending);
-  if (ppt)          sets.push((await splitByExtraction('ppt_url', 'ppt', period)).pending);
-  if (annualReport) sets.push((await splitAnnualReportByExtraction({ fiscalYear })).pending);
-
-  if (sets.length === 0) return new Set();
-  return match === 'all' ? intersect(sets) : new Set(sets.flatMap(s => [...s]));
-}
-
-// filter_config.extracted — same shape as `coverage`, requiring a
-// non-invalidated signal to already exist. Inverse of pendingExtraction.
-async function getExtractedCompanies({ transcript, ppt, annualReport, match = 'any', fiscalYear, quarter }) {
-  const period = { fiscalYear, quarter };
-  const sets = [];
-  if (transcript)   sets.push((await splitByExtraction('transcript_url', 'transcript', period)).done);
-  if (ppt)          sets.push((await splitByExtraction('ppt_url', 'ppt', period)).done);
-  if (annualReport) sets.push((await splitAnnualReportByExtraction({ fiscalYear })).done);
-
-  if (sets.length === 0) return new Set();
-  return match === 'all' ? intersect(sets) : new Set(sets.flatMap(s => [...s]));
-}
-
-async function getMarketCapCompanies({ min, max }) {
+async function getMarketCapCompanies({ min, max } = {}) {
   const rows = await prisma.$queryRaw`
     SELECT DISTINCT ON (symbol)
            symbol,
@@ -131,10 +101,10 @@ async function getMarketCapCompanies({ min, max }) {
   );
 }
 
-async function getIndustryCompanies({ industries }) {
+async function getIndustryCompanies(industries) {
   if (!industries?.length) return new Set();
   const rows = await prisma.earnings_calls.findMany({
-    where:    { basic_industry: { in: industries }, company: { not: null } },
+    where:    { basic_industry: { in: industries } },
     select:   { company: true },
     distinct: ['company'],
   });
@@ -145,9 +115,8 @@ async function getIndustryCompanies({ industries }) {
 // [from, to] alphabetically (inclusive on both ends), e.g. {from:'A', to:'C'}
 // for an "A-C" bucket. Mirrors the startFrom cursor semantics already used in
 // L1 multi-dispatch (services/pipelineDispatch/l1MultiDispatch.service.js).
-async function getNameRangeCompanies({ from, to }) {
+async function getNameRangeCompanies({ from, to } = {}) {
   const rows = await prisma.earnings_calls.findMany({
-    where:    { company: { not: null } },
     select:   { company: true },
     distinct: ['company'],
   });
@@ -162,12 +131,12 @@ async function getNameRangeCompanies({ from, to }) {
 
 async function resolveDynamic(config) {
   const sets = [];
-  if (config.coverage)          sets.push(await getCoverageCompanies(config.coverage));
-  if (config.pendingExtraction) sets.push(await getPendingExtractionCompanies(config.pendingExtraction));
-  if (config.extracted)         sets.push(await getExtractedCompanies(config.extracted));
-  if (config.marketCap)         sets.push(await getMarketCapCompanies(config.marketCap));
-  if (config.industries)        sets.push(await getIndustryCompanies({ industries: config.industries }));
-  if (config.nameRange)         sets.push(await getNameRangeCompanies(config.nameRange));
+  if (config.nameRange)    sets.push(await getNameRangeCompanies(config.nameRange));
+  if (config.transcript)   sets.push(await docTypeFilterSet('transcript_url', 'transcript', config.transcript));
+  if (config.ppt)          sets.push(await docTypeFilterSet('ppt_url', 'ppt', config.ppt));
+  if (config.annualReport) sets.push(await annualReportFilterSet(config.annualReport));
+  if (config.marketCap)    sets.push(await getMarketCapCompanies(config.marketCap));
+  if (config.industries)   sets.push(await getIndustryCompanies(config.industries));
 
   if (sets.length === 0) return [];
   return [...intersect(sets)].filter(Boolean).sort();
@@ -180,12 +149,31 @@ async function resolveGroup(group) {
   return resolveDynamic(group.filter_config ?? {});
 }
 
+// Which config_key applies to a given ticker, via whichever config-mapped
+// group it currently falls into (groups are live — this is recomputed every
+// call, not cached). Groups are resolved oldest-created first; if a ticker
+// ends up in more than one config-mapped group at once, the first one it
+// matches wins. Returns null if the ticker isn't in any config-mapped group —
+// callers treat that as "run blocked, no config resolved" rather than
+// silently falling back to a skill's own default fields.
+async function resolveConfigKeyForTicker(ticker) {
+  const groups = await prisma.companyGroup.findMany({
+    where:   { config_key: { not: null } },
+    orderBy: { created_at: 'asc' },
+  });
+  for (const group of groups) {
+    const tickers = await resolveGroup(group);
+    if (tickers.includes(ticker)) return group.config_key;
+  }
+  return null;
+}
+
 module.exports = {
   resolveGroup,
-  getCoverageCompanies,
-  getPendingExtractionCompanies,
-  getExtractedCompanies,
+  resolveConfigKeyForTicker,
   getMarketCapCompanies,
   getIndustryCompanies,
   getNameRangeCompanies,
+  docTypeFilterSet,
+  annualReportFilterSet,
 };

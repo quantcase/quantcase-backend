@@ -34,10 +34,10 @@ const JOBS = [
   {
     slug:            'bse-discovery',
     name:            'BSE Document Discovery',
-    description:     'Scrapes BSE API for new earnings transcripts and investor presentations for Nifty50 companies, upserts URLs into earnings_calls table',
+    description:     'Scrapes BSE API for new earnings transcripts, investor presentations, and annual reports, upserts URLs into bse_discovered_urls for admin review. Manual only — admin-triggered via POST /admin/bse-discovery/run, never cron-fires.',
     job_type:        'bse_discovery',
-    cron_expression: '0 9,18 * * 1-5',  // 9am + 6pm IST weekdays
-    is_active:       true,
+    cron_expression: '0 9,18 * * 1-5',  // kept for reference; inactive since discovery now requires admin approval before URLs reach earnings_calls/annual_reports
+    is_active:       false,
     config:          { lookback_days: 1 },
   },
   {
@@ -57,6 +57,15 @@ const JOBS = [
     cron_expression: '0 0 1 1 *', // inert placeholder — is_active:false means it's never registered
     is_active:       false,
     config:          {}, // defaults come from services/pipelineDispatch/targetTickers.js
+  },
+  {
+    slug:            'pipeline-dispatch-l2-multi',
+    name:            'Pipeline Dispatch — L2 Multi (manual)',
+    description:     'Admin-triggered html-incremental-skill dispatch for a chosen ticker set, one run per ticker. Manual only — never cron-fires.',
+    job_type:        'pipeline_dispatch_l2_multi',
+    cron_expression: '0 0 1 1 *', // inert placeholder — is_active:false means it's never registered
+    is_active:       false,
+    config:          {}, // slug/groupSlug/tickers etc. always come from the admin trigger body
   },
 ];
 
