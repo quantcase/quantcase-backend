@@ -6,6 +6,8 @@ const handlers = {
   prowess_annual:     () => require('./handlers/prowessFilings'),
   bse_discovery:      () => require('./handlers/bseDiscovery'),
   pipeline_dispatch:  () => require('./handlers/pipelineDispatch'),
+  pipeline_dispatch_l1_multi: () => require('./handlers/pipelineDispatchL1Multi'),
+  pipeline_dispatch_l2_multi: () => require('./handlers/pipelineDispatchL2Multi'),
 };
 
 async function dispatch(jobType, config = {}) {

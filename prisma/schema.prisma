@@ -425,10 +425,51 @@ model HtmlIncrementalSkill {
   created_at                     DateTime                       @default(now())
   updated_at                     DateTime                       @updatedAt
   outputs                        HtmlIncrementalSkillOutput[]
+  configs                        HtmlIncrementalSkillConfig[]
 
   @@index([slug])
   @@index([category])
   @@map("html_incremental_skills")
+}
+
+// A named, alternate settings bundle for a skill — e.g. one config per
+// data-availability shape (transcript-only, ppt+annual_report, full, ...).
+// Purely additive: the skill's own top-level fields keep working unchanged
+// when no config is selected. Admin picks a config explicitly by key when
+// running (see configKey on POST /:slug/run and GET /:slug/prompt/:ticker) —
+// no auto-detection of which sources are available; that's handled in the
+// monitoring system elsewhere, ahead of the admin choosing a config.
+model HtmlIncrementalSkillConfig {
+  id                                String               @id @default(uuid())
+  skill_id                          String
+  key                                String              // machine identifier, unique per skill, e.g. "transcript_only"
+  name                               String              // human label, e.g. "Transcript Only"
+  skill_prompt                       String
+  transcript_signal_types            String[]
+  ppt_signal_types                   String[]
+  annual_report_signal_types         String[]
+  max_transcript_qtrs                Int?
+  max_ppt_qtrs                       Int?
+  max_annual_report_years            Int?
+  market_data_signal_types           String[]
+  max_market_data_months             Int?
+  historic_max_transcript_qtrs       Int?
+  historic_max_ppt_qtrs              Int?
+  historic_max_annual_report_years   Int?
+  historic_max_market_data_months    Int?
+  // Nullable — falls back to the parent skill's own value when unset, same
+  // fallback convention as historic_max_* above.
+  model                              String?
+  max_tokens                         Int?
+  strip_html                         Boolean?
+  is_active                          Boolean              @default(true)
+  created_at                         DateTime             @default(now())
+  updated_at                         DateTime             @updatedAt
+  skill                              HtmlIncrementalSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  @@unique([skill_id, key])
+  @@index([skill_id])
+  @@map("html_incremental_skill_configs")
 }
 
 model HtmlIncrementalSkillOutput {
@@ -446,6 +487,10 @@ model HtmlIncrementalSkillOutput {
   output_tokens Int?
   cost_usd      Float?
   is_historic   Boolean              @default(false)
+  // Which named HtmlIncrementalSkillConfig (by key, not FK — so deleting a
+  // config never orphans output history) produced this output. Null = ran
+  // with the skill's own top-level fields (no config selected).
+  config_key    String?
   // LEGACY — superseded by HtmlIncrementalSkill.pinned_fiscal_year/pinned_quarter/
   // pinned_historic (a single global pin per skill, applied per-ticker at lookup
   // time). No longer read or written anywhere. Left in place rather than dropped
@@ -1666,4 +1711,62 @@ model SchedulerRun {
 
   @@index([job_id, started_at])
   @@map("scheduler_runs")
+}
+
+// Restored — accidentally dropped by the kpi-refactor/cleanup merge (15bb687)
+// despite neither merge parent deleting it; live tables + data + code
+// (controllers/watchlist.controller.js) never stopped existing in the DB.
+model Watchlist {
+  id           String           @id @default(uuid())
+  user_id      String
+  name         String
+  total_assets Int              @default(0) @map("total_assets")
+  created_at   DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+  assets       WatchlistAsset[]
+
+  @@index([user_id])
+  @@map("watchlists")
+}
+
+model WatchlistAsset {
+  id           String    @id @default(uuid())
+  watchlist_id String
+  symbol       String
+  added_on     DateTime  @default(now())
+  notes        String?
+  watchlist    Watchlist @relation(fields: [watchlist_id], references: [id], onDelete: Cascade)
+
+  @@unique([watchlist_id, symbol])
+  @@index([watchlist_id])
+  @@index([symbol])
+  @@map("watchlist_assets")
+}
+
+// Reusable, named ticker sets selectable across L1/L2/L3 admin dispatch flows.
+// filter_type 'manual' → filter_config: { tickers: string[] }.
+// filter_type 'dynamic' → filter_config combines any of: coverage, pendingExtraction,
+// marketCap, industries — resolved fresh every time the group is used (see
+// services/companyGroups/resolver.js).
+model CompanyGroup {
+  id            String   @id @default(uuid())
+  slug          String   @unique
+  name          String
+  description   String?
+  filter_type   String
+  filter_config Json     @default("{}")
+  // Which HtmlIncrementalSkillConfig.key (e.g. "t1"/"t2"/"t3") every ticker in
+  // this group should run with — a plain string, not an FK, since configs are
+  // saved per-skill but this pairing is skill-agnostic (the same key
+  // convention is expected across skills). Resolved automatically at run time
+  // for any ticker whose configKey wasn't passed explicitly — see
+  // resolveConfigKeyForTicker in services/companyGroups/resolver.js. A ticker
+  // that resolves to no config_key at all (not covered by any config-mapped
+  // group, and no explicit configKey given) blocks the run with a 400 rather
+  // than silently falling back to the skill's own top-level fields.
+  config_key    String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  @@map("company_groups")
 }

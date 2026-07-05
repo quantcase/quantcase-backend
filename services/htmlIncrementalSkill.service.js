@@ -4,6 +4,7 @@ const prisma = require('../config/prisma');
 const { querySignalsV2 } = require('./db/signals.db');
 const { llmStream, logUsage } = require('../utils/workerUtils');
 const { stripHtmlToText } = require('../utils/stripHtml');
+const { resolveConfigKeyForTicker } = require('./companyGroups');
 const {
   applySignalLimits,
   buildDataBlock,
@@ -270,26 +271,84 @@ async function assemblePrompt(skill, ticker, baseContextBlock, historic = false,
   return { systemPrompt, userPrompt, signals, rawSignals };
 }
 
+// ── Named config resolution ───────────────────────────────────────────────────
+// A HtmlIncrementalSkillConfig is a saved, alternate settings bundle for a
+// skill (e.g. one per data-availability shape). A run always needs one:
+// explicitly via configKey, or auto-resolved from the ticker's CompanyGroup
+// membership (CompanyGroup.config_key — see resolveConfigKeyForTicker in
+// services/companyGroups/resolver.js). If neither yields a config, the run
+// is blocked (400) rather than silently falling back to the skill's own
+// top-level fields — every run must be tied to a known, deliberate config.
+async function resolveRequiredConfigKey(ticker, configKey) {
+  if (configKey) return configKey;
+
+  const resolved = await resolveConfigKeyForTicker(ticker);
+  if (resolved) return resolved;
+
+  throw Object.assign(
+    new Error(`No config resolved for ${ticker} — it isn't in any config-mapped company group. Assign it to a group with a config_key set, or pass configKey explicitly.`),
+    { status: 400 },
+  );
+}
+
+// Prompt/filters/caps come entirely from the config; only
+// model/max_tokens/strip_html fall back to the skill's own value if left
+// unset on the config, since those are execution knobs rather than analysis
+// behavior.
+async function resolveEffectiveSkill(skill, configKey) {
+  const config = await prisma.htmlIncrementalSkillConfig.findUnique({
+    where: { skill_id_key: { skill_id: skill.id, key: configKey } },
+  });
+  if (!config || !config.is_active) {
+    throw Object.assign(new Error(`Config '${configKey}' not found for skill '${skill.slug}'`), { status: 404 });
+  }
+
+  const effectiveSkill = {
+    ...skill,
+    skill_prompt:                     config.skill_prompt,
+    transcript_signal_types:          config.transcript_signal_types,
+    ppt_signal_types:                 config.ppt_signal_types,
+    annual_report_signal_types:       config.annual_report_signal_types,
+    max_transcript_qtrs:              config.max_transcript_qtrs,
+    max_ppt_qtrs:                     config.max_ppt_qtrs,
+    max_annual_report_years:          config.max_annual_report_years,
+    market_data_signal_types:         config.market_data_signal_types,
+    max_market_data_months:           config.max_market_data_months,
+    historic_max_transcript_qtrs:     config.historic_max_transcript_qtrs,
+    historic_max_ppt_qtrs:            config.historic_max_ppt_qtrs,
+    historic_max_annual_report_years: config.historic_max_annual_report_years,
+    historic_max_market_data_months:  config.historic_max_market_data_months,
+    model:      config.model      ?? skill.model,
+    max_tokens: config.max_tokens ?? skill.max_tokens,
+    strip_html: config.strip_html ?? skill.strip_html,
+  };
+  const promptVKey = `${skill.slug}:${configKey}@${config.updated_at.toISOString()}`;
+
+  return { effectiveSkill, promptVKey };
+}
+
 // ── Public: dry-run prompt builder (no LLM) ───────────────────────────────────
 
-async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic = false }) {
+async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic = false, configKey = null }) {
   const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug } });
   if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
+  const resolvedConfigKey       = await resolveRequiredConfigKey(ticker, configKey);
+  const { effectiveSkill }      = await resolveEffectiveSkill(skill, resolvedConfigKey);
 
   const { fiscal_year, quarter } = await resolveCallMeta(callId);
-  const baseOutputs              = historic ? [] : await fetchBaseContextOutputs(skill, ticker, fiscal_year, quarter);
+  const baseOutputs              = historic ? [] : await fetchBaseContextOutputs(effectiveSkill, ticker, fiscal_year, quarter);
   if (!historic && !baseOutputs.length) {
     throw Object.assign(
       new Error(`No base analysis found for ${ticker} on skill '${slug}' — run historic mode first before incremental.`),
       { status: 400 },
     );
   }
-  const baseContextBlock         = formatBaseContextBlock(baseOutputs, skill.strip_html);
+  const baseContextBlock         = formatBaseContextBlock(baseOutputs, effectiveSkill.strip_html);
 
-  const { systemPrompt, userPrompt, signals, rawSignals } = await assemblePrompt(skill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
+  const { systemPrompt, userPrompt, signals, rawSignals } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
 
   return {
-    skill,
+    skill: effectiveSkill,
     systemPrompt,
     userPrompt,
     signal_count:        signals.length,
@@ -298,18 +357,21 @@ async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic 
     fiscal_year,
     quarter,
     historic,
+    configKey: resolvedConfigKey,
   };
 }
 
 // ── Public: full run ──────────────────────────────────────────────────────────
 
-async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, historic = false }) {
+async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, historic = false, configKey = null }) {
   const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug } });
   if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
   if (!skill.is_active) throw Object.assign(new Error(`HtmlIncrementalSkill is inactive: ${slug}`), { status: 400 });
 
-  const prompt_v                 = `${slug}@${skill.updated_at.toISOString()}`;
-  const { fiscal_year, quarter } = await resolveCallMeta(callId);
+  const resolvedConfigKey              = await resolveRequiredConfigKey(ticker, configKey);
+  const { effectiveSkill, promptVKey } = await resolveEffectiveSkill(skill, resolvedConfigKey);
+  const prompt_v                       = promptVKey;
+  const { fiscal_year, quarter }       = await resolveCallMeta(callId);
 
   if (!force) {
     const cached = await prisma.htmlIncrementalSkillOutput.findFirst({
@@ -318,27 +380,27 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
     if (cached && cached.prompt_v === prompt_v) return { cached: true, output: cached };
   }
 
-  const baseOutputs = historic ? [] : await fetchBaseContextOutputs(skill, ticker, fiscal_year, quarter);
+  const baseOutputs = historic ? [] : await fetchBaseContextOutputs(effectiveSkill, ticker, fiscal_year, quarter);
   if (!historic && !baseOutputs.length) {
     throw Object.assign(
       new Error(`No base analysis found for ${ticker} on skill '${slug}' — run historic mode first before incremental.`),
       { status: 400 },
     );
   }
-  const baseContextBlock = formatBaseContextBlock(baseOutputs, skill.strip_html);
+  const baseContextBlock = formatBaseContextBlock(baseOutputs, effectiveSkill.strip_html);
 
-  const { systemPrompt, userPrompt } = await assemblePrompt(skill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
+  const { systemPrompt, userPrompt } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
 
   const { text: raw_html_raw, usage } = await llmStream({
-    model:      skill.model,
-    max_tokens: skill.max_tokens,
+    model:      effectiveSkill.model,
+    max_tokens: effectiveSkill.max_tokens,
     messages:   [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt },
     ],
   });
   const raw_html     = stripMarkdownFences(raw_html_raw);
-  const text_summary = skill.strip_html ? stripHtmlToText(raw_html) : null;
+  const text_summary = effectiveSkill.strip_html ? stripHtmlToText(raw_html) : null;
 
   logUsage(`html-incremental-skill:${slug}:${ticker}`, usage);
 
@@ -353,7 +415,7 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
   const output = existing
     ? await prisma.htmlIncrementalSkillOutput.update({
         where: { id: existing.id },
-        data:  { raw_html, text_summary, prompt_v, call_id: callId ?? 'unknown', model: skill.model, input_tokens, output_tokens, cost_usd, is_historic: historic },
+        data:  { raw_html, text_summary, prompt_v, call_id: callId ?? 'unknown', model: effectiveSkill.model, input_tokens, output_tokens, cost_usd, is_historic: historic, config_key: resolvedConfigKey },
       })
     : await prisma.htmlIncrementalSkillOutput.create({
         data: {
@@ -365,11 +427,12 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
           raw_html,
           text_summary,
           prompt_v,
-          model:        skill.model,
+          model:        effectiveSkill.model,
           input_tokens,
           output_tokens,
           cost_usd,
           is_historic: historic,
+          config_key:  resolvedConfigKey,
         },
       });
 
