@@ -7,8 +7,8 @@
  * filter_config is a flat set of independent filters, ANDed together
  * (chained in series) when more than one is present:
  *   nameRange:    { from, to }                                — ticker starts with a letter in [from, to]
- *   transcript:   { status?, window?, minCount? }             — transcript_url based
- *   ppt:          { status?, window?, minCount? }              — ppt_url based
+ *   transcript:   { status?, window?, minCount?, maxCount?, rules? } — transcript_url based
+ *   ppt:          { status?, window?, minCount?, maxCount?, rules? } — ppt_url based
  *   annualReport: { status?, lastN? }                         — annual_report_url based (window/minCount not yet supported here)
  *   marketCap:    { min?, max? }                               — ₹ crore, latest known price
  *   industries:   string[]                                    — earnings_calls.basic_industry
@@ -29,17 +29,28 @@
  * them" — the "N consecutive quarters" case), or to 1 when `window` is
  * omitted (i.e. "at least once, ever" — the old default behavior).
  *
+ * `maxCount` (transcript/ppt, optional): upper bound to go with `minCount` —
+ * at most this many periods within `window` (or all history) may satisfy
+ * `status`. Omit for no ceiling. Together these turn a single clause into a
+ * genuine *range* rather than just a floor — e.g. "between 12 and 16 of the
+ * last 16" (some gaps tolerated, but not too many), or flip it around to hunt
+ * for sparse coverage instead of good coverage — "at most 2 of the last 8"
+ * finds companies with a signal backlog, which a minCount-only shape can't
+ * express (0 is a valid, and useful, minCount here).
+ *
  * This one shape covers all of:
  *   - "8 consecutive quarters with a transcript present":  { status:'present',   window:8 }
  *   - "8 consecutive quarters with a signal extracted":    { status:'extracted', window:8 }
  *   - "at least 4 of the latest 8 quarters extracted":     { status:'extracted', window:8, minCount:4 }
  *   - "at least 4 quarters ever extracted (no window)":    { status:'extracted', minCount:4 }
+ *   - "between 12 and 16 of the last 16 extracted":        { status:'extracted', window:16, minCount:12, maxCount:16 }
+ *   - "at most 2 of the last 8 extracted (sparse/backlog)": { status:'extracted', window:8, minCount:0, maxCount:2 }
  *
- * `rules` (transcript/ppt, optional): array of `{ window?, minCount? }`
- * clauses, ANDed together, for compound conditions the single-pair shape
- * above can't express. `{ window, minCount }` at the top level is just
- * sugar for `rules: [{ window, minCount }]` — a single clause — so this is
- * fully backward compatible; nothing existing changes shape.
+ * `rules` (transcript/ppt, optional): array of `{ window?, minCount?, maxCount? }`
+ * clauses, ANDed together, for compound conditions the single-clause shape
+ * above can't express. `{ window, minCount, maxCount }` at the top level is
+ * just sugar for `rules: [{ window, minCount, maxCount }]` — a single clause
+ * — so this is fully backward compatible; nothing existing changes shape.
  *   - "at least 4 of the last 8 quarters, AND at least 6 ever" (i.e. at
  *     least 2 more outside that recent window):
  *       { status:'extracted', rules: [{ window:8, minCount:4 }, { minCount:6 }] }
@@ -89,12 +100,13 @@ function windowPerCompany(rows, n, sortKeys) {
 
 // Shared logic for transcript/ppt: window each company's own known reporting
 // periods (regardless of doc status — a period with no doc still occupies a
-// window slot), then keep companies where at least `minCount` of those
-// periods satisfy `status` (present/pending/extracted) — evaluated once per
-// `rules` clause and ANDed across clauses. See the module-level comment for
-// the full shape and worked examples.
-async function docTypeFilterSet(urlField, docType, { status = 'present', window, minCount, rules } = {}) {
-  const ruleList = rules?.length ? rules : [{ window, minCount }];
+// window slot), then keep companies where the count of those periods
+// satisfying `status` (present/pending/extracted) falls within
+// [minCount, maxCount] — evaluated once per `rules` clause and ANDed across
+// clauses. See the module-level comment for the full shape and worked
+// examples.
+async function docTypeFilterSet(urlField, docType, { status = 'present', window, minCount, maxCount, rules } = {}) {
+  const ruleList = rules?.length ? rules : [{ window, minCount, maxCount }];
 
   const rows = await prisma.earnings_calls.findMany({
     select: { id: true, company: true, fiscal_year: true, quarter: true, [urlField]: true },
@@ -120,12 +132,18 @@ async function docTypeFilterSet(urlField, docType, { status = 'present', window,
   }
 
   const ruleSets = ruleList.map((rule, i) => {
-    const threshold = rule.minCount ?? (rule.window || 1);
+    const min = rule.minCount ?? (rule.window || 1);
+    const max = rule.maxCount ?? Infinity;
+    // Seed every company in this rule's window at 0 (not just ones with a
+    // satisfying row) — a maxCount check needs to see companies with zero
+    // matches too, e.g. minCount:0/maxCount:2 should catch a company with no
+    // coverage at all, not just ones with 1-2.
     const counts = new Map();
     for (const r of windowedSets[i]) {
-      if (satisfies(r)) counts.set(r.company, (counts.get(r.company) ?? 0) + 1);
+      if (!counts.has(r.company)) counts.set(r.company, 0);
+      if (satisfies(r)) counts.set(r.company, counts.get(r.company) + 1);
     }
-    return new Set([...counts].filter(([, n]) => n >= threshold).map(([c]) => c));
+    return new Set([...counts].filter(([, n]) => n >= min && n <= max).map(([c]) => c));
   });
 
   return intersect(ruleSets);

@@ -86,16 +86,26 @@ PPT backlog").
 - `"extracted"` — document exists **and** already has a non-invalidated
   signal (the inverse of `"pending"`).
 
-**`window` / `minCount`** (on `transcript` / `ppt` only — `annualReport` still
-uses the older `lastN` shape below, pending its own rework):
+**`window` / `minCount` / `maxCount`** (on `transcript` / `ppt` only —
+`annualReport` still uses the older `lastN` shape below, pending its own
+rework):
 
 - `window` — instead of checking "ever, across all history", look only at
   each company's own **N most recent known reporting quarters** — whether or
   not the document actually exists for each one. A quarter with no
   transcript still counts as one of the N slots. Omit for all-time.
-- `minCount` — how many of those `window` quarters must satisfy `status`.
-  Defaults to `window` itself (i.e. *every one of them* — "N consecutive
-  quarters"), or to `1` if `window` is omitted (i.e. "at least once, ever").
+- `minCount` — how many of those `window` quarters must satisfy `status`, at
+  minimum. Defaults to `window` itself (i.e. *every one of them* — "N
+  consecutive quarters"), or to `1` if `window` is omitted (i.e. "at least
+  once, ever").
+- `maxCount` — the counterpart ceiling: **at most** this many of those
+  `window` quarters may satisfy `status`. Optional, no cap if omitted.
+  Combined with `minCount` this turns the check into a real *range* — e.g.
+  "between 12 and 16 of the last 16" (some gaps tolerated, not zero, but not
+  too many either). Flip it around with `minCount: 0` to hunt for *sparse*
+  coverage instead of good coverage — "at most 2 of the last 8" surfaces a
+  signal backlog, which `minCount` alone can't express (there was no way to
+  say "zero is fine, but I want to see the count anyway" before this).
 
 This one shape covers every variation the admin might want:
 
@@ -105,6 +115,8 @@ This one shape covers every variation the admin might want:
 | 8 consecutive quarters with a signal already extracted | `{ "status": "extracted", "window": 8 }` |
 | At least 4 of the latest 8 quarters extracted (gaps OK) | `{ "status": "extracted", "window": 8, "minCount": 4 }` |
 | At least 4 quarters ever extracted, no recency bound | `{ "status": "extracted", "minCount": 4 }` |
+| Between 12 and 16 of the last 16 extracted (some gaps OK, not too many) | `{ "status": "extracted", "window": 16, "minCount": 12, "maxCount": 16 }` |
+| At most 2 of the last 8 extracted (sparse coverage / backlog finder) | `{ "status": "extracted", "window": 8, "minCount": 0, "maxCount": 2 }` |
 
 The important distinction from the old (now removed) `lastN` field: `window`
 is built from *every* known reporting quarter for the company, not just the
@@ -117,10 +129,10 @@ requirement (`minCount` defaulting to `window`) can actually fail when there's
 a real gap.
 
 **`rules`** (`transcript`/`ppt` only, optional) — for compound conditions the
-single `window`/`minCount` pair can't express. It's an array of
-`{ window?, minCount? }` clauses, **ANDed together**. `{ window, minCount }`
-at the top level is just shorthand for a single-clause `rules` array — every
-existing config keeps working unchanged.
+single window/minCount/maxCount clause can't express. It's an array of
+`{ window?, minCount?, maxCount? }` clauses, **ANDed together**.
+`{ window, minCount, maxCount }` at the top level is just shorthand for a
+single-clause `rules` array — every existing config keeps working unchanged.
 
 | Intent | Config |
 |---|---|
@@ -220,25 +232,36 @@ exist yet. When they're built, they'll accept the same `groupSlug` field.
 - For Transcript/PPT/Annual report cards, the status dropdown: label the
   three options as *"Present"*, *"Not yet extracted"* (pending), and
   *"Already extracted"*. Default to "Present" pre-selected.
-- **Transcript/PPT cards specifically** (the `window`/`minCount` pair):
-  render as two optional number fields, *"Only look at the N most recent
-  quarters"* (`window`, placeholder "All history") and *"...of which at
-  least this many must match"* (`minCount`, placeholder/default "All of
-  them"). If `window` is filled in and `minCount` is left blank, that reads
-  as "N consecutive quarters" — worth a hint under the field, e.g. *"Leave
-  blank to require all N (consecutive). Set lower to allow gaps — e.g. 8 and
-  4 means 'at least 4 of the last 8 quarters.'"* If `minCount` is set without
-  `window`, it means "at least this many, ever" with no recency bound.
+- **Transcript/PPT cards specifically** (`window`/`minCount`/`maxCount`):
+  render as three optional number fields —
+  *"Only look at the N most recent quarters"* (`window`, placeholder "All
+  history"), *"...of which at least this many must match"* (`minCount`,
+  placeholder/default "All of them"), and *"...but no more than this many"*
+  (`maxCount`, placeholder "No limit"). If `window` is filled in and
+  `minCount`/`maxCount` are both left blank, that reads as "N consecutive
+  quarters" (the strictest reading — zero gaps allowed). **This strict
+  default is easy to reach by accident** — filling in only `window` implies
+  `minCount = window`, i.e. "every single one, no gaps," which is a much
+  smaller/stricter set than admins tend to expect from "look at the last N
+  quarters." Put a live-updating hint or the `/resolve` count right next to
+  these fields so the admin sees the actual match count before saving, not
+  after. Hint text: *"Leave minCount/maxCount blank to require all N
+  (consecutive). Lower minCount to allow gaps, e.g. 16 and 12 means 'at least
+  12 of the last 16 quarters.' Add a maxCount to cap it too — e.g. 12 and 16
+  means 'between 12 and 16' — or set minCount to 0 with a low maxCount to
+  find sparse/backlog coverage instead of good coverage."*
 - **Annual report card**: still the older single *"Only look at the N most
   recent years"* field (`lastN`) for now — it hasn't been reworked to the
-  `window`/`minCount` model yet.
-- **Advanced: multiple rules on Transcript/PPT** — this is a v2 nicety, not
-  needed for v1. If/when you want it: an "Add another rule" link under the
-  window/minCount fields that adds a second `{window, minCount}` row, ANDed
-  with the first (e.g. "at least 4 of the last 8 quarters" + "at least 6
-  ever"). Until then, a single window/minCount pair (today's UI) covers the
-  common cases fine — compound rules can be added via direct API/`PUT` calls
-  in the meantime if an admin needs one before the UI supports it.
+  `window`/`minCount`/`maxCount` model yet.
+- **Multiple rules on Transcript/PPT** — an "Add another rule" link under the
+  window/minCount/maxCount fields that adds another `{window, minCount,
+  maxCount}` row, ANDed with the rows above it (e.g. "at least 4 of the last
+  8 quarters" + "at least 6 ever"). Compound rules can already be set via
+  direct API/`PUT` calls if an admin needs one before this ships — worth
+  prioritizing over other v2 work now that we've hit a real case (an admin
+  wanted "16 transcript, 16 ppt, 1 year annual" and got a much smaller group
+  than expected, because the single-field UI could only express the
+  strict-consecutive reading, not "most of the last 16").
 - Since filters chain as AND only, don't offer an any/all toggle anymore —
   if an admin wants "transcript OR ppt", that's two separate groups.
 - On the L1 dispatch screen's group dropdown: show the live count next to
