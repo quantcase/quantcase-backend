@@ -228,6 +228,12 @@ model TranscriptSignalV2 {
   @@index([source_hash], map: "tsv2_src_hash")
   @@index([ticker, signal_type], map: "tsv2_tick_type")
   @@index([ticker], map: "tsv2_ticker")
+  // Speeds up fetchDoneCallIds (services/pipelineDispatch/signalStore.js) —
+  // its WHERE clause filters on source_doc_type + is_invalidated then reads
+  // call_id; the old indexes didn't cover that combination, causing 70-120s+
+  // queries on company-group extracted/pending filters. Built CONCURRENTLY
+  // directly via psql against DIRECT_DATABASE_URL, not through db:push.
+  @@index([source_doc_type, is_invalidated, call_id], map: "tsv2_doctype_invalidated_call")
   @@map("transcript_signals_v2")
 }
 

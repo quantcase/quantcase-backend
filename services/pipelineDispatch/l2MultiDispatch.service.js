@@ -75,13 +75,30 @@ async function buildSignalAvailabilityReport(slug, tickers) {
   if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
 
   const allTypes = [...skill.transcript_signal_types, ...skill.ppt_signal_types, ...skill.annual_report_signal_types];
-  const where = { ticker: { in: tickers }, is_invalidated: false };
-  if (allTypes.length) where.signal_type = { in: allTypes };
 
-  const rows = await prisma.transcriptSignalV2.findMany({
-    where,
-    select: { ticker: true, source_doc_type: true, fiscal_year: true, quarter: true },
-  });
+  // Aggregated server-side (GROUP BY) instead of fetching every matching
+  // signal row into Node and counting them in a JS Map — for a broad
+  // signal-type whitelist run against `all` companies, this table can match
+  // close to its entire multi-million-row size, and pulling that many raw
+  // rows into the API process risks OOMing it. This still has to scan the
+  // same rows, but only ~(tickers x doc types x periods) rows now cross the
+  // wire instead of every individual signal row.
+  const groups = allTypes.length
+    ? await prisma.$queryRaw`
+        SELECT ticker, source_doc_type, fiscal_year, quarter, count(*)::int AS cnt
+        FROM transcript_signals_v2
+        WHERE is_invalidated = false
+          AND ticker = ANY(${tickers}::text[])
+          AND signal_type = ANY(${allTypes}::text[])
+        GROUP BY ticker, source_doc_type, fiscal_year, quarter
+      `
+    : await prisma.$queryRaw`
+        SELECT ticker, source_doc_type, fiscal_year, quarter, count(*)::int AS cnt
+        FROM transcript_signals_v2
+        WHERE is_invalidated = false
+          AND ticker = ANY(${tickers}::text[])
+        GROUP BY ticker, source_doc_type, fiscal_year, quarter
+      `;
 
   const byTicker = new Map(tickers.map(t => [t, {
     transcript:    new Map(),
@@ -89,13 +106,13 @@ async function buildSignalAvailabilityReport(slug, tickers) {
     annual_report: new Map(),
   }]));
 
-  for (const r of rows) {
+  for (const r of groups) {
     const bucket = byTicker.get(r.ticker);
     if (!bucket) continue;
     const docType = r.source_doc_type === 'annual_report' ? 'annual_report' : r.source_doc_type === 'ppt' ? 'ppt' : 'transcript';
     const key = docType === 'annual_report' ? r.fiscal_year : `${r.fiscal_year}|${r.quarter}`;
     const m = bucket[docType];
-    m.set(key, (m.get(key) ?? 0) + 1);
+    m.set(key, (m.get(key) ?? 0) + r.cnt);
   }
 
   const toQtrPeriods = m => [...m.entries()]

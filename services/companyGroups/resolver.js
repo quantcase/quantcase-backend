@@ -7,9 +7,9 @@
  * filter_config is a flat set of independent filters, ANDed together
  * (chained in series) when more than one is present:
  *   nameRange:    { from, to }                                — ticker starts with a letter in [from, to]
- *   transcript:   { status?, lastN? }                         — transcript_url based
- *   ppt:          { status?, lastN? }                         — ppt_url based
- *   annualReport: { status?, lastN? }                         — annual_report_url based
+ *   transcript:   { status?, window?, minCount? }             — transcript_url based
+ *   ppt:          { status?, window?, minCount? }              — ppt_url based
+ *   annualReport: { status?, lastN? }                         — annual_report_url based (window/minCount not yet supported here)
  *   marketCap:    { min?, max? }                               — ₹ crore, latest known price
  *   industries:   string[]                                    — earnings_calls.basic_industry
  *
@@ -18,10 +18,43 @@
  *   'pending'   — document exists, no non-invalidated signal yet (L1 backlog)
  *   'extracted' — document exists AND a non-invalidated signal already exists
  *
- * `lastN` (transcript/ppt/annualReport, optional): restricts the check to
- * each company's own N most recent reporting periods (quarters for
- * transcript/ppt, fiscal years for annualReport) instead of "ever, across
- * all history". Omit for all-time.
+ * `window` (transcript/ppt, optional): instead of checking "ever, across all
+ * history", look only at the company's own N most recent *known reporting
+ * periods* (quarters), whether or not the document actually exists for each
+ * one. Omit for all-time.
+ *
+ * `minCount` (transcript/ppt, optional): how many periods within `window`
+ * (or across all history, if `window` is omitted) must satisfy `status`.
+ * Defaults to `window` itself when `window` is set (i.e. "every one of
+ * them" — the "N consecutive quarters" case), or to 1 when `window` is
+ * omitted (i.e. "at least once, ever" — the old default behavior).
+ *
+ * This one shape covers all of:
+ *   - "8 consecutive quarters with a transcript present":  { status:'present',   window:8 }
+ *   - "8 consecutive quarters with a signal extracted":    { status:'extracted', window:8 }
+ *   - "at least 4 of the latest 8 quarters extracted":     { status:'extracted', window:8, minCount:4 }
+ *   - "at least 4 quarters ever extracted (no window)":    { status:'extracted', minCount:4 }
+ *
+ * `rules` (transcript/ppt, optional): array of `{ window?, minCount? }`
+ * clauses, ANDed together, for compound conditions the single-pair shape
+ * above can't express. `{ window, minCount }` at the top level is just
+ * sugar for `rules: [{ window, minCount }]` — a single clause — so this is
+ * fully backward compatible; nothing existing changes shape.
+ *   - "at least 4 of the last 8 quarters, AND at least 6 ever" (i.e. at
+ *     least 2 more outside that recent window):
+ *       { status:'extracted', rules: [{ window:8, minCount:4 }, { minCount:6 }] }
+ *     No separate "outside the window" primitive is needed — the second
+ *     rule is scoped to all history (a superset of the first rule's
+ *     window), so once the first rule caps at 4 within the last 8, the
+ *     second rule's threshold of 6 can only be reached with periods
+ *     outside that window.
+ *
+ * The key distinction from the old `lastN` behavior: the window is built
+ * from *every* known reporting period for the company (so a quarter with no
+ * transcript still occupies a window slot and breaks a "consecutive"
+ * streak), not just the periods where the document happens to already
+ * exist. `annualReport` still uses the old `lastN` (existence-filtered
+ * window) semantics for now — to be reworked the same way separately.
  */
 
 const prisma = require('../../config/prisma');
@@ -34,7 +67,7 @@ function intersect(sets) {
 
 // Groups rows by `company`, sorts each group descending by sortKeys, keeps
 // only the first `n` per company. n == null returns rows unchanged.
-function latestNPerCompany(rows, n, sortKeys) {
+function windowPerCompany(rows, n, sortKeys) {
   if (!n) return rows;
   const byCompany = new Map();
   for (const r of rows) {
@@ -54,21 +87,48 @@ function latestNPerCompany(rows, n, sortKeys) {
   return result;
 }
 
-// Shared logic for transcript/ppt: fetch calls with the given URL field
-// present, window to the latest N per company if requested, then filter by
-// status (present/pending/extracted).
-async function docTypeFilterSet(urlField, docType, { status = 'present', lastN } = {}) {
+// Shared logic for transcript/ppt: window each company's own known reporting
+// periods (regardless of doc status — a period with no doc still occupies a
+// window slot), then keep companies where at least `minCount` of those
+// periods satisfy `status` (present/pending/extracted) — evaluated once per
+// `rules` clause and ANDed across clauses. See the module-level comment for
+// the full shape and worked examples.
+async function docTypeFilterSet(urlField, docType, { status = 'present', window, minCount, rules } = {}) {
+  const ruleList = rules?.length ? rules : [{ window, minCount }];
+
   const rows = await prisma.earnings_calls.findMany({
-    where:  { [urlField]: { not: null } },
-    select: { id: true, company: true, fiscal_year: true, quarter: true },
+    select: { id: true, company: true, fiscal_year: true, quarter: true, [urlField]: true },
   });
-  const windowed = latestNPerCompany(rows, lastN, ['fiscal_year', 'quarter']);
+  const windowedSets = ruleList.map(rule => windowPerCompany(rows, rule.window, ['fiscal_year', 'quarter']));
 
-  if (status === 'present') return new Set(windowed.map(r => r.company));
+  let satisfies;
+  if (status === 'present') {
+    satisfies = r => r[urlField] != null;
+  } else {
+    // Scope the signal lookup to the union of every rule's windowed rows
+    // that actually have the doc — a period with no url can never have a
+    // signal, so there's no point asking the DB about it (keeps this query
+    // the same bounded size it was before window/minCount existed).
+    const candidateIds = new Set();
+    for (const ws of windowedSets) {
+      for (const r of ws) if (r[urlField] != null) candidateIds.add(r.id);
+    }
+    const doneIds = await fetchDoneCallIds(docType, [...candidateIds]);
+    satisfies = status === 'extracted'
+      ? r => r[urlField] != null && doneIds.has(r.id)
+      : r => r[urlField] != null && !doneIds.has(r.id); // pending
+  }
 
-  const doneIds = await fetchDoneCallIds(docType, windowed.map(r => r.id));
-  const keep = status === 'extracted' ? r => doneIds.has(r.id) : r => !doneIds.has(r.id);
-  return new Set(windowed.filter(keep).map(r => r.company));
+  const ruleSets = ruleList.map((rule, i) => {
+    const threshold = rule.minCount ?? (rule.window || 1);
+    const counts = new Map();
+    for (const r of windowedSets[i]) {
+      if (satisfies(r)) counts.set(r.company, (counts.get(r.company) ?? 0) + 1);
+    }
+    return new Set([...counts].filter(([, n]) => n >= threshold).map(([c]) => c));
+  });
+
+  return intersect(ruleSets);
 }
 
 async function annualReportFilterSet({ status = 'present', lastN } = {}) {
@@ -76,7 +136,7 @@ async function annualReportFilterSet({ status = 'present', lastN } = {}) {
     where:  { annual_report_url: { not: null }, company: { not: null } },
     select: { id: true, company: true, fiscal_year: true },
   });
-  const windowed = latestNPerCompany(rows, lastN, ['fiscal_year']);
+  const windowed = windowPerCompany(rows, lastN, ['fiscal_year']);
 
   if (status === 'present') return new Set(windowed.map(r => r.company));
 

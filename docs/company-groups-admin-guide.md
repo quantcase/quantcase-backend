@@ -56,13 +56,15 @@ There's no "OR" between filters; if you want that, make two groups.
   // Transcript-based. status defaults to "present" if omitted.
   "transcript": {
     "status": "present",   // "present" | "pending" | "extracted"
-    "lastN": 4              // optional — only look at each company's 4 most recent quarters
+    "window": 8,             // optional — only look at each company's 8 most recent known quarters
+    "minCount": 8            // optional — how many of those 8 must satisfy `status` (defaults to `window`)
   },
 
   // Same shape as transcript, but for PPTs
   "ppt": { "status": "pending" },
 
-  // Same idea, but lastN counts fiscal years (reports), not quarters
+  // Annual report still uses the older lastN shape (see callout below) —
+  // window/minCount aren't wired up for this one yet
   "annualReport": { "status": "extracted", "lastN": 2 },
 
   // Market cap range in ₹ crore, using each company's latest known price
@@ -84,22 +86,58 @@ PPT backlog").
 - `"extracted"` — document exists **and** already has a non-invalidated
   signal (the inverse of `"pending"`).
 
-**`lastN`** (optional, on `transcript` / `ppt` / `annualReport`): instead of
-checking "ever, across all history", restricts the check to each company's
-own N most recent reporting periods (quarters for transcript/ppt, fiscal
-years for annualReport). Omit it to check all-time. This is what makes
-"latest 2 quarters" groups stay correct forever without editing — there's no
-hardcoded fiscal year/quarter anywhere.
+**`window` / `minCount`** (on `transcript` / `ppt` only — `annualReport` still
+uses the older `lastN` shape below, pending its own rework):
 
-> Known gap: `status: "pending"` or `"extracted"` can time out on this DB.
-> `status: "present"` is always safe (doesn't touch signals at all).
-> `transcript`/`ppt` with `pending`/`extracted` are safe **as long as
-> `lastN` is set** (unscoped all-time checks can time out from candidate-list
-> size). `annualReport` with `pending`/`extracted` timed out even with
-> `lastN: 1` in testing — that doc type needs a backend fix (likely a DB
-> index pass) before it's reliable, independent of `lastN`. Until fixed,
-> the create/edit form should avoid offering `pending`/`extracted` on the
-> Annual report card, or mark it experimental.
+- `window` — instead of checking "ever, across all history", look only at
+  each company's own **N most recent known reporting quarters** — whether or
+  not the document actually exists for each one. A quarter with no
+  transcript still counts as one of the N slots. Omit for all-time.
+- `minCount` — how many of those `window` quarters must satisfy `status`.
+  Defaults to `window` itself (i.e. *every one of them* — "N consecutive
+  quarters"), or to `1` if `window` is omitted (i.e. "at least once, ever").
+
+This one shape covers every variation the admin might want:
+
+| Intent | Config |
+|---|---|
+| 8 consecutive quarters with a transcript present | `{ "status": "present", "window": 8 }` |
+| 8 consecutive quarters with a signal already extracted | `{ "status": "extracted", "window": 8 }` |
+| At least 4 of the latest 8 quarters extracted (gaps OK) | `{ "status": "extracted", "window": 8, "minCount": 4 }` |
+| At least 4 quarters ever extracted, no recency bound | `{ "status": "extracted", "minCount": 4 }` |
+
+The important distinction from the old (now removed) `lastN` field: `window`
+is built from *every* known reporting quarter for the company, not just the
+quarters where the document happens to already exist. That's what makes
+"consecutive" mean something — if `lastN` had simply taken the last N
+quarters *that already had a transcript*, a company with gaps in its history
+would never show those gaps; it'd always look "fully covered." `window`
+counts the gap as a quarter that fails `status`, so a genuine "8 in a row"
+requirement (`minCount` defaulting to `window`) can actually fail when there's
+a real gap.
+
+**`rules`** (`transcript`/`ppt` only, optional) — for compound conditions the
+single `window`/`minCount` pair can't express. It's an array of
+`{ window?, minCount? }` clauses, **ANDed together**. `{ window, minCount }`
+at the top level is just shorthand for a single-clause `rules` array — every
+existing config keeps working unchanged.
+
+| Intent | Config |
+|---|---|
+| At least 4 of the last 8 quarters, **and** at least 6 ever (i.e. at least 2 more outside that recent window) | `{ "status": "extracted", "rules": [{ "window": 8, "minCount": 4 }, { "minCount": 6 }] }` |
+
+No separate "outside the window" concept was needed — the second rule (no
+`window` = all history, a superset of the first rule's window) can only be
+satisfied by periods beyond the first rule's 8 once the first rule already
+caps at 4 within them. Any number of clauses can be chained the same way.
+
+> Previously-known gap, now fixed: `status: "pending"`/`"extracted"` used to
+> time out on large all-time or annual-report checks. That was a real query
+> bottleneck (missing index + an inefficient existence check), fixed at the
+> DB/query level — all three statuses are now fast (a few seconds) across
+> `transcript`, `ppt`, and `annualReport`, with or without `window`/`lastN`.
+> Safe to offer `pending`/`extracted` everywhere, including on the Annual
+> report card.
 
 ## 3. Endpoint reference
 
@@ -181,9 +219,26 @@ exist yet. When they're built, they'll accept the same `groupSlug` field.
   this group will always be empty."*
 - For Transcript/PPT/Annual report cards, the status dropdown: label the
   three options as *"Present"*, *"Not yet extracted"* (pending), and
-  *"Already extracted"*. Default to "Present" pre-selected. The "latest N"
-  field is optional — label it *"Only look at the N most recent
-  [quarters/years]"* with a placeholder like *"All history"* when empty.
+  *"Already extracted"*. Default to "Present" pre-selected.
+- **Transcript/PPT cards specifically** (the `window`/`minCount` pair):
+  render as two optional number fields, *"Only look at the N most recent
+  quarters"* (`window`, placeholder "All history") and *"...of which at
+  least this many must match"* (`minCount`, placeholder/default "All of
+  them"). If `window` is filled in and `minCount` is left blank, that reads
+  as "N consecutive quarters" — worth a hint under the field, e.g. *"Leave
+  blank to require all N (consecutive). Set lower to allow gaps — e.g. 8 and
+  4 means 'at least 4 of the last 8 quarters.'"* If `minCount` is set without
+  `window`, it means "at least this many, ever" with no recency bound.
+- **Annual report card**: still the older single *"Only look at the N most
+  recent years"* field (`lastN`) for now — it hasn't been reworked to the
+  `window`/`minCount` model yet.
+- **Advanced: multiple rules on Transcript/PPT** — this is a v2 nicety, not
+  needed for v1. If/when you want it: an "Add another rule" link under the
+  window/minCount fields that adds a second `{window, minCount}` row, ANDed
+  with the first (e.g. "at least 4 of the last 8 quarters" + "at least 6
+  ever"). Until then, a single window/minCount pair (today's UI) covers the
+  common cases fine — compound rules can be added via direct API/`PUT` calls
+  in the meantime if an admin needs one before the UI supports it.
 - Since filters chain as AND only, don't offer an any/all toggle anymore —
   if an admin wants "transcript OR ppt", that's two separate groups.
 - On the L1 dispatch screen's group dropdown: show the live count next to
