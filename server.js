@@ -11,6 +11,15 @@ const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception:', err);
+  process.exit(1);
+});
+
 app.use(cors());
 app.use(express.json());
 

@@ -2,6 +2,15 @@ require('dotenv').config();
 const connection = require('./config/redis');
 const prisma     = require('./config/prisma');
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[worker] Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[worker] Uncaught exception:', err);
+  process.exit(1);
+});
+
 // Start all workers
 require('./workers/summarization_v2');
 require('./workers/summarization_v2_ppt');

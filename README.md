@@ -29,8 +29,35 @@ sudo snap install redis
 sudo snap set redis service.start=true
 
 ## PM2 SETUP
-pm2 start "npm run dev" --name "quantcase-backend" -- --port 8000
-pm2 start "npm run worker:dev" --name "quantcase-worker"
+
+All 4 processes are defined in `ecosystem.config.js` (autorestart, capped restarts,
+memory limit on the API server). Use it instead of starting each process by hand.
+
+```bash
+# First-time setup (or after pulling changes to ecosystem.config.js)
+pm2 start ecosystem.config.js
+
+# Make PM2 itself survive a server reboot:
+pm2 startup        # run the sudo command it prints, once per machine
+pm2 save           # snapshot the current process list so it's restored on boot
+
+# Day to day
+pm2 restart ecosystem.config.js   # restart all 4 apps, picking up code changes
+pm2 status                        # check state / restart counts
+pm2 logs quantcase-worker         # tail logs for one app (also written to logs/*.log)
+```
+
+**Why processes were "staying dead":**
+- The app code had no `uncaughtException`/`unhandledRejection` handlers, so a stray
+  rejected promise anywhere could crash the process in a way that was hard to trace.
+  All 4 entry points (`server.js`, `worker.js`, `scheduler.js`, `lib/admin.js`) now log
+  these and exit(1) cleanly so PM2's restart logic actually kicks in.
+- Without `pm2 save` + `pm2 startup`, PM2's process list does not survive a server
+  reboot — a crash that coincides with (or triggers) a reboot means nothing restarts
+  the app at all. Run `pm2 startup` and `pm2 save` once so this can't happen.
+- `ecosystem.config.js` sets `max_restarts: 10` + `min_uptime: 30s` so a genuine
+  crash-loop (e.g. bad `.env` after a deploy) stops retrying instead of hammering
+  forever — check `pm2 status` if an app shows `errored`.
 
 # API Endpoints
 

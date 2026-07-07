@@ -17,6 +17,15 @@ const SCHEDULER_PORT = parseInt(process.env.SCHEDULER_PORT ?? '8001', 10);
 // unauthenticated.
 const SCHEDULER_BIND_HOST = process.env.SCHEDULER_BIND_HOST || '127.0.0.1';
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[scheduler] Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[scheduler] Uncaught exception:', err);
+  process.exit(1);
+});
+
 // ── Internal HTTP server ──────────────────────────────────────────────────────
 // Used by the admin API to trigger job re-registration without a full restart.
 

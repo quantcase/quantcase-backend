@@ -3,6 +3,7 @@ node_modules
 .env
 pdf-extractor
 tmp
+logs
 
 kpi_coverage_report_v2.md
 lib/prowess data
