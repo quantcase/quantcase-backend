@@ -151,26 +151,41 @@ async function previewL1MultiDispatch(options = {}) {
   const limit   = resolveEffectiveLimit(options);
   const arLimit = limit ?? 3;
 
-  const perTickerRaw = [];
-  for (const symbol of tickers) {
-    const [calls, reports] = await Promise.all([
-      options.arOnly ? Promise.resolve([]) : prisma.earnings_calls.findMany({
-        where:   { company: symbol },
-        select:  { id: true, fiscal_year: true, quarter: true, transcript_url: true, ppt_url: true },
-        orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
-      }),
-      prisma.annual_reports.findMany({
-        where:   { company: symbol },
-        select:  { id: true, fiscal_year: true, annual_report_url: true },
-        orderBy: { fiscal_year: 'desc' },
-      }),
-    ]);
+  // One batched query per source across every ticker (same fix as
+  // buildDocumentCoverageReport below), not one round-trip per ticker — the
+  // old per-ticker loop scaled linearly with ticker count (13s at 63
+  // tickers, 65s at 300, ~7min+ extrapolated at "all") because each of the
+  // ~2000 companies paid its own DB round-trip latency in sequence.
+  const [calls, reports] = await Promise.all([
+    options.arOnly ? Promise.resolve([]) : prisma.earnings_calls.findMany({
+      where:   { company: { in: tickers } },
+      select:  { id: true, company: true, fiscal_year: true, quarter: true, transcript_url: true, ppt_url: true },
+      orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
+    }),
+    prisma.annual_reports.findMany({
+      where:   { company: { in: tickers } },
+      select:  { id: true, company: true, fiscal_year: true, annual_report_url: true },
+      orderBy: { fiscal_year: 'desc' },
+    }),
+  ]);
 
-    const shownCalls   = limit ? calls.slice(0, limit) : calls;
-    const shownReports = reports.slice(0, arLimit);
+  // Partition the globally-ordered result sets back out per company. This
+  // preserves each company's own descending fiscal_year/quarter order without
+  // a separate per-company sort: the global ORDER BY already guarantees every
+  // FY2026-Q4 row (across all companies) precedes every FY2026-Q3 row, so a
+  // single company's own subsequence stays correctly ordered as we partition.
+  const callsByCompany = new Map(tickers.map(t => [t, []]));
+  for (const c of calls) callsByCompany.get(c.company)?.push(c);
+  const reportsByCompany = new Map(tickers.map(t => [t, []]));
+  for (const r of reports) reportsByCompany.get(r.company)?.push(r);
 
-    perTickerRaw.push({ symbol, calls, reports, shownCalls, shownReports });
-  }
+  const perTickerRaw = tickers.map(symbol => {
+    const tCalls   = callsByCompany.get(symbol) ?? [];
+    const tReports = reportsByCompany.get(symbol) ?? [];
+    const shownCalls   = limit ? tCalls.slice(0, limit) : tCalls;
+    const shownReports = tReports.slice(0, arLimit);
+    return { symbol, calls: tCalls, reports: tReports, shownCalls, shownReports };
+  });
 
   // Batch signal-status lookups, scoped to just the shown items across every
   // ticker — avoids the unscoped-full-table-scan timeout (see
