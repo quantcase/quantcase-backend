@@ -78,6 +78,7 @@ async function processTranscripts(symbol, queuedIds, doneIds, options) {
   const calls = limit ? allCalls.slice(0, limit) : allCalls;
 
   let queued = 0, skipped = 0, noSource = 0, failed = 0;
+  const errors = [];
   for (const c of calls) {
     if (!c.transcript_url) { noSource++; continue; }
     if (queuedIds.has(c.id)) { skipped++; continue; }
@@ -94,9 +95,10 @@ async function processTranscripts(symbol, queuedIds, doneIds, options) {
     } catch (err) {
       console.error(`[l1-multi-dispatch] transcript ${c.id} (${symbol} ${c.fiscal_year} ${c.quarter}): ${err.message}`);
       failed++;
+      errors.push({ source: 'transcript', callId: c.id, fiscal_year: c.fiscal_year, quarter: c.quarter, error: err.message });
     }
   }
-  return { total: calls.length, queued, skipped, noSource, failed };
+  return { total: calls.length, queued, skipped, noSource, failed, errors };
 }
 
 async function processPpts(symbol, queuedIds, doneIds, options) {
@@ -109,6 +111,7 @@ async function processPpts(symbol, queuedIds, doneIds, options) {
   const calls = limit ? allCalls.slice(0, limit) : allCalls;
 
   let queued = 0, skipped = 0, noSource = 0, failed = 0;
+  const errors = [];
   for (const c of calls) {
     if (!c.ppt_url) { noSource++; continue; }
     if (queuedIds.has(c.id)) { skipped++; continue; }
@@ -125,9 +128,10 @@ async function processPpts(symbol, queuedIds, doneIds, options) {
     } catch (err) {
       console.error(`[l1-multi-dispatch] ppt ${c.id} (${symbol} ${c.fiscal_year} ${c.quarter}): ${err.message}`);
       failed++;
+      errors.push({ source: 'ppt', callId: c.id, fiscal_year: c.fiscal_year, quarter: c.quarter, error: err.message });
     }
   }
-  return { total: calls.length, queued, skipped, noSource, failed };
+  return { total: calls.length, queued, skipped, noSource, failed, errors };
 }
 
 async function processAnnualReports(symbol, queuedIds, doneIds, options) {
@@ -141,6 +145,7 @@ async function processAnnualReports(symbol, queuedIds, doneIds, options) {
   const reports = allReports.slice(0, arLimit);
 
   let queued = 0, skipped = 0, noSource = 0, failed = 0;
+  const errors = [];
   for (const r of reports) {
     if (!r.annual_report_url) { noSource++; continue; }
     if (queuedIds.has(r.id.toString())) { skipped++; continue; }
@@ -158,9 +163,10 @@ async function processAnnualReports(symbol, queuedIds, doneIds, options) {
     } catch (err) {
       console.error(`[l1-multi-dispatch] ar ${r.id} (${symbol} ${r.fiscal_year}): ${err.message}`);
       failed++;
+      errors.push({ source: 'annual_report', reportId: r.id.toString(), fiscal_year: r.fiscal_year, error: err.message });
     }
   }
-  return { total: reports.length, queued, skipped, noSource, failed };
+  return { total: reports.length, queued, skipped, noSource, failed, errors };
 }
 
 // ── Entry points ─────────────────────────────────────────────────────────────
@@ -397,9 +403,13 @@ async function runL1MultiDispatch(options = {}) {
       skipped:  acc.skipped  + s.skipped,
       noSource: acc.noSource + s.noSource,
       failed:   acc.failed   + s.failed,
-    }), { queued: 0, skipped: 0, noSource: 0, failed: 0 });
+      errors:   acc.errors.concat(s.errors),
+    }), { queued: 0, skipped: 0, noSource: 0, failed: 0, errors: [] });
 
-    perTicker.push({ symbol, ...tickerTotals });
+    // Only attach `errors` when non-empty — keeps perTicker (which lands
+    // wholesale in scheduler_runs.metadata) from ballooning on large,
+    // mostly-successful runs (500+ tickers) with an empty array per row.
+    perTicker.push({ symbol, ...tickerTotals, errors: tickerTotals.errors.length ? tickerTotals.errors : undefined });
     totals.queued   += tickerTotals.queued;
     totals.skipped  += tickerTotals.skipped;
     totals.noSource += tickerTotals.noSource;
