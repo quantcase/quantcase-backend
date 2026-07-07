@@ -26,7 +26,7 @@ const path = require('path');
 const { parse } = require('csv-parse/sync');
 const prisma = require('../../config/prisma');
 
-const DEFAULT_CSV = path.join(__dirname, '../../docs/QC - Wrong Quarter Fixes - FY25-26.csv');
+const DEFAULT_CSV = path.join(__dirname, '../../docs/QC - Wrong Quarter Fixes - Pre-FY25.csv');
 
 const API_URL = process.env.API_URL || 'http://localhost:8000';
 
