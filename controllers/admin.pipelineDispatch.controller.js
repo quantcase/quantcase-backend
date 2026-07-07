@@ -40,10 +40,14 @@ const previewL1Multi = async (req, res, next) => {
 // values are 1/0 presence per period rather than a signal count.
 const previewL1MultiCsv = async (req, res, next) => {
   try {
-    const csv = await previewL1MultiDispatchCsv(req.body);
+    // Headers only — previewL1MultiDispatchCsv writes the body itself (see
+    // csvReport.js#writeSignalReportCsv) once its data is ready, streaming
+    // row-by-row instead of building the full CSV string first. Safe to let
+    // errors still reach the normal error handler: everything that can throw
+    // here happens before the first res.write() call.
     res.set('Content-Type', 'text/csv');
     res.set('Content-Disposition', 'attachment; filename="l1-document-coverage-report.csv"');
-    res.send(csv);
+    await previewL1MultiDispatchCsv(req.body, res);
   } catch (err) {
     next(err);
   }
@@ -117,10 +121,12 @@ const previewL2Multi = async (req, res, next) => {
 // l2MultiDispatch.service.js). Same body shape as /preview.
 const previewL2MultiCsv = async (req, res, next) => {
   try {
-    const csv = await previewL2MultiDispatchCsv(req.body);
+    // Headers only — previewL2MultiDispatchCsv writes the body itself,
+    // streaming row-by-row (see previewL1MultiCsv above for why this is
+    // safe for error handling).
     res.set('Content-Type', 'text/csv');
     res.set('Content-Disposition', `attachment; filename="l2-signal-report-${req.body.slug}.csv"`);
-    res.send(csv);
+    await previewL2MultiDispatchCsv(req.body, res);
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     next(err);

@@ -40,13 +40,27 @@ Two calls of the same shape:
 | `force` | `boolean` | Re-extract even if signals already exist for that document — invalidates the old ones first. Without this, anything already extracted is skipped. |
 | `arOnly` | `boolean` | Annual reports only — skips transcript and PPT entirely. |
 | `noAr` | `boolean` | Skips annual reports entirely. |
+| `page` | `number` | **Preview only.** Which page of the resolved ticker list to return (1-indexed). Default `1`. Ignored by Run — Run always dispatches to the *entire* resolved set, never just one page. |
+| `pageSize` | `number` | **Preview only.** Tickers per page. Default `100`, max `500` (silently clamped server-side). Ignored by Run. |
 
 `arOnly` and `noAr` are mutually exclusive in intent — don't let the UI check
 both at once (that would process nothing).
 
 Everything is optional. An empty body (`{}`) means: default ticker list,
-all available history per ticker, skip anything already extracted, all three
-document types.
+skip anything already extracted, all three document types, page 1 of the
+default page size.
+
+> **Behavior change:** `limit`/`latest` used to mean "no cap" when omitted —
+> Preview would return a ticker's *entire* call history if you didn't pass
+> one. That's what made an unpaginated `all`/large-group preview balloon into
+> a many-MB response and, combined with the API server having no memory
+> ceiling override, was a real crash risk in production. Preview now defaults
+> to the **20 most recent** calls per ticker when `limit`/`latest` is
+> omitted — `shown`/`total` in the response still tell you if there's more
+> (pass an explicit `limit`/`latest` to see further back). Annual reports are
+> unaffected — they already defaulted to 3. Run's own behavior is unchanged
+> (no limit = full history, since dedup against already-done/queued ids does
+> the real limiting there).
 
 ## 3. Endpoint reference
 
@@ -58,8 +72,11 @@ document types.
 - Response:
   ```jsonc
   {
-    "tickerCount": 3,
-    "tickers": ["CANBK", "MSUMI", "IEX"],
+    "tickerCount": 2016,     // total tickers matched, across ALL pages
+    "page": 1,
+    "pageSize": 100,
+    "totalPages": 21,
+    "tickers": ["CANBK", "MSUMI", "IEX", /* ...up to pageSize... */],   // just this page
     "perTicker": [
       {
         "symbol": "CANBK",
@@ -76,10 +93,12 @@ document types.
           ]
         }
       }
+      // ...up to pageSize entries
     ]
   }
   ```
-- No side effects, not logged anywhere — call it as often as you like while the admin is tweaking options.
+- **`tickerCount` is the total across every page, not `tickers.length`** — use it to build "page X of Y" / total-match-count UI. `tickers` and `perTicker` are always the same length and cover just the current page, in the same order.
+- No side effects, not logged anywhere — call it as often as you like while the admin is tweaking options. Paging is cheap to re-request (a few seconds even for the full ~2,000-company set at `pageSize=100`) — no need to cache pages client-side, though you can if you want snappier back/forward.
 
 **Run** — `POST /admin/pipeline-dispatch/l1-multi/run`
 - Body: same options shape.
@@ -120,7 +139,13 @@ from the trigger response) every few seconds until `status` is no longer
 - `force` checkbox: *"Re-run tickers that already have extracted signals
   (discards the old ones)."* Off by default.
 - `all` checkbox: warn when checked — *"This will scan every company in the
-  database (~2,000). Consider `startFrom` to resume a partial run."*
+  database (~2,000). Consider `startFrom` to resume a partial run."* (Preview
+  itself is now paginated so browsing the results is fine either way; the
+  warning is about **Run**, which always dispatches to the full set at once
+  regardless of any `page`/`pageSize` you used while previewing.)
+- Preview results: show pager controls ("Page 1 of 21 — 2,016 companies") once
+  `totalPages > 1`. Don't try to fetch every page up front to compute a
+  client-side total — `tickerCount` already gives you that for free on page 1.
 - While a run is `"running"`: *"Dispatching... this can take a while for
   large ticker sets. You can navigate away — check back under Run History."*
 - On `"failed"`: show `error` verbatim plus a note that partial progress

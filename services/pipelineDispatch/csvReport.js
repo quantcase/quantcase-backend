@@ -48,7 +48,13 @@ function sortCols(kind, cols) {
       });
 }
 
-function buildSignalReportCsv(perTicker, groups = DEFAULT_GROUPS) {
+// Column set (per group) is inherently derived from the full data set — a
+// period only gets a column if some ticker in the set actually has it, so
+// there's no way to know the header without having seen every row. This is
+// the one part streaming can't avoid touching all the data for; what
+// streaming *does* avoid is holding both the row-string array and the final
+// joined mega-string in memory at once (see writeSignalReportCsv below).
+function computeColumns(perTicker, groups) {
   const colsByGroup = new Map(groups.map(g => [g.key, new Set()]));
   for (const row of perTicker) {
     for (const g of groups) {
@@ -56,26 +62,47 @@ function buildSignalReportCsv(perTicker, groups = DEFAULT_GROUPS) {
       for (const p of periods) colsByGroup.get(g.key).add(periodKey(g.kind, p));
     }
   }
+  return new Map(groups.map(g => [g.key, sortCols(g.kind, colsByGroup.get(g.key))]));
+}
 
-  const sortedColsByGroup = new Map(groups.map(g => [g.key, sortCols(g.kind, colsByGroup.get(g.key))]));
-
+function buildHeader(groups, sortedColsByGroup) {
   const header = ['companyName'];
   for (const g of groups) {
     header.push(`${g.key}_total`, ...sortedColsByGroup.get(g.key).map(c => `${g.key}_${c}`));
   }
+  return header.join(',');
+}
 
-  const lines = [header.join(',')];
-  for (const row of perTicker) {
-    const line = [row.ticker];
-    for (const g of groups) {
-      const data = row[g.key] ?? { total: 0, periods: [] };
-      const byKey = new Map(data.periods.map(p => [periodKey(g.kind, p), p.count]));
-      line.push(data.total ?? 0, ...sortedColsByGroup.get(g.key).map(c => byKey.get(c) ?? 0));
-    }
-    lines.push(line.map(escape).join(','));
+function buildRow(row, groups, sortedColsByGroup) {
+  const line = [row.ticker];
+  for (const g of groups) {
+    const data = row[g.key] ?? { total: 0, periods: [] };
+    const byKey = new Map(data.periods.map(p => [periodKey(g.kind, p), p.count]));
+    line.push(data.total ?? 0, ...sortedColsByGroup.get(g.key).map(c => byKey.get(c) ?? 0));
   }
+  return line.map(escape).join(',');
+}
 
+function buildSignalReportCsv(perTicker, groups = DEFAULT_GROUPS) {
+  const sortedColsByGroup = computeColumns(perTicker, groups);
+  const lines = [buildHeader(groups, sortedColsByGroup)];
+  for (const row of perTicker) lines.push(buildRow(row, groups, sortedColsByGroup));
   return lines.join('\n');
 }
 
-module.exports = { periodRank, buildSignalReportCsv, DEFAULT_GROUPS };
+// Same output as buildSignalReportCsv, written directly to an Express
+// response via res.write() one row at a time instead of building an array of
+// every line then joining it into one string. For an `all`-scale report
+// (thousands of tickers) this avoids holding the formatted-lines array and
+// the final joined string in memory simultaneously, and starts sending bytes
+// to the client as soon as the header is known instead of only after the
+// entire CSV has been assembled — meaningfully shortens time-to-first-byte
+// on a slow/large report and avoids one big synchronous res.send() call.
+function writeSignalReportCsv(res, perTicker, groups = DEFAULT_GROUPS) {
+  const sortedColsByGroup = computeColumns(perTicker, groups);
+  res.write(buildHeader(groups, sortedColsByGroup) + '\n');
+  for (const row of perTicker) res.write(buildRow(row, groups, sortedColsByGroup) + '\n');
+  res.end();
+}
+
+module.exports = { periodRank, buildSignalReportCsv, writeSignalReportCsv, DEFAULT_GROUPS };

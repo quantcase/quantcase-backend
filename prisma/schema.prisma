@@ -234,6 +234,14 @@ model TranscriptSignalV2 {
   // queries on company-group extracted/pending filters. Built CONCURRENTLY
   // directly via psql against DIRECT_DATABASE_URL, not through db:push.
   @@index([source_doc_type, is_invalidated, call_id], map: "tsv2_doctype_invalidated_call")
+  // Speeds up buildSignalAvailabilityReport (services/pipelineDispatch/l2MultiDispatch.service.js)
+  // — its WHERE clause filters ticker = ANY(...) + is_invalidated = false,
+  // then GROUP BYs (ticker, source_doc_type, fiscal_year, quarter). Without
+  // this, a broad signal-type whitelist (near-total selectivity) run against
+  // a large company group scaled query cost with ticker-set size almost as
+  // if unfiltered (~115s extrapolated for 586 tickers). Built CONCURRENTLY
+  // directly via psql against DIRECT_DATABASE_URL, not through db:push.
+  @@index([ticker, is_invalidated, source_doc_type, fiscal_year, quarter], map: "tsv2_ticker_invalidated_doctype_period")
   @@map("transcript_signals_v2")
 }
 
