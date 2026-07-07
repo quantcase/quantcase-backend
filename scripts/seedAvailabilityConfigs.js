@@ -24,6 +24,7 @@
 
 require('dotenv').config();
 const prisma = require('../config/prisma');
+const { defaultConfigFieldsFromSkill: cloneFields } = require('../services/htmlIncrementalSkill.service');
 
 const force = process.argv.includes('--force');
 
@@ -32,27 +33,6 @@ const VARIANTS = [
   { key: 't2', name: 'No Transcript (T2) — ppt + annual report only' },
   { key: 't3', name: 'Annual Report Only (T3)' },
 ];
-
-function cloneFields(skill) {
-  return {
-    skill_prompt:                     skill.skill_prompt,
-    transcript_signal_types:          skill.transcript_signal_types,
-    ppt_signal_types:                 skill.ppt_signal_types,
-    annual_report_signal_types:       skill.annual_report_signal_types,
-    max_transcript_qtrs:              skill.max_transcript_qtrs,
-    max_ppt_qtrs:                     skill.max_ppt_qtrs,
-    max_annual_report_years:          skill.max_annual_report_years,
-    market_data_signal_types:         skill.market_data_signal_types,
-    max_market_data_months:           skill.max_market_data_months,
-    historic_max_transcript_qtrs:     skill.historic_max_transcript_qtrs,
-    historic_max_ppt_qtrs:            skill.historic_max_ppt_qtrs,
-    historic_max_annual_report_years: skill.historic_max_annual_report_years,
-    historic_max_market_data_months:  skill.historic_max_market_data_months,
-    model:      skill.model,
-    max_tokens: skill.max_tokens,
-    strip_html: skill.strip_html,
-  };
-}
 
 async function main() {
   const skills = await prisma.htmlIncrementalSkill.findMany({ where: { is_active: true } });

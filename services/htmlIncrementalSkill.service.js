@@ -271,6 +271,35 @@ async function assemblePrompt(skill, ticker, baseContextBlock, historic = false,
   return { systemPrompt, userPrompt, signals, rawSignals };
 }
 
+// A config's key is just a string tag with no schema-level guarantee it
+// exists under every skill — resolveConfigKeyForTicker (CompanyGroup side)
+// happily returns a key that only exists for some skills, and any lens
+// missing that key 404s at resolveEffectiveSkill/run time (or reports
+// all-zero in L2 preview). This clone is how a new key gets seeded under
+// every OTHER active skill at creation time so that gap can't open up by
+// default — same shape as scripts/seedAvailabilityConfigs.js's original
+// t1/t2/t3 seeding, now reused there instead of duplicated.
+function defaultConfigFieldsFromSkill(skill) {
+  return {
+    skill_prompt:                     skill.skill_prompt,
+    transcript_signal_types:          skill.transcript_signal_types,
+    ppt_signal_types:                 skill.ppt_signal_types,
+    annual_report_signal_types:       skill.annual_report_signal_types,
+    max_transcript_qtrs:              skill.max_transcript_qtrs,
+    max_ppt_qtrs:                     skill.max_ppt_qtrs,
+    max_annual_report_years:          skill.max_annual_report_years,
+    market_data_signal_types:         skill.market_data_signal_types,
+    max_market_data_months:           skill.max_market_data_months,
+    historic_max_transcript_qtrs:     skill.historic_max_transcript_qtrs,
+    historic_max_ppt_qtrs:            skill.historic_max_ppt_qtrs,
+    historic_max_annual_report_years: skill.historic_max_annual_report_years,
+    historic_max_market_data_months:  skill.historic_max_market_data_months,
+    model:      skill.model,
+    max_tokens: skill.max_tokens,
+    strip_html: skill.strip_html,
+  };
+}
+
 // ── Named config resolution ───────────────────────────────────────────────────
 // A HtmlIncrementalSkillConfig is a saved, alternate settings bundle for a
 // skill (e.g. one per data-availability shape). A run always needs one:
@@ -446,4 +475,5 @@ module.exports = {
   resolveBaseAnchorPeriod,
   transcriptPeriodRank,
   parseFiscalYear,
+  defaultConfigFieldsFromSkill,
 };

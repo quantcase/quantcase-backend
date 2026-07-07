@@ -13,11 +13,19 @@
  * Preview is a signal-availability report (total + per-period counts for
  * transcript/ppt/annual_report), not a per-ticker prompt dry-run — building
  * a full prompt per ticker doesn't make sense once a batch is 100+ companies.
- * `historic` isn't relevant to preview because of this — it's only used by
- * the real run.
+ * Each ticker's counts are filtered to *its own resolved config's*
+ * signal-type whitelist (same resolveConfigKeyForTicker resolution a real
+ * run does — see buildSignalAvailabilityReport) and capped to that config's
+ * historic-mode window, so different tickers in the same batch can show
+ * different counts if they resolve to different configs. A ticker with no
+ * resolvable config reports all-zero with configKey: null, matching the 400
+ * a real run would give it. `historic` isn't modeled — preview always
+ * reports as historic mode would (incremental's base-anchor exclusion needs
+ * a specific call + existing base output, which doesn't make sense at
+ * batch-preview scale); it's only used by the real run.
  *
  * `options`:
- *   slug       string    — HtmlIncrementalSkill slug (required) — signal counts are filtered to this skill's own signal-type whitelist
+ *   slug       string    — HtmlIncrementalSkill slug (required)
  *   groupSlug  string    — resolve tickers from a saved CompanyGroup; takes precedence over `tickers`/`all`
  *   tickers    string[]  — explicit ticker list
  *   all        boolean   — every distinct company in earnings_calls
@@ -32,21 +40,20 @@
  *
  * CSV export (`/preview/csv`) is batched by ticker (SIGNAL_REPORT_TICKER_BATCH_SIZE,
  * same as the query in buildSignalAvailabilityReport) so no single query
- * risks Postgres's statement_timeout, and additionally skips the
- * signal_type whitelist filter entirely (unlike the JSON preview, which
- * always filters to the skill's own whitelist). `signal_type` isn't indexed,
- * so filtering on it forces a heap visit per candidate row and stops
- * Postgres from using the covering ticker/is_invalidated index — measured
- * ~66s vs ~21s for the same 586-ticker (tier2) request, filtered vs
- * unfiltered. This means the CSV reports *total* signal coverage per period,
- * not "signals this skill would use" — a real semantic difference for a
- * narrow-whitelist skill, accepted as the tradeoff for the CSV to stay fast.
- * The JSON preview is unaffected and keeps the accurate, skill-filtered
- * counts (it's already fast via ticker pagination, so it didn't need this).
+ * risks Postgres's statement_timeout, and additionally skips config
+ * resolution and the signal_type whitelist filter entirely (unlike the JSON
+ * preview, which always filters to each ticker's resolved config).
+ * `signal_type` isn't indexed, so filtering on it forces a heap visit per
+ * candidate row and stops Postgres from using the covering
+ * ticker/is_invalidated index — measured ~66s vs ~21s for the same
+ * 586-ticker (tier2) request, filtered vs unfiltered. This means the CSV
+ * reports *total* signal coverage per period, not "signals this ticker's
+ * config would use" — a real semantic difference for a narrow-whitelist
+ * config, accepted as the tradeoff for the CSV to stay fast.
  */
 
 const prisma = require('../../config/prisma');
-const { resolveGroupBySlug } = require('../companyGroups');
+const { resolveGroupBySlug, resolveConfigKeyForTicker } = require('../companyGroups');
 const { dispatchEndpoint } = require('./apiDispatchClient');
 const { periodRank, writeSignalReportCsv } = require('./csvReport');
 const { paginateTickers, chunk } = require('./paginate');
@@ -92,29 +99,36 @@ async function resolveLatestCall(ticker) {
   });
 }
 
-// Batched signal-availability report — one DB query for every ticker in the
-// set (not one per ticker), grouped into per-source, per-period counts. This
-// is what /preview returns instead of building a full prompt per ticker:
-// at 200-company scale, "what would the prompt look like" doesn't make
-// sense, but "how much of each document type does each company have" does —
-// it's what actually informs which config (t1/t2/t3) or company group a
-// ticker belongs in. Filtered to the skill's own signal-type whitelist, same
-// as the single-ticker /signals/count/:ticker endpoint, so the counts mean
-// "signals this skill would actually use," not a fully generic raw count —
-// unless `filterBySignalType` is false (CSV path only, see module docstring),
-// in which case it reports total signal coverage regardless of type.
+// Batched signal-availability report — one DB query per (config, ticker
+// batch), grouped into per-source, per-period counts. This is what /preview
+// returns instead of building a full prompt per ticker: at 200-company
+// scale, "what would the prompt look like" doesn't make sense, but "how much
+// of each document type does each company have" does.
+//
+// Each ticker's counts are filtered to *its own resolved config's*
+// signal-type whitelist (via resolveConfigKeyForTicker — the same
+// resolution a real run does) and capped to that config's historic-mode
+// window (historic_max_* qtrs/years, falling back to the config's own
+// max_* if unset) — so preview reports what a historic run would actually
+// use, not a skill-wide static whitelist with no window cap. Incremental
+// mode isn't modeled here (base-anchor exclusion depends on a specific call
+// and existing base output, which doesn't make sense at batch-preview
+// scale) — this always reports as historic would.
+//
+// A ticker that resolves to no config (isn't in any config-mapped
+// CompanyGroup) gets an all-zero report with configKey: null — the same
+// ticker would 400 on a real run (see resolveRequiredConfigKey), so preview
+// surfaces that up front instead of silently omitting it.
+//
+// `filterBySignalType: false` (CSV path only, see module docstring) skips
+// all of the above — no config resolution, no whitelist, no window cap — and
+// reports total signal coverage regardless of type, for speed.
 async function buildSignalAvailabilityReport(slug, tickers, { filterBySignalType = true } = {}) {
-  const skill = await prisma.htmlIncrementalSkill.findUnique({
-    where:  { slug },
-    select: { transcript_signal_types: true, ppt_signal_types: true, annual_report_signal_types: true },
-  });
+  const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug }, select: { id: true } });
   if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
 
-  const allTypes = filterBySignalType
-    ? [...skill.transcript_signal_types, ...skill.ppt_signal_types, ...skill.annual_report_signal_types]
-    : [];
-
   const byTicker = new Map(tickers.map(t => [t, {
+    configKey:     null,
     transcript:    new Map(),
     ppt:           new Map(),
     annual_report: new Map(),
@@ -132,13 +146,13 @@ async function buildSignalAvailabilityReport(slug, tickers, { filterBySignalType
   // indexed, so omitting it (filterBySignalType: false) also lets Postgres
   // use a covering index-only scan instead of a heap-filtered one — see
   // module docstring for the measured difference.
-  for (const batch of chunk(tickers, SIGNAL_REPORT_TICKER_BATCH_SIZE)) {
+  async function fetchCounts(batchTickers, allTypes) {
     const groups = allTypes.length
       ? await prisma.$queryRaw`
           SELECT ticker, source_doc_type, fiscal_year, quarter, count(*)::int AS cnt
           FROM transcript_signals_v2
           WHERE is_invalidated = false
-            AND ticker = ANY(${batch}::text[])
+            AND ticker = ANY(${batchTickers}::text[])
             AND signal_type = ANY(${allTypes}::text[])
           GROUP BY ticker, source_doc_type, fiscal_year, quarter
         `
@@ -146,7 +160,7 @@ async function buildSignalAvailabilityReport(slug, tickers, { filterBySignalType
           SELECT ticker, source_doc_type, fiscal_year, quarter, count(*)::int AS cnt
           FROM transcript_signals_v2
           WHERE is_invalidated = false
-            AND ticker = ANY(${batch}::text[])
+            AND ticker = ANY(${batchTickers}::text[])
           GROUP BY ticker, source_doc_type, fiscal_year, quarter
         `;
 
@@ -157,6 +171,64 @@ async function buildSignalAvailabilityReport(slug, tickers, { filterBySignalType
       const key = docType === 'annual_report' ? r.fiscal_year : `${r.fiscal_year}|${r.quarter}`;
       const m = bucket[docType];
       m.set(key, (m.get(key) ?? 0) + r.cnt);
+    }
+  }
+
+  // caps: { transcript, ppt, annual_report } max distinct periods, or null = uncapped
+  function applyCaps(ticker, caps) {
+    if (!caps) return;
+    const bucket = byTicker.get(ticker);
+    for (const docType of ['transcript', 'ppt', 'annual_report']) {
+      const cap = caps[docType];
+      if (cap == null) continue;
+      const m = bucket[docType];
+      const kept = [...m.entries()]
+        .sort((a, b) => {
+          const [fyA, qA] = docType === 'annual_report' ? [a[0], null] : a[0].split('|');
+          const [fyB, qB] = docType === 'annual_report' ? [b[0], null] : b[0].split('|');
+          return periodRank(fyB, qB) - periodRank(fyA, qA);
+        })
+        .slice(0, cap);
+      bucket[docType] = new Map(kept);
+    }
+  }
+
+  if (!filterBySignalType) {
+    for (const batch of chunk(tickers, SIGNAL_REPORT_TICKER_BATCH_SIZE)) {
+      await fetchCounts(batch, []);
+    }
+  } else {
+    // Same resolution a real run uses (resolveRequiredConfigKey /
+    // resolveConfigKeyForTicker) — group tickers by their resolved config so
+    // each config's own whitelist + window cap only has to be looked up
+    // once per group, not once per ticker.
+    const tickersByConfigKey = new Map(); // configKey (string or null) -> ticker[]
+    for (const ticker of tickers) {
+      const configKey = await resolveConfigKeyForTicker(ticker);
+      byTicker.get(ticker).configKey = configKey;
+      if (!tickersByConfigKey.has(configKey)) tickersByConfigKey.set(configKey, []);
+      tickersByConfigKey.get(configKey).push(ticker);
+    }
+
+    for (const [configKey, groupTickers] of tickersByConfigKey) {
+      if (configKey == null) continue; // no resolvable config — left all-zero, same as a real run would 400
+
+      const config = await prisma.htmlIncrementalSkillConfig.findUnique({
+        where: { skill_id_key: { skill_id: skill.id, key: configKey } },
+      });
+      if (!config || !config.is_active) continue; // defensive — resolveConfigKeyForTicker only returns keys admins set on a group
+
+      const allTypes = [...config.transcript_signal_types, ...config.ppt_signal_types, ...config.annual_report_signal_types];
+      const caps = {
+        transcript:    config.historic_max_transcript_qtrs     ?? config.max_transcript_qtrs,
+        ppt:           config.historic_max_ppt_qtrs            ?? config.max_ppt_qtrs,
+        annual_report: config.historic_max_annual_report_years ?? config.max_annual_report_years,
+      };
+
+      for (const batch of chunk(groupTickers, SIGNAL_REPORT_TICKER_BATCH_SIZE)) {
+        await fetchCounts(batch, allTypes);
+      }
+      for (const ticker of groupTickers) applyCaps(ticker, caps);
     }
   }
 
@@ -175,6 +247,7 @@ async function buildSignalAvailabilityReport(slug, tickers, { filterBySignalType
     const annual_report = toYearPeriods(b.annual_report);
     return {
       ticker,
+      ...(filterBySignalType && { configKey: b.configKey }),
       transcript:    { total: transcript.reduce((s, r) => s + r.count, 0),    periods: transcript },
       ppt:           { total: ppt.reduce((s, r) => s + r.count, 0),           periods: ppt },
       annual_report: { total: annual_report.reduce((s, r) => s + r.count, 0), periods: annual_report },
