@@ -229,15 +229,18 @@ async function resolveGroup(group) {
 
 // Which config_key applies to a given ticker, via whichever config-mapped
 // group it currently falls into (groups are live — this is recomputed every
-// call, not cached). Groups are resolved oldest-created first; if a ticker
-// ends up in more than one config-mapped group at once, the first one it
-// matches wins. Returns null if the ticker isn't in any config-mapped group —
-// callers treat that as "run blocked, no config resolved" rather than
-// silently falling back to a skill's own default fields.
+// call, not cached). Groups are resolved most-recently-updated first; if a
+// ticker ends up in more than one config-mapped group at once, the one whose
+// config_key was set/changed most recently wins — this way tagging (or
+// re-tagging) a group with a config is an intentional override that takes
+// effect immediately, even over an older, broader group it also belongs to.
+// Returns null if the ticker isn't in any config-mapped group — callers treat
+// that as "run blocked, no config resolved" rather than silently falling back
+// to a skill's own default fields.
 async function resolveConfigKeyForTicker(ticker) {
   const groups = await prisma.companyGroup.findMany({
     where:   { config_key: { not: null } },
-    orderBy: { created_at: 'asc' },
+    orderBy: { updated_at: 'desc' },
   });
   for (const group of groups) {
     const tickers = await resolveGroup(group);

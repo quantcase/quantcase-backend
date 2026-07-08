@@ -18,6 +18,9 @@ const l1MultiOptionsSchema = z.object({
   force:     z.boolean().optional(),
   arOnly:    z.boolean().optional(),
   noAr:      z.boolean().optional(),
+  // Preview-only — paginates the resolved ticker list. Ignored by /run.
+  page:      z.number().int().positive().optional(),
+  pageSize:  z.number().int().positive().optional(),
 });
 
 // ─── L1 Multi-Dispatch (transcript + ppt + annual report) ────────────────────
@@ -42,6 +45,9 @@ const l2MultiOptionsSchema = z.object({
   startFrom: z.string().optional(),
   historic:  z.boolean().optional(),
   force:     z.boolean().optional(),
+  // Preview-only — paginates the resolved ticker list. Ignored by /run.
+  page:      z.number().int().positive().optional(),
+  pageSize:  z.number().int().positive().optional(),
 });
 
 router.get(  '/l2-multi/options',     pipelineDispatchController.getL2MultiOptions);

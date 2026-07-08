@@ -9,6 +9,7 @@ const {
   resolveBaseAnchorPeriod,
   transcriptPeriodRank,
   parseFiscalYear,
+  defaultConfigFieldsFromSkill,
 } = require('../services/htmlIncrementalSkill.service');
 const { applySignalLimits } = require('../services/htmlSkill.service');
 
@@ -151,14 +152,14 @@ const CONFIG_FIELDS = [
   'is_active',
 ];
 
-// GET /api/html-incremental-skills/:slug/configs
+// GET /api/html-incremental-skills/:slug/configs?includeInactive=true
 router.get('/:slug/configs', async (req, res, next) => {
   try {
     const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug: req.params.slug }, select: { id: true } });
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
     const configs = await prisma.htmlIncrementalSkillConfig.findMany({
-      where:   { skill_id: skill.id },
+      where:   { skill_id: skill.id, ...(req.query.includeInactive === 'true' ? {} : { is_active: true }) },
       orderBy: { key: 'asc' },
     });
     res.json({ count: configs.length, configs });
@@ -228,7 +229,40 @@ router.post('/:slug/configs', async (req, res, next) => {
         ...(strip_html != null && { strip_html }),
       },
     });
-    res.status(201).json(config);
+
+    // A config key is a bare string tag — nothing stops it from being used
+    // on a CompanyGroup while only existing under some skills, which fails
+    // resolution (404 on run, all-zero on L2 preview) for any other lens.
+    // Backfill every other active skill missing this key with a default
+    // clone of *its own* current top-level fields (same shape as
+    // scripts/seedAvailabilityConfigs.js's t1/t2/t3 seeding) so the key
+    // resolves everywhere from the moment it's created — admin can then
+    // tweak each lens's copy independently, same as t1/t2/t3 today.
+    const otherSkills = await prisma.htmlIncrementalSkill.findMany({
+      where: { is_active: true, id: { not: skill.id } },
+    });
+    let propagatedTo = [];
+    if (otherSkills.length) {
+      const alreadyHave = await prisma.htmlIncrementalSkillConfig.findMany({
+        where:  { key, skill_id: { in: otherSkills.map(s => s.id) } },
+        select: { skill_id: true },
+      });
+      const alreadyHaveIds = new Set(alreadyHave.map(c => c.skill_id));
+      const missing = otherSkills.filter(s => !alreadyHaveIds.has(s.id));
+      if (missing.length) {
+        await prisma.htmlIncrementalSkillConfig.createMany({
+          data: missing.map(s => ({
+            skill_id: s.id,
+            key, name,
+            ...defaultConfigFieldsFromSkill(s),
+          })),
+          skipDuplicates: true,
+        });
+        propagatedTo = missing.map(s => s.slug);
+      }
+    }
+
+    res.status(201).json({ ...config, propagatedTo });
   } catch (err) {
     if (err.code === 'P2002') return res.status(409).json({ error: `Config with key "${req.body.key}" already exists for this skill` });
     next(err);
@@ -259,6 +293,11 @@ router.put('/:slug/configs/:key', async (req, res, next) => {
 });
 
 // DELETE /api/html-incremental-skills/:slug/configs/:key  (soft delete)
+// Mirrors POST's create-time propagation (a config key is meant to be one
+// cross-lens concept, not a per-skill coincidence — see POST .../configs) by
+// also deactivating every other skill's copy of this same key, not just this
+// one — otherwise a "deleted" key keeps resolving fine (and doing real work)
+// for every other lens, which isn't what deleting it means to an admin.
 router.delete('/:slug/configs/:key', async (req, res, next) => {
   try {
     const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug: req.params.slug }, select: { id: true } });
@@ -268,7 +307,13 @@ router.delete('/:slug/configs/:key', async (req, res, next) => {
       where: { skill_id_key: { skill_id: skill.id, key: req.params.key } },
       data:  { is_active: false },
     });
-    res.json({ success: true, key: config.key, is_active: false });
+
+    const { count } = await prisma.htmlIncrementalSkillConfig.updateMany({
+      where: { key: req.params.key, skill_id: { not: skill.id }, is_active: true },
+      data:  { is_active: false },
+    });
+
+    res.json({ success: true, key: config.key, is_active: false, deactivatedElsewhere: count });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Config not found' });
     next(err);

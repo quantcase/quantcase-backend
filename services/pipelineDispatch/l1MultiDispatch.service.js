@@ -16,6 +16,11 @@
  *   force      boolean   — invalidate existing signals and reprocess
  *   arOnly     boolean   — annual reports only, skip transcript/ppt
  *   noAr       boolean   — skip annual reports
+ *   page, pageSize  number — preview only; paginates the resolved ticker list
+ *     (default pageSize 100, max 500) so a large groupSlug/`all` preview
+ *     doesn't pull every ticker's calls/reports into one response. Ignored by
+ *     run (which always dispatches to the full resolved set) and by the CSV
+ *     export (a full, uncapped dump by design).
  */
 
 const prisma = require('../../config/prisma');
@@ -23,7 +28,21 @@ const { DEFAULT_TARGET_TICKERS } = require('./targetTickers');
 const { hasSignals, invalidateSignals, fetchActiveCallIds, fetchDoneCallIds } = require('./signalStore');
 const { dispatchEndpoint } = require('./apiDispatchClient');
 const { resolveGroupBySlug } = require('../companyGroups/groups.service');
-const { buildSignalReportCsv } = require('./csvReport');
+const { writeSignalReportCsv } = require('./csvReport');
+const { paginateTickers, chunk } = require('./paginate');
+const { TtlCache, cacheKey } = require('./cache');
+
+const cache = new TtlCache();
+const PREVIEW_CACHE_TTL_MS = 60_000;   // JSON preview — cheap-ish already via pagination, mainly absorbs rapid repeat clicks
+const CSV_CACHE_TTL_MS     = 180_000;  // CSV — the actually expensive path, worth caching longer
+
+// Applied only in previewL1MultiDispatch when limit/latest is omitted — the
+// old behavior ("no limit passed" = every historical call/ppt period, per
+// ticker, with no cap at all) is what made an unpaginated `all`/large-group
+// preview balloon into a many-MB response. Real dispatch (runL1MultiDispatch)
+// is untouched — its own "no limit = full history" behavior is intentional
+// there (dedup against already-done/queued ids does the real limiting).
+const DEFAULT_PREVIEW_CALL_LIMIT = 20;
 
 function resolveEffectiveLimit(options) {
   return options.latest ?? options.limit ?? null;
@@ -59,6 +78,7 @@ async function processTranscripts(symbol, queuedIds, doneIds, options) {
   const calls = limit ? allCalls.slice(0, limit) : allCalls;
 
   let queued = 0, skipped = 0, noSource = 0, failed = 0;
+  const errors = [];
   for (const c of calls) {
     if (!c.transcript_url) { noSource++; continue; }
     if (queuedIds.has(c.id)) { skipped++; continue; }
@@ -75,9 +95,10 @@ async function processTranscripts(symbol, queuedIds, doneIds, options) {
     } catch (err) {
       console.error(`[l1-multi-dispatch] transcript ${c.id} (${symbol} ${c.fiscal_year} ${c.quarter}): ${err.message}`);
       failed++;
+      errors.push({ source: 'transcript', callId: c.id, fiscal_year: c.fiscal_year, quarter: c.quarter, error: err.message });
     }
   }
-  return { total: calls.length, queued, skipped, noSource, failed };
+  return { total: calls.length, queued, skipped, noSource, failed, errors };
 }
 
 async function processPpts(symbol, queuedIds, doneIds, options) {
@@ -90,6 +111,7 @@ async function processPpts(symbol, queuedIds, doneIds, options) {
   const calls = limit ? allCalls.slice(0, limit) : allCalls;
 
   let queued = 0, skipped = 0, noSource = 0, failed = 0;
+  const errors = [];
   for (const c of calls) {
     if (!c.ppt_url) { noSource++; continue; }
     if (queuedIds.has(c.id)) { skipped++; continue; }
@@ -106,9 +128,10 @@ async function processPpts(symbol, queuedIds, doneIds, options) {
     } catch (err) {
       console.error(`[l1-multi-dispatch] ppt ${c.id} (${symbol} ${c.fiscal_year} ${c.quarter}): ${err.message}`);
       failed++;
+      errors.push({ source: 'ppt', callId: c.id, fiscal_year: c.fiscal_year, quarter: c.quarter, error: err.message });
     }
   }
-  return { total: calls.length, queued, skipped, noSource, failed };
+  return { total: calls.length, queued, skipped, noSource, failed, errors };
 }
 
 async function processAnnualReports(symbol, queuedIds, doneIds, options) {
@@ -122,6 +145,7 @@ async function processAnnualReports(symbol, queuedIds, doneIds, options) {
   const reports = allReports.slice(0, arLimit);
 
   let queued = 0, skipped = 0, noSource = 0, failed = 0;
+  const errors = [];
   for (const r of reports) {
     if (!r.annual_report_url) { noSource++; continue; }
     if (queuedIds.has(r.id.toString())) { skipped++; continue; }
@@ -139,17 +163,25 @@ async function processAnnualReports(symbol, queuedIds, doneIds, options) {
     } catch (err) {
       console.error(`[l1-multi-dispatch] ar ${r.id} (${symbol} ${r.fiscal_year}): ${err.message}`);
       failed++;
+      errors.push({ source: 'annual_report', reportId: r.id.toString(), fiscal_year: r.fiscal_year, error: err.message });
     }
   }
-  return { total: reports.length, queued, skipped, noSource, failed };
+  return { total: reports.length, queued, skipped, noSource, failed, errors };
 }
 
 // ── Entry points ─────────────────────────────────────────────────────────────
 
 async function previewL1MultiDispatch(options = {}) {
-  const tickers = await resolveTickers(options);
-  const limit   = resolveEffectiveLimit(options);
-  const arLimit = limit ?? 3;
+  return cache.wrap(cacheKey('l1-preview', options), PREVIEW_CACHE_TTL_MS, () => previewL1MultiDispatchUncached(options));
+}
+
+async function previewL1MultiDispatchUncached(options) {
+  const allTickers = await resolveTickers(options);
+  const { pageTickers: tickers, page, pageSize, totalPages } = paginateTickers(allTickers, options);
+
+  const rawLimit = resolveEffectiveLimit(options);
+  const limit    = rawLimit ?? DEFAULT_PREVIEW_CALL_LIMIT;
+  const arLimit  = rawLimit ?? 3;
 
   // One batched query per source across every ticker (same fix as
   // buildDocumentCoverageReport below), not one round-trip per ticker — the
@@ -221,7 +253,7 @@ async function previewL1MultiDispatch(options = {}) {
     },
   }));
 
-  return { tickerCount: tickers.length, tickers, perTicker };
+  return { tickerCount: allTickers.length, page, pageSize, totalPages, tickers, perTicker };
 }
 
 // Column groups for the CSV: document presence (has a URL) AND whether L1
@@ -238,56 +270,64 @@ const L1_CSV_GROUPS = [
   { key: 'annual_report_signal', kind: 'yearly' },
 ];
 
+// How many tickers' worth of calls/reports to fetch per DB round-trip in
+// buildDocumentCoverageReport. earnings_calls/annual_reports are small
+// tables (~32k/~30k rows total) so this is mainly about keeping each
+// individual query comfortably short, not about response size.
+const CSV_TICKER_BATCH_SIZE = 300;
+
 // Full, uncapped document-coverage report for CSV export — deliberately
 // ignores limit/latest/arOnly/noAr (those are run-time caps, not relevant to
 // "how much history does this company have"; note previewL1MultiDispatch
 // itself always caps annual reports to 3 by default via `arLimit = limit ?? 3`,
-// so it can't be reused as-is for a full report). One batched query per
-// source across the whole ticker set, not per-ticker (both for documents and
-// for signal-done status, via fetchDoneCallIds scoped to just these calls/
-// reports — same pattern previewL1MultiDispatch itself uses to avoid an
-// unscoped full-table scan). Presence becomes a count of 1 per period,
-// matching the shape services/pipelineDispatch/csvReport.js expects.
+// so it can't be reused as-is for a full report). Batched query per source,
+// CSV_TICKER_BATCH_SIZE tickers at a time (not per-ticker, and not one query
+// for the whole set) — both for documents and for signal-done status, via
+// fetchDoneCallIds scoped to just each batch's calls/reports. Presence
+// becomes a count of 1 per period, matching the shape
+// services/pipelineDispatch/csvReport.js expects.
 async function buildDocumentCoverageReport(tickers) {
-  const [calls, reports] = await Promise.all([
-    prisma.earnings_calls.findMany({
-      where:  { company: { in: tickers } },
-      select: { id: true, company: true, fiscal_year: true, quarter: true, transcript_url: true, ppt_url: true },
-    }),
-    prisma.annual_reports.findMany({
-      where:  { company: { in: tickers } },
-      select: { id: true, company: true, fiscal_year: true, annual_report_url: true },
-    }),
-  ]);
-
-  const callIds   = calls.map(c => c.id);
-  const reportIds = reports.map(r => r.id.toString());
-
-  const [transcriptSignalIds, pptSignalIds, arSignalIds] = await Promise.all([
-    fetchDoneCallIds('transcript', callIds),
-    fetchDoneCallIds('ppt', callIds),
-    fetchDoneCallIds('annual_report', reportIds),
-  ]);
-
   const byTicker = new Map(tickers.map(t => [t, {
     transcript: [], transcript_signal: [],
     ppt: [], ppt_signal: [],
     annual_report: [], annual_report_signal: [],
   }]));
 
-  for (const c of calls) {
-    const bucket = byTicker.get(c.company);
-    if (!bucket) continue;
-    if (c.transcript_url) bucket.transcript.push({ fiscal_year: c.fiscal_year, quarter: c.quarter, count: 1 });
-    if (c.ppt_url)        bucket.ppt.push({ fiscal_year: c.fiscal_year, quarter: c.quarter, count: 1 });
-    if (transcriptSignalIds.has(c.id)) bucket.transcript_signal.push({ fiscal_year: c.fiscal_year, quarter: c.quarter, count: 1 });
-    if (pptSignalIds.has(c.id))        bucket.ppt_signal.push({ fiscal_year: c.fiscal_year, quarter: c.quarter, count: 1 });
-  }
-  for (const r of reports) {
-    const bucket = byTicker.get(r.company);
-    if (!bucket) continue;
-    if (r.annual_report_url) bucket.annual_report.push({ fiscal_year: r.fiscal_year, count: 1 });
-    if (arSignalIds.has(r.id.toString())) bucket.annual_report_signal.push({ fiscal_year: r.fiscal_year, count: 1 });
+  for (const batch of chunk(tickers, CSV_TICKER_BATCH_SIZE)) {
+    const [calls, reports] = await Promise.all([
+      prisma.earnings_calls.findMany({
+        where:  { company: { in: batch } },
+        select: { id: true, company: true, fiscal_year: true, quarter: true, transcript_url: true, ppt_url: true },
+      }),
+      prisma.annual_reports.findMany({
+        where:  { company: { in: batch } },
+        select: { id: true, company: true, fiscal_year: true, annual_report_url: true },
+      }),
+    ]);
+
+    const callIds   = calls.map(c => c.id);
+    const reportIds = reports.map(r => r.id.toString());
+
+    const [transcriptSignalIds, pptSignalIds, arSignalIds] = await Promise.all([
+      fetchDoneCallIds('transcript', callIds),
+      fetchDoneCallIds('ppt', callIds),
+      fetchDoneCallIds('annual_report', reportIds),
+    ]);
+
+    for (const c of calls) {
+      const bucket = byTicker.get(c.company);
+      if (!bucket) continue;
+      if (c.transcript_url) bucket.transcript.push({ fiscal_year: c.fiscal_year, quarter: c.quarter, count: 1 });
+      if (c.ppt_url)        bucket.ppt.push({ fiscal_year: c.fiscal_year, quarter: c.quarter, count: 1 });
+      if (transcriptSignalIds.has(c.id)) bucket.transcript_signal.push({ fiscal_year: c.fiscal_year, quarter: c.quarter, count: 1 });
+      if (pptSignalIds.has(c.id))        bucket.ppt_signal.push({ fiscal_year: c.fiscal_year, quarter: c.quarter, count: 1 });
+    }
+    for (const r of reports) {
+      const bucket = byTicker.get(r.company);
+      if (!bucket) continue;
+      if (r.annual_report_url) bucket.annual_report.push({ fiscal_year: r.fiscal_year, count: 1 });
+      if (arSignalIds.has(r.id.toString())) bucket.annual_report_signal.push({ fiscal_year: r.fiscal_year, count: 1 });
+    }
   }
 
   return tickers.map(ticker => {
@@ -305,10 +345,19 @@ async function buildDocumentCoverageReport(tickers) {
   });
 }
 
-async function previewL1MultiDispatchCsv(options = {}) {
-  const tickers = await resolveTickers(options);
-  const perTicker = await buildDocumentCoverageReport(tickers);
-  return buildSignalReportCsv(perTicker, L1_CSV_GROUPS);
+// Writes directly to the Express response (see csvReport.js#writeSignalReportCsv)
+// instead of returning a string for the controller to res.send() — avoids
+// holding the fully-joined CSV string in memory and starts streaming bytes
+// to the client as soon as the header is known. Only the data-fetch (resolve
+// + report build) is cached — the write itself always runs fresh against
+// *this* request's `res`, so two concurrent callers with the same options
+// share one DB fetch but each still get their own response written.
+async function previewL1MultiDispatchCsv(options = {}, res) {
+  const perTicker = await cache.wrap(cacheKey('l1-csv', options), CSV_CACHE_TTL_MS, async () => {
+    const tickers = await resolveTickers(options);
+    return buildDocumentCoverageReport(tickers);
+  });
+  writeSignalReportCsv(res, perTicker, L1_CSV_GROUPS);
 }
 
 async function runL1MultiDispatch(options = {}) {
@@ -354,9 +403,13 @@ async function runL1MultiDispatch(options = {}) {
       skipped:  acc.skipped  + s.skipped,
       noSource: acc.noSource + s.noSource,
       failed:   acc.failed   + s.failed,
-    }), { queued: 0, skipped: 0, noSource: 0, failed: 0 });
+      errors:   acc.errors.concat(s.errors),
+    }), { queued: 0, skipped: 0, noSource: 0, failed: 0, errors: [] });
 
-    perTicker.push({ symbol, ...tickerTotals });
+    // Only attach `errors` when non-empty — keeps perTicker (which lands
+    // wholesale in scheduler_runs.metadata) from ballooning on large,
+    // mostly-successful runs (500+ tickers) with an empty array per row.
+    perTicker.push({ symbol, ...tickerTotals, errors: tickerTotals.errors.length ? tickerTotals.errors : undefined });
     totals.queued   += tickerTotals.queued;
     totals.skipped  += tickerTotals.skipped;
     totals.noSource += tickerTotals.noSource;
