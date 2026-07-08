@@ -31,4 +31,8 @@ module.exports = {
 
   // Smallcase
   smallcaseEncryptionKey: process.env.SMALLCASE_ENCRYPTION_KEY,
+  smallcaseGatewayName:   process.env.SMALLCASE_GATEWAY_NAME || 'quantcase',
+  smallcaseSecret:        process.env.SMALLCASE_SECRET,      // shared secret — signs the x-gateway-authtoken JWT
+  smallcaseApiSecret:     process.env.SMALLCASE_API_SECRET,  // API secret — x-gateway-secret header + webhook HMAC key
+  smallcaseApiBaseUrl:    process.env.SMALLCASE_API_BASE_URL || 'https://gatewayapi.smallcase.com',
 };
