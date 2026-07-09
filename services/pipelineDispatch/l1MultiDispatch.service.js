@@ -364,22 +364,35 @@ async function runL1MultiDispatch(options = {}) {
   const tickers = await resolveTickers(options);
   console.log(`[l1-multi-dispatch] tickers=${tickers.length} force=${!!options.force} arOnly=${!!options.arOnly} noAr=${!!options.noAr}`);
 
+  // Two separate ID spaces: earnings_calls.id (String/UUID) scopes transcript/ppt
+  // dedup, annual_reports.id (BigInt) scopes annual-report dedup — signals for
+  // annual reports store the annual_reports.id in call_id, not the earnings_calls
+  // one, so reusing a single scopeCallIds for both silently broke the "already
+  // extracted" check for annual reports (arDoneIds could never match anything).
   let scopeCallIds = null;
+  let scopeReportIds = null;
   if (!options.all) {
-    const scopeCallRows = await prisma.earnings_calls.findMany({
-      where:  { company: { in: tickers } },
-      select: { id: true },
-    });
-    scopeCallIds = scopeCallRows.map(r => r.id);
+    const [scopeCallRows, scopeReportRows] = await Promise.all([
+      prisma.earnings_calls.findMany({
+        where:  { company: { in: tickers } },
+        select: { id: true },
+      }),
+      prisma.annual_reports.findMany({
+        where:  { company: { in: tickers } },
+        select: { id: true },
+      }),
+    ]);
+    scopeCallIds   = scopeCallRows.map(r => r.id);
+    scopeReportIds = scopeReportRows.map(r => r.id.toString());
   }
 
   const [txQueuedIds, pptQueuedIds, arQueuedIds, txDoneIds, pptDoneIds, arDoneIds] = await Promise.all([
     options.arOnly ? Promise.resolve(new Set()) : fetchActiveCallIds(['summarization_v2'], scopeCallIds),
     options.arOnly ? Promise.resolve(new Set()) : fetchActiveCallIds(['summarization_v2_ppt'], scopeCallIds),
-    options.noAr   ? Promise.resolve(new Set()) : fetchActiveCallIds(['summarization_v2_annual_report'], scopeCallIds),
+    options.noAr   ? Promise.resolve(new Set()) : fetchActiveCallIds(['summarization_v2_annual_report'], scopeReportIds),
     options.arOnly ? Promise.resolve(new Set()) : fetchDoneCallIds('transcript', scopeCallIds),
     options.arOnly ? Promise.resolve(new Set()) : fetchDoneCallIds('ppt', scopeCallIds),
-    options.noAr   ? Promise.resolve(new Set()) : (scopeCallIds === null ? Promise.resolve(null) : fetchDoneCallIds('annual_report', scopeCallIds)),
+    options.noAr   ? Promise.resolve(new Set()) : (scopeReportIds === null ? Promise.resolve(null) : fetchDoneCallIds('annual_report', scopeReportIds)),
   ]);
 
   const totals = { queued: 0, skipped: 0, noSource: 0, failed: 0 };
