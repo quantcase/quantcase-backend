@@ -28,6 +28,8 @@ module.exports = {
   razorpayKeyId:       process.env.RAZORPAY_KEY_ID,
   razorpayKeySecret:   process.env.RAZORPAY_KEY_SECRET,
   razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
+  // Debug logging for the Razorpay flow is on by default; set RAZORPAY_DEBUG=false to silence it.
+  razorpayDebug:       process.env.RAZORPAY_DEBUG !== 'false',
 
   // Smallcase
   smallcaseEncryptionKey: process.env.SMALLCASE_ENCRYPTION_KEY,
