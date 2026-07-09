@@ -4,6 +4,9 @@ const asyncHandler = require('../middleware/asyncHandler');
 const userPortSvc  = require('../services/portfolio/user-portfolio.service');
 const shadowSvc    = require('../services/portfolio/shadow-portfolio.service');
 const notesSvc     = require('../services/portfolio/holding-notes.service');
+const modSynopsisSvc     = require('../services/dashboard/mod-synopsis.service');
+const holdingsSummarySvc = require('../services/dashboard/holdings-summary.service');
+const whatsMovingSvc     = require('../services/dashboard/whats-moving.service');
 
 // ─── User Portfolio ───────────────────────────────────────────────────────────
 
@@ -19,6 +22,24 @@ const uploadUserPortfolio = asyncHandler(async (req, res) => {
 const getUserPortfolio = asyncHandler(async (req, res) => {
   const portfolio = await userPortSvc.getUserPortfolio(req.user.sub);
   res.json({ success: true, data: portfolio });
+});
+
+// ─── Investor Dashboard ───────────────────────────────────────────────────────
+
+const getModSynopsis = asyncHandler(async (req, res) => {
+  const data = await modSynopsisSvc.getModSynopsis(req.user.sub);
+  res.json({ success: true, data });
+});
+
+const getHoldingsSummary = asyncHandler(async (req, res) => {
+  const data = await holdingsSummarySvc.getHoldingsSummary(req.user.sub);
+  res.json({ success: true, data });
+});
+
+const getWhatsMoving = asyncHandler(async (req, res) => {
+  const limit = req.query.limit ? Math.max(1, parseInt(req.query.limit, 10)) : 10;
+  const data  = await whatsMovingSvc.getWhatsMoving(req.user.sub, { limit });
+  res.json({ success: true, data });
 });
 
 // ─── Shadow Portfolio ─────────────────────────────────────────────────────────
@@ -66,6 +87,9 @@ const deleteNote = asyncHandler(async (req, res) => {
 module.exports = {
   uploadUserPortfolio,
   getUserPortfolio,
+  getModSynopsis,
+  getHoldingsSummary,
+  getWhatsMoving,
   getShadowPortfolio,
   addToShadowPortfolio,
   updateHolding,

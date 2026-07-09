@@ -569,4 +569,11 @@ function getBasketStocks(req, res) {
   });
 }
 
-module.exports = { getBaskets, getBasketStocks };
+module.exports = {
+  getBaskets,
+  getBasketStocks,
+  // Exported for reuse by the investor-dashboard discover-screens service.
+  BASKETS,
+  SCREENERS,
+  buildSymbolIndex,
+};
