@@ -22,7 +22,14 @@ process.on('uncaughtException', (err) => {
 });
 
 app.use(cors());
-app.use(express.json());
+
+// Webhook endpoints need the raw request body for signature/checksum verification,
+// so skip the global JSON parser for them (their routes attach express.raw() instead).
+const WEBHOOK_PATHS = ['/api/billing/webhook', '/api/smallcase/webhook'];
+app.use((req, res, next) => {
+  if (WEBHOOK_PATHS.includes(req.path)) return next();
+  return express.json()(req, res, next);
+});
 
 // Serves admin-uploaded transcript/ppt/annual-report PDFs (see
 // routes/admin.documentUpload.routes.js) as static files so worker.js can

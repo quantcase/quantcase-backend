@@ -73,6 +73,20 @@ The pipeline processes earnings calls through three progressive layers:
 
 **L3 types breakdown**: management (743), opportunity (743), deal (741), technicals (111), fundamentals (24), nse_industry (13), overview (6), drhp-analysis (1)
 
+## Smallcase Gateway Integration
+
+QuantCase connects users' broker accounts via [smallcase Gateway](https://developers.gateway.smallcase.com) to import holdings and place orders.
+
+**Two credentials, two roles** (both server-side only, never sent to the frontend):
+- `SMALLCASE_SECRET` (shared secret) — signs the HS256 JWT placed in the `x-gateway-authtoken` header.
+- `SMALLCASE_API_SECRET` (API secret) — sent verbatim as the `x-gateway-secret` header, and is the HMAC key used to verify webhook checksums.
+
+**Required env vars**: `SMALLCASE_GATEWAY_NAME` (default `quantcase`), `SMALLCASE_SECRET`, `SMALLCASE_API_SECRET`, `SMALLCASE_API_BASE_URL` (default `https://gatewayapi.smallcase.com`), `SMALLCASE_ENCRYPTION_KEY` (32-byte hex; AES key for encrypting the stored auth token at rest).
+
+**Flow**: `POST /api/smallcase/connect` (backend creates a HOLDINGS_IMPORT transaction → returns `transactionId`) → frontend Gateway SDK runs the `transactionId` → `POST /api/smallcase/transactions/:id/confirm` (backend fetches result, stores `smallcaseAuthId`, marks connected, syncs holdings) → `POST /api/smallcase/sync` / `GET /api/smallcase/holdings` for portfolio → `POST /api/smallcase/orders` for BUY/SELL/rebalance (returns a `transactionId` the SDK runs). smallcase calls `POST /api/smallcase/webhook` server-to-server on completion; the checksum is verified with the API secret (raw-body route, registered before the auth middleware).
+
+Key files: `lib/smallcaseGateway.js` (JWT signing + Gateway HTTP client + webhook checksum), `services/smallcase.service.js`, `controllers/smallcase.controller.js`, `routes/smallcase.routes.js`. Models: `SmallcaseUser`, `SmallcasePortfolio`, `SmallcaseHolding`, `SmallcaseOrder`.
+
 ## API Endpoints
 
 - `GET /health` - Health check with database connectivity test

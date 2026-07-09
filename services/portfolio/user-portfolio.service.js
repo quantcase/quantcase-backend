@@ -79,10 +79,20 @@ async function getUserPortfolio(userId) {
 
   return {
     ...portfolio,
-    holdings: portfolio.holdings.map(h => ({
-      ...h,
-      market_data: marketData[h.ticker] ?? null,
-    })),
+    holdings: portfolio.holdings.map(h => {
+      const md = marketData[h.ticker] ?? null;
+      // Uploaded portfolios only store amount_invested (no share count), so quantity
+      // is unknown. current_value is derivable only if we had quantity, so it stays
+      // null here — the frontend falls back to amount_invested. market_data still
+      // carries live ltp / change_percent for the day-change display.
+      return {
+        ...h,
+        broker:        null,          // uploaded holdings aren't attributed to a broker
+        quantity:      null,
+        current_value: null,
+        market_data:   md,
+      };
+    }),
   };
 }
 

@@ -36,6 +36,11 @@ router.use(authenticate);
 router.get('/user',         ctrl.getUserPortfolio);
 router.post('/user/upload', upload.single('file'), ctrl.uploadUserPortfolio);
 
+// ─── Investor Dashboard ──────────────────────────────────────────────────────
+router.get('/mod-synopsis', ctrl.getModSynopsis);
+router.get('/summary',      ctrl.getHoldingsSummary);
+router.get('/whats-moving', ctrl.getWhatsMoving);
+
 // ─── Shadow Portfolio ────────────────────────────────────────────────────────
 router.get('/shadow',      ctrl.getShadowPortfolio);
 router.post('/shadow/add', validate(addHoldingSchema, 'body'), ctrl.addToShadowPortfolio);

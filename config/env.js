@@ -31,7 +31,13 @@ module.exports = {
   razorpayKeyId:       process.env.RAZORPAY_KEY_ID,
   razorpayKeySecret:   process.env.RAZORPAY_KEY_SECRET,
   razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
+  // Debug logging for the Razorpay flow is on by default; set RAZORPAY_DEBUG=false to silence it.
+  razorpayDebug:       process.env.RAZORPAY_DEBUG !== 'false',
 
   // Smallcase
   smallcaseEncryptionKey: process.env.SMALLCASE_ENCRYPTION_KEY,
+  smallcaseGatewayName:   process.env.SMALLCASE_GATEWAY_NAME || 'quantcase',
+  smallcaseSecret:        process.env.SMALLCASE_SECRET,      // shared secret — signs the x-gateway-authtoken JWT
+  smallcaseApiSecret:     process.env.SMALLCASE_API_SECRET,  // API secret — x-gateway-secret header + webhook HMAC key
+  smallcaseApiBaseUrl:    process.env.SMALLCASE_API_BASE_URL || 'https://gatewayapi.smallcase.com',
 };

@@ -2,6 +2,17 @@
 
 const billingService    = require('../services/billing.service');
 const subscriptionSvc   = require('../services/subscription.service');
+const env               = require('../config/env');
+
+// Public: lets the frontend read the active mode + publishable key id before a
+// purchase (e.g. to show a "Test Mode" banner). The key id is public by design;
+// only the secret stays server-side.
+const getConfig = async (req, res) => {
+  return res.json({
+    success: true,
+    data: { mode: billingService.getMode(), razorpay_key_id: env.razorpayKeyId },
+  });
+};
 
 const getProducts = async (req, res) => {
   const products = await billingService.listProducts();
@@ -31,9 +42,14 @@ const getSubscription = async (req, res) => {
 
 const subscribe = async (req, res) => {
   const { price_id, coupon_code } = req.body;
-  if (!price_id) return res.status(400).json({ error: 'price_id is required' });
+  console.log('[razorpay ctrl →] POST /subscribe', JSON.stringify({ userId: req.user?.sub, price_id, coupon_code: coupon_code || null }));
+  if (!price_id) {
+    console.log('[razorpay ctrl ✗] POST /subscribe', 'price_id missing');
+    return res.status(400).json({ error: 'price_id is required' });
+  }
 
   const order = await billingService.createSubscribeOrder(req.user.sub, price_id, coupon_code);
+  console.log('[razorpay ctrl ←] POST /subscribe', JSON.stringify({ razorpay_order_id: order.razorpay_order_id, mode: order.mode, amount: order.amount }));
   return res.status(201).json({ success: true, data: order });
 };
 
@@ -45,11 +61,43 @@ const validateCoupon = async (req, res) => {
   return res.json({ success: true, data: result });
 };
 
+// Step 1.5: the checkout handler POSTs the payment result here for synchronous,
+// server-side signature verification + immediate activation.
+const verifyPayment = async (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+  console.log('[razorpay ctrl →] POST /verify', JSON.stringify({
+    userId: req.user?.sub,
+    razorpay_order_id, razorpay_payment_id,
+    hasSignature: Boolean(razorpay_signature),
+  }));
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    console.log('[razorpay ctrl ✗] POST /verify', 'missing required field(s)');
+    return res.status(400).json({
+      error: 'razorpay_order_id, razorpay_payment_id and razorpay_signature are required',
+    });
+  }
+
+  const result = await billingService.verifyAndActivate(req.user.sub, {
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+  });
+  console.log('[razorpay ctrl ←] POST /verify', JSON.stringify(result));
+  return res.json({ success: true, data: result });
+};
+
 const handleWebhook = async (req, res) => {
   const signature = req.headers['x-razorpay-signature'];
   const rawBody   = req.body;
 
+  console.log('[razorpay ctrl →] POST /webhook', JSON.stringify({
+    hasSignature: Boolean(signature),
+    rawBodyIsBuffer: Buffer.isBuffer(rawBody),
+    rawBodyLen: rawBody?.length || 0,
+  }));
+
   if (!signature || !billingService.verifyWebhookSignature(rawBody, signature)) {
+    console.log('[razorpay ctrl ✗] POST /webhook', 'invalid signature');
     return res.status(400).json({ success: false, error: 'Invalid signature' });
   }
 
@@ -57,6 +105,7 @@ const handleWebhook = async (req, res) => {
   try {
     parsed = JSON.parse(rawBody.toString('utf8'));
   } catch {
+    console.log('[razorpay ctrl ✗] POST /webhook', 'invalid JSON payload');
     return res.status(400).json({ success: false, error: 'Invalid JSON payload' });
   }
 
@@ -64,4 +113,4 @@ const handleWebhook = async (req, res) => {
   return res.json({ success: true });
 };
 
-module.exports = { getProducts, getSubscription, subscribe, validateCoupon, handleWebhook };
+module.exports = { getConfig, getProducts, getSubscription, subscribe, validateCoupon, verifyPayment, handleWebhook };

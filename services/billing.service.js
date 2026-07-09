@@ -5,11 +5,34 @@ const Razorpay = require('razorpay');
 const prisma  = require('../config/prisma');
 const env     = require('../config/env');
 
+// ─── DEBUG helper: single-line, secret-safe log for the Razorpay flow ─────────
+// Toggle off by setting env RAZORPAY_DEBUG=false. Never logs the key/webhook
+// secret or full signatures — only presence/length/prefix so logs stay shareable.
+function rzpLog(tag, data) {
+  if (env.razorpayDebug === false) return;
+  console.log(`[razorpay ${tag}]`, JSON.stringify(data ?? {}, null, 2));
+}
+
 function getRazorpay() {
+  rzpLog('config', {
+    keyId:            env.razorpayKeyId ? `${String(env.razorpayKeyId).slice(0, 12)}…` : null,
+    keySecretSet:     Boolean(env.razorpayKeySecret),
+    keySecretLen:     env.razorpayKeySecret?.length || 0,
+    webhookSecretSet: Boolean(env.razorpayWebhookSecret),
+    mode:             getMode(),
+  });
   if (!env.razorpayKeyId || !env.razorpayKeySecret) {
+    rzpLog('config-error', { message: 'Razorpay credentials not configured' });
     throw new Error('Razorpay credentials not configured');
   }
   return new Razorpay({ key_id: env.razorpayKeyId, key_secret: env.razorpayKeySecret });
+}
+
+// Derives the active Razorpay environment from the configured key id prefix.
+// The frontend uses this to branch (e.g. show a "Test Mode" banner); flipping the
+// key id in .env flips the whole app between test and live.
+function getMode() {
+  return (env.razorpayKeyId || '').startsWith('rzp_live_') ? 'live' : 'test';
 }
 
 async function listProducts() {
@@ -88,15 +111,19 @@ async function validateCoupon(userId, code, priceId) {
 }
 
 async function createSubscribeOrder(userId, priceId, couponCode) {
+  rzpLog('order →', { step: 'createSubscribeOrder:start', userId, priceId, couponCode: couponCode || null });
+
   const price = await prisma.price.findUnique({
     where: { id: priceId },
     include: { product: true },
   });
   if (!price || !price.is_active) {
+    rzpLog('order ✗', { step: 'price-lookup', priceId, found: Boolean(price), isActive: price?.is_active });
     const err = new Error('Price not found or inactive');
     err.status = 404;
     throw err;
   }
+  rzpLog('order', { step: 'price-resolved', priceId, amount: price.amount, currency: price.currency, plan_type: price.plan_type });
 
   let finalAmount = price.amount;
   let couponId = null;
@@ -123,12 +150,31 @@ async function createSubscribeOrder(userId, priceId, couponCode) {
   }
 
   const receiptId = `sub_${subscription.id.replace(/-/g, '').slice(0, 20)}`;
-  const rzpOrder = await rzp.orders.create({
-    amount:   finalAmount,
-    currency: price.currency,
-    receipt:  receiptId,
-    notes:    { subscription_id: subscription.id, user_id: userId, coupon_id: couponId || '' },
+  rzpLog('order →', {
+    step: 'rzp.orders.create',
+    amount: finalAmount, currency: price.currency, receipt: receiptId,
+    subscription_id: subscription.id,
   });
+
+  let rzpOrder;
+  try {
+    rzpOrder = await rzp.orders.create({
+      amount:   finalAmount,
+      currency: price.currency,
+      receipt:  receiptId,
+      notes:    { subscription_id: subscription.id, user_id: userId, coupon_id: couponId || '' },
+    });
+  } catch (e) {
+    // Razorpay SDK errors carry statusCode + error.description; surface both so a
+    // frontend "Payment Failed" can be traced to the real Razorpay rejection.
+    rzpLog('order ✗', {
+      step: 'rzp.orders.create',
+      statusCode: e?.statusCode,
+      error:      e?.error || e?.description || e?.message,
+    });
+    throw e;
+  }
+  rzpLog('order ←', { step: 'rzp.orders.create:ok', order_id: rzpOrder.id, status: rzpOrder.status, amount: rzpOrder.amount });
 
   await prisma.transaction.create({
     data: {
@@ -144,9 +190,19 @@ async function createSubscribeOrder(userId, priceId, couponCode) {
 
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { profile: true } });
 
+  rzpLog('order ←', {
+    step: 'createSubscribeOrder:return',
+    razorpay_order_id: rzpOrder.id,
+    razorpay_key_id:   env.razorpayKeyId ? `${String(env.razorpayKeyId).slice(0, 12)}…` : null,
+    mode:              getMode(),
+    amount:            finalAmount,
+    currency:          price.currency,
+  });
+
   return {
     razorpay_order_id: rzpOrder.id,
     razorpay_key_id:   env.razorpayKeyId,
+    mode:              getMode(),
     amount:            finalAmount,
     currency:          price.currency,
     subscription_id:   subscription.id,
@@ -158,19 +214,152 @@ async function createSubscribeOrder(userId, priceId, couponCode) {
   };
 }
 
+// Shared "capture + activate" path used by BOTH the payment.captured webhook and
+// the synchronous /verify endpoint. Idempotent: if the transaction is already
+// captured it returns without re-activating or double-counting the coupon, so the
+// two callers compose safely when both fire for the same payment.
+async function activateFromCapturedTransaction(txn, paymentId) {
+  if (txn.status === 'captured') {
+    return prisma.userSubscription.findUnique({ where: { id: txn.subscription_id } });
+  }
+
+  await prisma.transaction.update({
+    where: { id: txn.id },
+    data:  { status: 'captured', razorpay_payment_id: paymentId },
+  });
+
+  const now = new Date();
+  const sub = await prisma.userSubscription.findUnique({ where: { id: txn.subscription_id } });
+  if (!sub) return null;
+
+  const price = sub.price_id ? await prisma.price.findUnique({ where: { id: sub.price_id } }) : null;
+  const intervalMonths = price?.interval_months || 1;
+  const periodEnd = new Date(now);
+  periodEnd.setMonth(periodEnd.getMonth() + intervalMonths);
+
+  const updatedSub = await prisma.userSubscription.update({
+    where: { id: sub.id },
+    data: {
+      status:               'active',
+      plan_type:            price?.plan_type || 'monthly',
+      current_period_start: now,
+      current_period_end:   periodEnd,
+      trial_ends_at:        sub.trial_ends_at || now,
+    },
+  });
+
+  const metadata = txn.metadata || {};
+  if (metadata.coupon_id) {
+    const coupon = await prisma.coupon.findUnique({ where: { id: metadata.coupon_id } });
+    if (coupon) {
+      await prisma.$transaction([
+        prisma.discount.create({
+          data: { coupon_id: coupon.id, user_id: txn.user_id },
+        }),
+        prisma.coupon.update({
+          where: { id: coupon.id },
+          data:  { used_count: { increment: 1 } },
+        }),
+      ]);
+    }
+  }
+
+  return updatedSub;
+}
+
+// Step 1.5 of the Razorpay integration: verify the checkout handler's response
+// server-side before treating the payment as genuine, then activate immediately.
+// Uses the KEY secret (distinct from the webhook secret) and the documented
+// HMAC(order_id + "|" + payment_id) construction.
+async function verifyAndActivate(userId, { razorpay_order_id, razorpay_payment_id, razorpay_signature }) {
+  rzpLog('verify →', {
+    step: 'verifyAndActivate:start',
+    userId, razorpay_order_id, razorpay_payment_id,
+    // Only prefix + length of the signature — enough to confirm it arrived, safe to share.
+    signature: razorpay_signature ? `${String(razorpay_signature).slice(0, 8)}…(${razorpay_signature.length})` : null,
+  });
+
+  if (!env.razorpayKeySecret) {
+    rzpLog('verify ✗', { step: 'key-secret-missing' });
+    throw new Error('Razorpay credentials not configured');
+  }
+
+  const expected = crypto
+    .createHmac('sha256', env.razorpayKeySecret)
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+    .digest('hex');
+
+  let valid = false;
+  try {
+    valid = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(razorpay_signature));
+  } catch {
+    valid = false;
+  }
+  rzpLog('verify', {
+    step: 'signature-check',
+    valid,
+    expectedPrefix: `${expected.slice(0, 8)}…`,
+    gotPrefix:      razorpay_signature ? `${String(razorpay_signature).slice(0, 8)}…` : null,
+  });
+  if (!valid) {
+    rzpLog('verify ✗', { step: 'signature-mismatch', razorpay_order_id });
+    const err = new Error('Invalid payment signature');
+    err.status = 400;
+    throw err;
+  }
+
+  const txn = await prisma.transaction.findUnique({ where: { razorpay_order_id } });
+  if (!txn) {
+    rzpLog('verify ✗', { step: 'transaction-not-found', razorpay_order_id });
+    const err = new Error('Transaction not found for this order');
+    err.status = 404;
+    throw err;
+  }
+  if (txn.user_id !== userId) {
+    rzpLog('verify ✗', { step: 'user-mismatch', txnUser: txn.user_id, reqUser: userId });
+    const err = new Error('Order does not belong to this account');
+    err.status = 403;
+    throw err;
+  }
+
+  const sub = await activateFromCapturedTransaction(txn, razorpay_payment_id);
+  rzpLog('verify ←', { step: 'verifyAndActivate:ok', subscription_id: txn.subscription_id, status: sub?.status });
+
+  return {
+    status:          sub?.status || 'active',
+    subscription_id: txn.subscription_id,
+    current_period_end: sub?.current_period_end || null,
+  };
+}
+
 function verifyWebhookSignature(rawBody, signature) {
   const expected = crypto
     .createHmac('sha256', env.razorpayWebhookSecret)
     .update(rawBody)
     .digest('hex');
+  let ok = false;
   try {
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+    ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
   } catch {
-    return false;
+    ok = false;
   }
+  rzpLog('webhook', {
+    step: 'signature-check',
+    ok,
+    webhookSecretSet: Boolean(env.razorpayWebhookSecret),
+    rawBodyLen: rawBody?.length || 0,
+    gotSignaturePrefix: signature ? `${String(signature).slice(0, 8)}…` : null,
+  });
+  return ok;
 }
 
 async function handleWebhookEvent(event, payload) {
+  rzpLog('webhook →', {
+    step: 'event',
+    event,
+    order_id: payload?.payment?.entity?.order_id || payload?.subscription?.entity?.id || null,
+    payment_id: payload?.payment?.entity?.id || null,
+  });
   if (event === 'payment.captured') {
     const payment = payload.payment?.entity;
     if (!payment) return;
@@ -180,46 +369,7 @@ async function handleWebhookEvent(event, payload) {
     });
     if (!txn) return;
 
-    await prisma.transaction.update({
-      where: { id: txn.id },
-      data:  { status: 'captured', razorpay_payment_id: payment.id },
-    });
-
-    const now = new Date();
-    const sub = await prisma.userSubscription.findUnique({ where: { id: txn.subscription_id } });
-    if (!sub) return;
-
-    const price = sub.price_id ? await prisma.price.findUnique({ where: { id: sub.price_id } }) : null;
-    const intervalMonths = price?.interval_months || 1;
-    const periodEnd = new Date(now);
-    periodEnd.setMonth(periodEnd.getMonth() + intervalMonths);
-
-    await prisma.userSubscription.update({
-      where: { id: sub.id },
-      data: {
-        status:               'active',
-        plan_type:            price?.plan_type || 'monthly',
-        current_period_start: now,
-        current_period_end:   periodEnd,
-        trial_ends_at:        sub.trial_ends_at || now,
-      },
-    });
-
-    const metadata = txn.metadata || {};
-    if (metadata.coupon_id) {
-      const coupon = await prisma.coupon.findUnique({ where: { id: metadata.coupon_id } });
-      if (coupon) {
-        await prisma.$transaction([
-          prisma.discount.create({
-            data: { coupon_id: coupon.id, user_id: txn.user_id },
-          }),
-          prisma.coupon.update({
-            where: { id: coupon.id },
-            data:  { used_count: { increment: 1 } },
-          }),
-        ]);
-      }
-    }
+    await activateFromCapturedTransaction(txn, payment.id);
     return;
   }
 
@@ -263,10 +413,12 @@ async function handleWebhookEvent(event, payload) {
 }
 
 module.exports = {
+  getMode,
   listProducts,
   getSubscription,
   validateCoupon,
   createSubscribeOrder,
+  verifyAndActivate,
   verifyWebhookSignature,
   handleWebhookEvent,
 };
