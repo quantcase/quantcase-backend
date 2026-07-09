@@ -26,13 +26,51 @@ async function getCallById(callId) {
   return prisma.earnings_calls.findUnique({ where: { id: callId } });
 }
 
+// Interim fix until a master ticker table exists: earnings_calls alone misses
+// tickers that only have an annual report ingested (e.g. ORIENTHOT — no
+// earnings call, but present in annual_reports). Merge both sources so the
+// stock picker doesn't silently drop them.
 async function getTranscriptStocks() {
-  const companies = await prisma.earnings_calls.findMany({
-    distinct: ['company'],
-    select:   { company: true, company_name: true, basic_industry: true },
-    orderBy:  { company: 'asc' },
-  });
-  return companies.filter(item => item.company && item.company.trim().length > 0);
+  const [earningsCompanies, annualCompanies] = await Promise.all([
+    prisma.earnings_calls.findMany({
+      distinct: ['company'],
+      select:   { company: true, company_name: true, basic_industry: true },
+      orderBy:  { company: 'asc' },
+    }),
+    prisma.annual_reports.findMany({
+      distinct: ['company'],
+      select:   { company: true },
+      orderBy:  { company: 'asc' },
+    }),
+  ]);
+
+  const known = new Set(earningsCompanies.map(c => c.company));
+  const annualOnlyTickers = [...new Set(
+    annualCompanies.map(c => c.company).filter(c => c && !known.has(c))
+  )];
+
+  // Best-effort company_name backfill for annual-only tickers; basic_industry
+  // has no equivalent source outside earnings_calls, so it stays null for these.
+  const nameRows = annualOnlyTickers.length
+    ? await prisma.nse_equity_new.findMany({
+        where:    { symbol: { in: annualOnlyTickers } },
+        distinct: ['symbol'],
+        orderBy:  [{ symbol: 'asc' }, { datetime: 'desc' }],
+        select:   { symbol: true, company_name: true },
+      })
+    : [];
+  const nameBySymbol = new Map(nameRows.map(r => [r.symbol, r.company_name]));
+
+  const annualOnly = annualOnlyTickers.map(company => ({
+    company,
+    company_name:   nameBySymbol.get(company) ?? null,
+    basic_industry: null,
+    source:         'annual_report',
+  }));
+
+  return [...earningsCompanies.map(c => ({ ...c, source: 'earnings_call' })), ...annualOnly]
+    .filter(item => item.company && item.company.trim().length > 0)
+    .sort((a, b) => a.company.localeCompare(b.company));
 }
 
 async function getTranscriptCalls(symbol) {
