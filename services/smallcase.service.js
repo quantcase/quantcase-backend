@@ -67,10 +67,15 @@ async function createConnect(userId, { intent = 'HOLDINGS_IMPORT' } = {}) {
     update: {},
   });
 
+  // The frontend Gateway SDK needs a signed JWT to initialize. For the connect
+  // flow the user is not yet connected, so we sign a guest token ({ guest: true }).
+  const smallcaseAuthToken = gateway.signAuthToken();
+
   return {
-    transactionId: txn.transactionId,
-    gateway:       env.smallcaseGatewayName,
-    expireAt:      txn.expireAt,
+    transactionId:      txn.transactionId,
+    smallcaseAuthToken,
+    gateway:            env.smallcaseGatewayName,
+    expireAt:           txn.expireAt,
     intent,
   };
 }
@@ -222,7 +227,16 @@ async function createOrder(userId, { type, scid, smallcaseName, amount } = {}) {
     },
   });
 
-  return { transactionId: txn.transactionId, gateway: env.smallcaseGatewayName, expireAt: txn.expireAt };
+  // The frontend Gateway SDK needs a signed JWT to run this transaction. The user
+  // is connected here, so we sign a connected token ({ smallcaseAuthId }).
+  const smallcaseAuthToken = gateway.signAuthToken({ smallcaseAuthId: scUser.smallcase_user_id });
+
+  return {
+    transactionId:      txn.transactionId,
+    smallcaseAuthToken,
+    gateway:            env.smallcaseGatewayName,
+    expireAt:           txn.expireAt,
+  };
 }
 
 // ─── Reads ──────────────────────────────────────────────────────────────────
