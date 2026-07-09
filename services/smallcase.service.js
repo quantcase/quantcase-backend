@@ -251,6 +251,10 @@ async function getHoldings(userId) {
     throw badRequest('Smallcase account not connected', 404);
   }
 
+  // The broker lives on the SmallcaseUser (set at confirm time). All of a user's
+  // smallcase holdings are held at that same broker, so attribute each row with it.
+  const broker = scUser.broker || null;
+
   return {
     portfolio: scUser.portfolio
       ? {
@@ -261,7 +265,7 @@ async function getHoldings(userId) {
           synced_at:      scUser.portfolio.synced_at,
         }
       : null,
-    holdings: scUser.holdings,
+    holdings: scUser.holdings.map(h => ({ ...h, broker })),
   };
 }
 

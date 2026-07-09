@@ -187,6 +187,41 @@ function pillarForSlug(slug) {
   return 'deal';
 }
 
+/**
+ * Count of consecutive calendar days (ending today, with a one-day grace for
+ * yesterday) on which the user saved at least one journal entry. 0 = no active streak.
+ *
+ * `activityDates` is an array of Date objects (entry created_at/updated_at). We
+ * collapse them to unique YYYY-MM-DD strings and walk backwards from today.
+ */
+function computeStreakDays(activityDates) {
+  if (!activityDates.length) return 0;
+
+  const dayKey = (d) => {
+    const dt = new Date(d);
+    return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
+  };
+
+  const activeDays = new Set(activityDates.map(dayKey));
+
+  const cursor = new Date();
+  cursor.setHours(0, 0, 0, 0);
+
+  // Grace: if there's nothing today but something yesterday, the streak is still
+  // alive and counts from yesterday.
+  if (!activeDays.has(dayKey(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+    if (!activeDays.has(dayKey(cursor))) return 0;
+  }
+
+  let streak = 0;
+  while (activeDays.has(dayKey(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
 // ─── Health evaluation ────────────────────────────────────────────────────────
 
 async function evaluateHealth(journalId) {
@@ -371,7 +406,18 @@ async function getAllEntries(userId) {
     lensScoresByTicker[ticker] = rows;
   }));
 
-  const summary = { intact: 0, partial: 0, broken: 0, none: 0, total: tagged.length };
+  // Lifetime entry count (monotonic — every journal row the user has ever saved,
+  // independent of whether the holding still exists) and writing streak.
+  const activityDates = journals.flatMap(j => [j.created_at, j.updated_at].filter(Boolean));
+  const summary = {
+    intact:     0,
+    partial:    0,
+    broken:     0,
+    none:       0,
+    total:      tagged.length,
+    entryCount: journals.length,
+    streakDays: computeStreakDays(activityDates),
+  };
 
   const entries = tagged.map(h => {
     const sym      = h.ticker.toUpperCase();
@@ -430,7 +476,30 @@ async function getAllEntries(userId) {
     };
   });
 
-  return { summary, entries };
+  // ─── Change feed ("Since your last entry · N things changed") ───────────────
+  // Surface every journaled holding whose thesis is currently flagged (partial or
+  // broken). The health row's ai_nudge is the human-readable description of what
+  // changed, and evaluated_at is when it was detected. Most-recent first.
+  const changes = journals
+    .filter(j => {
+      const th = j.health?.thesis_health;
+      return th === 'partial' || th === 'broken';
+    })
+    .map(j => {
+      const th = j.health.thesis_health;
+      return {
+        symbol:       j.ticker.toUpperCase(),
+        thesisHealth: th,
+        description:  j.health.ai_nudge
+          ? j.health.ai_nudge
+          : `Thesis flagged ${th === 'broken' ? 'Broken' : 'At risk'}`,
+        changedAt:    (j.health.evaluated_at ?? j.updated_at).toISOString(),
+        kind:         'thesis',
+      };
+    })
+    .sort((a, b) => (a.changedAt < b.changedAt ? 1 : -1));
+
+  return { summary, entries, changes };
 }
 
 /**
