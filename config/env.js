@@ -23,6 +23,9 @@ module.exports = {
 
   // App config
   fiscalYearEnd:    process.env.FISCAL_YEAR_END || '03-31',
+  // Base URL used to build absolute links to locally-uploaded files (see
+  // routes/admin.documentUpload.routes.js) so worker.js can fetch() them.
+  publicBaseUrl:    process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 8000}`,
 
   // Razorpay
   razorpayKeyId:       process.env.RAZORPAY_KEY_ID,

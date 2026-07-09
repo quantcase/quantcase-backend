@@ -9,6 +9,8 @@
  * Pages are 1-based and inclusive.
  */
 
+const { STANDARD_FONT_DATA_URL } = require('./pdfjsConfig');
+
 const FALLBACK_CHUNK_SIZE = 80; // pages per chunk when no outline exists
 
 /**
@@ -132,7 +134,7 @@ function buildFallbackChunks(totalPages) {
  */
 async function chunkPdf(buffer) {
   const pdfjsLib  = getPdfjs();
-  const pdf       = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const pdf       = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), standardFontDataUrl: STANDARD_FONT_DATA_URL }).promise;
   const totalPages = pdf.numPages;
 
   let pageChunks;

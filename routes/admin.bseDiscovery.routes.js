@@ -14,9 +14,15 @@ const approveSchema = z.object({
   call_date:   z.string().optional(),
 });
 
+const previewSchema = z.object({
+  url:  z.string().min(1),
+  page: z.string().optional(),
+});
+
 router.post('/run',     c.triggerRun);
 router.get( '/runs',    c.getRuns);
 router.get( '/urls',    c.listUrls);
+router.get( '/preview', validate(previewSchema, 'query'), c.previewDocument);
 router.post('/approve', validate(approveSchema, 'body'), c.approve);
 
 module.exports = router;

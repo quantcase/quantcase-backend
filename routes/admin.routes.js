@@ -10,6 +10,8 @@ const schedulerController = require('../controllers/admin.scheduler.controller')
 const pipelineDispatchRouter = require('./admin.pipelineDispatch.routes');
 const companyGroupsRouter    = require('./admin.companyGroups.routes');
 const bseDiscoveryRouter     = require('./admin.bseDiscovery.routes');
+const kpiDedupRouter         = require('./admin.kpiDedup.routes');
+const documentUploadRouter   = require('./admin.documentUpload.routes');
 
 // ─── Existing admin routes ────────────────────────────────────────────────────
 
@@ -107,5 +109,14 @@ router.use('/company-groups', companyGroupsRouter);
 // ─── BSE Discovery (manual trigger on Server 2, admin approval on Server 1) ─
 
 router.use('/bse-discovery', bseDiscoveryRouter);
+
+// ─── KPI Dedup (manual, admin-triggered) ────────────────────────────────────
+// Phase 6 (per-industry KPI cap) only, exposed from scripts/dedup_kpis.js.
+
+router.use('/kpi-dedup', kpiDedupRouter);
+
+// ─── Document Upload (manual PDF upload for companies with no crawlable URL) ─
+
+router.use('/documents', documentUploadRouter);
 
 module.exports = router;

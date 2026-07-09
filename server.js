@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express  = require('express');
 const cors     = require('cors');
+const path     = require('path');
 
 const { port }     = require('./config/env');
 const prisma       = require('./config/prisma');
@@ -22,6 +23,11 @@ process.on('uncaughtException', (err) => {
 
 app.use(cors());
 app.use(express.json());
+
+// Serves admin-uploaded transcript/ppt/annual-report PDFs (see
+// routes/admin.documentUpload.routes.js) as static files so worker.js can
+// fetch() them the same way it fetches BSE-sourced URLs.
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 prisma.$connect()
   .then(() => console.log('Successfully connected to PostgreSQL database via Prisma'))

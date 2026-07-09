@@ -15,6 +15,7 @@
 
 const https = require('https');
 const http  = require('http');
+const { STANDARD_FONT_DATA_URL } = require('../utils/pdfjsConfig');
 
 const DOWNLOAD_TIMEOUT_MS  = 20_000;
 const SLEEP_BETWEEN_DL_MS  = 400;
@@ -91,6 +92,50 @@ function extractUrlsFromText(text) {
   )];
 }
 
+// Flat text of the first `maxPages` pages, whitespace-collapsed — used by
+// resolveUrl() for cover-letter detection (COVER_LETTER_RE / extractUrlsFromText
+// need the whole page as one string, not paragraph structure).
+async function extractPdfFullText(buf, maxPages = 3) {
+  const pdfjsLib  = require('pdfjs-dist/legacy/build/pdf.js');
+  const pdf       = await pdfjsLib.getDocument({ data: new Uint8Array(buf), standardFontDataUrl: STANDARD_FONT_DATA_URL }).promise;
+  const scanPages = Math.min(maxPages, pdf.numPages);
+  const parts     = [];
+  for (let i = 1; i <= scanPages; i++) {
+    const page    = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    parts.push(content.items.map(x => x.str).join(' '));
+  }
+  return parts.join('\n').replace(/\s+/g, ' ');
+}
+
+/**
+ * Extracts the full text of one page from a PDF buffer, plus the doc's total
+ * page count — used by admin.bseDiscovery.controller.js's on-demand preview
+ * endpoint so an admin can page through a candidate document (past a
+ * letterhead/cover page if needed) without opening the PDF externally.
+ *
+ * Deliberately whole-page, not a trimmed snippet: BSE filings routinely open
+ * with a letterhead/address block as their literal first "paragraphs", so a
+ * fixed N-paragraph clip just showed that and nothing else. Paginating by
+ * real PDF page lets the admin move past it themselves.
+ *
+ * @param {Buffer} buf
+ * @param {number} pageNumber — 1-indexed; clamped into [1, totalPages]
+ * @returns {Promise<{ text: string, page: number, totalPages: number }>}
+ */
+async function extractPdfPageText(buf, pageNumber = 1) {
+  const pdfjsLib   = require('pdfjs-dist/legacy/build/pdf.js');
+  const pdf        = await pdfjsLib.getDocument({ data: new Uint8Array(buf), standardFontDataUrl: STANDARD_FONT_DATA_URL }).promise;
+  const totalPages = pdf.numPages;
+  const page       = Math.min(Math.max(parseInt(pageNumber, 10) || 1, 1), totalPages);
+
+  const pdfPage = await pdf.getPage(page);
+  const content = await pdfPage.getTextContent();
+  const text    = content.items.map(x => x.str).join(' ').replace(/\s+/g, ' ').trim();
+
+  return { text, page, totalPages };
+}
+
 /**
  * Attempt to resolve a single BSE URL (AttachLive/ or AttachHis/).
  * Tries the given URL first; if 404, tries the other base path automatically.
@@ -134,16 +179,7 @@ async function resolveUrl(bseUrl) {
 
   let text = '';
   try {
-    const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
-    const pdf      = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
-    const scanPages = Math.min(3, pdf.numPages);
-    const parts = [];
-    for (let i = 1; i <= scanPages; i++) {
-      const page    = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      parts.push(content.items.map(x => x.str).join(' '));
-    }
-    text = parts.join('\n').replace(/\s+/g, ' ');
+    text = await extractPdfFullText(buf);
   } catch {
     // PDF parse error — keep original
     return [bseUrl];
@@ -203,4 +239,4 @@ async function resolveUrlArray(urls) {
   return all;
 }
 
-module.exports = { resolveUrl, resolveUrlArray };
+module.exports = { resolveUrl, resolveUrlArray, fetchBuffer, extractPdfPageText };

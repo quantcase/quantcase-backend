@@ -23,37 +23,11 @@
  *   node scripts/dedup_kpis.js --execute --kpis-only   # skip signal table ops (faster)
  */
 
-// ─── Per-industry KPI cap configuration ──────────────────────────────────────
-// Default: min(CAP_MAX, max(CAP_MIN, company_count × PER_CO_MULTIPLIER))
-// Override specific industries below where the formula under/overshoots.
-const PER_CO_MULTIPLIER = 18;
-const CAP_MIN = 300;
-const CAP_MAX = 1000;
-
-const INDUSTRY_CAP_OVERRIDES = {
-  // Metric-heavy regulated industries — formula undershoots
-  'Private Sector Bank':            650,
-  'Public Sector Bank':             600,
-  'Non Banking Financial Company (NBFC)': 650,
-  'NBFC':                           500,
-  'Housing Finance Company':        500,
-  'Life Insurance':                 500,
-  'General Insurance':              450,
-  'Microfinance Institutions':      400,
-  'Financial Technology (Fintech)': 450,
-  'Hospital':                       500,
-  // Diversified / holding — many sub-segments inflate counts
-  'Holding Company':                500,
-  'Diversified':                    500,
-};
-
-function getIndustryCap(industry, companyCount) {
-  if (INDUSTRY_CAP_OVERRIDES[industry] !== undefined) return INDUSTRY_CAP_OVERRIDES[industry];
-  return Math.min(CAP_MAX, Math.max(CAP_MIN, companyCount * PER_CO_MULTIPLIER));
-}
-
 require('dotenv').config();
 const prisma = require('../config/prisma');
+// Phase 6's per-industry cap config/logic lives in services/kpiDedup.service.js —
+// shared with the admin-triggered endpoint (routes/admin.kpiDedup.routes.js).
+const { runKpiDedupPhase6 } = require('../services/kpiDedup.service');
 
 const DRY_RUN    = !process.argv.includes('--execute');
 const KPIS_ONLY  = process.argv.includes('--kpis-only'); // skip signal table ops, only delete kpis rows
@@ -441,101 +415,32 @@ async function phase5() {
 // For each industry, keeps the top-K KPIs by cross-company signal count.
 // A KPI is only deleted if it falls below the cap in EVERY industry it belongs to
 // (prevents removing a KPI that's highly used in a second industry).
+// Logic lives in services/kpiDedup.service.js — this just prints the report.
 async function phase6() {
   log('\n══ PHASE 6 — Per-industry KPI cap ══');
 
-  // 1. Company count per industry
-  const [, companyRows] = await prisma.$transaction([
-    prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
-    prisma.$queryRaw`
-      SELECT basic_industry, COUNT(DISTINCT company)::int AS company_count
-      FROM earnings_calls
-      WHERE basic_industry IS NOT NULL
-      GROUP BY basic_industry
-    `,
-  ]);
-  const companyCountMap = new Map(companyRows.map(r => [r.basic_industry, Number(r.company_count)]));
+  const report = await runKpiDedupPhase6({ execute: !DRY_RUN });
 
-  // 2. Cross-company signal count per KPI
-  const [, signalRows] = await prisma.$transaction([
-    prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
-    prisma.$queryRaw`
-      SELECT metric, COUNT(DISTINCT call_id)::int AS co_count
-      FROM transcript_signals_v2
-      WHERE is_invalidated = false
-      GROUP BY metric
-    `,
-  ]);
-  const signalMap = new Map(signalRows.map(r => [r.metric, Number(r.co_count)]));
+  log(`  Industries processed: ${report.industriesProcessed}`);
+  log(`  Total over-cap slots: ${report.totalOverCapSlots}`);
+  log(`  Transcript KPIs total: ${report.totalKpisBefore}`);
+  log(`  KPIs deletable (over-cap in ALL their industries): ${report.deletableCount}`);
+  log(`  KPIs remaining after: ${report.remainingCount}`);
 
-  // 3. All transcript KPIs with their industry arrays
-  const allKpis = await prisma.kpi.findMany({
-    where: { source: 'transcript' },
-    select: { abbr: true, industry: true },
-  });
-
-  // 4. For each industry, rank KPIs by co_count and mark those over-cap
-  const overCapByIndustry = new Map(); // industry → Set of over-cap abbrs
-  const industryKpis = new Map();      // industry → [{abbr, coCount}]
-
-  for (const kpi of allKpis) {
-    for (const ind of kpi.industry) {
-      if (!industryKpis.has(ind)) industryKpis.set(ind, []);
-      industryKpis.get(ind).push({ abbr: kpi.abbr, coCount: signalMap.get(kpi.abbr) ?? 0 });
-    }
-  }
-
-  let totalOverCap = 0;
-  for (const [ind, kpis] of industryKpis) {
-    const cap = getIndustryCap(ind, companyCountMap.get(ind) ?? 1);
-    kpis.sort((a, b) => b.coCount - a.coCount);
-    const tail = kpis.slice(cap);
-    if (tail.length) {
-      overCapByIndustry.set(ind, new Set(tail.map(k => k.abbr)));
-      totalOverCap += tail.length;
-    }
-  }
-
-  // 5. Only delete KPIs that are over-cap in ALL their industries
-  const toDelete = [];
-  for (const kpi of allKpis) {
-    if (!kpi.industry.length) continue;
-    const overInAll = kpi.industry.every(ind => overCapByIndustry.get(ind)?.has(kpi.abbr));
-    if (overInAll) toDelete.push(kpi.abbr);
-  }
-
-  log(`  Industries processed: ${industryKpis.size}`);
-  log(`  Total over-cap slots: ${totalOverCap}`);
-  log(`  KPIs deletable (over-cap in ALL their industries): ${toDelete.length}`);
-
-  // Show cap table for top 20 industries by KPI count
-  const topInds = [...industryKpis.entries()]
-    .sort((a, b) => b[1].length - a[1].length)
-    .slice(0, 20);
-  log('\n  industry'.padEnd(53) + 'cos'.padStart(5) + 'kpis'.padStart(7) + 'cap'.padStart(6) + 'del'.padStart(6));
-  for (const [ind, kpis] of topInds) {
-    const cos = companyCountMap.get(ind) ?? '?';
-    const cap = getIndustryCap(ind, companyCountMap.get(ind) ?? 1);
-    const del = overCapByIndustry.get(ind)?.size ?? 0;
-    log(`  ${ind.padEnd(50)}${String(cos).padStart(5)}${String(kpis.length).padStart(7)}${String(cap).padStart(6)}${String(del).padStart(6)}`);
+  const topInds = report.industries.slice(0, 20);
+  log('\n  industry'.padEnd(53) + 'cos'.padStart(5) + 'kpis'.padStart(7) + 'cap'.padStart(6) + 'del'.padStart(6) + 'rem'.padStart(7));
+  for (const ind of topInds) {
+    log(`  ${ind.industry.padEnd(50)}${String(ind.companyCount).padStart(5)}${String(ind.kpiCount).padStart(7)}${String(ind.cap).padStart(6)}${String(ind.actualDeleteCount).padStart(6)}${String(ind.remainingCount).padStart(7)}`);
   }
 
   if (DRY_RUN) {
-    log(`\n  [DRY RUN] Would delete ${toDelete.length} KPI rows`);
-    toDelete.slice(0, 20).forEach(a => log(`    ${a}`));
-    if (toDelete.length > 20) log(`    ... +${toDelete.length - 20} more`);
+    log(`\n  [DRY RUN] Would delete ${report.deletableCount} KPI rows`);
+    report.deletableSample.slice(0, 20).forEach(a => log(`    ${a}`));
+    if (report.deletableCount > 20) log(`    ... +${report.deletableCount - 20} more`);
     return;
   }
 
-  const CHUNK = 500;
-  let deleted = 0;
-  for (let i = 0; i < toDelete.length; i += CHUNK) {
-    const chunk = toDelete.slice(i, i + CHUNK);
-    const result = await prisma.kpi.deleteMany({ where: { abbr: { in: chunk } } });
-    deleted += result.count;
-    process.stdout.write(`\r  KPIs deleted: ${deleted}/${toDelete.length}`);
-  }
-  log(`\n  Deleted ${deleted} KPI rows`);
+  log(`\n  Deleted ${report.deletedCount} KPI rows`);
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────────

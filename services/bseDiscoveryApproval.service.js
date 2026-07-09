@@ -58,6 +58,45 @@ function matchCompanyTicker(companyTickerMap, bseCompanyName) {
   return companyTickerMap.get(normalizeCompanyName(bseCompanyName)) ?? null;
 }
 
+// Batched read-only lookup of what's already stored for a set of candidate
+// (company, fiscal_year, quarter) / (company, fiscal_year) slots — lets
+// listUrls warn an admin "you're about to overwrite X" before they approve,
+// without one findUnique/findFirst per row. Mirrors the write-side upsert
+// keys used by approveTranscriptOrPpt/approveAnnualReport below, but never
+// writes.
+//
+// @param {{company, fiscal_year, quarter}[]} transcriptPptKeys
+// @param {{company, fiscal_year}[]} annualReportKeys
+// @returns {{ transcriptPptMap: Map<string,{transcript_url,ppt_url}>, annualReportMap: Map<string,string> }}
+async function loadExistingUrls({ transcriptPptKeys = [], annualReportKeys = [] } = {}) {
+  const transcriptPptMap = new Map();
+  const annualReportMap  = new Map();
+
+  if (transcriptPptKeys.length) {
+    const rows = await prisma.earnings_calls.findMany({
+      where:  { OR: transcriptPptKeys.map(({ company, fiscal_year, quarter }) => ({ company, fiscal_year, quarter })) },
+      select: { company: true, fiscal_year: true, quarter: true, transcript_url: true, ppt_url: true },
+    });
+    for (const r of rows) {
+      transcriptPptMap.set(`${r.company}|${r.fiscal_year}|${r.quarter}`, { transcript_url: r.transcript_url, ppt_url: r.ppt_url });
+    }
+  }
+
+  if (annualReportKeys.length) {
+    const rows = await prisma.annual_reports.findMany({
+      where:  { document_type: 'annual_report', OR: annualReportKeys.map(({ company, fiscal_year }) => ({ company, fiscal_year })) },
+      select: { company: true, fiscal_year: true, annual_report_url: true },
+    });
+    // findFirst-equivalent: keep the first row seen per key, matching approveAnnualReport's semantics.
+    for (const r of rows) {
+      const key = `${r.company}|${r.fiscal_year}`;
+      if (!annualReportMap.has(key)) annualReportMap.set(key, r.annual_report_url);
+    }
+  }
+
+  return { transcriptPptMap, annualReportMap };
+}
+
 async function approveTranscriptOrPpt({ docType, url, company, fiscal_year, quarter, call_date }) {
   const field = docType === 'transcript' ? 'transcript_url' : 'ppt_url';
 
@@ -126,4 +165,4 @@ async function approveCandidate({ docType, url, company, fiscal_year, quarter, c
   return approveTranscriptOrPpt({ docType, url, company, fiscal_year, quarter, call_date: call_date ?? null });
 }
 
-module.exports = { suggestFiscalYearQuarter, loadCompanyTickerMap, matchCompanyTicker, approveCandidate };
+module.exports = { suggestFiscalYearQuarter, loadCompanyTickerMap, matchCompanyTicker, loadExistingUrls, approveCandidate };
