@@ -5,9 +5,18 @@ const { PDFDocument }   = require('pdf-lib');
 const prisma            = require('../config/prisma');
 const jobQueue          = require('../lib/jobQueue');
 
-const V2_PAGES_PER_CHUNK    = 15;
-const V2_MAX_CHUNKS         = 4;
-const AR_V2_PAGES_PER_CHUNK = 20;
+// Sizing tuned against pipeline_job_failures: LLM output was truncating
+// (finish_reason=length) at the old page-per-chunk targets even when nowhere
+// near V2_MAX_CHUNKS — the model's real output ceiling (~65K tokens for
+// google/gemini-2.5-flash-lite) is below the configured Skill.maxTokens, so
+// the fix is smaller chunks, not a bigger maxTokens. MAX_CHUNKS caps are
+// raised well past what these smaller per-chunk sizes need for real
+// documents — they're just a safety net against pathologically long PDFs.
+const V2_PAGES_PER_CHUNK     = 8;  // transcript
+const V2_PPT_PAGES_PER_CHUNK = 6;  // PPT slides are more data-dense per page than transcripts
+const V2_MAX_CHUNKS          = 20;
+const AR_V2_PAGES_PER_CHUNK  = 10;
+const AR_V2_MAX_CHUNKS       = 150; // largest AR seen in pipeline_job_failures was ~980 pages (49 chunks @ old 20/chunk); this keeps ~10/chunk up to ~1500 pages
 
 const STATE_TO_STATUS = {
   waiting:   'pending',
@@ -161,7 +170,7 @@ async function addSummarizationV2PptJobs(callId) {
   const srcDoc      = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const pageCount   = srcDoc.getPageCount();
 
-  const numChunks = Math.min(V2_MAX_CHUNKS, Math.max(1, Math.ceil(pageCount / V2_PAGES_PER_CHUNK)));
+  const numChunks = Math.min(V2_MAX_CHUNKS, Math.max(1, Math.ceil(pageCount / V2_PPT_PAGES_PER_CHUNK)));
   const perChunk  = Math.ceil(pageCount / numChunks);
   const lineageId = randomUUID();
   const jobs      = [];
@@ -201,13 +210,14 @@ async function addSummarizationV2AnnualReportJobs(reportId) {
   const srcDoc      = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const pageCount   = srcDoc.getPageCount();
 
-  const numChunks = Math.max(1, Math.ceil(pageCount / AR_V2_PAGES_PER_CHUNK));
+  const numChunks = Math.min(AR_V2_MAX_CHUNKS, Math.max(1, Math.ceil(pageCount / AR_V2_PAGES_PER_CHUNK)));
+  const perChunk  = Math.ceil(pageCount / numChunks);
   const lineageId = randomUUID();
   const jobs      = [];
 
   for (let i = 0; i < numChunks; i++) {
-    const pageStart = i * AR_V2_PAGES_PER_CHUNK;
-    const pageEnd   = Math.min(pageStart + AR_V2_PAGES_PER_CHUNK, pageCount);
+    const pageStart = i * perChunk;
+    const pageEnd   = Math.min(pageStart + perChunk, pageCount);
     const job = await jobQueue.addJob('summarization_v2_annual_report', {
       reportId:         reportId.toString(),
       annualReportUrl:  report.annual_report_url,
