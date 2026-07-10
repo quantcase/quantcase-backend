@@ -9,13 +9,21 @@ const L1_MULTI_SLUG = 'pipeline-dispatch-l1-multi';
 const L2_MULTI_SLUG = 'pipeline-dispatch-l2-multi';
 
 // GET /admin/pipeline-dispatch/l1-multi/options
+// companies mirrors getTranscriptStocks' earnings_calls + annual_reports merge
+// (services/calls.service.js) — otherwise annual-only tickers (e.g. ORIENTHOT,
+// no earnings call ingested) are picked up fine by processAnnualReports but
+// can never be selected here in the first place.
 const getL1MultiOptions = async (req, res, next) => {
   try {
-    const [rows, groups] = await Promise.all([
+    const [callRows, reportRows, groups] = await Promise.all([
       prisma.earnings_calls.findMany({ select: { company: true }, distinct: ['company'] }),
+      prisma.annual_reports.findMany({ select: { company: true }, distinct: ['company'] }),
       listGroups(),
     ]);
-    const companies = rows.map(r => r.company).filter(Boolean).sort();
+    const companies = [...new Set([
+      ...callRows.map(r => r.company),
+      ...reportRows.map(r => r.company),
+    ])].filter(Boolean).sort();
     const companyGroups = groups.map(g => ({ slug: g.slug, name: g.name, filter_type: g.filter_type }));
     res.json({ defaultTickers: DEFAULT_TARGET_TICKERS, companies, companyGroups });
   } catch (err) {
