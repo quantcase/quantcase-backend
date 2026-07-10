@@ -98,13 +98,17 @@ const getL1MultiRuns = async (req, res, next) => {
 // itself — no dedicated tag endpoint, it's just a field on the group).
 const getL2MultiOptions = async (req, res, next) => {
   try {
-    const [rows, groups, skills, configs] = await Promise.all([
+    const [callRows, reportRows, groups, skills, configs] = await Promise.all([
       prisma.earnings_calls.findMany({ select: { company: true }, distinct: ['company'] }),
+      prisma.annual_reports.findMany({ select: { company: true }, distinct: ['company'] }),
       listGroups(),
       prisma.htmlIncrementalSkill.findMany({ where: { is_active: true }, select: { slug: true, name: true }, orderBy: { slug: 'asc' } }),
       prisma.htmlIncrementalSkillConfig.findMany({ where: { is_active: true }, select: { key: true, name: true }, distinct: ['key'] }),
     ]);
-    const companies = rows.map(r => r.company).filter(Boolean).sort();
+    const companies = [...new Set([
+      ...callRows.map(r => r.company),
+      ...reportRows.map(r => r.company),
+    ])].filter(Boolean).sort();
     const companyGroups = groups.map(g => ({ slug: g.slug, name: g.name, filter_type: g.filter_type, config_key: g.config_key }));
     const configKeys = [...new Map(configs.map(c => [c.key, c])).values()].sort((a, b) => a.key.localeCompare(b.key));
     res.json({ skills, companies, companyGroups, configKeys });

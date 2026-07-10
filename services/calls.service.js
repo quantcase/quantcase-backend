@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma = require('../config/prisma');
+const { loadIdentityMap } = require('../lib/prowess');
 
 async function listCalls(page, size) {
   const skip = (page - 1) * size;
@@ -49,21 +50,17 @@ async function getTranscriptStocks() {
     annualCompanies.map(c => c.company).filter(c => c && !known.has(c))
   )];
 
-  // Best-effort company_name backfill for annual-only tickers; basic_industry
-  // has no equivalent source outside earnings_calls, so it stays null for these.
-  const nameRows = annualOnlyTickers.length
-    ? await prisma.nse_equity_new.findMany({
-        where:    { symbol: { in: annualOnlyTickers } },
-        distinct: ['symbol'],
-        orderBy:  [{ symbol: 'asc' }, { datetime: 'desc' }],
-        select:   { symbol: true, company_name: true },
-      })
-    : [];
-  const nameBySymbol = new Map(nameRows.map(r => [r.symbol, r.company_name]));
+  // Best-effort company_name backfill for annual-only tickers, from the
+  // Prowess identity CSV (lib/osc_identity.csv, via lib/prowess.js) instead of
+  // querying nse_equity_new — that DB query took ~9s on this 1.2M-row table
+  // and only covered 795/985 tickers; the CSV is an in-memory lookup (covers
+  // 888/985) with no query cost at all. basic_industry has no equivalent
+  // source outside earnings_calls, so it stays null for these.
+  const identityMap = loadIdentityMap();
 
   const annualOnly = annualOnlyTickers.map(company => ({
     company,
-    company_name:   nameBySymbol.get(company) ?? null,
+    company_name:   identityMap[company.toUpperCase()] ?? null,
     basic_industry: null,
     source:         'annual_report',
   }));
