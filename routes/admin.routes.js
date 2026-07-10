@@ -12,6 +12,7 @@ const companyGroupsRouter    = require('./admin.companyGroups.routes');
 const bseDiscoveryRouter     = require('./admin.bseDiscovery.routes');
 const kpiDedupRouter         = require('./admin.kpiDedup.routes');
 const documentUploadRouter   = require('./admin.documentUpload.routes');
+const pipelineJobsRouter     = require('./admin.pipelineJobs.routes');
 
 // ─── Existing admin routes ────────────────────────────────────────────────────
 
@@ -118,5 +119,10 @@ router.use('/kpi-dedup', kpiDedupRouter);
 // ─── Document Upload (manual PDF upload for companies with no crawlable URL) ─
 
 router.use('/documents', documentUploadRouter);
+
+// ─── Pipeline Jobs (admin retry/split of failed summarization-v2 chunks) ────
+// Redis-only (no Postgres table) — reads/writes BullMQ's own `failed` set.
+
+router.use('/pipeline-jobs', pipelineJobsRouter);
 
 module.exports = router;
