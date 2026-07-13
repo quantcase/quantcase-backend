@@ -10,6 +10,7 @@
  */
 
 const prisma = require('../config/prisma');
+const { loadIdentityMap } = require('../lib/prowess');
 
 // Same Indian-FY (Apr–Mar) derivation as scripts/importConcalls.js, applied
 // to a BSE scrape_date instead of a concall call_date.
@@ -37,15 +38,35 @@ function normalizeCompanyName(name) {
 
 // Load once per request (not per-URL) — building a normalized-name → ticker
 // map so listUrls can look up suggestions for many rows without N queries.
+// Merges earnings_calls + annual_reports tickers (mirrors the merge in
+// calls.service.js's getTranscriptStocks / admin.pipelineDispatch.controller.js's
+// getL1MultiOptions) — otherwise annual-only tickers (e.g. ORIENTHOT, no
+// earnings call ingested yet) can never get a ticker suggestion here. Falls
+// back to the osc_identity CSV (lib/prowess.js) for company_name, both for
+// annual_reports rows (which have no company_name column at all) and for
+// earnings_calls rows where company_name hasn't been backfilled.
 async function loadCompanyTickerMap() {
-  const rows = await prisma.earnings_calls.findMany({
-    select:   { company: true, company_name: true },
-    distinct: ['company'],
-  });
+  const [callRows, reportRows] = await Promise.all([
+    prisma.earnings_calls.findMany({
+      select:   { company: true, company_name: true },
+      distinct: ['company'],
+    }),
+    prisma.annual_reports.findMany({
+      select:   { company: true },
+      distinct: ['company'],
+    }),
+  ]);
 
+  const identityMap = loadIdentityMap();
   const map = new Map();
-  for (const r of rows) {
-    const key = normalizeCompanyName(r.company_name);
+  for (const r of callRows) {
+    if (!r.company) continue;
+    const key = normalizeCompanyName(r.company_name ?? identityMap[r.company.toUpperCase()]);
+    if (key && !map.has(key)) map.set(key, r.company);
+  }
+  for (const r of reportRows) {
+    if (!r.company) continue;
+    const key = normalizeCompanyName(identityMap[r.company.toUpperCase()]);
     if (key && !map.has(key)) map.set(key, r.company);
   }
   return map;
@@ -115,6 +136,7 @@ async function approveTranscriptOrPpt({ docType, url, company, fiscal_year, quar
     data: {
       id: `${company}_${fiscal_year}_${quarter}`,
       company, fiscal_year, quarter, call_date,
+      company_name: loadIdentityMap()[company.toUpperCase()] ?? null,
       [field]: url,
     },
   });

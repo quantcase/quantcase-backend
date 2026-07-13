@@ -43,32 +43,41 @@ function getIndustryCap(industry, companyCount) {
 
 // execute: false (default) — report only, no deletes. execute: true — actually deletes.
 async function runKpiDedupPhase6({ execute = false } = {}) {
-  const [, companyRows] = await prisma.$transaction([
-    prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
-    prisma.$queryRaw`
-      SELECT basic_industry, COUNT(DISTINCT company)::int AS company_count
-      FROM earnings_calls
-      WHERE basic_industry IS NOT NULL
-      GROUP BY basic_industry
-    `,
+  const [companyRows, allKpis] = await Promise.all([
+    prisma.$transaction([
+      prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
+      prisma.$queryRaw`
+        SELECT basic_industry, COUNT(DISTINCT company)::int AS company_count
+        FROM earnings_calls
+        WHERE basic_industry IS NOT NULL
+        GROUP BY basic_industry
+      `,
+    ]).then(([, rows]) => rows),
+    prisma.kpi.findMany({
+      where:  { source: 'transcript' },
+      select: { abbr: true, industry: true },
+    }),
   ]);
   const companyCountMap = new Map(companyRows.map(r => [r.basic_industry, Number(r.company_count)]));
 
+  // Backed by a partial covering index (metric, call_id) WHERE is_invalidated
+  // = false — see scripts/add_tsv2_metric_callid_index.sql. `metric` in
+  // transcript_signals_v2 has ~2.3M distinct raw values (pre phases-1-5
+  // canonicalization) but only the ~23k current kpi.abbr values are ever
+  // looked up below (signalMap.get(kpi.abbr)) — constraining to that list
+  // keeps the result set (and the Prisma row-transfer/deserialize cost) at
+  // ~23k rows instead of shipping 2.3M unused rows back to Node.
+  const kpiAbbrs = allKpis.map(k => k.abbr);
   const [, signalRows] = await prisma.$transaction([
     prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = 0`),
     prisma.$queryRaw`
       SELECT metric, COUNT(DISTINCT call_id)::int AS co_count
       FROM transcript_signals_v2
-      WHERE is_invalidated = false
+      WHERE is_invalidated = false AND metric = ANY(${kpiAbbrs}::text[])
       GROUP BY metric
     `,
   ]);
   const signalMap = new Map(signalRows.map(r => [r.metric, Number(r.co_count)]));
-
-  const allKpis = await prisma.kpi.findMany({
-    where:  { source: 'transcript' },
-    select: { abbr: true, industry: true },
-  });
 
   const overCapByIndustry = new Map(); // industry → Set of over-cap abbrs
   const industryKpis      = new Map(); // industry → [{abbr, coCount}]
