@@ -74,7 +74,11 @@ async function register({ email, mobile, password, display_name }) {
 async function getFullProfile(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    include: { profile: true, subscription: true },
+    include: {
+      profile: true,
+      subscription: true,
+      smallcase_user: { include: { _count: { select: { holdings: true } } } },
+    },
   });
 
   if (!user) {
@@ -113,6 +117,14 @@ async function getFullProfile(userId) {
           ...accessState,
         }
       : null,
+    smallcase: user.smallcase_user
+      ? {
+          is_connected:   user.smallcase_user.is_connected,
+          broker:         user.smallcase_user.broker,
+          last_synced_at: user.smallcase_user.last_synced_at,
+          holdings_count: user.smallcase_user._count.holdings,
+        }
+      : { is_connected: false, broker: null, last_synced_at: null, holdings_count: 0 },
   };
 }
 

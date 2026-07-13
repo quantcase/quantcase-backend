@@ -16,6 +16,7 @@
     "db:studio": "prisma studio",
     "db:seed:billing": "node prisma/seedBilling.js",
     "db:seed:scheduler": "node scripts/seedSchedulerJobs.js",
+    "db:seed:post-html-analysis": "node scripts/seedPostHtmlAnalysisConfigs.js",
     "db:create:bse": "node scripts/createBseDiscoveredUrls.js"
   },
   "keywords": [],

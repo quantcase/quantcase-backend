@@ -209,8 +209,10 @@ async function createOrder(userId, { type, scid, smallcaseName, amount } = {}) {
     throw badRequest('Smallcase account not connected');
   }
 
-  const orderConfig = { type: normalizedType.toUpperCase(), scid };
-  if (amount != null) orderConfig.amount = amount;
+  const security = { ticker: scid, type: normalizedType.toUpperCase() };
+  if (amount != null) security.amount = amount;
+
+  const orderConfig = { type: 'SECURITIES', securities: [security] };
 
   const txn = await gateway.createTransaction('TRANSACTION', { orderConfig }, scUser.smallcase_user_id);
 
