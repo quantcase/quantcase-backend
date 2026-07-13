@@ -347,6 +347,56 @@ model AiInsight {
   @@map("ai_insights")
 }
 
+// Prompt/schema config for the post-HTML-analysis pipeline (L3/L4), keyed by
+// layer_id ("l3" | "l4") + type ("management" | "opportunity" | "deal" | "summary").
+// L3 configs synthesise the 4 lens-level HtmlIncrementalSkillOutput HTML blocks
+// (per lib/postHtmlAnalysisLenses.js) for one type into a verdict; the single L4
+// config synthesises the 3 L3 PostHtmlAnalysis results into a top-level summary.
+model PostHtmlAnalysisConfig {
+  id            String   @id @default(uuid())
+  layer_id      String
+  type          String
+  name          String
+  prompt        String
+  output_schema Json
+  model         String?
+  max_tokens    Int?
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  results       PostHtmlAnalysis[]
+
+  @@unique([layer_id, type])
+  @@index([layer_id])
+  @@map("post_html_analysis_configs")
+}
+
+// Result of running a PostHtmlAnalysisConfig for a given ticker. One row per
+// (layer_id, type, ticker) — latest run wins, same convention as ai_insights.
+model PostHtmlAnalysis {
+  id            String                 @id @default(uuid())
+  layer_id      String
+  type          String
+  ticker        String
+  fiscal_year   String?
+  quarter       String?
+  config_id     String
+  input_hash    String?
+  result        Json
+  model         String
+  input_tokens  Int?
+  output_tokens Int?
+  cost_usd      Float?
+  created_at    DateTime               @default(now())
+  updated_at    DateTime               @updatedAt
+  config        PostHtmlAnalysisConfig @relation(fields: [config_id], references: [id], onDelete: Cascade)
+
+  @@unique([layer_id, type, ticker])
+  @@index([ticker])
+  @@index([layer_id, type])
+  @@map("post_html_analysis")
+}
+
 // ─── Skills & Plugins ─────────────────────────────────────────────────────────
 
 model HtmlSkill {
