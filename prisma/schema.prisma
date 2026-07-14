@@ -653,9 +653,9 @@ model PluginSkill {
 // ─── Market Data ──────────────────────────────────────────────────────────────
 
 model nse_equity_new {
-  symbol        String   @db.VarChar
-  company_name  String   @db.VarChar
-  datetime      DateTime @db.Date
+  symbol        String    @db.VarChar
+  company_name  String    @db.VarChar
+  datetime      DateTime  @db.Date
   open          Float?
   high          Float?
   low           Float?
@@ -664,6 +664,9 @@ model nse_equity_new {
   pe            Float?
   eps           Float?
   market_cap_cr Float?
+  created_at    DateTime? @db.Timestamp(6)
+  updated_at    DateTime? @db.Timestamp(6)
+  pct_change    Float?
 
   @@id([symbol, datetime])
   @@map("nse_equity_new")
@@ -999,6 +1002,7 @@ model User {
   transactions      Transaction[]
   discounts         Discount[]
   smallcase_user    SmallcaseUser?
+  error_reports     ErrorReport[]
 
   @@index([email])
   @@index([mobile])
@@ -1332,6 +1336,51 @@ model Transaction {
   @@index([razorpay_order_id])
   @@index([status])
   @@map("qc_transactions")
+}
+
+// ─── Error Reporting ──────────────────────────────────────────────────────────
+
+// User-submitted bug/error report from the frontend's "Report Error" button.
+// user_id is nullable — the reporter may be logged out (e.g. hit an error on
+// the login screen itself), so the API accepts reports without a valid session.
+model ErrorReport {
+  id            String            @id @default(uuid())
+  category      ErrorReportCategory @default(other)
+  message       String // user's own description of what went wrong
+  page_url      String? @map("page_url")
+  error_message String? @map("error_message") // client-captured exception message/stack, if any
+  user_id       String? @map("user_id")
+  user_email    String? @map("user_email") // captured verbatim from client even if user_id resolves, for reports from stale/expired sessions
+  user_agent    String? @map("user_agent")
+  metadata      Json? // free-form client context: viewport, app version, redux state slice, etc.
+  status        ErrorReportStatus @default(open)
+  admin_notes   String? @map("admin_notes")
+  created_at    DateTime          @default(now())
+  updated_at    DateTime          @updatedAt
+  user          User?             @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([status])
+  @@index([category])
+  @@index([created_at])
+  @@map("qc_error_reports")
+}
+
+enum ErrorReportCategory {
+  bug
+  data_issue
+  performance
+  ui_ux
+  login_auth
+  payment_billing
+  other
+}
+
+enum ErrorReportStatus {
+  open
+  in_progress
+  resolved
+  wont_fix
 }
 
 // ─── Smallcase ────────────────────────────────────────────────────────────────

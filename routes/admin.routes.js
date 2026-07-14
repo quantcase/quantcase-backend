@@ -17,6 +17,7 @@ const kpisRouter             = require('./admin.kpis.routes');
 const prowessHistoricRouter  = require('./admin.prowessHistoric.routes');
 const prowessBatchRouter     = require('./admin.prowessBatch.routes');
 const invitesRouter          = require('./admin.invites.routes');
+const errorReportsRouter     = require('./admin.errorReports.routes');
 
 // ─── Existing admin routes ────────────────────────────────────────────────────
 
@@ -146,5 +147,9 @@ router.use('/prowess/batch', prowessBatchRouter);
 // ─── Invites (invite-only registration) ─────────────────────────────────────
 
 router.use('/invites', invitesRouter);
+
+// ─── Error Reports (triage for the frontend "Report Error" button) ─────────
+
+router.use('/error-reports', errorReportsRouter);
 
 module.exports = router;
