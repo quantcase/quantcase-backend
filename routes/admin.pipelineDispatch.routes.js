@@ -56,4 +56,30 @@ router.post( '/l2-multi/preview/csv', validate(l2MultiOptionsSchema, 'body'), pi
 router.post( '/l2-multi/run',         validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.runL2Multi);
 router.get(  '/l2-multi/runs',        pipelineDispatchController.getL2MultiRuns);
 
+// ─── L3 Multi-Dispatch (post-html-analysis runs) ──────────────────────────────
+// One job-fanout POST per ticker (to POST /api/post-html-analysis, which
+// itself enqueues one job per requested type) — no configKey concept here,
+// unlike L2: PostHtmlAnalysisConfig has no per-group config variant yet, only
+// one config per (layer_id, type) globally (see l3MultiDispatch.service.js
+// module docstring).
+
+const l3MultiOptionsSchema = z.object({
+  layerId:   z.enum(['l3', 'l4']).optional(),
+  types:     z.array(z.string()).optional(),
+  groupSlug: z.string().optional(),
+  tickers:   z.array(z.string()).optional(),
+  all:       z.boolean().optional(),
+  startFrom: z.string().optional(),
+  force:     z.boolean().optional(),
+  // Preview-only — paginates the resolved ticker list. Ignored by /run.
+  page:      z.number().int().positive().optional(),
+  pageSize:  z.number().int().positive().optional(),
+});
+
+router.get(  '/l3-multi/options',     pipelineDispatchController.getL3MultiOptions);
+router.post( '/l3-multi/preview',     validate(l3MultiOptionsSchema, 'body'), pipelineDispatchController.previewL3Multi);
+router.post( '/l3-multi/preview/csv', validate(l3MultiOptionsSchema, 'body'), pipelineDispatchController.previewL3MultiCsv);
+router.post( '/l3-multi/run',         validate(l3MultiOptionsSchema, 'body'), pipelineDispatchController.runL3Multi);
+router.get(  '/l3-multi/runs',        pipelineDispatchController.getL3MultiRuns);
+
 module.exports = router;

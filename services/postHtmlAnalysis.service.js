@@ -111,13 +111,22 @@ async function buildL4DataBlock(ticker) {
 async function enqueuePostHtmlAnalysis(ticker, types, layerId, opts = {}) {
   const jobs = await Promise.all(
     types.map(async type => {
-      const deterministicJobId = `post_html_analysis_${layerId}_${type}_${ticker}`;
+      // Deterministic jobId collapses accidental duplicate enqueues (e.g. a
+      // double-click) into one job — but BullMQ treats an existing jobId
+      // (even a *completed* one still retained under removeOnComplete, see
+      // lib/jobQueue.js) as a no-op: it returns the old job without ever
+      // re-invoking the worker, silently discarding the new payload. That
+      // would swallow forceRefresh entirely, so a forced re-run needs a
+      // fresh jobId instead of colliding with whatever ran before.
+      const jobId = opts.forceRefresh
+        ? `post_html_analysis_${layerId}_${type}_${ticker}_force_${Date.now()}`
+        : `post_html_analysis_${layerId}_${type}_${ticker}`;
       const bullmqJob = await jobQueue.addJob(
         'post_html_analysis',
         { ticker, type, layerId, ...opts },
-        { jobId: deterministicJobId },
+        { jobId },
       );
-      return { type, jobId: deterministicJobId, bullmqId: bullmqJob?.id ?? deterministicJobId };
+      return { type, jobId, bullmqId: bullmqJob?.id ?? jobId };
     })
   );
   return jobs;

@@ -1,12 +1,14 @@
 'use strict';
 
 const prisma = require('../config/prisma');
-const { DEFAULT_TARGET_TICKERS, previewL1MultiDispatch, previewL1MultiDispatchCsv, previewL2MultiDispatch, previewL2MultiDispatchCsv } = require('../services/pipelineDispatch');
+const { DEFAULT_TARGET_TICKERS, previewL1MultiDispatch, previewL1MultiDispatchCsv, previewL2MultiDispatch, previewL2MultiDispatchCsv, previewL3MultiDispatch, previewL3MultiDispatchCsv } = require('../services/pipelineDispatch');
+const { L3_TYPES, L4_TYPE } = require('../services/postHtmlAnalysis.service');
 const { listGroups } = require('../services/companyGroups');
 const { triggerJobBySlug } = require('./admin.scheduler.controller');
 
 const L1_MULTI_SLUG = 'pipeline-dispatch-l1-multi';
 const L2_MULTI_SLUG = 'pipeline-dispatch-l2-multi';
+const L3_MULTI_SLUG = 'pipeline-dispatch-l3-multi';
 
 // GET /admin/pipeline-dispatch/l1-multi/options
 // companies mirrors getTranscriptStocks' earnings_calls + annual_reports merge
@@ -174,7 +176,86 @@ const getL2MultiRuns = async (req, res, next) => {
   }
 };
 
+// ─── L3 Multi-Dispatch (post-html-analysis runs) ─────────────────────────────
+
+// GET /admin/pipeline-dispatch/l3-multi/options
+// companies mirrors L1/L2's own company universe (earnings_calls + annual_reports
+// merge). layerTypes gives the frontend the valid type set per layerId (l3:
+// management/opportunity/deal, l4: summary) so it can build the type picker
+// without hardcoding INSIGHT_LENSES/L4_TYPE client-side.
+const getL3MultiOptions = async (req, res, next) => {
+  try {
+    const [callRows, reportRows, groups] = await Promise.all([
+      prisma.earnings_calls.findMany({ select: { company: true }, distinct: ['company'] }),
+      prisma.annual_reports.findMany({ select: { company: true }, distinct: ['company'] }),
+      listGroups(),
+    ]);
+    const companies = [...new Set([
+      ...callRows.map(r => r.company),
+      ...reportRows.map(r => r.company),
+    ])].filter(Boolean).sort();
+    const companyGroups = groups.map(g => ({ slug: g.slug, name: g.name, filter_type: g.filter_type }));
+    const layerTypes = { l3: L3_TYPES, l4: [L4_TYPE] };
+    res.json({ defaultTickers: DEFAULT_TARGET_TICKERS, companies, companyGroups, layerTypes });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /admin/pipeline-dispatch/l3-multi/preview — dry run, no side effects, not logged as a run
+const previewL3Multi = async (req, res, next) => {
+  try {
+    const result = await previewL3MultiDispatch(req.body);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /admin/pipeline-dispatch/l3-multi/preview/csv — same availability
+// report as /preview, one row per (ticker, type), full uncapped dump.
+const previewL3MultiCsv = async (req, res, next) => {
+  try {
+    res.set('Content-Type', 'text/csv');
+    res.set('Content-Disposition', `attachment; filename="l3-availability-report-${req.body.layerId || 'l3'}.csv"`);
+    await previewL3MultiDispatchCsv(req.body, res);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+};
+
+// POST /admin/pipeline-dispatch/l3-multi/run — fire-and-forget, logged to scheduler_runs
+const runL3Multi = async (req, res, next) => {
+  try {
+    const result = await triggerJobBySlug(L3_MULTI_SLUG, req.body);
+    res.json({ success: true, message: 'L3 multi-dispatch triggered', run_id: result.run_id });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+};
+
+// GET /admin/pipeline-dispatch/l3-multi/runs
+const getL3MultiRuns = async (req, res, next) => {
+  try {
+    const job = await prisma.schedulerJob.findUnique({ where: { slug: L3_MULTI_SLUG }, select: { id: true } });
+    if (!job) return res.status(404).json({ error: 'Scheduler job not found' });
+
+    const limit = Math.min(parseInt(req.query.limit ?? '20', 10), 100);
+    const runs = await prisma.schedulerRun.findMany({
+      where:   { job_id: job.id },
+      orderBy: { started_at: 'desc' },
+      take:    limit,
+    });
+    res.json({ count: runs.length, runs });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getL1MultiOptions, previewL1Multi, previewL1MultiCsv, runL1Multi, getL1MultiRuns,
   getL2MultiOptions, previewL2Multi, previewL2MultiCsv, runL2Multi, getL2MultiRuns,
+  getL3MultiOptions, previewL3Multi, previewL3MultiCsv, runL3Multi, getL3MultiRuns,
 };

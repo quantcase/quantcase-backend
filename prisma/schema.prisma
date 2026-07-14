@@ -664,9 +664,14 @@ model nse_equity_new {
   pe            Float?
   eps           Float?
   market_cap_cr Float?
-  created_at    DateTime? @db.Timestamp(6)
-  updated_at    DateTime? @db.Timestamp(6)
+  // Raw daily return as Prowess reports it (fraction, e.g. -0.000620 = -0.062%,
+  // not pre-multiplied to a percentage) — populated for index rows today
+  // ("Daily Index Returns"), null for stocks (no equivalent source column).
   pct_change    Float?
+  // Nullable, no @default/@updatedAt-driven NOT NULL — this table has ~1.2M
+  // pre-existing rows and neither column should force a backfill to add.
+  createdAt     DateTime? @map("created_at")
+  updatedAt     DateTime? @map("updated_at")
 
   @@id([symbol, datetime])
   @@map("nse_equity_new")
@@ -1620,6 +1625,32 @@ enum OnboardingStep {
   portfolio_setup
   plan_selection
   done
+}
+
+// Pulled from origin/user-invites (not yet merged into this branch) so
+// db:push doesn't try to drop the real qc_invites table/data that branch
+// already wrote to the shared DB. Exact copy — reconcile via normal git merge
+// once that branch lands, don't hand-diverge this from there.
+model Invite {
+  id         String       @id @default(uuid())
+  email      String
+  token      String       @unique
+  status     InviteStatus @default(pending)
+  invitedBy  String?      @map("invited_by")
+  acceptedAt DateTime?    @map("accepted_at")
+  expiresAt  DateTime     @map("expires_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([token])
+  @@map("qc_invites")
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  expired
 }
 
 enum SmallcaseOrderStatus {
