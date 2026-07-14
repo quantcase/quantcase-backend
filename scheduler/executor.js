@@ -4,6 +4,7 @@ const handlers = {
   prowess_ohlcv:      () => require('./handlers/prowessOhlcv'),
   prowess_quarterly:  () => require('./handlers/prowessFilings'),
   prowess_annual:     () => require('./handlers/prowessFilings'),
+  prowess_batch_poll: () => require('./handlers/prowessBatchPoll'),
   bse_discovery:      () => require('./handlers/bseDiscovery'),
   pipeline_dispatch:  () => require('./handlers/pipelineDispatch'),
   pipeline_dispatch_l1_multi: () => require('./handlers/pipelineDispatchL1Multi'),

@@ -17,17 +17,17 @@ async function upsertOhlcvBatch(rows) {
   if (!rows.length) return;
 
   const values = rows.map((_, i) => {
-    const b = i * 9;
-    return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9})`;
+    const b = i * 11;
+    return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11})`;
   }).join(',');
 
   const params = rows.flatMap(r => [
-    r.symbol, r.datetime, r.open, r.high, r.low, r.close,
-    r.volume ?? null, r.pe ?? null, r.market_cap_cr ?? null,
+    r.symbol, r.company_name ?? r.symbol, r.datetime, r.open, r.high, r.low, r.close,
+    r.volume ?? null, r.pe ?? null, r.eps ?? null, r.market_cap_cr ?? null,
   ]);
 
   await prisma.$executeRawUnsafe(`
-    INSERT INTO nse_equity_new (symbol, datetime, open, high, low, close, volume, pe, market_cap_cr)
+    INSERT INTO nse_equity_new (symbol, company_name, datetime, open, high, low, close, volume, pe, eps, market_cap_cr)
     VALUES ${values}
     ON CONFLICT (symbol, datetime) DO NOTHING
   `, ...params);
@@ -48,14 +48,14 @@ async function upsertValuationBatch(rows) {
   const deduped = Array.from(seen.values());
 
   const values = deduped.map((_, i) => {
-    const b = i * 4;
-    return `($${b+1},$${b+2},$${b+3},$${b+4})`;
+    const b = i * 5;
+    return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5})`;
   }).join(',');
 
-  const params = deduped.flatMap(r => [r.symbol, r.datetime, r.pe ?? null, r.market_cap_cr ?? null]);
+  const params = deduped.flatMap(r => [r.symbol, r.company_name ?? r.symbol, r.datetime, r.pe ?? null, r.market_cap_cr ?? null]);
 
   await prisma.$executeRawUnsafe(`
-    INSERT INTO nse_equity_new (symbol, datetime, pe, market_cap_cr)
+    INSERT INTO nse_equity_new (symbol, company_name, datetime, pe, market_cap_cr)
     VALUES ${values}
     ON CONFLICT (symbol, datetime) DO UPDATE SET
       pe            = COALESCE(EXCLUDED.pe,            nse_equity_new.pe),

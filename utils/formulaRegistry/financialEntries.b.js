@@ -162,6 +162,51 @@ module.exports = [
     },
   },
 
+  {
+    id: 'PB_TTM',
+    computationType: 'formula',
+    name:    'Price to Book Value',
+    desc:    'MARKET_CAP_CR (from nse_equity_new, already in ₹ Cr) is compared against NET_WORTH (from prowess_values_new, raw ₹) — NET_WORTH is converted to Cr (÷1e7) before dividing so both sides are in the same unit.',
+    unit:    'x',
+    formula: 'MARKET_CAP_CR / (NET_WORTH / 1e7)',
+    inputs:  ['MARKET_CAP_CR', 'EQ_SHARE_CAP', 'RES_SURPLUS'],
+    compute(m) {
+      const mc = m.MARKET_CAP_CR;
+      const nwRaw = m.NET_WORTH ?? (m.EQ_SHARE_CAP != null && m.RES_SURPLUS != null ? m.EQ_SHARE_CAP + m.RES_SURPLUS : null);
+      if (mc == null || !nwRaw) return null;
+      return mc / (nwRaw / 1e7);
+    },
+  },
+
+  {
+    id: 'PEG_RATIO',
+    computationType: 'formula',
+    name:    'PEG Ratio',
+    desc:    'PE / EPS growth rate.  EPS_GROWTH_PCT is injected into the kpiMap by the caller (typically resolveMetric(\'EPS_CAGR_3Y\', { series }).value).',
+    unit:    'x',
+    formula: 'PE_TTM / EPS_GROWTH_PCT',
+    inputs:  ['PRICE', 'TTM_EPS', 'EPS_GROWTH_PCT'],
+    compute(m) {
+      const pe = m.PE_TTM ?? (m.PRICE != null && m.TTM_EPS ? m.PRICE / m.TTM_EPS : null);
+      if (pe == null || !m.EPS_GROWTH_PCT || m.EPS_GROWTH_PCT <= 0) return null;
+      return pe / m.EPS_GROWTH_PCT;
+    },
+  },
+
+  {
+    id: 'OCF_PAT',
+    computationType: 'formula',
+    name:    'OCF / PAT',
+    desc:    'Cash conversion quality — what fraction of reported profit is backed by operating cash flow',
+    unit:    'x',
+    formula: 'CFO / PAT',
+    inputs:  ['CFO', 'PAT'],
+    compute(m) {
+      if (m.CFO == null || !m.PAT) return null;
+      return m.CFO / m.PAT;
+    },
+  },
+
   // ── Growth — cagr ───────────────────────────────────────────────────────────
 
   {
@@ -181,6 +226,16 @@ module.exports = [
     formula:         'CAGR(EPS_BASIC, last 3 annual periods)',
     inputs:          ['EPS_BASIC'],
     defaultWindow:   3,
+  },
+
+  {
+    id:              'EPS_CAGR_5Y',
+    computationType: 'cagr',
+    name:            'EPS 5-year CAGR',
+    unit:            '%',
+    formula:         'CAGR(EPS_BASIC, last 5 annual periods)',
+    inputs:          ['EPS_BASIC'],
+    defaultWindow:   5,
   },
 
   {
@@ -242,6 +297,16 @@ module.exports = [
   },
 
   {
+    id:              'PAT_CAGR_5Y',
+    computationType: 'cagr',
+    name:            'PAT 5-year CAGR',
+    unit:            '%',
+    formula:         'CAGR(PAT, last 5 annual periods)',
+    inputs:          ['PAT'],
+    defaultWindow:   5,
+  },
+
+  {
     id:              'PAT_CAGR_10Y',
     computationType: 'cagr',
     name:            'PAT 10-year CAGR',
@@ -291,5 +356,27 @@ module.exports = [
     formula:         'avg(ROE, last 10 annual periods)',
     inputs:          ['ROE'],
     defaultWindow:   10,
+  },
+
+  {
+    id:              'HISTORICAL_PE_3Y',
+    computationType: 'average',
+    name:            'Historical PE — 3-year Average',
+    desc:            'Caller builds the series as one point per calendar year (yearly-average PE from nse_equity_new), not raw daily/weekly rows — keeps this valid across the daily/weekly cadence change (see dataFetcherMarket.fetchPeTimeSeries).',
+    unit:            'x',
+    formula:         'avg(PE, one point per calendar year, last 3 years)',
+    inputs:          ['PE_TTM'],
+    defaultWindow:   3,
+  },
+
+  {
+    id:              'HISTORICAL_PE_5Y',
+    computationType: 'average',
+    name:            'Historical PE — 5-year Average',
+    desc:            'Caller builds the series as one point per calendar year (yearly-average PE from nse_equity_new), not raw daily/weekly rows — keeps this valid across the daily/weekly cadence change (see dataFetcherMarket.fetchPeTimeSeries).',
+    unit:            'x',
+    formula:         'avg(PE, one point per calendar year, last 5 years)',
+    inputs:          ['PE_TTM'],
+    defaultWindow:   5,
   },
 ];

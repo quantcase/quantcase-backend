@@ -40,4 +40,8 @@ module.exports = {
   smallcaseSecret:        process.env.SMALLCASE_SECRET,      // shared secret — signs the x-gateway-authtoken JWT
   smallcaseApiSecret:     process.env.SMALLCASE_API_SECRET,  // API secret — x-gateway-secret header + webhook HMAC key
   smallcaseApiBaseUrl:    process.env.SMALLCASE_API_BASE_URL || 'https://gatewayapi.smallcase.com',
+
+  // Prowess (CMIE) batch API — SendBatch/GetBatch/AbortAll/GetReport
+  prowessApiKey:     process.env.PROWESS_API_KEY,
+  prowessApiBaseUrl: process.env.PROWESS_API_BASE_URL || 'https://prowess.cmie.com/api',
 };

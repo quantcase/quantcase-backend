@@ -13,6 +13,9 @@ const bseDiscoveryRouter     = require('./admin.bseDiscovery.routes');
 const kpiDedupRouter         = require('./admin.kpiDedup.routes');
 const documentUploadRouter   = require('./admin.documentUpload.routes');
 const pipelineJobsRouter     = require('./admin.pipelineJobs.routes');
+const kpisRouter             = require('./admin.kpis.routes');
+const prowessHistoricRouter  = require('./admin.prowessHistoric.routes');
+const prowessBatchRouter     = require('./admin.prowessBatch.routes');
 
 // ─── Existing admin routes ────────────────────────────────────────────────────
 
@@ -124,5 +127,19 @@ router.use('/documents', documentUploadRouter);
 // Redis-only (no Postgres table) — reads/writes BullMQ's own `failed` set.
 
 router.use('/pipeline-jobs', pipelineJobsRouter);
+
+// ─── KPIs (create/search — used by the Prowess ingestion flow to add new
+// quarterly/annual indicators without a code deploy) ────────────────────────
+
+router.use('/kpis', kpisRouter);
+
+// ─── Prowess Historic CSV Upload (manual gap-filling, preview → approve) ────
+
+router.use('/prowess/historic', prowessHistoricRouter);
+
+// ─── Prowess Live Batch (SendBatch/GetBatch/AbortAll — token-tracked via
+// ProwessBatchRequest, polled by the scheduler's prowess_batch_poll job) ─────
+
+router.use('/prowess/batch', prowessBatchRouter);
 
 module.exports = router;
