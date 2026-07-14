@@ -6,26 +6,42 @@
  * NIFTY / SENSEX header ticker. Shared across users (not user-scoped) and lightly
  * cached in-memory.
  *
- * There is no live NIFTY/SENSEX feed wired yet (the nse_index table is sector-keyed
- * OHLCV and does not contain broad-index rows). These are static placeholder values
- * so the header renders; the service is structured so a real source can drop in
- * behind `computeIndices()` without changing the controller. See delivery notes.
+ * Live since indices are now ingested into nse_equity_new (admin CSV upload,
+ * mode "index" — see services/prowessHistoric.service.js). Indices share the
+ * same table/PK as stocks; `symbol` there is the index's Prowess name verbatim
+ * (verified: "Nifty 50", "Bse Sensex" — title-cased, not the short codes the
+ * frontend expects), mapped below to NIFTY/SENSEX.
  */
+
+const prisma = require('../../config/prisma');
 
 const CACHE_TTL_MS = 45 * 1000;
 
-// Placeholder values — replace with a live source (external API or nse_index
-// once broad-index rows are ingested).
-const STATIC_INDICES = [
-  { symbol: 'NIFTY',  value: 24318, change_pct: 0.42 },
-  { symbol: 'SENSEX', value: 79712, change_pct: 0.38 },
-];
+// DB symbol (Prowess's own "Index Name" casing) → frontend-facing short code.
+const INDEX_SYMBOL_MAP = {
+  'Nifty 50':   'NIFTY',
+  'Bse Sensex': 'SENSEX',
+};
 
 let _cache = null; // { at: epochMs, payload }
 
 async function computeIndices() {
-  // TODO: swap for a live fetch. Returns the same shape as STATIC_INDICES.
-  return STATIC_INDICES;
+  const dbSymbols = Object.keys(INDEX_SYMBOL_MAP);
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT DISTINCT ON (symbol) symbol, close, pct_change, datetime
+    FROM nse_equity_new
+    WHERE symbol = ANY($1)
+    ORDER BY symbol, datetime DESC
+  `, dbSymbols);
+
+  return rows.map((r) => ({
+    symbol: INDEX_SYMBOL_MAP[r.symbol],
+    value: r.close,
+    // CMIE's "Daily Index Returns" — vs. the prior trading day's close, not this
+    // row's own open→close. Stored as a raw fraction (0.0042 = 0.42%) — convert
+    // to percentage points.
+    change_pct: r.pct_change != null ? Number((r.pct_change * 100).toFixed(2)) : null,
+  }));
 }
 
 async function getMarketIndices() {

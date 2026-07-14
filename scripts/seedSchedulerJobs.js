@@ -67,6 +67,15 @@ const JOBS = [
     is_active:       false,
     config:          {}, // slug/groupSlug/tickers etc. always come from the admin trigger body
   },
+  {
+    slug:            'pipeline-dispatch-l3-multi',
+    name:            'Pipeline Dispatch — L3 Multi (manual)',
+    description:     'Admin-triggered post-html-analysis (L3 management/opportunity/deal, or L4 summary) dispatch for a chosen ticker set, one call per ticker fanning out to every requested type. Manual only — never cron-fires.',
+    job_type:        'pipeline_dispatch_l3_multi',
+    cron_expression: '0 0 1 1 *', // inert placeholder — is_active:false means it's never registered
+    is_active:       false,
+    config:          {}, // layerId/types/groupSlug/tickers etc. always come from the admin trigger body
+  },
 ];
 
 async function main() {

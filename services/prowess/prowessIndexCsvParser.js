@@ -70,8 +70,9 @@ function parseIndexCsv(csvText) {
     const close = parseFloat(cols[colIdx['Index Closing']]);
     if (isNaN(open) && isNaN(high) && isNaN(low) && isNaN(close)) { skippedRows++; continue; }
 
-    const pe        = colIdx['Index PE']        !== undefined ? parseFloat(cols[colIdx['Index PE']])        : NaN;
-    const marketCap = colIdx['Index Marketcap']  !== undefined ? parseFloat(cols[colIdx['Index Marketcap']]) : NaN;
+    const pe        = colIdx['Index PE']              !== undefined ? parseFloat(cols[colIdx['Index PE']])              : NaN;
+    const marketCap = colIdx['Index Marketcap']        !== undefined ? parseFloat(cols[colIdx['Index Marketcap']])        : NaN;
+    const pctChange = colIdx['Daily Index Returns']    !== undefined ? parseFloat(cols[colIdx['Daily Index Returns']])    : NaN;
 
     records.push({
       symbol: indexName, company_name: indexName, datetime,
@@ -83,6 +84,7 @@ function parseIndexCsv(csvText) {
       eps: null,
       pe:            !isNaN(pe)        ? pe        : null,
       market_cap_cr: !isNaN(marketCap) ? marketCap : null,
+      pct_change:    !isNaN(pctChange) ? pctChange : null,
     });
   }
 
