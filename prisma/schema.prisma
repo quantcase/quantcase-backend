@@ -1627,32 +1627,6 @@ enum OnboardingStep {
   done
 }
 
-// Pulled from origin/user-invites (not yet merged into this branch) so
-// db:push doesn't try to drop the real qc_invites table/data that branch
-// already wrote to the shared DB. Exact copy — reconcile via normal git merge
-// once that branch lands, don't hand-diverge this from there.
-model Invite {
-  id         String       @id @default(uuid())
-  email      String
-  token      String       @unique
-  status     InviteStatus @default(pending)
-  invitedBy  String?      @map("invited_by")
-  acceptedAt DateTime?    @map("accepted_at")
-  expiresAt  DateTime     @map("expires_at")
-  createdAt  DateTime     @default(now()) @map("created_at")
-  updatedAt  DateTime     @updatedAt @map("updated_at")
-
-  @@index([email])
-  @@index([token])
-  @@map("qc_invites")
-}
-
-enum InviteStatus {
-  pending
-  accepted
-  expired
-}
-
 enum SmallcaseOrderStatus {
   pending
   placed
