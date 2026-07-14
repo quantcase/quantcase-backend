@@ -15,12 +15,28 @@ function issueTokens(user) {
 }
 
 const register = async (req, res) => {
-  const { email, mobile, password, display_name } = req.body;
-  const user = await authService.register({ email, mobile, password, display_name });
+  const { email, mobile, password, display_name, invite_token } = req.body;
+  const user = await authService.register({ email, mobile, password, display_name, invite_token });
   const tokens = issueTokens(user);
   return res.status(201).json({
     ...tokens,
     user: { id: user.id, email: user.email, accountType: user.account_type },
+  });
+};
+
+const googleAuth = async (req, res) => {
+  const { id_token } = req.body;
+  const user = await authService.googleAuth({ id_token });
+  const tokens = issueTokens(user);
+  return res.json({
+    ...tokens,
+    user: {
+      id: user.id,
+      email: user.email,
+      accountType: user.account_type,
+      displayName: user.display_name,
+      displayPicture: user.display_picture,
+    },
   });
 };
 
@@ -54,4 +70,4 @@ const updateOnboarding = async (req, res) => {
   return res.json({ success: true, data: profile });
 };
 
-module.exports = { register, signin, getMe, updateOnboarding };
+module.exports = { register, googleAuth, signin, getMe, updateOnboarding };

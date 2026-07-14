@@ -44,4 +44,7 @@ module.exports = {
   // Prowess (CMIE) batch API — SendBatch/GetBatch/AbortAll/GetReport
   prowessApiKey:     process.env.PROWESS_API_KEY,
   prowessApiBaseUrl: process.env.PROWESS_API_BASE_URL || 'https://prowess.cmie.com/api',
+
+  // Google Sign-In (verifies ID tokens from the frontend's Google OAuth flow)
+  googleClientId:    process.env.GOOGLE_CLIENT_ID,
 };

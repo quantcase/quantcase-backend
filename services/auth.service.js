@@ -1,10 +1,15 @@
 'use strict';
 
 const bcrypt = require('bcryptjs');
+const { OAuth2Client } = require('google-auth-library');
 const prisma = require('../config/prisma');
+const { googleClientId } = require('../config/env');
 const { computeAccessState } = require('./subscription.service');
+const inviteService = require('./invite.service');
 
-async function register({ email, mobile, password, display_name }) {
+const googleClient = new OAuth2Client(googleClientId);
+
+async function register({ email, mobile, password, display_name, invite_token }) {
   if (!email && !mobile) {
     const err = new Error('Email or mobile is required');
     err.status = 400;
@@ -13,6 +18,19 @@ async function register({ email, mobile, password, display_name }) {
   if (!password) {
     const err = new Error('Password is required');
     err.status = 400;
+    throw err;
+  }
+  if (!invite_token) {
+    const err = new Error('An invite token is required to register');
+    err.status = 400;
+    throw err;
+  }
+
+  // Throws (404/410) if the token is unknown, already used, or expired.
+  const invite = await inviteService.validateToken(invite_token);
+  if (email && invite.email !== email.trim().toLowerCase()) {
+    const err = new Error('This invite was issued to a different email address');
+    err.status = 403;
     throw err;
   }
 
@@ -64,6 +82,116 @@ async function register({ email, mobile, password, display_name }) {
         current_period_end:  trialEnd,
       },
     });
+
+    // Consumes the invite so its token can't be reused for another signup.
+    await tx.invite.update({
+      where: { token: invite_token },
+      data: { status: 'accepted', acceptedAt: now },
+    });
+
+    return created;
+  });
+
+  return user;
+}
+
+// Verifies the Google ID token the frontend obtained from Google Sign-In,
+// then gates entry on the invite system: the verified email must have an
+// active (pending or accepted) invite, same policy as email/password signup.
+// - Existing user with this email: links google_id (first time) and signs in.
+// - No existing user: creates one on the spot (no password_hash — Google-only
+//   account) and accepts the invite, mirroring register()'s transaction.
+async function googleAuth({ id_token }) {
+  if (!id_token) {
+    const err = new Error('id_token is required');
+    err.status = 400;
+    throw err;
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({ idToken: id_token, audience: googleClientId });
+    payload = ticket.getPayload();
+  } catch {
+    const err = new Error('Invalid Google token');
+    err.status = 401;
+    throw err;
+  }
+
+  if (!payload?.email) {
+    const err = new Error('Invalid Google token');
+    err.status = 401;
+    throw err;
+  }
+  if (!payload.email_verified) {
+    const err = new Error('Google email is not verified');
+    err.status = 403;
+    throw err;
+  }
+
+  const email = payload.email.trim().toLowerCase();
+  const googleId = payload.sub;
+  const displayName = payload.name || null;
+  const displayPicture = payload.picture || null;
+
+  let user = await prisma.user.findUnique({ where: { email } });
+
+  if (user) {
+    if (!user.google_id) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          google_id: googleId,
+          display_name: user.display_name || displayName,
+          display_picture: user.display_picture || displayPicture,
+        },
+      });
+    }
+    return user;
+  }
+
+  // Brand-new account — must have an active invite for this email.
+  const invite = await inviteService.findActiveInviteForEmail(email);
+  if (!invite) {
+    const err = new Error('This is an invite-only platform. Ask an admin for an invite.');
+    err.status = 403;
+    throw err;
+  }
+
+  const now = new Date();
+  const trialEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  user = await prisma.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: {
+        email,
+        google_id: googleId,
+        display_name: displayName,
+        display_picture: displayPicture,
+        account_type: 'investor',
+      },
+    });
+
+    await tx.userProfile.create({ data: { user_id: created.id } });
+
+    await tx.userSubscription.create({
+      data: {
+        user_id: created.id,
+        plan_type: 'trial',
+        status: 'trialing',
+        trial_starts_at: now,
+        trial_ends_at: trialEnd,
+        current_period_start: now,
+        current_period_end: trialEnd,
+      },
+    });
+
+    if (invite.status !== 'accepted') {
+      await tx.invite.update({
+        where: { id: invite.id },
+        data: { status: 'accepted', acceptedAt: now },
+      });
+    }
 
     return created;
   });
@@ -177,4 +305,4 @@ async function updateOnboarding(userId, fields) {
   return profile;
 }
 
-module.exports = { register, getFullProfile, updateOnboarding };
+module.exports = { register, googleAuth, getFullProfile, updateOnboarding };
