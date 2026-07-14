@@ -4,16 +4,15 @@
  * GET /api/discover/screens
  *
  * Curated screener cards personalised to the user's sectors. Reuses the existing
- * Prowess-backed basket screeners (controllers/baskets.controller.js) to compute
- * real counts, then adds an "IN YOUR SECTORS" stat by intersecting each screen's
- * results with the industries the user holds.
+ * basket screeners (controllers/baskets.controller.js) to compute real counts,
+ * then adds an "IN YOUR SECTORS" stat by intersecting each screen's results with
+ * the industries the user holds.
  */
 
 const prisma = require('../../config/prisma');
 const { resolveHoldings } = require('./resolve-holdings.service');
 const identity = require('./identity');
-const { SCREENERS, buildSymbolIndex } = require('../../controllers/baskets.controller');
-const prowess = require('../../lib/prowess');
+const { runScreener } = require('../../controllers/baskets.controller');
 
 const QC_SCORE_THRESHOLD = 75;
 
@@ -31,34 +30,38 @@ async function countHighScore(symbols) {
 }
 
 // The dashboard surfaces a small, fixed set of cards (icon keys agreed with FE).
+// Basket ids below correspond to the 11 screens in controllers/baskets.controller.js
+// ("Screens for Quantcase.txt"). The old basket ids these cards pointed at
+// (promoter-buying-signal, value-buying, market-crash-bargains) no longer exist —
+// remapped to the closest equivalents in the new set.
 const CARDS = [
   {
-    id: 'promoter-buying',
-    basketId: 'promoter-buying-signal',
+    id: 'quality-compounders',
+    basketId: 'quality-compounders-at-a-discount',
     icon: 'activity',
     badge_kind: 'warning',
-    title: 'Promoter buying — material disclosures',
-    description: 'Promoters increased their own stake at valuations below the 3-year average.',
+    title: 'Quality compounders — cheap vs history & industry',
+    description: 'Long-term earnings growth with strong ROE and low debt, trading below its own historical PE and industry average.',
     high_score_metric: 'QC SCORE >75',
-    href: '/screener/home?screen=promoter-buying',
+    href: '/screener/home?screen=quality-compounders',
   },
   {
     id: 'cash-rich-growing',
-    basketId: 'value-buying',
+    basketId: 'cheap-on-book-strong-returns',
     icon: 'trending-up',
     badge_kind: 'new',
-    title: 'Cash-rich & growing',
-    description: 'Low P/E and P/B with positive free cash flow and healthy return on equity.',
+    title: 'Cheap on book, strong returns',
+    description: 'Trading below 2x book value with ROE and ROCE above 12%, low debt and healthy cash conversion.',
     high_score_metric: 'QC SCORE >75',
     href: '/screener/home?screen=cash-rich-growing',
   },
   {
     id: '52w-lows',
-    basketId: 'market-crash-bargains',
+    basketId: 'near-lows-quality-intact',
     icon: 'refresh',
     badge_kind: 'info',
     title: '52-week lows — fundamentals intact',
-    description: 'Quality names down sharply from highs on market fear, not deteriorating fundamentals.',
+    description: 'Trading near its 52-week low and 50%+ below all-time high, but still profitable with strong capital returns.',
     high_score_metric: 'QC SCORE >75',
     href: '/screener/home?screen=52w-lows',
   },
@@ -73,15 +76,10 @@ async function getDiscoverScreens(userId) {
       .filter(Boolean)
   );
 
-  // Prowess data is loaded once and shared across all screens.
-  const { companyMap, nameToSymbol } = buildSymbolIndex();
-  const shData = prowess.loadShareholdingData();
-
   const screens = await Promise.all(CARDS.map(async card => {
-    const runner = SCREENERS[card.basketId];
     let stocks = [];
     try {
-      stocks = runner ? runner(companyMap, nameToSymbol, shData) : [];
+      stocks = (await runScreener(card.basketId)) ?? [];
     } catch {
       stocks = [];
     }

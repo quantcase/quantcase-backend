@@ -222,6 +222,43 @@ async function fetchPeTimeSeries(prisma, symbol, { months, since } = {}) {
 }
 
 /**
+ * Bulk version of fetchPeTimeSeries — one query for many symbols instead of one
+ * query per symbol. Built for screeners scanning hundreds of candidates (see
+ * controllers/baskets.controller.js).
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string[]} symbols
+ * @param {{ months?: number, since?: Date }} [opts]
+ * @returns {Promise<Object<string, Array<{ date: string, pe: number }>>>}  keyed by symbol
+ */
+async function fetchPeTimeSeriesBatch(prisma, symbols, { months, since } = {}) {
+  if (!symbols.length) return {};
+  const cutoff = since ?? (months != null
+    ? new Date(Date.now() - months * 30 * 24 * 60 * 60 * 1000)
+    : null);
+
+  const rows = await prisma.nse_equity_new.findMany({
+    where: {
+      symbol: { in: symbols },
+      pe: { not: null },
+      ...(cutoff ? { datetime: { gte: cutoff } } : {}),
+    },
+    orderBy: [{ symbol: 'asc' }, { datetime: 'asc' }],
+    select:  { symbol: true, datetime: true, pe: true },
+  });
+
+  const result = {};
+  for (const r of rows) {
+    const sym = r.symbol.toUpperCase();
+    (result[sym] ??= []).push({
+      date: r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
+      pe:   r.pe != null ? parseFloat(r.pe) : null,
+    });
+  }
+  return result;
+}
+
+/**
  * Monthly-aggregated close series (for stock-price CAGR and charts).
  * Uses DATE_TRUNC on the Date column — returns month buckets.
  *
@@ -290,6 +327,7 @@ module.exports = {
   fetchMarketSnapshot,
   fetchMarketSnapshots,
   fetchPeTimeSeries,
+  fetchPeTimeSeriesBatch,
   fetchMonthlyClose,
   fetchMonthlyOhlcv,
   fetchIndexBars,

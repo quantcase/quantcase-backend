@@ -27,6 +27,7 @@
     "@bull-board/api": "^6.20.3",
     "@bull-board/express": "^6.20.3",
     "@prisma/client": "^5.7.0",
+    "adm-zip": "^0.6.0",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.67.3",
     "cors": "^2.8.6",

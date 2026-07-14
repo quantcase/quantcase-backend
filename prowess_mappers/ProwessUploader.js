@@ -320,6 +320,34 @@ class ProwessUploader {
     return out;
   }
 
+  /**
+   * Resolve CSV header names not covered by the hardcoded column maps against
+   * the `kpis` table (exact match on `abbr` or `prowess_name`), so new
+   * quarterly/annual indicators can be onboarded via the admin flow (create a
+   * Kpi row + prowess_name) without a code deploy. Returns the extra
+   * { headerName → kpi_abbr } entries to merge into the normal column map,
+   * plus the headers that still have no home (candidates for a new Kpi).
+   */
+  async resolveDynamicIndicators(headers, knownNames) {
+    const candidates = [...new Set(
+      headers.map(h => (h || '').trim()).filter(h => h && !knownNames.has(h))
+    )];
+    if (!candidates.length) return { dynamicMap: {}, unmatched: [] };
+
+    const matches = await this.prisma.kpi.findMany({
+      where: { OR: [{ abbr: { in: candidates } }, { prowess_name: { in: candidates } }] },
+      select: { abbr: true, prowess_name: true },
+    });
+
+    const dynamicMap = {};
+    for (const kpi of matches) {
+      if (candidates.includes(kpi.abbr))         dynamicMap[kpi.abbr] = kpi.abbr;
+      if (kpi.prowess_name && candidates.includes(kpi.prowess_name)) dynamicMap[kpi.prowess_name] = kpi.abbr;
+    }
+    const unmatched = candidates.filter(c => !(c in dynamicMap));
+    return { dynamicMap, unmatched };
+  }
+
   async batchInsert(rows, batchSize = 500) {
     const { table, _constraint } = this;
     const [{ n: before }] = await this.prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM ${table}`);
@@ -360,6 +388,7 @@ class ProwessUploader {
     const [{ n: after }] = await this.prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM ${table}`);
     const inserted = after - before;
     console.log(`\n✓ Attempted ${attempted} rows — ${inserted} inserted (${attempted - inserted} skipped as duplicates)`);
+    return { attempted, inserted, skipped: attempted - inserted };
   }
 
   async ensureTable() {
@@ -428,7 +457,7 @@ class ProwessUploader {
   }
 
   /** Extract KPI rows from one section (C or S) and push into allRows. */
-  processAnnualSection(dataRow, company, sectionColMap, yearInfo, sourceType, colUnitByIdx, allRows) {
+  processAnnualSection(dataRow, company, sectionColMap, yearInfo, sourceType, colUnitByIdx, allRows, extraMap = {}) {
     const { endDate, fiscalYear } = yearInfo;
     const startDate = this.startOfPeriod(endDate);
     const callId    = `prowess_new_${this.normalizeName(company)}_${fiscalYear}_${sourceType}`;
@@ -467,6 +496,10 @@ class ProwessUploader {
 
     for (const [colName, abbr] of Object.entries(ANNUAL_BASE_COL_MAP))     pushRow(colName, abbr);
     for (const [colName, abbr] of Object.entries(ANNUAL_OPTIONAL_COL_MAP)) {
+      if (colName in sectionColMap) pushRow(colName, abbr);
+    }
+    // Indicators resolved dynamically against kpis.abbr/prowess_name (admin-added).
+    for (const [colName, abbr] of Object.entries(extraMap)) {
       if (colName in sectionColMap) pushRow(colName, abbr);
     }
 
@@ -533,6 +566,22 @@ class ProwessUploader {
     }
     console.log(`\n✓ All ${requiredCols.length} expected columns found in consolidated section.\n`);
 
+    // 4b. Resolve any remaining columns dynamically against kpis.abbr/prowess_name
+    // (covers new indicators the admin has onboarded via the Kpi admin endpoint).
+    const knownNames = new Set([
+      ...Object.keys(ANNUAL_BASE_COL_MAP), ...Object.keys(ANNUAL_OPTIONAL_COL_MAP),
+      ANNUAL_REV_OP_NON_FIN, ANNUAL_REV_OP_FIN, ...ANNUAL_DEP_AMORT_COLS,
+    ]);
+    const { dynamicMap, unmatched } = await this.resolveDynamicIndicators(headers.slice(1), knownNames);
+    if (Object.keys(dynamicMap).length) {
+      console.log(`✓ Dynamically matched ${Object.keys(dynamicMap).length} extra column(s) via kpis table:`);
+      for (const [colName, abbr] of Object.entries(dynamicMap)) console.log(`  "${colName}" → ${abbr}`);
+    }
+    if (unmatched.length) {
+      console.log(`⚠ ${unmatched.length} column(s) have no KPI mapping (create a Kpi with matching prowess_name to include them):`);
+      for (const c of unmatched) console.log(`  ✗ "${c}"`);
+    }
+
     // 5. Unit lookup by absolute column index
     const colUnitByIdx = {};
     for (let i = 0; i < headers.length; i++) {
@@ -546,9 +595,9 @@ class ProwessUploader {
     for (const dataRow of dataRows) {
       const company = (dataRow[0] || '').trim();
       if (!company) continue;
-      this.processAnnualSection(dataRow, company, consMap, consYearInfo, 'C', colUnitByIdx, allRows);
+      this.processAnnualSection(dataRow, company, consMap, consYearInfo, 'C', colUnitByIdx, allRows, dynamicMap);
       if (stanYearInfo && stanStart) {
-        this.processAnnualSection(dataRow, company, stanMap, stanYearInfo, 'S', colUnitByIdx, allRows);
+        this.processAnnualSection(dataRow, company, stanMap, stanYearInfo, 'S', colUnitByIdx, allRows, dynamicMap);
       }
     }
     const finalRows = this.deduplicateRows(allRows);
@@ -599,9 +648,18 @@ class ProwessUploader {
       console.log('  (no EPS rows found)');
     }
 
+    const report = {
+      mode: 'annual', table, inserted: false,
+      companiesInCsv: dataRows.length, columnsInCsv: headers.length,
+      consolidatedYear: consYearInfo.fiscalYear, standaloneYear: stanYearInfo?.fiscalYear ?? null,
+      dynamicIndicatorsMatched: dynamicMap, unmatchedColumns: unmatched,
+      totalRows: finalRows.length, rowsBySourceType: { C: cRows.length, S: sRows.length },
+      rowsByKpi: countByAbbr,
+    };
+
     if (!doInsert) {
       console.log('\n[VERIFY ONLY] No DB writes. Re-run with --insert to load into DB.\n');
-      return;
+      return report;
     }
 
     // 10. DB writes
@@ -618,7 +676,7 @@ class ProwessUploader {
     await this.seedAnnualPpeKpis();
 
     console.log(`Inserting ${finalRows.length} rows…`);
-    await this.batchInsert(finalRows);
+    const insertStats = await this.batchInsert(finalRows);
 
     // 11. Post-insert counts
     console.log('\nPost-insert row counts by source_type:');
@@ -632,6 +690,8 @@ class ProwessUploader {
       total += r.cnt;
     }
     console.log(`\n  TOTAL : ${total}`);
+
+    return { ...report, inserted: true, insertStats };
   }
 
   // ─── Quarterly mode ───────────────────────────────────────────────────────────
@@ -712,6 +772,21 @@ class ProwessUploader {
     }
     console.log(`\n✓ All ${Object.keys(QTR_COL_MAP).length} mapped columns found in first block.\n`);
 
+    // 4b. Resolve any remaining columns (first block) dynamically against
+    // kpis.abbr/prowess_name (covers indicators onboarded via the admin flow).
+    const knownNames = new Set(Object.keys(QTR_COL_MAP));
+    const firstBlockHeaders = Object.keys(blocks[0].colMap);
+    const { dynamicMap, unmatched } = await this.resolveDynamicIndicators(firstBlockHeaders, knownNames);
+    if (Object.keys(dynamicMap).length) {
+      console.log(`✓ Dynamically matched ${Object.keys(dynamicMap).length} extra column(s) via kpis table:`);
+      for (const [colName, abbr] of Object.entries(dynamicMap)) console.log(`  "${colName}" → ${abbr}`);
+    }
+    if (unmatched.length) {
+      console.log(`⚠ ${unmatched.length} column(s) have no KPI mapping (create a Kpi with matching prowess_name to include them):`);
+      for (const c of unmatched) console.log(`  ✗ "${c}"`);
+    }
+    const effectiveColMap = { ...QTR_COL_MAP, ...dynamicMap };
+
     // 5. Build all rows
     console.log('Building rows…');
     const allRows = [];
@@ -728,7 +803,7 @@ class ProwessUploader {
 
         const callId = `prowess_qtr_${this.normalizeName(company)}_${fiscalYear}_${quarter}_S`;
 
-        for (const [colName, abbr] of Object.entries(QTR_COL_MAP)) {
+        for (const [colName, abbr] of Object.entries(effectiveColMap)) {
           const idx = block.colMap[colName];
           if (idx == null) continue;
           const raw = (dataRow[idx] || '').trim();
@@ -810,9 +885,17 @@ class ProwessUploader {
       console.log(`  ${ok ? '✓' : '✗'} ${r.company.slice(0, 35).padEnd(36)} EPS=${r.raw_value}  stored=${r.value}  mult=${r.multiplier}  unit=${r.unit}`);
     }
 
+    const report = {
+      mode: 'quarterly', table, inserted: false,
+      companiesInCsv: dataRows.length, columnsInCsv: headers.length,
+      quarters: blocks.map(b => b.label),
+      dynamicIndicatorsMatched: dynamicMap, unmatchedColumns: unmatched,
+      totalRows: finalRows.length, rowsByQuarter: byQtr, rowsByKpi: byAbbr,
+    };
+
     if (!doInsert) {
       console.log('\n[VERIFY ONLY] No DB writes. Re-run with --insert to load into DB.\n');
-      return;
+      return report;
     }
 
     // 9. DB writes
@@ -828,7 +911,7 @@ class ProwessUploader {
     }
 
     console.log(`Inserting ${finalRows.length} rows…`);
-    await this.batchInsert(finalRows);
+    const insertStats = await this.batchInsert(finalRows);
 
     // 10. Post-insert counts
     console.log('\nPost-insert quarterly row counts by quarter:');
@@ -843,14 +926,16 @@ class ProwessUploader {
       total += r.cnt;
     }
     console.log(`  TOTAL       : ${total}`);
+
+    return { ...report, inserted: true, insertStats };
   }
 
   // ─── Entry point ──────────────────────────────────────────────────────────────
 
   async run(mode) {
     try {
-      if (mode === 'annual')        await this.runAnnual();
-      else if (mode === 'quarterly') await this.runQuarterly();
+      if (mode === 'annual')         return await this.runAnnual();
+      else if (mode === 'quarterly') return await this.runQuarterly();
       else throw new Error(`Unknown mode "${mode}". Use 'annual' or 'quarterly'.`);
     } finally {
       await this.prisma.$disconnect();

@@ -94,10 +94,15 @@ model Kpi {
   industry      String[]          @default([])
   source        KpiSource
   kpi_type      KpiTypeCategory?
+  // Raw indicator name as it appears in Prowess CSV/API responses, used to
+  // resolve new quarterly/annual columns to this KPI without a code deploy.
+  // Defaults to the same value as `abbr` when the two coincide.
+  prowess_name  String?
   prowessValues ProwessValueNew[]
 
   @@index([abbr])
   @@index([source])
+  @@index([prowess_name])
   @@map("kpis")
 }
 
@@ -171,6 +176,27 @@ model ProwessValueNew {
   @@index([kpi_abbr, period_type], map: "idx_pnv_kpi_period")
   @@index([company, source_type], map: "idx_pnv_company_srctype")
   @@map("prowess_values_new")
+}
+
+// Tracks the async SendBatch → GetBatch lifecycle for the live Prowess batch
+// API (a request submitted once via SendBatch is polled later by token via
+// GetBatch — possibly from a different process, see scheduler.js). Deliberately
+// not BullMQ: SendBatch is an expensive, admin-gated call with no automatic
+// retry wanted; this table just needs to survive a server restart and be
+// readable from both the API server and the scheduler process.
+model ProwessBatchRequest {
+  id           String    @id @default(uuid())
+  token        String    @unique
+  mode         String    // 'annual' | 'quarterly' — mirrors ProwessUploader's mode strings
+  status       String    @default("pending") // 'pending' | 'completed' | 'failed' | 'aborted'
+  requestMeta  Json?     @map("request_meta") // admin-supplied context: indicators/companies requested
+  result       Json?
+  error        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  resolvedAt   DateTime? @map("resolved_at")
+
+  @@index([status])
+  @@map("prowess_batch_requests")
 }
 
 model SummaryNew {

@@ -1,482 +1,772 @@
 'use strict';
 
-const prowess = require('../lib/prowess');
+const prisma = require('../config/prisma');
+const peerIdentity = require('../lib/peerIdentity');
+const { resolveMetric, resolveTechnicalIndicators } = require('../utils/formulaRegistry/index');
+const { fetchMarketSnapshots, fetchOhlcvBars, fetchPeTimeSeriesBatch } = require('../utils/formulaRegistry/dataFetcherMarket');
+const { fetchKpiMapsMultiBatch } = require('../utils/formulaRegistry/dataFetcher');
 
 // ── Basket definitions ────────────────────────────────────────────────────────
-// Each basket maps to the PDF spec: broad category, sub-category, description,
-// conditions, and the columns that are relevant for its stock list.
+// The 11 screens from "Screens for Quantcase.txt", grouped into 3 categories.
+// Conditions text is the admin's literal spec, shown to the frontend as-is.
 
 const BASKETS = [
   {
-    id: 'value-buying',
-    category: 'Value Investing',
-    title: 'Value Buying',
-    description: 'Stocks trading below intrinsic value — low P/E, low P/B, strong cash flows. Market hasn\'t priced in the underlying business quality yet.',
-    searchIntent: 'Cheap quality stocks the market has overlooked',
-    conditions: 'P/E < sector median; P/B < 1.5; Positive Free Cash Flow; Debt/Equity < 0.5; ROE > 12%',
-    columns: ['symbol', 'companyName', 'pe', 'pb', 'roe', 'debtEquity', 'freeCashFlow', 'marketCapCr'],
+    id: 'small-size-solid-fundamentals',
+    category: 'Value & Quality',
+    title: 'Small size, solid fundamentals',
+    description: 'Profitable, low-debt micro-caps growing sales for 3 years, priced below their historical PE and cheap relative to growth (PEG < 1)',
+    conditions: 'Market Capitalization >500 AND <2000; Net profit >0; Sales growth 3Years >0; Debt to equity <1; EPS >0; Price to Earning < Historical PE 5Years; PEG Ratio <1',
+    columns: ['symbol', 'companyName', 'marketCapCr', 'netProfitCr', 'salesGrowth3y', 'debtEquity', 'eps', 'pe', 'historicalPe5y', 'peg'],
+    needs: { fundamentals: true, bars: false },
   },
   {
-    id: 'high-dividend-low-payout',
-    category: 'Value Investing',
-    title: 'High Dividend + Low Payout',
-    description: 'Companies with 4%+ dividend yield but payout ratio under 40%. Dividend is safe and growing. Attractive during market fear or sideways phases.',
-    searchIntent: 'Safe high yield with room to grow dividend',
-    conditions: 'Dividend Yield > 4%; Payout Ratio < 40%; Consistent 3-yr dividend history; Positive operating cash flow',
-    columns: ['symbol', 'companyName', 'dividendYield', 'payoutRatio', 'pe', 'netProfitCr', 'marketCapCr'],
+    id: 'profit-momentum-reasonably-priced',
+    category: 'Growth & Turnaround',
+    title: 'Profit momentum, reasonably priced',
+    description: 'Net profit growing every quarter for a year, with strong margins and priced reasonably relative to earnings and growth.',
+    conditions: 'Net Profit grew every quarter over the last 4 quarters (QoQ); PEG Ratio <1; Market Capitalization >1000; OPM >15; Price to Earning <30',
+    columns: ['symbol', 'companyName', 'peg', 'marketCapCr', 'opm', 'pe', 'netProfitCr'],
+    needs: { fundamentals: true, bars: false, quarterly: true },
   },
   {
-    id: 'promoter-buying-signal',
-    category: 'Value Investing',
-    title: 'Promoter Buying Signal',
-    description: 'Promoters buying their own stock in open market — strong insider signal. Best when combined with low valuation and no increase in pledging.',
-    searchIntent: 'Insiders buying their own stock at low valuations',
-    conditions: 'Promoter stake increase (SEBI disclosure); No increase in pledged shares; P/E below 3-yr average; Positive earnings trend',
-    columns: ['symbol', 'companyName', 'promoterPct', 'promoterChange', 'pe', 'pb', 'marketCapCr'],
+    id: 'quality-compounders-at-a-discount',
+    category: 'Value & Quality',
+    title: 'Quality compounders at a discount',
+    description: 'Long-term earnings growth with strong ROE and low debt, trading cheap versus its own history and its industry.',
+    conditions: 'EPS growth 5Years >15 AND 3Years >12; EPS last year > EPS preceding year; Price to Earning < Historical PE 3Years AND < Historical PE 5Years AND < PEG Ratio * 100; EPS >0; ROE >12; Debt to equity <1; Sales growth 5years >10; Price to Earning < Industry PE; Market Capitalization >1000',
+    columns: ['symbol', 'companyName', 'epsGrowth5y', 'epsGrowth3y', 'pe', 'historicalPe3y', 'historicalPe5y', 'peg', 'roe', 'debtEquity', 'salesGrowth5y', 'industryPe', 'marketCapCr'],
+    needs: { fundamentals: true, bars: false, historicalPe: true, industryPe: true },
   },
   {
-    id: 'market-crash-bargains',
-    category: 'Market Condition — Bear / Fear',
-    title: 'Market Crash Bargains',
-    description: 'Quality stocks down 30%+ from highs due to broad sell-off, not fundamentals. Technicals show oversold; fundamentals remain intact.',
-    searchIntent: 'Quality stocks crashed by market panic, not fundamentals',
-    conditions: 'RSI < 30; Price down 30%+ from 52-week high; Debt/Equity < 0.5; ROE > 15%; No fundamental deterioration in last 2 quarters',
-    columns: ['symbol', 'companyName', 'pe', 'pb', 'roe', 'debtEquity', 'netProfitCr', 'marketCapCr'],
+    id: 'down-50pct-fundamentals-strong',
+    category: 'Growth & Turnaround',
+    title: 'Down 50%, fundamentals still strong',
+    description: 'Strong growth, high returns, low debt and solid cash flow — priced 50%+ below its all-time high.',
+    conditions: 'Market Capitalization >1000; Sales growth 5Years >10; Profit growth 5Years >10; ROCE >15; ROE >15; Debt to equity <0.5; PEG Ratio <2; EPS growth 3Years >0; Current ratio >1.2; Free cash flow 3years >0; Current price < 0.5 × High price all time',
+    columns: ['symbol', 'companyName', 'marketCapCr', 'salesGrowth5y', 'profitGrowth5y', 'roce', 'roe', 'debtEquity', 'peg', 'epsGrowth3y', 'currentRatio', 'fcf', 'distFromAthPct'],
+    needs: { fundamentals: true, bars: true },
   },
   {
-    id: 'panic-bottom-reversal',
-    category: 'Market Condition — Bear / Fear',
-    title: 'Panic Bottom Reversal',
-    description: 'Stocks forming bullish reversal candlestick patterns on high volume at major support during fear phase. Pure technical entry in fundamentally sound names.',
-    searchIntent: 'Oversold stocks reversing at support with high volume',
-    conditions: 'Hammer / Bullish Engulfing candle on daily chart; Volume 2x+ 10-day average; Price at 52-week support; India VIX elevated (>20)',
-    columns: ['symbol', 'companyName', 'pe', 'pb', 'roe', 'netProfitCr', 'marketCapCr'],
+    id: 'cheap-on-book-strong-returns',
+    category: 'Value & Quality',
+    title: 'Cheap on book, strong returns',
+    description: 'Trading below 2x book value with healthy ROE and ROCE above 12%, low debt and cash flow backing reported profits.',
+    conditions: 'Price to book value <2; ROE >12; ROCE >12; Market Capitalization >1000; OCF/PAT >0.8; Debt to equity <0.5',
+    columns: ['symbol', 'companyName', 'pb', 'roe', 'roce', 'marketCapCr', 'ocfPat', 'debtEquity'],
+    needs: { fundamentals: true, bars: false },
   },
   {
-    id: 'rebound-leaders',
-    category: 'Market Condition — Recovery / Rebound',
-    title: 'Rebound Leaders',
-    description: 'First stocks to reclaim their 200 DMA after a broad market recovery. Tend to be sector leaders with institutional backing.',
-    searchIntent: 'Sector leaders first to cross above 200 DMA',
-    conditions: 'Price crosses above 200 DMA; Volume surge on breakout day; Relative strength vs Nifty rising; Stock is sector leader by market cap',
-    columns: ['symbol', 'companyName', 'pe', 'roe', 'netProfitCr', 'totalIncomeCr', 'marketCapCr'],
+    id: 'profit-growing-faster-than-sales',
+    category: 'Growth & Turnaround',
+    title: 'Profit growing faster than sales',
+    description: 'Fast YoY sales and profit growth, with profit outpacing sales and margins expanding quarter-on-quarter.',
+    conditions: 'YoY Quarterly Sales Growth >15%; YoY Quarterly Profit Growth >25%; Profit Growth > 1.5× Sales Growth; OPM latest quarter > 1.1× OPM preceding quarter; ROCE >15%; OCF/PAT >0.8; Market Capitalization >500',
+    columns: ['symbol', 'companyName', 'salesGrowthYoyQ', 'profitGrowthYoyQ', 'opmLatestQ', 'opmPrevQ', 'roce', 'ocfPat', 'marketCapCr'],
+    needs: { fundamentals: true, bars: false, quarterly: true },
   },
   {
-    id: 'sectoral-rotation-plays',
-    category: 'Market Condition — Recovery / Rebound',
-    title: 'Sectoral Rotation Plays',
-    description: 'Money rotates from defensive to cyclical sectors (BFSI, infra, auto, realty) as economy recovers. Identify sectors with improving fundamentals and rising price strength.',
-    searchIntent: 'Cyclical sectors gaining as economy turns the corner',
-    conditions: 'Sector relative strength improving vs Nifty; Institutional buying in FII/DII data; Revenue cycle turning positive; Low base quarter comparison',
-    columns: ['symbol', 'companyName', 'pe', 'pb', 'roe', 'totalIncomeCr', 'netProfitCr', 'marketCapCr'],
+    id: 'near-lows-quality-intact',
+    category: 'Growth & Turnaround',
+    title: 'Near lows, quality intact',
+    description: 'Trading near its 52-week low and 50%+ below all-time high, but still profitable with strong capital returns and manageable debt.',
+    conditions: 'Current price < 0.5 × High price all time; Current price <= 1.10 × Low price (52w); Market Capitalization >500; Profit after tax >0; ROCE >15; Debt to equity <1',
+    columns: ['symbol', 'companyName', 'marketCapCr', 'distFromAthPct', 'distFrom52wLowPct', 'netProfitCr', 'roce', 'debtEquity'],
+    needs: { fundamentals: true, bars: true },
   },
   {
-    id: 'earnings-growth-compounders',
-    category: 'Growth Investing',
-    title: 'Earnings Growth Compounders',
-    description: 'Companies growing EPS 20%+ consistently over 3-5 years with expanding margins. GARP approach — quality at fair price.',
-    searchIntent: 'Consistent 20%+ EPS growth at a fair price',
-    conditions: 'EPS growth > 20% for 3 consecutive years; Operating margin expanding; Revenue CAGR > 18%; Low or zero promoter pledge',
-    columns: ['symbol', 'companyName', 'pe', 'pb', 'roe', 'epsGrowth', 'totalIncomeCr', 'netProfitCr', 'marketCapCr'],
+    id: 'golden-crossover',
+    category: 'Technical Signals',
+    title: 'Golden crossover',
+    description: '50-day average just crossed above the 200-day average — a classic bullish momentum signal.',
+    conditions: 'DMA 50 > DMA 200; DMA 50 (previous day) < DMA 200 (previous day); Market Capitalization >500',
+    columns: ['symbol', 'companyName', 'marketCapCr', 'sma50', 'sma200', 'close'],
+    needs: { fundamentals: false, bars: true },
   },
   {
-    id: 'breakout-on-earnings',
-    category: 'Growth Investing',
-    title: 'Breakout on Earnings',
-    description: 'Stock breaks a multi-month resistance on the back of strong quarterly results. Fundamental trigger combined with technical confirmation — high conviction.',
-    searchIntent: 'Strong earnings surprise breaking a multi-month resistance',
-    conditions: 'Price breaks key resistance on result day; Volume 2x+ average on breakout; EPS beat > 10% vs estimates; Revenue beat; Prior base of 3+ months',
-    columns: ['symbol', 'companyName', 'pe', 'adjEps', 'totalIncomeCr', 'netProfitCr', 'marketCapCr'],
+    id: 'oversold-on-rsi',
+    category: 'Technical Signals',
+    title: 'Oversold on RSI',
+    description: 'RSI(14) below 30 signals the stock may be oversold — a potential bounce candidate, filtered to exclude micro-caps.',
+    conditions: 'RSI(14) <30; Market Capitalization >500',
+    columns: ['symbol', 'companyName', 'marketCapCr', 'rsi14', 'close'],
+    needs: { fundamentals: false, bars: true },
   },
   {
-    id: 'momentum-with-quality',
-    category: 'Growth Investing',
-    title: 'Momentum with Quality',
-    description: '52-week high breakouts with strong fundamentals underneath. Filters out speculative momentum — only quality names at new highs.',
-    searchIntent: 'Quality fundamentals confirming a 52-week high breakout',
-    conditions: 'Price near or at 52-week high; ROE > 18%; Debt/Equity < 0.5; Consistent quarterly earnings growth; Institutional holding increasing',
-    columns: ['symbol', 'companyName', 'pe', 'pb', 'roe', 'debtEquity', 'netProfitCr', 'marketCapCr'],
+    id: 'four-mas-in-one-candle',
+    category: 'Technical Signals',
+    title: '4 moving averages in one candle',
+    description: 'A rare confluence zone often watched for a breakout or breakdown.',
+    conditions: 'Market Capitalization >1000; Low price <= SMA20 <= High price; Low price <= SMA50 <= High price; Low price <= SMA100 <= High price; Low price <= SMA200 <= High price',
+    columns: ['symbol', 'companyName', 'marketCapCr', 'sma20', 'sma50', 'sma100', 'sma200', 'low', 'high'],
+    needs: { fundamentals: false, bars: true },
   },
   {
-    id: 'turnaround-candidates',
-    category: 'Special Situations',
-    title: 'Turnaround Candidates',
-    description: 'Companies improving from a loss-making or low-ROE phase. Look for inflection in margins and a technical base forming after prolonged downtrend.',
-    searchIntent: 'Loss-making companies showing clear margin inflection signs',
-    conditions: '2-3 consecutive quarters of margin improvement; Revenue growth resuming; Price base forming (flat for 3+ months); Promoter buying or low pledging',
-    columns: ['symbol', 'companyName', 'pe', 'pb', 'roe', 'netProfitCr', 'totalIncomeCr', 'promoterPct', 'marketCapCr'],
-  },
-  {
-    id: 'ipo-lockup-expiry',
-    category: 'Special Situations',
-    title: 'IPO Lockup Expiry',
-    description: 'Strong IPOs where anchor/institutional lock-in expires (~6 months post listing) — potential temporary dip and re-entry opportunity if fundamentals are solid.',
-    searchIntent: 'Post-IPO dip as lock-in expiry creates temporary selling',
-    conditions: '6 months post listing date; Price above IPO issue price; Fundamentals intact post-listing quarters; GMP was positive at listing; No major negative news',
-    columns: ['symbol', 'companyName', 'pe', 'pb', 'adjEps', 'totalIncomeCr', 'netProfitCr', 'marketCapCr'],
+    id: 'power-candle',
+    category: 'Technical Signals',
+    title: 'Power Candle',
+    description: 'Strong single-day buying — often an early signal of more upside ahead.',
+    conditions: 'Market Capitalization >1000; Close price = High price; (High − Low) = Max(High − Low) of last 7 days; Open price < (High + Low) / 2',
+    columns: ['symbol', 'companyName', 'marketCapCr', 'close', 'high', 'low', 'open'],
+    needs: { fundamentals: false, bars: true },
   },
 ];
 
-// ── Screening logic ───────────────────────────────────────────────────────────
-// All screens operate on the most-recent period (index 7) from Prowess CSVs.
-// Period 7 = most recent quarter in osc_fundamental_ind_qtr_v4.csv
-// Period 6 = one quarter back, etc.
+// ── Concurrency helper ────────────────────────────────────────────────────────
+// Small worker-pool mirroring utils/industryIntelligence/index.js's pMap — keeps
+// per-candidate DB fanout (fundamentals/bars) bounded under prisma's connection_limit.
 
-const LATEST = prowess.FUND_PERIOD_COUNT - 1; // index 7
-const PREV   = prowess.FUND_PERIOD_COUNT - 2; // index 6
-const PREV2  = prowess.FUND_PERIOD_COUNT - 3; // index 5
-const PREV3  = prowess.FUND_PERIOD_COUNT - 4; // index 4
-
-const SH_LATEST = prowess.SH_PERIOD_COUNT - 1;
-const SH_PREV   = prowess.SH_PERIOD_COUNT - 2;
-
-// Map NSE symbol → identity row using prowess identity CSV
-// Returns { symbol, companyName, industryGroup, nseBasicIndustry }
-function buildSymbolIndex() {
-  const { companyMap, quarterLabels } = prowess.loadFundamentalData();
-  const identityMap = prowess.loadIdentityMap(); // symbol → companyName
-  // Invert: companyName → symbol
-  const nameToSymbol = {};
-  for (const [sym, name] of Object.entries(identityMap)) {
-    nameToSymbol[name] = sym;
+async function pMap(items, fn, limit = 15) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i], i);
+    }
   }
-  return { companyMap, nameToSymbol, quarterLabels };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
-/** Compute EPS growth across recent periods, returns fraction or null */
-function epsGrowthRate(row, latestIdx, prevIdx) {
-  const latest = prowess.fundPeriodData(row, latestIdx);
-  const prev   = prowess.fundPeriodData(row, prevIdx);
-  if (latest.adjEps == null || prev.adjEps == null || prev.adjEps === 0) return null;
-  return (latest.adjEps - prev.adjEps) / Math.abs(prev.adjEps);
+function r2(v) {
+  return v == null || isNaN(v) ? null : Math.round(v * 100) / 100;
 }
 
-/** Check if net profit has grown across three periods */
-function isConsistentEpsGrowth(row, minGrowthFraction) {
-  const periods = [PREV3, PREV2, PREV, LATEST].map(i => prowess.fundPeriodData(row, i));
-  for (let i = 1; i < periods.length; i++) {
-    const curr = periods[i].adjEps;
-    const prev = periods[i - 1].adjEps;
-    if (curr == null || prev == null || prev === 0) return false;
-    if ((curr - prev) / Math.abs(prev) < minGrowthFraction) return false;
+// ── Stage 1: universe + bulk cheap filter (one query, all symbols) ───────────
+
+let _universeCache = null;
+function getUniverse() {
+  if (_universeCache) return _universeCache;
+  const { rows } = peerIdentity.load();
+  const seen = new Set();
+  const list = [];
+  for (const row of rows) {
+    const sym = (row[peerIdentity.COL_NSE_SYMBOL] || '').trim().toUpperCase();
+    if (!sym || seen.has(sym)) continue;
+    seen.add(sym);
+    list.push(sym);
   }
-  return true;
+  _universeCache = list;
+  return list;
 }
 
-/** Check if revenue CAGR over available periods exceeds threshold */
-function revenueCAGR(row) {
-  const oldest = prowess.fundPeriodData(row, PREV3);
-  const latest = prowess.fundPeriodData(row, LATEST);
-  if (oldest.totalIncomeCr == null || latest.totalIncomeCr == null) return null;
-  if (oldest.totalIncomeCr <= 0) return null;
-  // 4 periods ≈ 1 year (quarterly), treat as ~1 yr CAGR
-  return (latest.totalIncomeCr / oldest.totalIncomeCr) - 1;
-}
-
-/** Compute debtEquity proxy from mod data (borrowings / reserves+equity) */
-function debtEquityFromFund(row) {
-  // We use pb and bvps as proxies since mod data isn't loaded here
-  // Debt/Equity approximation: not directly in fundamental CSV.
-  // We'll return null and filter loosely.
-  return null;
-}
-
-/** Check if net profit improved over last N quarters */
-function isMarginImproving(row, quarters) {
-  const periods = [];
-  for (let i = 0; i < quarters; i++) {
-    periods.push(prowess.fundPeriodData(row, LATEST - i));
+/**
+ * Bulk market snapshot for the whole universe, resolved through the registry
+ * (values are already stored in nse_equity_new — resolveMetric's stored-value
+ * short-circuit makes this a free pass-through, no extra DB cost).
+ * Returns { [symbol]: { kpiMap, basicIndustry, companyName } }.
+ */
+async function buildMarketMap() {
+  const symbols = getUniverse();
+  const snapshots = await fetchMarketSnapshots(prisma, symbols);
+  const marketMap = {};
+  for (const sym of symbols) {
+    const snap = snapshots[sym];
+    if (!snap || snap.close == null) continue;
+    const kpiMap = {
+      PRICE: snap.close,
+      TTM_EPS: snap.eps,
+      MARKET_CAP_CR: snap.market_cap_cr,
+      PE_TTM: snap.pe,
+    };
+    const identity = peerIdentity.getIdentity(sym);
+    marketMap[sym] = {
+      kpiMap,
+      basicIndustry: identity?.basicIndustry ?? null,
+      companyName: identity?.companyName ?? null,
+    };
   }
-  periods.reverse(); // oldest first
-  for (let i = 1; i < periods.length; i++) {
-    const curr = periods[i].netProfitCr;
-    const prev = periods[i - 1].netProfitCr;
-    if (curr == null || prev == null) return false;
-    if (curr <= prev) return false;
+  return marketMap;
+}
+
+/** Per-industry average PE, built from the same bulk snapshot (screen 3 only). */
+function buildIndustryPeMap(marketMap) {
+  const groups = {};
+  for (const sym of Object.keys(marketMap)) {
+    const { kpiMap, basicIndustry } = marketMap[sym];
+    if (!basicIndustry) continue;
+    const pe = resolveMetric('PE_TTM', { kpiMap }).value;
+    if (pe == null || pe <= 0) continue;
+    (groups[basicIndustry] ??= []).push(pe);
   }
-  return true;
+  const industryPe = {};
+  for (const [industry, list] of Object.entries(groups)) {
+    industryPe[industry] = list.reduce((s, v) => s + v, 0) / list.length;
+  }
+  return industryPe;
 }
 
-/** Compute promoter change: latest vs previous */
-function promoterChange(shRow) {
-  if (!shRow) return null;
-  const latest = prowess.shPeriodData(shRow, SH_LATEST);
-  const prev   = prowess.shPeriodData(shRow, SH_PREV);
-  if (latest.promoters == null || prev.promoters == null) return null;
-  return prowess.r2(latest.promoters - prev.promoters);
+// ── Stage 2: fundamentals for candidates only ─────────────────────────────────
+//
+// Batched, not per-candidate: fetchKpiMapsMultiBatch/fetchPeTimeSeriesBatch pull
+// ALL candidates in 1-2 queries (WHERE company = ANY(...)), then every candidate
+// is built and filtered synchronously in-process. Profiling on a 578-candidate
+// screen showed the old per-candidate approach cost ~180s of cumulative DB query
+// time (round-trip latency dominated, not query cost) even though 15-way
+// concurrency hid most of it behind a ~12s wall time — batching removes the
+// round-trip multiplication entirely, mirroring how Stage 1 already batches.
+
+// EPS_BASIC has noticeably sparser coverage in prowess_values_new than EPS_DILUTED
+// (~37k vs ~46k rows, close to PAT's ~47k) — fall back to diluted wherever basic is missing.
+function epsOf(kpiMap) {
+  return kpiMap.EPS_BASIC ?? kpiMap.EPS_DILUTED ?? null;
 }
 
-/** Build a standardised stock record from fundamental row + symbol */
-function buildStockRecord(symbol, companyName, fundRow, shRow) {
-  const d = prowess.fundPeriodData(fundRow, LATEST);
-  const dPrev = prowess.fundPeriodData(fundRow, PREV);
-  const shLatest = shRow ? prowess.shPeriodData(shRow, SH_LATEST) : null;
-  const shPrev   = shRow ? prowess.shPeriodData(shRow, SH_PREV)   : null;
+/** Ascending-by-year { value, fiscal_year } series for a kpi abbr, from DESC periods. */
+function seriesFromPeriods(periods, abbr) {
+  const accessor = abbr === 'EPS_BASIC' ? (km => epsOf(km)) : (km => km[abbr] ?? null);
+  return periods.slice().reverse().map(p => ({ value: accessor(p.kpiMap), fiscal_year: p.fiscal_year }));
+}
 
-  const epsCurr = d.adjEps;
-  const epsPrev = dPrev.adjEps;
-  const epsGrowth = (epsCurr != null && epsPrev != null && epsPrev !== 0)
-    ? prowess.r2((epsCurr - epsPrev) / Math.abs(epsPrev))
-    : null;
+/**
+ * Full annual fundamentals bundle for one company (Stage 2) — pure, no I/O.
+ * `periods` comes from a prefetched fetchKpiMapsMultiBatch() result.
+ * `marketKpiMap` (PRICE/TTM_EPS/MARKET_CAP_CR/PE_TTM) is merged in so PB/PEG can resolve.
+ */
+function buildAnnualBundle(periods, marketKpiMap) {
+  if (!periods || !periods.length) return null;
 
-  const promoterPct    = shLatest?.promoters ?? null;
-  const promoterPctPrev = shPrev?.promoters ?? null;
-  const promChg = (promoterPct != null && promoterPctPrev != null)
-    ? prowess.r2(promoterPct - promoterPctPrev)
-    : null;
+  const latest = periods[0].kpiMap;
+  const prev = periods[1]?.kpiMap ?? null;
+
+  const epsSeries = seriesFromPeriods(periods, 'EPS_BASIC');
+  const revSeries = seriesFromPeriods(periods, 'REV_OP');
+  const patSeries = seriesFromPeriods(periods, 'PAT');
+
+  const epsCagr3y = resolveMetric('EPS_CAGR_3Y', { series: epsSeries }).value;
+  const epsCagr5y = resolveMetric('EPS_CAGR_5Y', { series: epsSeries }).value;
+  const revCagr3y = resolveMetric('REV_CAGR_3Y', { series: revSeries }).value;
+  const revCagr5y = resolveMetric('REV_CAGR_5Y', { series: revSeries }).value;
+  const patCagr5y = resolveMetric('PAT_CAGR_5Y', { series: patSeries }).value;
+
+  const roe = resolveMetric('ROE', { kpiMap: latest }).value;
+  const roce = resolveMetric('ROCE', { kpiMap: latest }).value;
+  const de = resolveMetric('DE', { kpiMap: latest }).value;
+  const currentRatio = resolveMetric('CURRENT_RATIO', { kpiMap: latest }).value;
+  const ocfPat = resolveMetric('OCF_PAT', { kpiMap: latest }).value;
+  // Free cash flow — latest year only. A true "3-year" FCF check needs 4 periods of
+  // CAPEX deltas per candidate; using the latest year is a documented proxy (this
+  // condition is rarely the binding one in practice).
+  const fcfRaw = prev ? resolveMetric('FCF', { kpiMap: latest, prevKpiMap: prev }).value : null;
+
+  const pb = resolveMetric('PB_TTM', { kpiMap: { ...marketKpiMap, ...latest } }).value;
+  const peg = resolveMetric('PEG_RATIO', { kpiMap: { ...marketKpiMap, EPS_GROWTH_PCT: epsCagr3y } }).value;
+
+  // PAT/FCF from prowess_values_new are raw ₹ (not Cr, unlike MARKET_CAP_CR from
+  // nse_equity_new) — convert to Cr for filtering/display consistency.
+  const RUPEES_PER_CR = 1e7;
 
   return {
-    symbol,
-    companyName,
-    pe:           prowess.r2(d.pe),
-    pb:           prowess.r2(d.pb),
-    adjEps:       prowess.r2(d.adjEps),
-    epsGrowth,                                    // fraction, e.g. 0.25 = 25%
-    dividendYield: prowess.r2(d.yield_),          // percent
-    payoutRatio:  null,                            // not in CSV; frontend shows N/A
-    roe:          null,                            // not directly in fund CSV; derived where possible
-    debtEquity:   null,                            // not in fund CSV
-    freeCashFlow: null,                            // not in fund CSV
-    totalIncomeCr:  prowess.r2(d.totalIncomeCr),
-    netProfitCr:    prowess.r2(d.netProfitCr),
-    marketCapCr:    prowess.r2(d.marketCapCr),
-    promoterPct:    prowess.r2(promoterPct),
-    promoterChange: promChg,
-    evPbdita:       prowess.r2(d.evPbdita),
+    periods, latest, prev,
+    epsSeries, revSeries, patSeries,
+    epsCagr3y, epsCagr5y, revCagr3y, revCagr5y, patCagr5y,
+    roe, roce, de, currentRatio, ocfPat, pb, peg,
+    netWorth: latest.NET_WORTH ?? (latest.EQ_SHARE_CAP != null && latest.RES_SURPLUS != null ? latest.EQ_SHARE_CAP + latest.RES_SURPLUS : null),
+    fcf: fcfRaw != null ? fcfRaw / RUPEES_PER_CR : null,
+    pat: latest.PAT != null ? latest.PAT / RUPEES_PER_CR : null,
+    eps: epsOf(latest),
+    epsPrev: prev ? epsOf(prev) : null,
   };
 }
 
-// ── Screeners per basket ──────────────────────────────────────────────────────
-
-function screenValueBuying(companyMap, nameToSymbol, shMap) {
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const d = prowess.fundPeriodData(row, LATEST);
-    if (d.pe == null || d.pb == null) continue;
-    // P/E < 25 (proxy for below sector median), P/B < 1.5, positive net profit (proxy for FCF)
-    if (d.pe > 25)   continue;
-    if (d.pb > 1.5)  continue;
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
+/** Yearly-average-PE series for Historical PE (one point per calendar year — see
+ *  utils/formulaRegistry/financialEntries.b.js HISTORICAL_PE_3Y/5Y docs on why this
+ *  matters given nse_equity_new's daily/weekly cadence split). Pure, no I/O — `rows`
+ *  comes from a prefetched fetchPeTimeSeriesBatch() result. */
+function buildHistoricalPeSeries(rows) {
+  const byYear = {};
+  for (const r of (rows ?? [])) {
+    if (r.pe == null) continue;
+    (byYear[r.date.slice(0, 4)] ??= []).push(r.pe);
   }
-  return results;
+  return Object.keys(byYear).sort().map(year => ({
+    value: byYear[year].reduce((s, v) => s + v, 0) / byYear[year].length,
+    year,
+  }));
 }
 
-function screenHighDividend(companyMap, nameToSymbol, shMap) {
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const d = prowess.fundPeriodData(row, LATEST);
-    if (d.yield_ == null || d.yield_ < 4) continue;
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
-  }
-  return results;
+/** Latest-quarter + 4-quarters-back bundle for the two QoQ/YoY screens (2, 6).
+ *  Pure, no I/O — `periods` comes from a prefetched fetchKpiMapsMultiBatch() result. */
+function buildQuarterlyBundle(periods) {
+  if (!periods || periods.length < 5) return null;
+  const opm = p => resolveMetric('OP_MARGIN', { kpiMap: p.kpiMap }).value;
+  return {
+    q0: periods[0], q1: periods[1], q2: periods[2], q3: periods[3], q4: periods[4],
+    opmQ: opm,
+  };
 }
 
-function screenPromoterBuying(companyMap, nameToSymbol, shMap) {
-  if (!shMap) return [];
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const shRow = shMap.companyMap?.[companyName] ?? null;
-    if (!shRow) continue;
-    const latest = prowess.shPeriodData(shRow, SH_LATEST);
-    const prev   = prowess.shPeriodData(shRow, SH_PREV);
-    if (latest.promoters == null || prev.promoters == null) continue;
-    // Promoter stake increased
-    if (latest.promoters <= prev.promoters) continue;
-    const d = prowess.fundPeriodData(row, LATEST);
-    // Positive earnings trend
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
-  }
-  return results;
+/** Distinct, non-null company names for a Stage-1 candidate list. */
+function companyNamesOf(candidates) {
+  return [...new Set(candidates.map(([, e]) => e.companyName).filter(Boolean))];
 }
 
-function screenMarketCrashBargains(companyMap, nameToSymbol, shMap) {
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const d = prowess.fundPeriodData(row, LATEST);
-    if (d.pe == null || d.pb == null) continue;
-    // Quality filter: low PE + low PB + profitable
-    if (d.pe > 20)  continue;
-    if (d.pb > 2.0) continue;
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    // No deterioration: latest net profit >= previous
-    const dPrev = prowess.fundPeriodData(row, PREV);
-    if (dPrev.netProfitCr != null && d.netProfitCr < dPrev.netProfitCr * 0.8) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
+/**
+ * Shared harness for the 5 purely-fundamental screens (1, 3, 4, 5 use annual;
+ * screen 3 additionally needs the historical-PE series). Batch-prefetches once,
+ * then calls `evaluate(symbol, entry, ann, peSeries) => record|null` synchronously
+ * per candidate.
+ */
+async function runAnnualScreen(candidates, { historicalPe = false, window = 5 } = {}, evaluate) {
+  const companyNames = companyNamesOf(candidates);
+  const symbols = candidates.map(([symbol]) => symbol);
+  const [annualMap, peMap] = await Promise.all([
+    fetchKpiMapsMultiBatch(prisma, companyNames, 'annual', window),
+    historicalPe ? fetchPeTimeSeriesBatch(prisma, symbols, { months: 60 }) : Promise.resolve({}),
+  ]);
+
+  const rows = [];
+  for (const [symbol, entry] of candidates) {
+    if (!entry.companyName) continue;
+    const ann = buildAnnualBundle(annualMap[entry.companyName], entry.kpiMap);
+    if (!ann) continue;
+    const peSeries = historicalPe ? buildHistoricalPeSeries(peMap[symbol]) : null;
+    const record = evaluate(symbol, entry, ann, peSeries);
+    if (record) rows.push(record);
   }
-  return results;
+  return rows;
 }
 
-function screenPanicBottomReversal(companyMap, nameToSymbol, shMap) {
-  // Same fundamentals filter as crash bargains — technical conditions (RSI, volume)
-  // are not available in CSVs; we surface the fundamentally sound candidates.
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const d = prowess.fundPeriodData(row, LATEST);
-    if (d.pe == null || d.pe <= 0) continue;
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
+/** Shared harness for the 2 QoQ/YoY quarterly screens (2, 6). */
+async function runQuarterlyScreen(candidates, evaluate) {
+  const companyNames = companyNamesOf(candidates);
+  const quarterlyMap = await fetchKpiMapsMultiBatch(prisma, companyNames, 'quarterly', 4);
+
+  const rows = [];
+  for (const [symbol, entry] of candidates) {
+    if (!entry.companyName) continue;
+    const q = buildQuarterlyBundle(quarterlyMap[entry.companyName]);
+    if (!q) continue;
+    const record = evaluate(symbol, entry, q);
+    if (record) rows.push(record);
   }
-  return results;
+  return rows;
 }
 
-function screenReboundLeaders(companyMap, nameToSymbol, shMap) {
-  // Filter: profitable + large/mid-cap (marketCap > 1000 Cr)
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const d = prowess.fundPeriodData(row, LATEST);
-    if (d.marketCapCr == null || d.marketCapCr < 1000) continue;
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
-  }
-  // Sort by market cap desc so sector leaders appear first
-  results.sort((a, b) => (b.marketCapCr ?? 0) - (a.marketCapCr ?? 0));
-  return results;
+// ── Stage 3: price history for candidates that need it ───────────────────────
+
+async function getBarsBundle(symbol) {
+  const bars = await fetchOhlcvBars(prisma, symbol);
+  if (!bars.dailyBars.length) return null;
+  const ta = resolveTechnicalIndicators(bars.dailyBars, bars.weeklyBars, bars.monthlyBars, bars.quote);
+  return { bars, ta };
 }
 
-function screenSectoralRotation(companyMap, nameToSymbol, shMap) {
-  // Revenue picking up: latest totalIncome > previous
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const d     = prowess.fundPeriodData(row, LATEST);
-    const dPrev = prowess.fundPeriodData(row, PREV);
-    if (d.totalIncomeCr == null || dPrev.totalIncomeCr == null) continue;
-    if (d.totalIncomeCr <= dPrev.totalIncomeCr) continue;
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
-  }
-  return results;
+// ── Shared record builder ─────────────────────────────────────────────────────
+
+function baseRecord(symbol, entry) {
+  return {
+    symbol,
+    companyName: entry.companyName,
+    marketCapCr: r2(entry.kpiMap.MARKET_CAP_CR),
+    pe: r2(entry.kpiMap.PE_TTM),
+  };
 }
 
-function screenEarningsGrowthCompounders(companyMap, nameToSymbol, shMap) {
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    // EPS growing consistently across last 4 periods at > 20%
-    if (!isConsistentEpsGrowth(row, 0.20)) continue;
-    const cagr = revenueCAGR(row);
-    if (cagr == null || cagr < 0.18) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
-  }
-  return results;
+// ── Screeners ──────────────────────────────────────────────────────────────────
+// Each screener: (a) applies the basket's cheap Stage-1 conditions over the bulk
+// market map, (b) fetches Stage 2/3 data only for survivors, (c) applies the
+// remaining conditions, (d) returns the final stock records.
+
+async function screenSmallSizeSolidFundamentals(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 500 && mc < 2000;
+  });
+
+  return runAnnualScreen(candidates, { historicalPe: true }, (symbol, entry, ann, peSeries) => {
+    if (ann.netWorth == null || ann.netWorth <= 0) return null;
+    const historicalPe5y = resolveMetric('HISTORICAL_PE_5Y', { series: peSeries }).value;
+    const pe = entry.kpiMap.PE_TTM;
+
+    if (ann.pat == null || ann.pat <= 0) return null;
+    if (ann.revCagr3y == null || ann.revCagr3y <= 0) return null;
+    if (ann.de == null || ann.de >= 1) return null;
+    if (ann.eps == null || ann.eps <= 0) return null;
+    if (pe == null || historicalPe5y == null || pe >= historicalPe5y) return null;
+    if (ann.peg == null || ann.peg >= 1) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      netProfitCr: r2(ann.pat),
+      salesGrowth3y: r2(ann.revCagr3y),
+      debtEquity: r2(ann.de),
+      eps: r2(ann.eps),
+      historicalPe5y: r2(historicalPe5y),
+      peg: r2(ann.peg),
+    };
+  });
 }
 
-function screenBreakoutOnEarnings(companyMap, nameToSymbol, shMap) {
-  // EPS jumped in latest quarter vs previous by > 10%
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const growth = epsGrowthRate(row, LATEST, PREV);
-    if (growth == null || growth < 0.10) continue;
-    const d = prowess.fundPeriodData(row, LATEST);
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    const dPrev = prowess.fundPeriodData(row, PREV);
-    if (dPrev.totalIncomeCr == null || d.totalIncomeCr == null) continue;
-    if (d.totalIncomeCr <= dPrev.totalIncomeCr) continue; // revenue beat
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
+async function screenProfitMomentumReasonablyPriced(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    const pe = e.kpiMap.PE_TTM;
+    return mc != null && mc > 1000 && pe != null && pe > 0 && pe < 30;
+  });
+
+  const companyNames = companyNamesOf(candidates);
+  const [quarterlyMap, annualMap] = await Promise.all([
+    fetchKpiMapsMultiBatch(prisma, companyNames, 'quarterly', 4),
+    fetchKpiMapsMultiBatch(prisma, companyNames, 'annual', 3), // for EPS_CAGR_3Y (PEG input)
+  ]);
+
+  const rows = [];
+  for (const [symbol, entry] of candidates) {
+    if (!entry.companyName) continue;
+    const q = buildQuarterlyBundle(quarterlyMap[entry.companyName]);
+    if (!q) continue;
+
+    const pat = p => p.kpiMap.PAT;
+    // Net profit grew every quarter over the last 4 quarters.
+    const chain = [q.q4, q.q3, q.q2, q.q1, q.q0].map(pat);
+    if (chain.some(v => v == null)) continue;
+    let grew = true;
+    for (let i = 1; i < chain.length; i++) {
+      if (chain[i] <= chain[i - 1]) { grew = false; break; }
+    }
+    if (!grew) continue;
+
+    const opm = q.opmQ(q.q0);
+    if (opm == null || opm <= 15) continue;
+
+    const annEps = seriesFromPeriods(annualMap[entry.companyName] ?? [], 'EPS_BASIC');
+    const epsCagr3y = resolveMetric('EPS_CAGR_3Y', { series: annEps }).value;
+    const peg = resolveMetric('PEG_RATIO', { kpiMap: { ...entry.kpiMap, EPS_GROWTH_PCT: epsCagr3y } }).value;
+    if (peg == null || peg >= 1) continue;
+
+    rows.push({
+      ...baseRecord(symbol, entry),
+      peg: r2(peg),
+      opm: r2(opm),
+      netProfitCr: r2(chain[chain.length - 1] / 1e7), // prowess_values_new PAT is raw ₹, not Cr
+    });
   }
-  return results;
+  return rows;
 }
 
-function screenMomentumWithQuality(companyMap, nameToSymbol, shMap) {
-  // Quality: PE > 0, profitable, large/mid-cap proxy
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const d = prowess.fundPeriodData(row, LATEST);
-    if (d.pe == null || d.pe <= 0) continue;
-    if (d.pb == null || d.pb <= 0) continue;
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    if (d.marketCapCr == null || d.marketCapCr < 500) continue;
-    // Earnings growth: latest > prev
-    const dPrev = prowess.fundPeriodData(row, PREV);
-    if (dPrev.netProfitCr != null && d.netProfitCr <= dPrev.netProfitCr) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
-  }
-  // Sort by marketCap desc (momentum candidates tend to be well-known names)
-  results.sort((a, b) => (b.marketCapCr ?? 0) - (a.marketCapCr ?? 0));
-  return results;
+async function screenQualityCompoundersAtDiscount(marketMap, industryPe) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 1000;
+  });
+
+  return runAnnualScreen(candidates, { historicalPe: true }, (symbol, entry, ann, peSeries) => {
+    if (ann.netWorth == null || ann.netWorth <= 0) return null;
+
+    if (ann.epsCagr5y == null || ann.epsCagr5y <= 15) return null;
+    if (ann.epsCagr3y == null || ann.epsCagr3y <= 12) return null;
+    if (ann.eps == null || ann.epsPrev == null || ann.eps <= ann.epsPrev) return null;
+
+    const pe = entry.kpiMap.PE_TTM;
+    const historicalPe3y = resolveMetric('HISTORICAL_PE_3Y', { series: peSeries }).value;
+    const historicalPe5y = resolveMetric('HISTORICAL_PE_5Y', { series: peSeries }).value;
+    if (pe == null || historicalPe3y == null || pe >= historicalPe3y) return null;
+    if (historicalPe5y == null || pe >= historicalPe5y) return null;
+    if (ann.peg == null || pe >= ann.peg * 100) return null;
+
+    if (ann.eps <= 0) return null;
+    if (ann.roe == null || ann.roe <= 12) return null;
+    if (ann.de == null || ann.de >= 1) return null;
+    if (ann.revCagr5y == null || ann.revCagr5y <= 10) return null;
+
+    const industryAvgPe = entry.basicIndustry ? industryPe[entry.basicIndustry] : null;
+    if (industryAvgPe == null || pe >= industryAvgPe) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      epsGrowth5y: r2(ann.epsCagr5y),
+      epsGrowth3y: r2(ann.epsCagr3y),
+      historicalPe3y: r2(historicalPe3y),
+      historicalPe5y: r2(historicalPe5y),
+      peg: r2(ann.peg),
+      roe: r2(ann.roe),
+      debtEquity: r2(ann.de),
+      salesGrowth5y: r2(ann.revCagr5y),
+      industryPe: r2(industryAvgPe),
+    };
+  });
 }
 
-function screenTurnaroundCandidates(companyMap, nameToSymbol, shMap) {
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    // Was loss-making earlier, now profitable — or was barely profitable, improving
-    const dOldest = prowess.fundPeriodData(row, PREV3);
-    const dLatest  = prowess.fundPeriodData(row, LATEST);
-    if (dOldest.netProfitCr == null || dLatest.netProfitCr == null) continue;
-    // Was previously low/negative, now improving
-    if (dOldest.netProfitCr >= dLatest.netProfitCr) continue;
-    if (dLatest.netProfitCr <= 0) continue; // must now be profitable
-    // Margin improving over last 3 quarters
-    if (!isMarginImproving(row, 3)) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
-  }
-  return results;
+async function screenDown50PctFundamentalsStrong(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 1000;
+  });
+
+  // Annual fundamentals filter first (batched, cheap) — only survivors go on to
+  // the per-candidate bars fetch (Stage 3), which is the expensive part left.
+  const survivors = await runAnnualScreen(candidates, {}, (symbol, entry, ann) => {
+    if (ann.netWorth == null || ann.netWorth <= 0) return null;
+    if (ann.revCagr5y == null || ann.revCagr5y <= 10) return null;
+    if (ann.patCagr5y == null || ann.patCagr5y <= 10) return null;
+    if (ann.roce == null || ann.roce <= 15) return null;
+    if (ann.roe == null || ann.roe <= 15) return null;
+    if (ann.de == null || ann.de >= 0.5) return null;
+    if (ann.peg == null || ann.peg >= 2) return null;
+    if (ann.epsCagr3y == null || ann.epsCagr3y <= 0) return null;
+    if (ann.currentRatio == null || ann.currentRatio <= 1.2) return null;
+    if (ann.fcf == null || ann.fcf <= 0) return null;
+    return { symbol, entry, ann };
+  });
+
+  const rows = await pMap(survivors, async ({ symbol, entry, ann }) => {
+    const bars = await getBarsBundle(symbol);
+    if (!bars || bars.bars.allTimeHigh == null) return null;
+    const price = entry.kpiMap.PRICE;
+    if (price == null || price >= 0.5 * bars.bars.allTimeHigh) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      salesGrowth5y: r2(ann.revCagr5y),
+      profitGrowth5y: r2(ann.patCagr5y),
+      roce: r2(ann.roce),
+      roe: r2(ann.roe),
+      debtEquity: r2(ann.de),
+      peg: r2(ann.peg),
+      epsGrowth3y: r2(ann.epsCagr3y),
+      currentRatio: r2(ann.currentRatio),
+      fcf: r2(ann.fcf),
+      distFromAthPct: r2((price / bars.bars.allTimeHigh - 1) * 100),
+    };
+  });
+  return rows.filter(Boolean);
 }
 
-function screenIpoLockupExpiry(companyMap, nameToSymbol, shMap) {
-  // Proxy: companies with recent EPS data, profitable, but low PE (early stage)
-  const results = [];
-  for (const [companyName, row] of Object.entries(companyMap)) {
-    const d = prowess.fundPeriodData(row, LATEST);
-    if (d.netProfitCr == null || d.netProfitCr <= 0) continue;
-    if (d.pe == null || d.pe <= 0 || d.pe > 80) continue;
-    if (d.marketCapCr == null || d.marketCapCr < 100) continue;
-    const symbol = nameToSymbol[companyName];
-    if (!symbol) continue;
-    const shRow = shMap?.companyMap?.[companyName] ?? null;
-    results.push(buildStockRecord(symbol, companyName, row, shRow));
-  }
-  return results;
+async function screenCheapOnBookStrongReturns(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 1000;
+  });
+
+  return runAnnualScreen(candidates, {}, (symbol, entry, ann) => {
+    if (ann.netWorth == null || ann.netWorth <= 0) return null;
+    if (ann.pb == null || ann.pb <= 0 || ann.pb >= 2) return null;
+    if (ann.roe == null || ann.roe <= 12) return null;
+    if (ann.roce == null || ann.roce <= 12) return null;
+    if (ann.ocfPat == null || ann.ocfPat <= 0.8) return null;
+    if (ann.de == null || ann.de >= 0.5) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      pb: r2(ann.pb),
+      roe: r2(ann.roe),
+      roce: r2(ann.roce),
+      ocfPat: r2(ann.ocfPat),
+      debtEquity: r2(ann.de),
+    };
+  });
 }
 
-// Map basket id → screener function
+async function screenProfitGrowingFasterThanSales(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 500;
+  });
+
+  return runQuarterlyScreen(candidates, (symbol, entry, q) => {
+    const revLatest = q.q0.kpiMap.REV_OP, revYoy = q.q4.kpiMap.REV_OP;
+    const patLatest = q.q0.kpiMap.PAT, patYoy = q.q4.kpiMap.PAT;
+    if (revLatest == null || !revYoy) return null;
+    if (patLatest == null || !patYoy) return null;
+
+    const salesGrowthYoyQ = (revLatest - revYoy) / Math.abs(revYoy) * 100;
+    const profitGrowthYoyQ = (patLatest - patYoy) / Math.abs(patYoy) * 100;
+    if (salesGrowthYoyQ <= 15) return null;
+    if (profitGrowthYoyQ <= 25) return null;
+    if (profitGrowthYoyQ <= 1.5 * salesGrowthYoyQ) return null;
+
+    const opmLatestQ = q.opmQ(q.q0);
+    const opmPrevQ = q.opmQ(q.q1);
+    if (opmLatestQ == null || opmPrevQ == null || opmPrevQ <= 0) return null;
+    if (opmLatestQ <= 1.1 * opmPrevQ) return null;
+
+    const roce = resolveMetric('ROCE', { kpiMap: q.q0.kpiMap }).value;
+    if (roce == null || roce <= 15) return null;
+    const ocfPat = resolveMetric('OCF_PAT', { kpiMap: q.q0.kpiMap }).value;
+    if (ocfPat == null || ocfPat <= 0.8) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      salesGrowthYoyQ: r2(salesGrowthYoyQ),
+      profitGrowthYoyQ: r2(profitGrowthYoyQ),
+      opmLatestQ: r2(opmLatestQ),
+      opmPrevQ: r2(opmPrevQ),
+      roce: r2(roce),
+      ocfPat: r2(ocfPat),
+    };
+  });
+}
+
+async function screenNearLowsQualityIntact(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 500;
+  });
+
+  const survivors = await runAnnualScreen(candidates, {}, (symbol, entry, ann) => {
+    if (ann.netWorth == null || ann.netWorth <= 0) return null;
+    if (ann.pat == null || ann.pat <= 0) return null;
+    if (ann.roce == null || ann.roce <= 15) return null;
+    if (ann.de == null || ann.de < 0 || ann.de >= 1) return null;
+    return { symbol, entry, ann };
+  });
+
+  const rows = await pMap(survivors, async ({ symbol, entry, ann }) => {
+    const barsBundle = await getBarsBundle(symbol);
+    if (!barsBundle) return null;
+
+    const price = entry.kpiMap.PRICE;
+    const { allTimeHigh, dailyBars } = barsBundle.bars;
+    if (price == null || allTimeHigh == null) return null;
+    if (price >= 0.5 * allTimeHigh) return null;
+
+    const low52w = dailyBars.length ? Math.min(...dailyBars.map(b => b.low)) : null;
+    if (low52w == null || price > 1.10 * low52w) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      netProfitCr: r2(ann.pat),
+      roce: r2(ann.roce),
+      debtEquity: r2(ann.de),
+      distFromAthPct: r2((price / allTimeHigh - 1) * 100),
+      distFrom52wLowPct: r2((price / low52w - 1) * 100),
+    };
+  });
+  return rows.filter(Boolean);
+}
+
+async function screenGoldenCrossover(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 500;
+  });
+
+  const rows = await pMap(candidates, async ([symbol, entry]) => {
+    const bundle = await getBarsBundle(symbol);
+    if (!bundle) return null;
+    const { dailyBars, weeklyBars, monthlyBars, quote } = bundle.bars;
+    if (dailyBars.length < 2) return null;
+
+    const today = resolveTechnicalIndicators(dailyBars, weeklyBars, monthlyBars, quote).daily;
+    const yesterdayBars = dailyBars.slice(0, -1);
+    const yesterday = resolveTechnicalIndicators(yesterdayBars, weeklyBars, monthlyBars, quote).daily;
+
+    const sma50 = today.sma50, sma200 = today.sma200;
+    const sma50Prev = yesterday.sma50, sma200Prev = yesterday.sma200;
+    if ([sma50, sma200, sma50Prev, sma200Prev].some(v => v == null)) return null;
+    if (!(sma50 > sma200)) return null;
+    if (!(sma50Prev < sma200Prev)) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      sma50: r2(sma50),
+      sma200: r2(sma200),
+      close: r2(dailyBars.at(-1).close),
+    };
+  });
+  return rows.filter(Boolean);
+}
+
+async function screenOversoldOnRsi(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 500;
+  });
+
+  const rows = await pMap(candidates, async ([symbol, entry]) => {
+    const bundle = await getBarsBundle(symbol);
+    if (!bundle) return null;
+    const rsi14 = bundle.ta.daily.rsi14;
+    if (rsi14 == null || rsi14 >= 30) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      rsi14: r2(rsi14),
+      close: r2(bundle.bars.dailyBars.at(-1)?.close),
+    };
+  });
+  return rows.filter(Boolean);
+}
+
+async function screenFourMasInOneCandle(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 1000;
+  });
+
+  const rows = await pMap(candidates, async ([symbol, entry]) => {
+    const bundle = await getBarsBundle(symbol);
+    if (!bundle) return null;
+    const { sma20, sma50, sma100, sma200, low, high } = bundle.ta.daily;
+    if ([sma20, sma50, sma100, sma200, low, high].some(v => v == null)) return null;
+    const inRange = v => low <= v && v <= high;
+    if (!inRange(sma20) || !inRange(sma50) || !inRange(sma100) || !inRange(sma200)) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      sma20: r2(sma20), sma50: r2(sma50), sma100: r2(sma100), sma200: r2(sma200),
+      low: r2(low), high: r2(high),
+    };
+  });
+  return rows.filter(Boolean);
+}
+
+async function screenPowerCandle(marketMap) {
+  const candidates = Object.entries(marketMap).filter(([, e]) => {
+    const mc = e.kpiMap.MARKET_CAP_CR;
+    return mc != null && mc > 1000;
+  });
+
+  const rows = await pMap(candidates, async ([symbol, entry]) => {
+    const bundle = await getBarsBundle(symbol);
+    if (!bundle) return null;
+    const { dailyBars } = bundle.bars;
+    if (dailyBars.length < 7) return null;
+
+    const last = dailyBars.at(-1);
+    if (last.close !== last.high) return null;
+
+    const last7 = dailyBars.slice(-7);
+    const maxRange = Math.max(...last7.map(b => b.high - b.low));
+    const todayRange = last.high - last.low;
+    if (Math.abs(todayRange - maxRange) > 1e-9) return null;
+    if (!(last.open < (last.high + last.low) / 2)) return null;
+
+    return {
+      ...baseRecord(symbol, entry),
+      close: r2(last.close), high: r2(last.high), low: r2(last.low), open: r2(last.open),
+    };
+  });
+  return rows.filter(Boolean);
+}
+
+// Map basket id → screener function. Every screener receives (marketMap, industryPe).
 const SCREENERS = {
-  'value-buying':               screenValueBuying,
-  'high-dividend-low-payout':   screenHighDividend,
-  'promoter-buying-signal':     screenPromoterBuying,
-  'market-crash-bargains':      screenMarketCrashBargains,
-  'panic-bottom-reversal':      screenPanicBottomReversal,
-  'rebound-leaders':            screenReboundLeaders,
-  'sectoral-rotation-plays':    screenSectoralRotation,
-  'earnings-growth-compounders': screenEarningsGrowthCompounders,
-  'breakout-on-earnings':       screenBreakoutOnEarnings,
-  'momentum-with-quality':      screenMomentumWithQuality,
-  'turnaround-candidates':      screenTurnaroundCandidates,
-  'ipo-lockup-expiry':          screenIpoLockupExpiry,
+  'small-size-solid-fundamentals':      (mm) => screenSmallSizeSolidFundamentals(mm),
+  'profit-momentum-reasonably-priced':  (mm) => screenProfitMomentumReasonablyPriced(mm),
+  'quality-compounders-at-a-discount':  (mm, ip) => screenQualityCompoundersAtDiscount(mm, ip),
+  'down-50pct-fundamentals-strong':     (mm) => screenDown50PctFundamentalsStrong(mm),
+  'cheap-on-book-strong-returns':       (mm) => screenCheapOnBookStrongReturns(mm),
+  'profit-growing-faster-than-sales':   (mm) => screenProfitGrowingFasterThanSales(mm),
+  'near-lows-quality-intact':           (mm) => screenNearLowsQualityIntact(mm),
+  'golden-crossover':                   (mm) => screenGoldenCrossover(mm),
+  'oversold-on-rsi':                    (mm) => screenOversoldOnRsi(mm),
+  'four-mas-in-one-candle':             (mm) => screenFourMasInOneCandle(mm),
+  'power-candle':                       (mm) => screenPowerCandle(mm),
 };
+
+/** Run a basket's screener end-to-end (Stage 1 → Stage 2/3). Used by both
+ *  getBasketStocks and services/dashboard/discover-screens.service.js. */
+async function runScreener(basketId) {
+  const screener = SCREENERS[basketId];
+  if (!screener) return null;
+  const marketMap = await buildMarketMap();
+  const basket = BASKETS.find(b => b.id === basketId);
+  const industryPe = basket?.needs?.industryPe ? buildIndustryPeMap(marketMap) : null;
+  return screener(marketMap, industryPe);
+}
 
 // ── Controllers ───────────────────────────────────────────────────────────────
 
@@ -492,7 +782,6 @@ function getBaskets(req, res) {
       id:          basket.id,
       title:       basket.title,
       description: basket.description,
-      searchIntent: basket.searchIntent,
       conditions:  basket.conditions,
       columns:     basket.columns,
     });
@@ -504,7 +793,6 @@ function getBaskets(req, res) {
       category:    b.category,
       title:       b.title,
       description: b.description,
-      searchIntent: b.searchIntent,
       conditions:  b.conditions,
       columns:     b.columns,
     })),
@@ -521,22 +809,23 @@ function getBaskets(req, res) {
  *   sort  (column name, default 'marketCapCr')
  *   order ('asc' | 'desc', default 'desc')
  */
-function getBasketStocks(req, res) {
+async function getBasketStocks(req, res) {
   const { basketId } = req.params;
   const basket = BASKETS.find(b => b.id === basketId);
   if (!basket) {
     return res.status(404).json({ error: `Basket '${basketId}' not found` });
   }
-
-  const screener = SCREENERS[basketId];
-  if (!screener) {
+  if (!SCREENERS[basketId]) {
     return res.status(501).json({ error: `Screener for '${basketId}' not implemented` });
   }
 
-  const { companyMap, nameToSymbol, quarterLabels } = buildSymbolIndex();
-  const shData = prowess.loadShareholdingData();
-
-  let stocks = screener(companyMap, nameToSymbol, shData);
+  let stocks;
+  try {
+    stocks = await runScreener(basketId);
+  } catch (err) {
+    console.error(`[baskets] screener '${basketId}' failed:`, err);
+    return res.status(500).json({ error: 'Screener failed', detail: err.message });
+  }
 
   // Sorting
   const sortField = req.query.sort || 'marketCapCr';
@@ -563,7 +852,6 @@ function getBasketStocks(req, res) {
       conditions:  basket.conditions,
       columns:     basket.columns,
     },
-    latestQuarter: quarterLabels[LATEST] ?? null,
     pagination: { page, size, total, pages: Math.ceil(total / size) },
     stocks: items,
   });
@@ -575,5 +863,5 @@ module.exports = {
   // Exported for reuse by the investor-dashboard discover-screens service.
   BASKETS,
   SCREENERS,
-  buildSymbolIndex,
+  runScreener,
 };
