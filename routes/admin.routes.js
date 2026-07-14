@@ -16,6 +16,7 @@ const pipelineJobsRouter     = require('./admin.pipelineJobs.routes');
 const kpisRouter             = require('./admin.kpis.routes');
 const prowessHistoricRouter  = require('./admin.prowessHistoric.routes');
 const prowessBatchRouter     = require('./admin.prowessBatch.routes');
+const invitesRouter          = require('./admin.invites.routes');
 
 // ─── Existing admin routes ────────────────────────────────────────────────────
 
@@ -141,5 +142,9 @@ router.use('/prowess/historic', prowessHistoricRouter);
 // ProwessBatchRequest, polled by the scheduler's prowess_batch_poll job) ─────
 
 router.use('/prowess/batch', prowessBatchRouter);
+
+// ─── Invites (invite-only registration) ─────────────────────────────────────
+
+router.use('/invites', invitesRouter);
 
 module.exports = router;

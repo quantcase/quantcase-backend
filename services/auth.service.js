@@ -3,8 +3,9 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { computeAccessState } = require('./subscription.service');
+const inviteService = require('./invite.service');
 
-async function register({ email, mobile, password, display_name }) {
+async function register({ email, mobile, password, display_name, invite_token }) {
   if (!email && !mobile) {
     const err = new Error('Email or mobile is required');
     err.status = 400;
@@ -13,6 +14,19 @@ async function register({ email, mobile, password, display_name }) {
   if (!password) {
     const err = new Error('Password is required');
     err.status = 400;
+    throw err;
+  }
+  if (!invite_token) {
+    const err = new Error('An invite token is required to register');
+    err.status = 400;
+    throw err;
+  }
+
+  // Throws (404/410) if the token is unknown, already used, or expired.
+  const invite = await inviteService.validateToken(invite_token);
+  if (email && invite.email !== email.trim().toLowerCase()) {
+    const err = new Error('This invite was issued to a different email address');
+    err.status = 403;
     throw err;
   }
 
@@ -63,6 +77,12 @@ async function register({ email, mobile, password, display_name }) {
         current_period_start: now,
         current_period_end:  trialEnd,
       },
+    });
+
+    // Consumes the invite so its token can't be reused for another signup.
+    await tx.invite.update({
+      where: { token: invite_token },
+      data: { status: 'accepted', acceptedAt: now },
     });
 
     return created;

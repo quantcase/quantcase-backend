@@ -87,6 +87,14 @@ QuantCase connects users' broker accounts via [smallcase Gateway](https://develo
 
 Key files: `lib/smallcaseGateway.js` (JWT signing + Gateway HTTP client + webhook checksum), `services/smallcase.service.js`, `controllers/smallcase.controller.js`, `routes/smallcase.routes.js`. Models: `SmallcaseUser`, `SmallcasePortfolio`, `SmallcaseHolding`, `SmallcaseOrder`.
 
+## Invite-Only Registration
+
+Registration is gated behind an admin-issued invite. Flow: `POST /admin/invites` (body: `{ emails: string[] }`) creates one `Invite` row per email (skips emails with an existing active invite) and emails each recipient an HTML invite via SMTP, linking to `FRONTEND_INVITE_URL` (default `https://beta.quantcase.ai`) with `?invite_token=...` appended. The frontend calls `GET /api/invites/validate?token=...` to check the token is still `pending` and unexpired before showing the signup form (returns the invited email + expiry, or 404/410 on invalid/used/expired). `POST /api/auth/register` now requires `invite_token` in the body — it re-validates the token, requires the submitted email to match the invited email, and marks the invite `accepted` in the same transaction as user creation so the token can't be reused. Invites expire after 7 days (`InviteStatus`: pending/accepted/expired).
+
+**Email sending**: `lib/mailer.js` wraps `nodemailer` over plain SMTP (works with AWS SES SMTP, SendGrid SMTP, Postmark, etc. — swap providers via env vars only). Required env vars: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`. Templates live in `utils/emailTemplates/` (currently `invite.js`).
+
+Key files: `services/invite.service.js` (create/validate), `lib/mailer.js`, `utils/emailTemplates/invite.js`, `controllers/admin.invites.controller.js` + `routes/admin.invites.routes.js` (admin create, mounted at `/admin/invites`), `controllers/invite.controller.js` + `routes/invites.routes.js` (public validate, mounted at `/api/invites`). Model: `Invite` (`qc_invites` table).
+
 ## API Endpoints
 
 - `GET /health` - Health check with database connectivity test

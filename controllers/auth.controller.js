@@ -15,8 +15,8 @@ function issueTokens(user) {
 }
 
 const register = async (req, res) => {
-  const { email, mobile, password, display_name } = req.body;
-  const user = await authService.register({ email, mobile, password, display_name });
+  const { email, mobile, password, display_name, invite_token } = req.body;
+  const user = await authService.register({ email, mobile, password, display_name, invite_token });
   const tokens = issueTokens(user);
   return res.status(201).json({
     ...tokens,

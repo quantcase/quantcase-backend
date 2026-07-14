@@ -185,15 +185,15 @@ model ProwessValueNew {
 // retry wanted; this table just needs to survive a server restart and be
 // readable from both the API server and the scheduler process.
 model ProwessBatchRequest {
-  id           String    @id @default(uuid())
-  token        String    @unique
-  mode         String    // 'annual' | 'quarterly' — mirrors ProwessUploader's mode strings
-  status       String    @default("pending") // 'pending' | 'completed' | 'failed' | 'aborted'
-  requestMeta  Json?     @map("request_meta") // admin-supplied context: indicators/companies requested
-  result       Json?
-  error        String?
-  createdAt    DateTime  @default(now()) @map("created_at")
-  resolvedAt   DateTime? @map("resolved_at")
+  id          String    @id @default(uuid())
+  token       String    @unique
+  mode        String // 'annual' | 'quarterly' — mirrors ProwessUploader's mode strings
+  status      String    @default("pending") // 'pending' | 'completed' | 'failed' | 'aborted'
+  requestMeta Json?     @map("request_meta") // admin-supplied context: indicators/companies requested
+  result      Json?
+  error       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  resolvedAt  DateTime? @map("resolved_at")
 
   @@index([status])
   @@map("prowess_batch_requests")
@@ -379,7 +379,7 @@ model AiInsight {
 // (per lib/postHtmlAnalysisLenses.js) for one type into a verdict; the single L4
 // config synthesises the 3 L3 PostHtmlAnalysis results into a top-level summary.
 model PostHtmlAnalysisConfig {
-  id            String   @id @default(uuid())
+  id            String             @id @default(uuid())
   layer_id      String
   type          String
   name          String
@@ -387,9 +387,9 @@ model PostHtmlAnalysisConfig {
   output_schema Json
   model         String?
   max_tokens    Int?
-  is_active     Boolean  @default(true)
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  is_active     Boolean            @default(true)
+  created_at    DateTime           @default(now())
+  updated_at    DateTime           @updatedAt
   results       PostHtmlAnalysis[]
 
   @@unique([layer_id, type])
@@ -476,31 +476,31 @@ model HtmlSkillOutput {
 }
 
 model HtmlIncrementalSkill {
-  id                             String                         @id @default(uuid())
-  slug                           String                         @unique
-  name                           String
-  skill_prompt                   String
-  category                       PluginCategory
-  model                          String                         @default("~anthropic/claude-haiku-latest")
-  max_tokens                     Int                            @default(16000)
-  transcript_signal_types        String[]
-  ppt_signal_types               String[]
-  annual_report_signal_types     String[]
+  id                               String                       @id @default(uuid())
+  slug                             String                       @unique
+  name                             String
+  skill_prompt                     String
+  category                         PluginCategory
+  model                            String                       @default("~anthropic/claude-haiku-latest")
+  max_tokens                       Int                          @default(16000)
+  transcript_signal_types          String[]
+  ppt_signal_types                 String[]
+  annual_report_signal_types       String[]
   // Incremental (historic=false) mode: max NEW distinct periods (since the base
   // output was last generated) to include per source type — not a trailing window.
-  max_transcript_qtrs            Int?
-  max_ppt_qtrs                   Int?
-  max_annual_report_years        Int?
-  market_data_signal_types       String[]
-  max_market_data_months         Int?
+  max_transcript_qtrs              Int?
+  max_ppt_qtrs                     Int?
+  max_annual_report_years          Int?
+  market_data_signal_types         String[]
+  max_market_data_months           Int?
   // Wider, trailing-window signal windows used for historic=true runs
   // (cold-start / full-history recompute). Null = fall back to the fields above.
-  historic_max_transcript_qtrs       Int?
-  historic_max_ppt_qtrs              Int?
-  historic_max_annual_report_years   Int?
-  historic_max_market_data_months    Int?
-  strip_html                     Boolean                        @default(true)
-  max_base_analyses              Int                            @default(1)
+  historic_max_transcript_qtrs     Int?
+  historic_max_ppt_qtrs            Int?
+  historic_max_annual_report_years Int?
+  historic_max_market_data_months  Int?
+  strip_html                       Boolean                      @default(true)
+  max_base_analyses                Int                          @default(1)
   // Global base pin: one admin decision applies to every ticker for this skill —
   // an incremental run for ticker X uses whichever of X's outputs matches this
   // exact (fiscal_year, quarter, is_historic), never a per-ticker "most recent"
@@ -508,14 +508,14 @@ model HtmlIncrementalSkill {
   // that's the scheduler's job (generating historic runs at this period across
   // tickers); this field only controls which existing output counts as base.
   // Null = no global pin set, falls back to per-ticker "N most recent" behavior.
-  pinned_fiscal_year             String?
-  pinned_quarter                 String?
-  pinned_historic                Boolean?
-  is_active                      Boolean                        @default(true)
-  created_at                     DateTime                       @default(now())
-  updated_at                     DateTime                       @updatedAt
-  outputs                        HtmlIncrementalSkillOutput[]
-  configs                        HtmlIncrementalSkillConfig[]
+  pinned_fiscal_year               String?
+  pinned_quarter                   String?
+  pinned_historic                  Boolean?
+  is_active                        Boolean                      @default(true)
+  created_at                       DateTime                     @default(now())
+  updated_at                       DateTime                     @updatedAt
+  outputs                          HtmlIncrementalSkillOutput[]
+  configs                          HtmlIncrementalSkillConfig[]
 
   @@index([slug])
   @@index([category])
@@ -530,32 +530,32 @@ model HtmlIncrementalSkill {
 // no auto-detection of which sources are available; that's handled in the
 // monitoring system elsewhere, ahead of the admin choosing a config.
 model HtmlIncrementalSkillConfig {
-  id                                String               @id @default(uuid())
-  skill_id                          String
-  key                                String              // machine identifier, unique per skill, e.g. "transcript_only"
-  name                               String              // human label, e.g. "Transcript Only"
-  skill_prompt                       String
-  transcript_signal_types            String[]
-  ppt_signal_types                   String[]
-  annual_report_signal_types         String[]
-  max_transcript_qtrs                Int?
-  max_ppt_qtrs                       Int?
-  max_annual_report_years            Int?
-  market_data_signal_types           String[]
-  max_market_data_months             Int?
-  historic_max_transcript_qtrs       Int?
-  historic_max_ppt_qtrs              Int?
-  historic_max_annual_report_years   Int?
-  historic_max_market_data_months    Int?
+  id                               String               @id @default(uuid())
+  skill_id                         String
+  key                              String // machine identifier, unique per skill, e.g. "transcript_only"
+  name                             String // human label, e.g. "Transcript Only"
+  skill_prompt                     String
+  transcript_signal_types          String[]
+  ppt_signal_types                 String[]
+  annual_report_signal_types       String[]
+  max_transcript_qtrs              Int?
+  max_ppt_qtrs                     Int?
+  max_annual_report_years          Int?
+  market_data_signal_types         String[]
+  max_market_data_months           Int?
+  historic_max_transcript_qtrs     Int?
+  historic_max_ppt_qtrs            Int?
+  historic_max_annual_report_years Int?
+  historic_max_market_data_months  Int?
   // Nullable — falls back to the parent skill's own value when unset, same
   // fallback convention as historic_max_* above.
-  model                              String?
-  max_tokens                         Int?
-  strip_html                         Boolean?
-  is_active                          Boolean              @default(true)
-  created_at                         DateTime             @default(now())
-  updated_at                         DateTime             @updatedAt
-  skill                              HtmlIncrementalSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+  model                            String?
+  max_tokens                       Int?
+  strip_html                       Boolean?
+  is_active                        Boolean              @default(true)
+  created_at                       DateTime             @default(now())
+  updated_at                       DateTime             @updatedAt
+  skill                            HtmlIncrementalSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
 
   @@unique([skill_id, key])
   @@index([skill_id])
@@ -563,33 +563,33 @@ model HtmlIncrementalSkillConfig {
 }
 
 model HtmlIncrementalSkillOutput {
-  id            String               @id @default(uuid())
-  skill_id      String
-  ticker        String
-  call_id       String
-  fiscal_year   String?
-  quarter       String?
-  raw_html      String
-  text_summary  String?
-  prompt_v      String
-  model         String
-  input_tokens  Int?
-  output_tokens Int?
-  cost_usd      Float?
-  is_historic   Boolean              @default(false)
+  id             String               @id @default(uuid())
+  skill_id       String
+  ticker         String
+  call_id        String
+  fiscal_year    String?
+  quarter        String?
+  raw_html       String
+  text_summary   String?
+  prompt_v       String
+  model          String
+  input_tokens   Int?
+  output_tokens  Int?
+  cost_usd       Float?
+  is_historic    Boolean              @default(false)
   // Which named HtmlIncrementalSkillConfig (by key, not FK — so deleting a
   // config never orphans output history) produced this output. Null = ran
   // with the skill's own top-level fields (no config selected).
-  config_key    String?
+  config_key     String?
   // LEGACY — superseded by HtmlIncrementalSkill.pinned_fiscal_year/pinned_quarter/
   // pinned_historic (a single global pin per skill, applied per-ticker at lookup
   // time). No longer read or written anywhere. Left in place rather than dropped
   // since it still holds real historical pin state; safe to drop once confirmed
   // nothing depends on it.
-  is_pinned_base Boolean             @default(false)
-  created_at    DateTime             @default(now())
-  updated_at    DateTime             @updatedAt
-  skill         HtmlIncrementalSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+  is_pinned_base Boolean              @default(false)
+  created_at     DateTime             @default(now())
+  updated_at     DateTime             @updatedAt
+  skill          HtmlIncrementalSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
 
   // is_historic is part of the identity so a historic run and an incremental run
   // for the same period never collide/overwrite each other.
@@ -1047,6 +1047,28 @@ model UserProfile {
   @@map("qc_user_profiles")
 }
 
+model Invite {
+  id         String       @id @default(uuid())
+  email      String
+  token      String       @unique
+  status     InviteStatus @default(pending)
+  invitedBy  String?      @map("invited_by")
+  acceptedAt DateTime?    @map("accepted_at")
+  expiresAt  DateTime     @map("expires_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([token])
+  @@map("qc_invites")
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  expired
+}
+
 // ─── Portfolio ────────────────────────────────────────────────────────────────
 
 model PortfolioModel {
@@ -1119,18 +1141,18 @@ model HoldingNote {
 }
 
 model InvestmentJournal {
-  id               String                   @id @default(uuid())
-  user_id          String                   @map("user_id")
-  ticker           String
-  portfolio_type   String                   @map("portfolio_type") @default("user") // "user" | "shadow"
-  dimension        String
-  sub_factors      Json                     @map("sub_factors")
-  thesis           String
-  conviction       Int
-  scores_snapshot  Json?                    @map("scores_snapshot")
-  created_at       DateTime                 @default(now())
-  updated_at       DateTime                 @updatedAt
-  health           InvestmentJournalHealth?
+  id              String                   @id @default(uuid())
+  user_id         String                   @map("user_id")
+  ticker          String
+  portfolio_type  String                   @default("user") @map("portfolio_type") // "user" | "shadow"
+  dimension       String
+  sub_factors     Json                     @map("sub_factors")
+  thesis          String
+  conviction      Int
+  scores_snapshot Json?                    @map("scores_snapshot")
+  created_at      DateTime                 @default(now())
+  updated_at      DateTime                 @updatedAt
+  health          InvestmentJournalHealth?
 
   @@unique([user_id, ticker, portfolio_type])
   @@index([user_id])
@@ -1139,11 +1161,11 @@ model InvestmentJournal {
 }
 
 model InvestmentJournalHealth {
-  id            String           @id @default(uuid())
-  journal_id    String           @unique @map("journal_id")
-  thesis_health String           @map("thesis_health")
-  ai_nudge      String?          @map("ai_nudge")
-  evaluated_at  DateTime         @default(now()) @map("evaluated_at")
+  id            String            @id @default(uuid())
+  journal_id    String            @unique @map("journal_id")
+  thesis_health String            @map("thesis_health")
+  ai_nudge      String?           @map("ai_nudge")
+  evaluated_at  DateTime          @default(now()) @map("evaluated_at")
   journal       InvestmentJournal @relation(fields: [journal_id], references: [id], onDelete: Cascade)
 
   @@index([journal_id])

@@ -18,6 +18,7 @@ const privateEquityRouter = require('./privateEquity.routes');
 const industryIntelligenceRouter = require('./industryIntelligence.routes');
 const mutualFundsRouter   = require('./mutualFunds.routes');
 const authRouter          = require('./auth.routes');
+const invitesRouter       = require('./invites.routes');
 const portfolioRouter     = require('./portfolio.routes');
 const signalsRouter       = require('./signals.routes');
 const lensesRouter        = require('./lenses.routes');
@@ -70,6 +71,9 @@ router.use('/api/mutual-funds', mutualFundsRouter);
 router.use('/api/industry-intelligence', industryIntelligenceRouter);
 // Auth routes
 router.use('/api/auth', authRouter);
+
+// Invite-only registration
+router.use('/api/invites', invitesRouter);
 
 // Portfolio routes
 router.use('/api/portfolio', portfolioRouter);

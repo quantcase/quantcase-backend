@@ -38,6 +38,7 @@
     "jsonrepair": "^3.14.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
+    "nodemailer": "^9.0.3",
     "openai": "^6.19.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
