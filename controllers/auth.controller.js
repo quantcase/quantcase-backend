@@ -24,6 +24,22 @@ const register = async (req, res) => {
   });
 };
 
+const googleAuth = async (req, res) => {
+  const { id_token } = req.body;
+  const user = await authService.googleAuth({ id_token });
+  const tokens = issueTokens(user);
+  return res.json({
+    ...tokens,
+    user: {
+      id: user.id,
+      email: user.email,
+      accountType: user.account_type,
+      displayName: user.display_name,
+      displayPicture: user.display_picture,
+    },
+  });
+};
+
 const signin = async (req, res) => {
   const { email, password } = req.body;
 
@@ -54,4 +70,4 @@ const updateOnboarding = async (req, res) => {
   return res.json({ success: true, data: profile });
 };
 
-module.exports = { register, signin, getMe, updateOnboarding };
+module.exports = { register, googleAuth, signin, getMe, updateOnboarding };

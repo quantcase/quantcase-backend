@@ -93,10 +93,13 @@ Registration is gated behind an admin-issued invite. Flow: `POST /admin/invites`
 
 **Email sending**: `lib/mailer.js` wraps `nodemailer` over plain SMTP (works with AWS SES SMTP, SendGrid SMTP, Postmark, etc. — swap providers via env vars only). Required env vars: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`. Templates live in `utils/emailTemplates/` (currently `invite.js`).
 
-Key files: `services/invite.service.js` (create/validate), `lib/mailer.js`, `utils/emailTemplates/invite.js`, `controllers/admin.invites.controller.js` + `routes/admin.invites.routes.js` (admin create, mounted at `/admin/invites`), `controllers/invite.controller.js` + `routes/invites.routes.js` (public validate, mounted at `/api/invites`). Model: `Invite` (`qc_invites` table).
+**Google Sign-In** (`POST /api/auth/google`, body `{ id_token }`): verifies the Google ID token server-side via `google-auth-library` (`services/auth.service.js#googleAuth`), then gates entry on the same invite system — the verified, email-verified Google email must have an active invite (`pending` or `accepted`; looked up by `inviteService.findActiveInviteForEmail`, no token needed since there's nothing in the URL for this flow). An existing `User` row with that email links `google_id` on first use and signs in; a brand-new email creates the `User` (no `password_hash` — Google-only account), accepts the invite in the same transaction as `register()` does, and returns the same `{ access_token, refresh_token, user }` shape. No active invite → 403 `"This is an invite-only platform..."`. Required env var: `GOOGLE_CLIENT_ID` (must match the OAuth client ID the frontend uses to obtain the ID token).
+
+Key files: `services/invite.service.js` (create/validate/findActiveInviteForEmail), `services/auth.service.js` (`googleAuth`), `lib/mailer.js`, `utils/emailTemplates/invite.js`, `controllers/admin.invites.controller.js` + `routes/admin.invites.routes.js` (admin create, mounted at `/admin/invites`), `controllers/invite.controller.js` + `routes/invites.routes.js` (public validate, mounted at `/api/invites`). Model: `Invite` (`qc_invites` table).
 
 ## API Endpoints
 
+- `POST /api/auth/google` - Google Sign-In (body `{ id_token }`); invite-gated, auto-creates account on first login
 - `GET /health` - Health check with database connectivity test
 - `GET /api/calls?page=1&size=10` - List earnings calls (paginated, max 100 per page)
 - `GET /api/calls/:callId` - Get specific earnings call

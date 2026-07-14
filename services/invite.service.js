@@ -83,4 +83,24 @@ async function validateToken(token) {
   return { email: invite.email, expiresAt: invite.expiresAt };
 }
 
-module.exports = { createInvites, validateToken, HttpError };
+// Looks up the most recent non-expired invite for an email without a token —
+// used by Google sign-in, where there's no invite_token in hand, only the
+// email Google verified. Accepts 'pending' (first-ever login accepts it, same
+// as the email flow) or 'accepted' (already used by a prior email signup, or
+// a returning Google user). Auto-expires a stale 'pending' row it finds.
+async function findActiveInviteForEmail(email) {
+  const invite = await prisma.invite.findFirst({
+    where: { email, status: { in: ['pending', 'accepted'] } },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!invite) return null;
+
+  if (invite.status === 'pending' && invite.expiresAt < new Date()) {
+    await prisma.invite.update({ where: { id: invite.id }, data: { status: 'expired' } });
+    return null;
+  }
+
+  return invite;
+}
+
+module.exports = { createInvites, validateToken, findActiveInviteForEmail, HttpError };
