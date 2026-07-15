@@ -1,11 +1,9 @@
 'use strict';
 
-const { adminEmail } = require('../config/env');
-
-// Must run after `authenticate` (needs req.user). Restricts access to the
-// single admin account — see CLAUDE.md "Admin API access is restricted".
+// Must run after `authenticate` (needs req.user). Restricts /admin/* to
+// accounts with account_type='manager' (the JWT's `accountType` claim).
 const requireAdmin = (req, res, next) => {
-  if (!req.user?.email || req.user.email.toLowerCase() !== adminEmail.toLowerCase()) {
+  if (req.user?.accountType !== 'manager') {
     return res.status(403).json({ error: 'Admin access required' });
   }
   next();
