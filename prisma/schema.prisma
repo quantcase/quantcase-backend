@@ -1600,6 +1600,7 @@ enum PluginCategory {
 }
 
 enum AccountType {
+  admin
   manager
   investor
 }

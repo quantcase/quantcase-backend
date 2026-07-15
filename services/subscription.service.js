@@ -7,7 +7,7 @@ async function getSubscriptionForUser(userId) {
 }
 
 function computeAccessState(subscription, accountType) {
-  if (accountType === 'manager') {
+  if (accountType === 'admin') {
     return { status: 'active', is_access_blocked: false, days_remaining: null };
   }
 
