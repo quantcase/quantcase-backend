@@ -63,10 +63,9 @@ async function getUserPortfolio(userId) {
   const portfolio = await prisma.userPortfolio.findUnique({
     where:   { user_id: userId },
     include: {
-      holdings: {
-        include: { notes: { orderBy: { created_at: 'desc' } } },
-        orderBy: { invested_at: 'desc' },
-      },
+      // Holding notes moved to the unified journal (see routes/portfolio.routes.js),
+      // so `notes` is no longer a relation on Holding.
+      holdings: { orderBy: { invested_at: 'desc' } },
     },
   });
   if (!portfolio) {
