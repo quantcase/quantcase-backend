@@ -1,5 +1,11 @@
 # QuantCase — Investment Journal: Backend Spec
 
+> ⚠️ **SUPERSEDED (2026-07-15).** This describes the *old* single-thesis-per-holding
+> journal (`portfolioType`, `/api/journal/entries`), which has been replaced by the
+> unified multi-journal flow. Do **not** implement against this document.
+> See **[JOURNAL_FRONTEND_INTEGRATION.md](./JOURNAL_FRONTEND_INTEGRATION.md)** for the
+> current API. Kept only for historical reference.
+
 > **Audience:** Backend team  
 > **Frontend status:** UI is fully built with static/dummy data. All data must come from the APIs below once implemented.  
 > **Base URL:** `https://qc-backend.mach33.club` (existing backend)  

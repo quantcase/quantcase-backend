@@ -3,7 +3,6 @@
 const asyncHandler = require('../middleware/asyncHandler');
 const userPortSvc  = require('../services/portfolio/user-portfolio.service');
 const shadowSvc    = require('../services/portfolio/shadow-portfolio.service');
-const notesSvc     = require('../services/portfolio/holding-notes.service');
 const modSynopsisSvc     = require('../services/dashboard/mod-synopsis.service');
 const holdingsSummarySvc = require('../services/dashboard/holdings-summary.service');
 const whatsMovingSvc     = require('../services/dashboard/whats-moving.service');
@@ -67,23 +66,6 @@ const deleteHolding = asyncHandler(async (req, res) => {
   res.json({ success: true, deleted_id: req.params.holdingId });
 });
 
-// ─── Holding Notes ────────────────────────────────────────────────────────────
-
-const createNote = asyncHandler(async (req, res) => {
-  const note = await notesSvc.createNote(req.params.holdingId, req.user.sub, req.body.note_text);
-  res.status(201).json({ success: true, data: note });
-});
-
-const updateNote = asyncHandler(async (req, res) => {
-  const note = await notesSvc.updateNote(req.params.noteId, req.user.sub, req.body.note_text);
-  res.json({ success: true, data: note });
-});
-
-const deleteNote = asyncHandler(async (req, res) => {
-  await notesSvc.deleteNote(req.params.noteId, req.user.sub);
-  res.json({ success: true, deleted_id: req.params.noteId });
-});
-
 module.exports = {
   uploadUserPortfolio,
   getUserPortfolio,
@@ -94,7 +76,4 @@ module.exports = {
   addToShadowPortfolio,
   updateHolding,
   deleteHolding,
-  createNote,
-  updateNote,
-  deleteNote,
 };

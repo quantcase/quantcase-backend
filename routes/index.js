@@ -12,7 +12,6 @@ const wealthosRouter      = require('./wealthos.routes');
 const screenerRouter      = require('./screener.routes');
 const basketsRouter              = require('./baskets.routes');
 const industryBasketsRouter      = require('./industryBaskets.routes');
-const watchlistRouter     = require('./watchlist.routes');
 const modelsRouter        = require('./models.routes');
 const privateEquityRouter = require('./privateEquity.routes');
 const industryIntelligenceRouter = require('./industryIntelligence.routes');
@@ -52,9 +51,6 @@ router.use('/api/baskets', basketsRouter);
 
 // Industry baskets routes
 router.use('/api/industry-baskets', industryBasketsRouter);
-
-// Watchlist routes
-router.use('/api/watchlists', watchlistRouter);
 
 // Portfolio model routes
 router.use('/api/models', modelsRouter);

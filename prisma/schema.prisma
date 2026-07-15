@@ -1008,6 +1008,7 @@ model User {
   discounts         Discount[]
   smallcase_user    SmallcaseUser?
   error_reports     ErrorReport[]
+  journals          Journal[]
 
   @@index([email])
   @@index([mobile])
@@ -1127,7 +1128,6 @@ model Holding {
   updated_at          DateTime         @updatedAt
   user_portfolio_id   String?          @map("user_portfolio_id")
   shadow_portfolio_id String?          @map("shadow_portfolio_id")
-  notes               HoldingNote[]
   shadow_portfolio    ShadowPortfolio? @relation(fields: [shadow_portfolio_id], references: [id], onDelete: Cascade)
   user_portfolio      UserPortfolio?   @relation(fields: [user_portfolio_id], references: [id], onDelete: Cascade)
 
@@ -1137,48 +1137,78 @@ model Holding {
   @@map("qc_holdings")
 }
 
-model HoldingNote {
-  id         String   @id @default(uuid())
-  holding_id String   @map("holding_id")
-  note_text  String   @map("note_text")
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-  holding    Holding  @relation(fields: [holding_id], references: [id], onDelete: Cascade)
+// ─── Unified Journal ──────────────────────────────────────────────────────────
+// A journal is a named container that tracks multiple tickers (like a watchlist).
+// Each ticker holds multiple timestamped entries; an entry is either a plain note
+// or a full thesis (dimension + conviction + AI health evaluation). Every user gets
+// 2 auto-provisioned defaults ("Holdings", "Tracking"); the Holdings journal
+// auto-populates (add-only) from all holdings sources.
 
-  @@index([holding_id])
-  @@map("qc_holding_notes")
-}
+model Journal {
+  id           String          @id @default(uuid())
+  user_id      String          @map("user_id")
+  name         String
+  kind         String          @default("custom") // "holdings" | "tracking" | "custom"
+  is_default   Boolean         @default(false) @map("is_default")
+  default_kind String?         @map("default_kind") // "holdings"/"tracking" for defaults, NULL for custom
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+  user         User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  tickers      JournalTicker[]
 
-model InvestmentJournal {
-  id              String                   @id @default(uuid())
-  user_id         String                   @map("user_id")
-  ticker          String
-  portfolio_type  String                   @default("user") @map("portfolio_type") // "user" | "shadow"
-  dimension       String
-  sub_factors     Json                     @map("sub_factors")
-  thesis          String
-  conviction      Int
-  scores_snapshot Json?                    @map("scores_snapshot")
-  created_at      DateTime                 @default(now())
-  updated_at      DateTime                 @updatedAt
-  health          InvestmentJournalHealth?
-
-  @@unique([user_id, ticker, portfolio_type])
+  // NULL is distinct in Postgres → one holdings + one tracking default per user,
+  // while custom journals (default_kind NULL) never collide.
+  @@unique([user_id, default_kind])
   @@index([user_id])
-  @@index([ticker])
-  @@map("qc_investment_journals")
+  @@map("qc_journals")
 }
 
-model InvestmentJournalHealth {
-  id            String            @id @default(uuid())
-  journal_id    String            @unique @map("journal_id")
-  thesis_health String            @map("thesis_health")
-  ai_nudge      String?           @map("ai_nudge")
-  evaluated_at  DateTime          @default(now()) @map("evaluated_at")
-  journal       InvestmentJournal @relation(fields: [journal_id], references: [id], onDelete: Cascade)
+model JournalTicker {
+  id         String         @id @default(uuid())
+  journal_id String         @map("journal_id")
+  ticker     String // canonical UPPERCASE
+  source     String         @default("manual") // "manual" | "holdings_sync"
+  added_at   DateTime       @default(now()) @map("added_at")
+  created_at DateTime       @default(now())
+  updated_at DateTime       @updatedAt
+  journal    Journal        @relation(fields: [journal_id], references: [id], onDelete: Cascade)
+  entries    JournalEntry[]
 
+  @@unique([journal_id, ticker])
   @@index([journal_id])
-  @@map("qc_investment_journal_health")
+  @@index([ticker])
+  @@map("qc_journal_tickers")
+}
+
+model JournalEntry {
+  id                String              @id @default(uuid())
+  journal_ticker_id String              @map("journal_ticker_id")
+  note_text         String?             @map("note_text") // plain note
+  // ── optional rich thesis (merged from the old InvestmentJournal) ──
+  dimension         String? // "M" | "O" | "D"
+  sub_factors       Json?               @map("sub_factors")
+  thesis            String?
+  conviction        Int?
+  scores_snapshot   Json?               @map("scores_snapshot")
+  created_at        DateTime            @default(now())
+  updated_at        DateTime            @updatedAt
+  journal_ticker    JournalTicker       @relation(fields: [journal_ticker_id], references: [id], onDelete: Cascade)
+  health            JournalEntryHealth?
+
+  @@index([journal_ticker_id])
+  @@map("qc_journal_entries")
+}
+
+model JournalEntryHealth {
+  id            String       @id @default(uuid())
+  entry_id      String       @unique @map("entry_id")
+  thesis_health String       @map("thesis_health") // "intact" | "partial" | "broken"
+  ai_nudge      String?      @map("ai_nudge")
+  evaluated_at  DateTime     @default(now()) @map("evaluated_at")
+  entry         JournalEntry @relation(fields: [entry_id], references: [id], onDelete: Cascade)
+
+  @@index([entry_id])
+  @@map("qc_journal_entry_health")
 }
 
 model MutualFundScheme {
@@ -1913,36 +1943,6 @@ model SchedulerRun {
 
   @@index([job_id, started_at])
   @@map("scheduler_runs")
-}
-
-// Restored — accidentally dropped by the kpi-refactor/cleanup merge (15bb687)
-// despite neither merge parent deleting it; live tables + data + code
-// (controllers/watchlist.controller.js) never stopped existing in the DB.
-model Watchlist {
-  id           String           @id @default(uuid())
-  user_id      String
-  name         String
-  total_assets Int              @default(0) @map("total_assets")
-  created_at   DateTime         @default(now())
-  updated_at   DateTime         @updatedAt
-  assets       WatchlistAsset[]
-
-  @@index([user_id])
-  @@map("watchlists")
-}
-
-model WatchlistAsset {
-  id           String    @id @default(uuid())
-  watchlist_id String
-  symbol       String
-  added_on     DateTime  @default(now())
-  notes        String?
-  watchlist    Watchlist @relation(fields: [watchlist_id], references: [id], onDelete: Cascade)
-
-  @@unique([watchlist_id, symbol])
-  @@index([watchlist_id])
-  @@index([symbol])
-  @@map("watchlist_assets")
 }
 
 // Reusable, named ticker sets selectable across L1/L2/L3 admin dispatch flows.

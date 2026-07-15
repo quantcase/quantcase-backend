@@ -2,39 +2,14 @@
 
 const prisma             = require('../../config/prisma');
 const { enrichHoldings } = require('../portfolio/market-data.service');
-const { generateNudge }  = require('./journal.nudge');
+const {
+  VALID_SUB_FACTORS,
+  fetchLensScoreMap,
+  buildSnapshot,
+  evaluateHealth,
+} = require('./journal.health');
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const VALID_SUB_FACTORS = {
-  M: ['Guidance Accuracy', 'Capital Allocation', 'Disclosure Honesty'],
-  O: ['Industry Tailwind', 'Distribution Strength', 'Competitive Edge', 'TAM Expansion'],
-  D: ['Valuation', 'Earnings Growth/Quality', 'P/E Re-rating Potential', 'Risk-Reward'],
-};
-
-const SUB_FACTOR_LENS = {
-  'Guidance Accuracy':        'guidance-credibility',
-  'Capital Allocation':       'capital-allocation',
-  'Disclosure Honesty':       'disclosure-honesty',
-  'Industry Tailwind':        'industry-analysis',
-  'Distribution Strength':    'customer-distribution',
-  'Competitive Edge':         'competition',
-  'TAM Expansion':            'industry-analysis',
-  'Valuation':                'target-price-matrix',
-  'Earnings Growth/Quality':  'earnings-forecast',
-  'P/E Re-rating Potential':  'pe-rerating-potential',
-  'Risk-Reward':              'earning-quality',
-};
-
-const TYPE_TO_MOD = { management: 'M', opportunity: 'O', deal: 'D' };
-
-const DEFAULT_PROMPTS = [
-  'Buying for long-term value creation...',
-  'Strong fundamentals with improving outlook...',
-  'Valuation provides margin of safety...',
-];
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Error helpers ────────────────────────────────────────────────────────────
 
 function notFound(msg, code) {
   const e = new Error(msg);
@@ -50,582 +25,413 @@ function badRequest(msg, code) {
   return e;
 }
 
-function assertPortfolioType(pt) {
-  if (pt !== 'user' && pt !== 'shadow') {
-    throw badRequest('portfolioType must be "user" or "shadow"', 'INVALID_PORTFOLIO_TYPE');
-  }
+// ─── Normalisation ────────────────────────────────────────────────────────────
+
+function normTicker(t) {
+  return String(t ?? '').toUpperCase().trim();
+}
+
+// ─── Ownership guards ─────────────────────────────────────────────────────────
+
+/**
+ * Verify a journal belongs to the user and return it. 404 (not 403) on mismatch
+ * so we never leak the existence of another user's journal.
+ */
+async function assertJournalOwnership(userId, journalId) {
+  const journal = await prisma.journal.findFirst({ where: { id: journalId, user_id: userId } });
+  if (!journal) throw notFound('Journal not found', 'JOURNAL_NOT_FOUND');
+  return journal;
 }
 
 /**
- * Fetch holdings from both portfolios for a user.
- * Returns { user: Holding[], shadow: Holding[] }
+ * Verify a journal entry belongs to the user (via journal_ticker → journal → user)
+ * and return it (with its ticker + health included).
  */
-async function fetchAllHoldings(userId) {
-  const [userPort, shadowPort] = await Promise.all([
-    prisma.userPortfolio.findUnique({
-      where:   { user_id: userId },
-      include: { holdings: true },
-    }),
-    prisma.shadowPortfolio.findUnique({
-      where:   { user_id: userId },
-      include: { holdings: true },
-    }),
-  ]);
-  return {
-    user:   userPort?.holdings   ?? [],
-    shadow: shadowPort?.holdings ?? [],
-  };
-}
-
-/**
- * Verify a ticker exists in the specified portfolio type for a user.
- */
-async function assertHoldingInPortfolio(userId, ticker, portfolioType) {
-  const upper = ticker.toUpperCase();
-  if (portfolioType === 'user') {
-    const port = await prisma.userPortfolio.findUnique({
-      where:   { user_id: userId },
-      include: { holdings: { where: { ticker: upper } } },
-    });
-    if (!port || port.holdings.length === 0) {
-      throw notFound(`${ticker} is not in your portfolio`, 'HOLDING_NOT_FOUND');
-    }
-  } else {
-    const port = await prisma.shadowPortfolio.findUnique({
-      where:   { user_id: userId },
-      include: { holdings: { where: { ticker: upper } } },
-    });
-    if (!port || port.holdings.length === 0) {
-      throw notFound(`${ticker} is not in your shadow portfolio`, 'HOLDING_NOT_FOUND');
-    }
-  }
-}
-
-async function latestCallIdForTicker(ticker) {
-  const row = await prisma.lensScore.findFirst({
-    where:   { ticker },
-    select:  { call_id: true },
-    orderBy: { call_id: 'desc' },
-  });
-  return row?.call_id ?? null;
-}
-
-async function fetchLensScoreMap(ticker) {
-  const callId = await latestCallIdForTicker(ticker);
-  if (!callId) return {};
-  const rows = await prisma.lensScore.findMany({
-    where:  { call_id: callId, is_stale: false },
-    select: { lens_slug: true, lens_data: true },
-  });
-  const map = {};
-  for (const row of rows) map[row.lens_slug] = row.lens_data?.score ?? null;
-  return map;
-}
-
-function buildSnapshot(subFactors, lensMap) {
-  const snap = {};
-  for (const sf of subFactors) {
-    const slug = SUB_FACTOR_LENS[sf];
-    snap[sf] = slug ? (lensMap[slug] ?? null) : null;
-  }
-  return snap;
-}
-
-function extractModScores(insightRows) {
-  const result = { M: null, O: null, D: null };
-  for (const row of insightRows) {
-    const letter = TYPE_TO_MOD[row.type];
-    if (letter) result[letter] = row.insight?.score ?? null;
-  }
-  return result;
-}
-
-function buildAiContext(insightRows) {
-  const ctx = { M: null, O: null, D: null };
-  for (const row of insightRows) {
-    const letter = TYPE_TO_MOD[row.type];
-    if (letter) ctx[letter] = row.insight?.description ?? row.insight?.thesis ?? null;
-  }
-  return ctx;
-}
-
-function buildSignals(insightRows) {
-  const signals = [];
-  for (const row of insightRows) {
-    for (const s of (row.insight?.key_signals ?? [])) {
-      if (s.label) {
-        signals.push({
-          label: s.label,
-          type:  s.sentiment === 'positive' ? 'green'
-                 : s.sentiment === 'negative' ? 'red'
-                 : s.sentiment === 'cautious' ? 'amber'
-                 : 'neutral',
-        });
-      }
-    }
-  }
-  return signals;
-}
-
-function buildPrompts(insightRows) {
-  const phrases = [];
-  for (const row of insightRows) {
-    const ins = row.insight ?? {};
-    if (ins.thesis && phrases.length < 3) phrases.push(ins.thesis + '...');
-    for (const ev of (ins.evidence ?? [])) {
-      if (phrases.length >= 3) break;
-      if (typeof ev === 'string') phrases.push(ev);
-    }
-  }
-  while (phrases.length < 3) phrases.push(DEFAULT_PROMPTS[phrases.length]);
-  return phrases.slice(0, 3);
-}
-
-function pillarForSlug(slug) {
-  if (slug.includes('guidance') || slug.includes('capital') || slug.includes('disclosure')) return 'mgmt';
-  if (slug.includes('industry') || slug.includes('competition') || slug.includes('distribution') || slug.includes('customer')) return 'opp';
-  return 'deal';
-}
-
-/**
- * Count of consecutive calendar days (ending today, with a one-day grace for
- * yesterday) on which the user saved at least one journal entry. 0 = no active streak.
- *
- * `activityDates` is an array of Date objects (entry created_at/updated_at). We
- * collapse them to unique YYYY-MM-DD strings and walk backwards from today.
- */
-function computeStreakDays(activityDates) {
-  if (!activityDates.length) return 0;
-
-  const dayKey = (d) => {
-    const dt = new Date(d);
-    return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
-  };
-
-  const activeDays = new Set(activityDates.map(dayKey));
-
-  const cursor = new Date();
-  cursor.setHours(0, 0, 0, 0);
-
-  // Grace: if there's nothing today but something yesterday, the streak is still
-  // alive and counts from yesterday.
-  if (!activeDays.has(dayKey(cursor))) {
-    cursor.setDate(cursor.getDate() - 1);
-    if (!activeDays.has(dayKey(cursor))) return 0;
-  }
-
-  let streak = 0;
-  while (activeDays.has(dayKey(cursor))) {
-    streak++;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return streak;
-}
-
-// ─── Health evaluation ────────────────────────────────────────────────────────
-
-async function evaluateHealth(journalId) {
-  const entry = await prisma.investmentJournal.findUnique({
-    where:   { id: journalId },
-    include: { health: true },
+async function assertEntryOwnership(userId, entryId) {
+  const entry = await prisma.journalEntry.findFirst({
+    where:   { id: entryId, journal_ticker: { journal: { user_id: userId } } },
+    include: { health: true, journal_ticker: true },
   });
   if (!entry) throw notFound('Journal entry not found', 'ENTRY_NOT_FOUND');
+  return entry;
+}
 
-  const subFactors = Array.isArray(entry.sub_factors) ? entry.sub_factors : [];
-  const snapshot   = entry.scores_snapshot ?? {};
+// ─── Entry shaping ────────────────────────────────────────────────────────────
 
-  const lensMap     = await fetchLensScoreMap(entry.ticker);
-  const currentSnap = buildSnapshot(subFactors, lensMap);
+function entryType(entry) {
+  return entry.dimension ? 'thesis' : 'note';
+}
 
-  const insightRows = await prisma.aiInsight.findMany({
-    where: { ticker: entry.ticker, type: { in: ['management', 'opportunity', 'deal'] } },
+function shapeEntry(entry) {
+  return {
+    id:           entry.id,
+    type:         entryType(entry),
+    noteText:     entry.note_text ?? null,
+    dimension:    entry.dimension ?? null,
+    subFactors:   Array.isArray(entry.sub_factors) ? entry.sub_factors : null,
+    thesis:       entry.thesis ?? null,
+    conviction:   entry.conviction ?? null,
+    thesisHealth: entry.health?.thesis_health ?? (entry.dimension ? 'none' : null),
+    aiNudge:      entry.health?.ai_nudge ?? null,
+    createdAt:    entry.created_at,
+    updatedAt:    entry.updated_at,
+  };
+}
+
+function shapeJournal(journal, tickerCount) {
+  return {
+    id:         journal.id,
+    name:       journal.name,
+    kind:       journal.kind,
+    isDefault:  journal.is_default,
+    tickerCount: tickerCount ?? journal.tickers?.length ?? 0,
+    createdAt:  journal.created_at,
+    updatedAt:  journal.updated_at,
+  };
+}
+
+// ─── Default journals ─────────────────────────────────────────────────────────
+
+/**
+ * Idempotently ensure the two default journals ("Holdings", "Tracking") exist for
+ * a user. Safe under concurrency thanks to the @@unique([user_id, default_kind]).
+ * @returns {Promise<{ holdings: Journal, tracking: Journal }>}
+ */
+async function ensureDefaultJournals(userId) {
+  const [holdings, tracking] = await Promise.all([
+    prisma.journal.upsert({
+      where:  { user_id_default_kind: { user_id: userId, default_kind: 'holdings' } },
+      update: {},
+      create: { user_id: userId, name: 'Holdings', kind: 'holdings', default_kind: 'holdings', is_default: true },
+    }),
+    prisma.journal.upsert({
+      where:  { user_id_default_kind: { user_id: userId, default_kind: 'tracking' } },
+      update: {},
+      create: { user_id: userId, name: 'Tracking', kind: 'tracking', default_kind: 'tracking', is_default: true },
+    }),
+  ]);
+  return { holdings, tracking };
+}
+
+// ─── Journals CRUD ────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/journal/journals — list the user's journals (defaults ensured first).
+ */
+async function listJournals(userId) {
+  await ensureDefaultJournals(userId);
+
+  const journals = await prisma.journal.findMany({
+    where:   { user_id: userId },
+    include: { _count: { select: { tickers: true } } },
+    orderBy: [{ is_default: 'desc' }, { created_at: 'asc' }],
   });
-  const modScores = extractModScores(insightRows);
 
-  let maxDrop = 0, worstFactor = null, worstPrev = null, worstCurr = null;
-  for (const sf of subFactors) {
-    const prev = snapshot[sf];
-    const curr = currentSnap[sf];
-    if (prev == null || curr == null) continue;
-    const drop = prev - curr;
-    if (drop > maxDrop) {
-      maxDrop = drop; worstFactor = sf; worstPrev = prev; worstCurr = curr;
-    }
+  return {
+    journals: journals.map(j => shapeJournal(j, j._count.tickers)),
+  };
+}
+
+/**
+ * POST /api/journal/journals — create a custom journal.
+ */
+async function createJournal(userId, { name }) {
+  const journal = await prisma.journal.create({
+    data: { user_id: userId, name: name.trim(), kind: 'custom', is_default: false },
+  });
+  return shapeJournal(journal, 0);
+}
+
+/**
+ * PATCH /api/journal/journals/:journalId — rename a custom journal.
+ */
+async function renameJournal(userId, journalId, { name }) {
+  const journal = await assertJournalOwnership(userId, journalId);
+  if (journal.is_default) {
+    throw badRequest('Default journals cannot be renamed', 'DEFAULT_JOURNAL');
   }
+  const updated = await prisma.journal.update({
+    where:   { id: journalId },
+    data:    { name: name.trim() },
+    include: { _count: { select: { tickers: true } } },
+  });
+  return shapeJournal(updated, updated._count.tickers);
+}
 
-  const thesisHealth = maxDrop > 15 ? 'broken' : maxDrop > 5 ? 'partial' : 'intact';
+/**
+ * DELETE /api/journal/journals/:journalId — delete a custom journal (cascade).
+ */
+async function deleteJournal(userId, journalId) {
+  const journal = await assertJournalOwnership(userId, journalId);
+  if (journal.is_default) {
+    throw badRequest('Default journals cannot be deleted', 'DEFAULT_JOURNAL');
+  }
+  await prisma.journal.delete({ where: { id: journalId } });
+}
 
-  let aiNudge = null;
-  if ((thesisHealth === 'partial' || thesisHealth === 'broken') && worstFactor) {
+/**
+ * GET /api/journal/journals/:journalId — journal detail with tickers, market
+ * enrichment, latest entry + latest thesis-health per ticker. For the Holdings
+ * default journal, runs an add-only holdings sync first so it stays current even
+ * without a manual trigger.
+ */
+async function getJournalDetail(userId, journalId) {
+  const journal = await assertJournalOwnership(userId, journalId);
+
+  if (journal.kind === 'holdings') {
+    // Lazy require avoids a require cycle (holdings-sync → journal.service).
+    const { syncHoldingsJournal } = require('./holdings-sync.service');
     try {
-      aiNudge = await generateNudge({
-        thesis: entry.thesis, dimension: entry.dimension, subFactors,
-        changedFactor: worstFactor,
-        prevScore: Math.round(worstPrev), currScore: Math.round(worstCurr),
-        modScores,
-      });
+      await syncHoldingsJournal(userId);
     } catch (err) {
-      console.error('[evaluateHealth] nudge generation failed:', err.message);
+      console.error('[getJournalDetail] holdings sync failed:', err.message);
     }
   }
 
-  const evaluatedAt = new Date();
-  await prisma.investmentJournalHealth.upsert({
-    where:  { journal_id: journalId },
-    update: { thesis_health: thesisHealth, ai_nudge: aiNudge, evaluated_at: evaluatedAt },
-    create: { journal_id: journalId, thesis_health: thesisHealth, ai_nudge: aiNudge, evaluated_at: evaluatedAt },
+  const tickers = await prisma.journalTicker.findMany({
+    where:   { journal_id: journalId },
+    include: {
+      entries: { orderBy: { created_at: 'desc' }, include: { health: true } },
+    },
+    orderBy: { added_at: 'desc' },
   });
 
-  return { thesisHealth, aiNudge, evaluatedAt };
-}
+  const symbols    = [...new Set(tickers.map(t => t.ticker))];
+  const marketData = symbols.length ? await enrichHoldings(symbols) : {};
 
-// ─── Journal key helper (composite unique lookup) ─────────────────────────────
-
-function journalKey(ticker, portfolioType) {
-  return `${ticker.toUpperCase()}::${portfolioType}`;
-}
-
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-/**
- * GET /api/journal/pending
- * Returns holdings from BOTH portfolios that have no thesis yet.
- * Each holding carries a portfolioType field so the UI knows which portfolio it belongs to.
- */
-async function getPendingHoldings(userId) {
-  const [holdings, journals] = await Promise.all([
-    fetchAllHoldings(userId),
-    prisma.investmentJournal.findMany({
-      where:  { user_id: userId },
-      select: { ticker: true, portfolio_type: true },
-    }),
-  ]);
-
-  const journalKeys = new Set(journals.map(j => journalKey(j.ticker, j.portfolio_type)));
-
-  // Tag each holding with its source, then filter out already-journaled ones
-  const tagged = [
-    ...holdings.user.map(h => ({ ...h, portfolioType: 'user' })),
-    ...holdings.shadow.map(h => ({ ...h, portfolioType: 'shadow' })),
-  ];
-
-  const totalHoldings = tagged.length;
-  const withThesis    = tagged.filter(h => journalKeys.has(journalKey(h.ticker, h.portfolioType))).length;
-  const pending       = tagged.filter(h => !journalKeys.has(journalKey(h.ticker, h.portfolioType)));
-
-  if (!pending.length) return { holdings: [], totalHoldings, withThesis, pending: 0 };
-
-  const tickers = [...new Set(pending.map(h => h.ticker.toUpperCase()))];
-  const [marketData, insightRows] = await Promise.all([
-    enrichHoldings(tickers),
-    prisma.aiInsight.findMany({
-      where: { ticker: { in: tickers }, type: { in: ['management', 'opportunity', 'deal'] } },
-    }),
-  ]);
-
-  const insightsByTicker = {};
-  for (const row of insightRows) {
-    const t = row.ticker.toUpperCase();
-    if (!insightsByTicker[t]) insightsByTicker[t] = [];
-    insightsByTicker[t].push(row);
-  }
-
-  const result = pending.map(h => {
-    const sym      = h.ticker.toUpperCase();
-    const md       = marketData[sym] ?? {};
-    const insights = insightsByTicker[sym] ?? [];
+  const shapedTickers = tickers.map(t => {
+    const md          = marketData[t.ticker] ?? {};
+    const latestEntry = t.entries[0] ? shapeEntry(t.entries[0]) : null;
+    // Latest thesis health = health of the most-recent thesis-typed entry.
+    const latestThesis = t.entries.find(e => e.dimension);
     return {
-      symbol:         sym,
-      portfolioType:  h.portfolioType,
-      name:           sym,
-      sector:         null,
-      capType:        null,
-      price:          md.ltp ?? null,
-      priceChange:    md.change ?? null,
-      priceChangeDir: md.change != null ? (md.change >= 0 ? 'pos' : 'neg') : null,
-      mod:            extractModScores(insights),
-      aiContext:      buildAiContext(insights),
-      signals:        buildSignals(insights),
-      subFactors:     VALID_SUB_FACTORS,
-      prompts:        buildPrompts(insights),
+      ticker:            t.ticker,
+      source:            t.source,
+      addedAt:           t.added_at,
+      entryCount:        t.entries.length,
+      market: {
+        ltp:           md.ltp ?? null,
+        change:        md.change ?? null,
+        changePercent: md.change_percent ?? null,
+        qcScore:       md.qc_score ?? null,
+        conviction:    md.conviction ?? null,
+        thesisTags:    md.thesis_tags ?? [],
+      },
+      latestEntry,
+      latestThesisHealth: latestThesis?.health?.thesis_health ?? (latestThesis ? 'none' : null),
     };
   });
 
-  return { holdings: result, totalHoldings, withThesis, pending: pending.length };
+  return {
+    journal: shapeJournal(journal, tickers.length),
+    tickers: shapedTickers,
+  };
 }
 
+// ─── Tickers ──────────────────────────────────────────────────────────────────
+
 /**
- * GET /api/journal/entries
- * Returns all holdings from both portfolios merged with journal + health data.
+ * POST /api/journal/journals/:journalId/tickers — add one or more tickers
+ * (manual source). Idempotent: existing tickers are left untouched.
  */
-async function getAllEntries(userId) {
-  const [holdings, journals] = await Promise.all([
-    fetchAllHoldings(userId),
-    prisma.investmentJournal.findMany({
-      where:   { user_id: userId },
-      include: { health: true },
-    }),
-  ]);
+async function addTickers(userId, journalId, tickers) {
+  await assertJournalOwnership(userId, journalId);
 
-  // Map: "TICKER::portfolioType" -> journal row
-  const journalMap = new Map(journals.map(j => [journalKey(j.ticker, j.portfolio_type), j]));
+  const unique = [...new Set(tickers.map(normTicker))].filter(Boolean);
+  if (!unique.length) throw badRequest('No valid tickers provided', 'NO_TICKERS');
 
-  const tagged = [
-    ...holdings.user.map(h => ({ ...h, portfolioType: 'user' })),
-    ...holdings.shadow.map(h => ({ ...h, portfolioType: 'shadow' })),
-  ];
-
-  const allTickers = [...new Set(tagged.map(h => h.ticker.toUpperCase()))];
-
-  const [marketData, insightRows] = await Promise.all([
-    allTickers.length ? enrichHoldings(allTickers) : Promise.resolve({}),
-    allTickers.length ? prisma.aiInsight.findMany({
-      where: { ticker: { in: allTickers }, type: { in: ['management', 'opportunity', 'deal'] } },
-    }) : Promise.resolve([]),
-  ]);
-
-  const insightsByTicker = {};
-  for (const row of insightRows) {
-    const t = row.ticker.toUpperCase();
-    if (!insightsByTicker[t]) insightsByTicker[t] = [];
-    insightsByTicker[t].push(row);
-  }
-
-  // Lens scores for journaled tickers only
-  const journaledTickers = [...new Set(journals.map(j => j.ticker.toUpperCase()))];
-  const callIdResults = await Promise.all(
-    journaledTickers.map(t => latestCallIdForTicker(t).then(id => ({ ticker: t, callId: id })))
-  );
-  const lensScoresByTicker = {};
-  await Promise.all(callIdResults.map(async ({ ticker, callId }) => {
-    if (!callId) return;
-    const rows = await prisma.lensScore.findMany({
-      where:  { call_id: callId, is_stale: false },
-      select: { lens_slug: true, lens_data: true },
+  let added = 0;
+  for (const ticker of unique) {
+    const existing = await prisma.journalTicker.findUnique({
+      where: { journal_id_ticker: { journal_id: journalId, ticker } },
     });
-    lensScoresByTicker[ticker] = rows;
-  }));
+    if (!existing) {
+      await prisma.journalTicker.create({
+        data: { journal_id: journalId, ticker, source: 'manual' },
+      });
+      added++;
+    }
+  }
 
-  // Lifetime entry count (monotonic — every journal row the user has ever saved,
-  // independent of whether the holding still exists) and writing streak.
-  const activityDates = journals.flatMap(j => [j.created_at, j.updated_at].filter(Boolean));
-  const summary = {
-    intact:     0,
-    partial:    0,
-    broken:     0,
-    none:       0,
-    total:      tagged.length,
-    entryCount: journals.length,
-    streakDays: computeStreakDays(activityDates),
-  };
-
-  const entries = tagged.map(h => {
-    const sym      = h.ticker.toUpperCase();
-    const key      = journalKey(sym, h.portfolioType);
-    const md       = marketData[sym] ?? {};
-    const journal  = journalMap.get(key) ?? null;
-    const insights = insightsByTicker[sym] ?? [];
-    const modSc    = extractModScores(insights);
-    const health   = journal?.health?.thesis_health ?? 'none';
-
-    if      (health === 'intact')  summary.intact++;
-    else if (health === 'partial') summary.partial++;
-    else if (health === 'broken')  summary.broken++;
-    else                           summary.none++;
-
-    const lensRows  = lensScoresByTicker[sym] ?? [];
-    const subScores = lensRows
-      .filter(r => r.lens_data?.score != null)
-      .map(r => ({
-        label:  r.lens_data?.name ?? r.lens_slug,
-        pillar: pillarForSlug(r.lens_slug),
-        score:  Math.round(r.lens_data.score),
-      }));
-
-    const bestScore = modSc.M ?? modSc.O ?? modSc.D ?? null;
-    const modScore  = bestScore != null ? Math.round(bestScore) : null;
-    const modRating = modScore != null
-      ? (modScore >= 80 ? 'STRONG' : modScore >= 60 ? 'FAIR' : 'STRETCHED')
-      : null;
-
-    return {
-      symbol:        sym,
-      portfolioType: h.portfolioType,
-      name:          sym,
-      sector:        null,
-      capType:       null,
-      modScore,
-      modRating,
-      trendDir:      null,
-      pnl:           md.change ?? null,
-      pnlPct:        md.change_percent ?? null,
-      thesisHealth:  health,
-      alert:         (health === 'broken' || health === 'partial') && journal?.health?.ai_nudge
-                       ? journal.health.ai_nudge.slice(0, 80) + '...'
-                       : null,
-      subScores,
-      journal: journal ? {
-        entryId:    journal.id,
-        dimension:  journal.dimension,
-        subFactors: Array.isArray(journal.sub_factors) ? journal.sub_factors : [],
-        thesis:     journal.thesis,
-        conviction: journal.conviction,
-        aiNudge:    journal.health?.ai_nudge ?? null,
-        updatedAt:  journal.updated_at,
-      } : null,
-    };
-  });
-
-  // ─── Change feed ("Since your last entry · N things changed") ───────────────
-  // Surface every journaled holding whose thesis is currently flagged (partial or
-  // broken). The health row's ai_nudge is the human-readable description of what
-  // changed, and evaluated_at is when it was detected. Most-recent first.
-  const changes = journals
-    .filter(j => {
-      const th = j.health?.thesis_health;
-      return th === 'partial' || th === 'broken';
-    })
-    .map(j => {
-      const th = j.health.thesis_health;
-      return {
-        symbol:       j.ticker.toUpperCase(),
-        thesisHealth: th,
-        description:  j.health.ai_nudge
-          ? j.health.ai_nudge
-          : `Thesis flagged ${th === 'broken' ? 'Broken' : 'At risk'}`,
-        changedAt:    (j.health.evaluated_at ?? j.updated_at).toISOString(),
-        kind:         'thesis',
-      };
-    })
-    .sort((a, b) => (a.changedAt < b.changedAt ? 1 : -1));
-
-  return { summary, entries, changes };
+  return { added, tickers: unique };
 }
 
 /**
- * POST /api/journal/entries
- * portfolioType is required in the request body.
+ * DELETE /api/journal/journals/:journalId/tickers/:ticker — remove a ticker from
+ * a journal (cascade-deletes its entries). Note: a still-held ticker removed from
+ * the Holdings journal will reappear on the next holdings sync (add-only mirror).
  */
-async function createEntry(userId, { symbol, portfolioType, dimension, subFactors, thesis, conviction }) {
-  assertPortfolioType(portfolioType);
-  await assertHoldingInPortfolio(userId, symbol, portfolioType);
+async function removeTicker(userId, journalId, tickerParam) {
+  await assertJournalOwnership(userId, journalId);
+  const ticker = normTicker(tickerParam);
 
-  const ticker = symbol.toUpperCase();
-  const lensMap = await fetchLensScoreMap(ticker);
-  const scoresSnapshot = buildSnapshot(subFactors, lensMap);
-
-  const journal = await prisma.investmentJournal.create({
-    data: {
-      user_id: userId, ticker, portfolio_type: portfolioType,
-      dimension, sub_factors: subFactors, thesis, conviction, scores_snapshot: scoresSnapshot,
-    },
+  const deleted = await prisma.journalTicker.deleteMany({
+    where: { journal_id: journalId, ticker },
   });
-
-  const health = await evaluateHealth(journal.id);
-
-  return {
-    entryId:       journal.id,
-    holdingId:     ticker,
-    portfolioType,
-    thesisHealth:  health.thesisHealth,
-    aiNudge:       health.aiNudge,
-    createdAt:     journal.created_at,
-  };
+  if (deleted.count === 0) {
+    throw notFound(`${ticker} is not in this journal`, 'TICKER_NOT_FOUND');
+  }
 }
 
-async function updateEntry(entryId, userId, fields) {
-  const existing = await prisma.investmentJournal.findUnique({ where: { id: entryId } });
-  if (!existing || existing.user_id !== userId) throw notFound('Journal entry not found', 'ENTRY_NOT_FOUND');
+// ─── Entries ──────────────────────────────────────────────────────────────────
 
-  await prisma.investmentJournal.update({
-    where: { id: entryId },
-    data: {
-      ...(fields.dimension  != null && { dimension:   fields.dimension }),
-      ...(fields.subFactors != null && { sub_factors: fields.subFactors }),
-      ...(fields.thesis     != null && { thesis:      fields.thesis }),
-      ...(fields.conviction != null && { conviction:  fields.conviction }),
-    },
+/**
+ * GET /api/journal/journals/:journalId/tickers/:ticker/entries — timestamped
+ * entries (notes + theses) for a ticker within a journal, newest first.
+ */
+async function listEntries(userId, journalId, tickerParam) {
+  await assertJournalOwnership(userId, journalId);
+  const ticker = normTicker(tickerParam);
+
+  const journalTicker = await prisma.journalTicker.findUnique({
+    where:   { journal_id_ticker: { journal_id: journalId, ticker } },
+    include: { entries: { orderBy: { created_at: 'desc' }, include: { health: true } } },
   });
-
-  const health = await evaluateHealth(entryId);
+  if (!journalTicker) throw notFound(`${ticker} is not in this journal`, 'TICKER_NOT_FOUND');
 
   return {
-    entryId,
-    holdingId:     existing.ticker,
-    portfolioType: existing.portfolio_type,
-    thesisHealth:  health.thesisHealth,
-    aiNudge:       health.aiNudge,
-    evaluatedAt:   health.evaluatedAt,
+    ticker,
+    entries: journalTicker.entries.map(shapeEntry),
   };
-}
-
-async function deleteEntry(entryId, userId) {
-  const existing = await prisma.investmentJournal.findUnique({ where: { id: entryId } });
-  if (!existing || existing.user_id !== userId) throw notFound('Journal entry not found', 'ENTRY_NOT_FOUND');
-  await prisma.investmentJournal.delete({ where: { id: entryId } });
 }
 
 /**
- * GET /api/journal/entries/:symbol?portfolioType=user|shadow
+ * POST /api/journal/journals/:journalId/tickers/:ticker/entries — add a note or a
+ * full thesis. Auto-creates the JournalTicker (source 'manual') if the ticker
+ * isn't in the journal yet, so "add a note to a ticker" is a single call. When the
+ * entry is a thesis (dimension present) it snapshots lens scores and runs health.
  */
-async function getEntry(symbol, userId, portfolioType) {
-  assertPortfolioType(portfolioType);
-  const ticker  = symbol.toUpperCase();
-  const journal = await prisma.investmentJournal.findUnique({
-    where:   { user_id_ticker_portfolio_type: { user_id: userId, ticker, portfolio_type: portfolioType } },
+async function createEntry(userId, journalId, tickerParam, body) {
+  await assertJournalOwnership(userId, journalId);
+  const ticker = normTicker(tickerParam);
+  if (!ticker) throw badRequest('ticker is required', 'NO_TICKER');
+
+  // Ensure the ticker exists in this journal (idempotent).
+  const journalTicker = await prisma.journalTicker.upsert({
+    where:  { journal_id_ticker: { journal_id: journalId, ticker } },
+    update: {},
+    create: { journal_id: journalId, ticker, source: 'manual' },
+  });
+
+  const isThesis = body.dimension != null;
+
+  let scoresSnapshot = null;
+  if (isThesis) {
+    const lensMap = await fetchLensScoreMap(ticker);
+    scoresSnapshot = buildSnapshot(body.subFactors, lensMap);
+  }
+
+  const entry = await prisma.journalEntry.create({
+    data: {
+      journal_ticker_id: journalTicker.id,
+      note_text:         body.noteText ?? null,
+      dimension:         body.dimension ?? null,
+      sub_factors:       isThesis ? body.subFactors : null,
+      thesis:            body.thesis ?? null,
+      conviction:        body.conviction ?? null,
+      scores_snapshot:   scoresSnapshot,
+    },
+  });
+
+  let health = null;
+  if (isThesis) {
+    health = await evaluateHealth(entry.id);
+  }
+
+  const full = await prisma.journalEntry.findUnique({
+    where:   { id: entry.id },
     include: { health: true },
   });
-  if (!journal) throw notFound(`No journal entry for ${symbol} in ${portfolioType} portfolio`, 'ENTRY_NOT_FOUND');
-
-  const [marketData, insightRows] = await Promise.all([
-    enrichHoldings([ticker]),
-    prisma.aiInsight.findMany({ where: { ticker, type: { in: ['management', 'opportunity', 'deal'] } } }),
-  ]);
-
-  const md       = marketData[ticker] ?? {};
-  const modSc    = extractModScores(insightRows);
-  const bestSc   = modSc.M ?? modSc.O ?? modSc.D ?? null;
-  const modScore = bestSc != null ? Math.round(bestSc) : null;
 
   return {
-    symbol,
-    portfolioType,
-    name:         symbol,
-    sector:       null,
-    capType:      null,
-    modScore,
-    modRating:    modScore != null ? (modScore >= 80 ? 'STRONG' : modScore >= 60 ? 'FAIR' : 'STRETCHED') : null,
-    trendDir:     null,
-    pnl:          md.change ?? null,
-    pnlPct:       md.change_percent ?? null,
-    thesisHealth: journal.health?.thesis_health ?? 'none',
-    alert:        null,
-    subScores:    [],
-    journal: {
-      entryId:    journal.id,
-      dimension:  journal.dimension,
-      subFactors: Array.isArray(journal.sub_factors) ? journal.sub_factors : [],
-      thesis:     journal.thesis,
-      conviction: journal.conviction,
-      aiNudge:    journal.health?.ai_nudge ?? null,
-      updatedAt:  journal.updated_at,
-    },
+    ...shapeEntry(full),
+    ticker,
+    journalId,
+    thesisHealth: health?.thesisHealth ?? shapeEntry(full).thesisHealth,
+    aiNudge:      health?.aiNudge ?? full.health?.ai_nudge ?? null,
   };
 }
 
-async function triggerEvaluate(entryId, userId) {
-  const existing = await prisma.investmentJournal.findUnique({ where: { id: entryId } });
-  if (!existing || existing.user_id !== userId) throw notFound('Journal entry not found', 'ENTRY_NOT_FOUND');
-  return evaluateHealth(entryId);
+/**
+ * PATCH /api/journal/entries/:entryId — edit an entry. Thesis fields re-snapshot
+ * lens scores and re-run health.
+ */
+async function updateEntry(userId, entryId, fields) {
+  const existing = await assertEntryOwnership(userId, entryId);
+
+  const data = {};
+  if (fields.noteText   !== undefined) data.note_text  = fields.noteText;
+  if (fields.dimension  !== undefined) data.dimension  = fields.dimension;
+  if (fields.thesis     !== undefined) data.thesis     = fields.thesis;
+  if (fields.conviction !== undefined) data.conviction = fields.conviction;
+
+  // If sub-factors change (or a thesis is being (re)defined), re-snapshot.
+  const willBeThesis = (fields.dimension ?? existing.dimension) != null;
+  if (fields.subFactors !== undefined) {
+    data.sub_factors = fields.subFactors;
+    if (willBeThesis) {
+      const lensMap = await fetchLensScoreMap(existing.journal_ticker.ticker);
+      data.scores_snapshot = buildSnapshot(fields.subFactors, lensMap);
+    }
+  }
+
+  await prisma.journalEntry.update({ where: { id: entryId }, data });
+
+  let health = null;
+  if (willBeThesis) {
+    health = await evaluateHealth(entryId);
+  }
+
+  const full = await prisma.journalEntry.findUnique({
+    where:   { id: entryId },
+    include: { health: true },
+  });
+
+  return {
+    ...shapeEntry(full),
+    ticker:       existing.journal_ticker.ticker,
+    thesisHealth: health?.thesisHealth ?? shapeEntry(full).thesisHealth,
+    aiNudge:      health?.aiNudge ?? full.health?.ai_nudge ?? null,
+  };
+}
+
+/**
+ * DELETE /api/journal/entries/:entryId — delete an entry (cascade-deletes health).
+ */
+async function deleteEntry(userId, entryId) {
+  await assertEntryOwnership(userId, entryId);
+  await prisma.journalEntry.delete({ where: { id: entryId } });
+}
+
+/**
+ * POST /api/journal/entries/:entryId/evaluate — manually re-run thesis health.
+ */
+async function triggerEvaluate(userId, entryId) {
+  const existing = await assertEntryOwnership(userId, entryId);
+  if (!existing.dimension) {
+    throw badRequest('Only thesis entries can be evaluated', 'NOT_A_THESIS');
+  }
+  const { thesisHealth, aiNudge, evaluatedAt } = await evaluateHealth(entryId);
+  return { entryId, thesisHealth, aiNudge, evaluatedAt };
 }
 
 module.exports = {
-  getPendingHoldings,
-  getAllEntries,
+  ensureDefaultJournals,
+  listJournals,
+  createJournal,
+  renameJournal,
+  deleteJournal,
+  getJournalDetail,
+  addTickers,
+  removeTicker,
+  listEntries,
   createEntry,
   updateEntry,
   deleteEntry,
-  getEntry,
   triggerEvaluate,
   VALID_SUB_FACTORS,
+  // exported for tests / reuse
+  notFound,
+  badRequest,
+  normTicker,
 };

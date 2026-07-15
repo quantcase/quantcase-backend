@@ -14,6 +14,19 @@ function badRequest(message, status = 400) {
   return err;
 }
 
+// Populate the user's default "Holdings" journal (add-only) from the freshly
+// synced smallcase holdings + baskets. Non-fatal: a journal failure must never
+// break the smallcase connect / webhook flow. Lazy require avoids a require cycle
+// (holdings-sync → journal.service, neither of which needs smallcase.service).
+async function syncHoldingsJournalSafe(userId) {
+  try {
+    const { syncHoldingsJournal } = require('./journal/holdings-sync.service');
+    await syncHoldingsJournal(userId);
+  } catch (e) {
+    console.error('[smallcase] holdings-journal sync failed:', e.message);
+  }
+}
+
 // Map a smallcase transaction/order status → our SmallcaseOrderStatus enum.
 function mapOrderStatus(scStatus) {
   switch (String(scStatus || '').toUpperCase()) {
@@ -258,6 +271,11 @@ async function syncHoldings(userId) {
     where: { id: scUser.id },
     data:  { last_synced_at: now },
   });
+
+  // Mirror the freshly-synced holdings into the user's default Holdings journal
+  // (add-only, non-fatal). This is the single chokepoint for connect, webhook, and
+  // manual POST /sync, so the journal stays current on every sync path.
+  await syncHoldingsJournalSafe(userId);
 
   return { holdings_synced: holdings.length, baskets_synced: baskets.length, synced_at: now };
 }

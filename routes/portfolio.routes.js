@@ -25,10 +25,6 @@ const addHoldingSchema = z.object({
   ticker: z.string().min(1),
 });
 
-const noteSchema = z.object({
-  note_text: z.string().min(1),
-});
-
 // All portfolio routes require authentication
 router.use(authenticate);
 
@@ -49,9 +45,7 @@ router.post('/shadow/add', validate(addHoldingSchema, 'body'), ctrl.addToShadowP
 router.patch('/holdings/:holdingId',  ctrl.updateHolding);
 router.delete('/holdings/:holdingId', ctrl.deleteHolding);
 
-// ─── Holding Notes ───────────────────────────────────────────────────────────
-router.post('/holdings/:holdingId/notes', validate(noteSchema, 'body'), ctrl.createNote);
-router.patch('/notes/:noteId',            validate(noteSchema, 'body'), ctrl.updateNote);
-router.delete('/notes/:noteId',           ctrl.deleteNote);
+// Holding notes have moved to the unified journal (POST /api/journal/journals/
+// :journalId/tickers/:ticker/entries). See docs/JOURNAL_FRONTEND_INTEGRATION.md.
 
 module.exports = router;
