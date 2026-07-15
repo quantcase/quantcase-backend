@@ -4,6 +4,7 @@ const prisma  = require('../config/prisma');
 const gateway = require('../lib/smallcaseGateway');
 const env     = require('../config/env');
 const { encrypt } = require('../utils/crypto');
+const { enrichHoldings } = require('./portfolio/market-data.service');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -28,7 +29,14 @@ function mapOrderStatus(scStatus) {
 }
 
 // Map a smallcase v2 securities entry → our SmallcaseHolding shape.
+//
+// The real v2 payload nests quantity/avg price under `holdings` and identifies the
+// security by `nseTicker`/`bseTicker` (there is no flat `ticker` field). It also
+// carries no live price, so current_price / current_value / pnl are null from this
+// endpoint and get filled in later by the market-data enrichment path.
 function mapSecurity(s) {
+  const ticker   = s.ticker ?? s.nseTicker ?? s.bseTicker ?? null;
+  const exchange = s.exchange ?? (s.nseTicker ? 'NSE' : s.bseTicker ? 'BSE' : null);
   const quantity = s.quantity ?? s.holdings?.quantity ?? 0;
   const avgPrice = s.averagePrice ?? s.holdings?.averagePrice ?? 0;
   const ltp      = s.ltp ?? s.lastPrice ?? s.currentPrice ?? null;
@@ -37,7 +45,7 @@ function mapSecurity(s) {
   const pnl     = currentValue != null ? currentValue - investedValue : null;
   const pnlPct  = pnl != null && investedValue > 0 ? (pnl / investedValue) * 100 : null;
   return {
-    ticker:         s.ticker,
+    ticker,
     quantity,
     avg_price:      avgPrice,
     current_price:  ltp,
@@ -45,8 +53,36 @@ function mapSecurity(s) {
     invested_value: investedValue,
     pnl,
     pnl_pct:        pnlPct,
-    exchange:       s.exchange || null,
+    exchange,
     isin:           s.isin || null,
+    // ─── Full payload fidelity ──────────────────────────────────────────────
+    name:                  s.name || null,
+    nse_ticker:            s.nseTicker || null,
+    bse_ticker:            s.bseTicker || null,
+    collateral_quantity:   s.collateralQuantity ?? null,
+    transactable_quantity: s.transactableQuantity ?? null,
+    smallcase_quantity:    s.smallcaseQuantity ?? null,
+    nse_quantity:          s.positions?.nse?.quantity ?? null,
+    nse_avg_price:         s.positions?.nse?.averagePrice ?? null,
+    bse_quantity:          s.positions?.bse?.quantity ?? null,
+    bse_avg_price:         s.positions?.bse?.averagePrice ?? null,
+    suspended_nse:         s.isSuspendedOrDelistedOnNSE ?? null,
+    suspended_bse:         s.isSuspendedOrDelistedOnBSE ?? null,
+  };
+}
+
+// Map a smallcase v2 `smallcases.public[]` basket entry → our SmallcaseBasket shape.
+function mapBasket(b, { isPrivate = false } = {}) {
+  return {
+    scid:              b.scid,
+    name:              b.name || null,
+    short_description: b.shortDescription || null,
+    investment_url:    b.investmentDetailsURL || null,
+    image_url:         b.imageUrl || null,
+    current_value:     b.stats?.currentValue ?? null,
+    total_returns:     b.stats?.totalReturns ?? null,
+    constituents:      Array.isArray(b.constituents) ? b.constituents : null,
+    is_private:        isPrivate,
   };
 }
 
@@ -138,39 +174,57 @@ async function syncHoldings(userId) {
   const securities = data.securities || [];
   const holdings = securities.map(mapSecurity).filter((h) => h.ticker);
 
+  // Baskets live under `smallcases.public[]` (and an optional `private[]`), each with
+  // its own currentValue / totalReturns / constituents.
+  const scGroups = data.smallcases || {};
+  const baskets = [
+    ...(Array.isArray(scGroups.public)  ? scGroups.public  : []).map((b) => mapBasket(b, { isPrivate: false })),
+    ...(Array.isArray(scGroups.private) ? scGroups.private : []).map((b) => mapBasket(b, { isPrivate: true })),
+  ].filter((b) => b.scid);
+
   const now = new Date();
 
   if (holdings.length > 0) {
     for (const h of holdings) {
+      // Fields written on both create and update — everything the payload carries.
+      const holdingData = {
+        quantity:              h.quantity,
+        avg_price:             h.avg_price,
+        current_price:         h.current_price,
+        current_value:         h.current_value,
+        invested_value:        h.invested_value,
+        pnl:                   h.pnl,
+        pnl_pct:               h.pnl_pct,
+        exchange:              h.exchange,
+        isin:                  h.isin,
+        name:                  h.name,
+        nse_ticker:            h.nse_ticker,
+        bse_ticker:            h.bse_ticker,
+        collateral_quantity:   h.collateral_quantity,
+        transactable_quantity: h.transactable_quantity,
+        smallcase_quantity:    h.smallcase_quantity,
+        nse_quantity:          h.nse_quantity,
+        nse_avg_price:         h.nse_avg_price,
+        bse_quantity:          h.bse_quantity,
+        bse_avg_price:         h.bse_avg_price,
+        suspended_nse:         h.suspended_nse,
+        suspended_bse:         h.suspended_bse,
+      };
       await prisma.smallcaseHolding.upsert({
         where:  { smallcase_user_id_ticker: { smallcase_user_id: scUser.id, ticker: h.ticker } },
-        create: {
-          smallcase_user_id: scUser.id,
-          ticker:            h.ticker,
-          quantity:          h.quantity,
-          avg_price:         h.avg_price,
-          current_price:     h.current_price,
-          current_value:     h.current_value,
-          invested_value:    h.invested_value,
-          pnl:               h.pnl,
-          pnl_pct:           h.pnl_pct,
-          exchange:          h.exchange,
-          isin:              h.isin,
-        },
-        update: {
-          quantity:       h.quantity,
-          avg_price:      h.avg_price,
-          current_price:  h.current_price,
-          current_value:  h.current_value,
-          invested_value: h.invested_value,
-          pnl:            h.pnl,
-          pnl_pct:        h.pnl_pct,
-        },
+        create: { smallcase_user_id: scUser.id, ticker: h.ticker, ...holdingData },
+        update: holdingData,
       });
     }
 
-    const totalValue    = holdings.reduce((s, h) => s + (h.current_value || 0), 0);
     const totalInvested = holdings.reduce((s, h) => s + h.invested_value, 0);
+    // This endpoint carries no live price, so most/all current_value are null. When we
+    // have no market value at all, fall back to invested value so P&L reads as 0 rather
+    // than a bogus -100%. Real current_value / P&L land once market-data enrichment runs.
+    const havePrices    = holdings.some((h) => h.current_value != null);
+    const totalValue    = havePrices
+      ? holdings.reduce((s, h) => s + (h.current_value ?? h.invested_value), 0)
+      : totalInvested;
     const totalPnl      = totalValue - totalInvested;
     const totalPnlPct   = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
 
@@ -181,12 +235,31 @@ async function syncHoldings(userId) {
     });
   }
 
+  // Upsert the user's smallcase baskets (independent of the securities list above).
+  for (const b of baskets) {
+    const basketData = {
+      name:              b.name,
+      short_description: b.short_description,
+      investment_url:    b.investment_url,
+      image_url:         b.image_url,
+      current_value:     b.current_value,
+      total_returns:     b.total_returns,
+      constituents:      b.constituents ?? undefined,
+      is_private:        b.is_private,
+    };
+    await prisma.smallcaseBasket.upsert({
+      where:  { smallcase_user_id_scid: { smallcase_user_id: scUser.id, scid: b.scid } },
+      create: { smallcase_user_id: scUser.id, scid: b.scid, ...basketData },
+      update: basketData,
+    });
+  }
+
   await prisma.smallcaseUser.update({
     where: { id: scUser.id },
     data:  { last_synced_at: now },
   });
 
-  return { holdings_synced: holdings.length, synced_at: now };
+  return { holdings_synced: holdings.length, baskets_synced: baskets.length, synced_at: now };
 }
 
 // ─── Orders ─────────────────────────────────────────────────────────────────
@@ -246,7 +319,7 @@ async function createOrder(userId, { type, scid, smallcaseName, amount } = {}) {
 async function getHoldings(userId) {
   const scUser = await prisma.smallcaseUser.findUnique({
     where:   { user_id: userId },
-    include: { holdings: true, portfolio: true },
+    include: { holdings: true, portfolio: true, baskets: true },
   });
 
   if (!scUser || !scUser.is_connected) {
@@ -257,17 +330,51 @@ async function getHoldings(userId) {
   // smallcase holdings are held at that same broker, so attribute each row with it.
   const broker = scUser.broker || null;
 
+  // The smallcase holdings endpoint carries no live price, so current_value/pnl are
+  // stored null. Enrich here with live LTP (same market-data path the uploaded
+  // portfolio uses) so the frontend gets real amounts instead of 0.
+  const tickers    = [...new Set(scUser.holdings.map(h => h.ticker))];
+  const marketData = await enrichHoldings(tickers);
+
+  const holdings = scUser.holdings.map((h) => {
+    const md           = marketData[h.ticker] ?? null;
+    const ltp          = md?.ltp ?? h.current_price ?? null;
+    const currentValue = ltp != null ? h.quantity * ltp : null;
+    const pnl          = currentValue != null ? currentValue - h.invested_value : null;
+    const pnlPct       = pnl != null && h.invested_value > 0 ? (pnl / h.invested_value) * 100 : null;
+    // display_value is what the UI's amount column should render: live market value when
+    // we have a price, else invested value (what was paid). Never null — never shows 0.
+    const displayValue = currentValue ?? h.invested_value;
+    return {
+      ...h,
+      broker,
+      current_price:  ltp,
+      current_value:  currentValue,
+      pnl,
+      pnl_pct:        pnlPct,
+      display_value:  displayValue,
+      has_live_price: ltp != null,
+      market_data:    md,
+    };
+  });
+
+  // Portfolio totals recomputed from the (now enriched) holdings so they agree with the
+  // rows. Falls back to invested value for any ticker without a live price.
+  const totalInvested = holdings.reduce((s, h) => s + (h.invested_value || 0), 0);
+  const totalValue    = holdings.reduce((s, h) => s + (h.display_value  || 0), 0);
+  const totalPnl      = totalValue - totalInvested;
+  const totalPnlPct   = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
+
   return {
-    portfolio: scUser.portfolio
-      ? {
-          total_value:    scUser.portfolio.total_value,
-          total_invested: scUser.portfolio.total_invested,
-          total_pnl:      scUser.portfolio.total_pnl,
-          total_pnl_pct:  scUser.portfolio.total_pnl_pct,
-          synced_at:      scUser.portfolio.synced_at,
-        }
-      : null,
-    holdings: scUser.holdings.map(h => ({ ...h, broker })),
+    portfolio: {
+      total_value:    totalValue,
+      total_invested: totalInvested,
+      total_pnl:      totalPnl,
+      total_pnl_pct:  totalPnlPct,
+      synced_at:      scUser.portfolio?.synced_at ?? scUser.last_synced_at ?? null,
+    },
+    holdings,
+    baskets:  scUser.baskets,
   };
 }
 

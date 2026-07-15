@@ -1349,20 +1349,20 @@ model Transaction {
 // user_id is nullable — the reporter may be logged out (e.g. hit an error on
 // the login screen itself), so the API accepts reports without a valid session.
 model ErrorReport {
-  id            String            @id @default(uuid())
+  id            String              @id @default(uuid())
   category      ErrorReportCategory @default(other)
   message       String // user's own description of what went wrong
-  page_url      String? @map("page_url")
-  error_message String? @map("error_message") // client-captured exception message/stack, if any
-  user_id       String? @map("user_id")
-  user_email    String? @map("user_email") // captured verbatim from client even if user_id resolves, for reports from stale/expired sessions
-  user_agent    String? @map("user_agent")
+  page_url      String?             @map("page_url")
+  error_message String?             @map("error_message") // client-captured exception message/stack, if any
+  user_id       String?             @map("user_id")
+  user_email    String?             @map("user_email") // captured verbatim from client even if user_id resolves, for reports from stale/expired sessions
+  user_agent    String?             @map("user_agent")
   metadata      Json? // free-form client context: viewport, app version, redux state slice, etc.
-  status        ErrorReportStatus @default(open)
-  admin_notes   String? @map("admin_notes")
-  created_at    DateTime          @default(now())
-  updated_at    DateTime          @updatedAt
-  user          User?             @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  status        ErrorReportStatus   @default(open)
+  admin_notes   String?             @map("admin_notes")
+  created_at    DateTime            @default(now())
+  updated_at    DateTime            @updatedAt
+  user          User?               @relation(fields: [user_id], references: [id], onDelete: SetNull)
 
   @@index([user_id])
   @@index([status])
@@ -1404,6 +1404,7 @@ model SmallcaseUser {
   user              User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
   holdings          SmallcaseHolding[]
   orders            SmallcaseOrder[]
+  baskets           SmallcaseBasket[]
   portfolio         SmallcasePortfolio?
 
   @@index([user_id])
@@ -1427,26 +1428,61 @@ model SmallcasePortfolio {
 }
 
 model SmallcaseHolding {
-  id                String        @id @default(uuid())
-  smallcase_user_id String        @map("smallcase_user_id")
-  ticker            String
-  quantity          Float
-  avg_price         Float         @map("avg_price")
-  current_price     Float?        @map("current_price")
-  current_value     Float?        @map("current_value")
-  invested_value    Float         @map("invested_value")
-  pnl               Float?
-  pnl_pct           Float?        @map("pnl_pct")
-  exchange          String?
-  isin              String?
-  created_at        DateTime      @default(now())
-  updated_at        DateTime      @updatedAt
-  smallcase_user    SmallcaseUser @relation(fields: [smallcase_user_id], references: [id], onDelete: Cascade)
+  id                    String        @id @default(uuid())
+  smallcase_user_id     String        @map("smallcase_user_id")
+  ticker                String
+  quantity              Float // holdings.quantity — total shares held
+  avg_price             Float         @map("avg_price") // holdings.averagePrice — avg BUY price (cost basis, not LTP)
+  current_price         Float?        @map("current_price") // not in payload; filled by later market-data enrichment
+  current_value         Float?        @map("current_value")
+  invested_value        Float         @map("invested_value")
+  pnl                   Float?
+  pnl_pct               Float?        @map("pnl_pct")
+  exchange              String?
+  isin                  String?
+  // ─── Full smallcase v2 security fields ────────────────────────────────────
+  name                  String? // human-readable security name (e.g. "Bajaj Finance Ltd")
+  nse_ticker            String?       @map("nse_ticker")
+  bse_ticker            String?       @map("bse_ticker")
+  collateral_quantity   Float?        @map("collateral_quantity")
+  transactable_quantity Float?        @map("transactable_quantity")
+  smallcase_quantity    Float?        @map("smallcase_quantity") // qty held via smallcase baskets
+  nse_quantity          Float?        @map("nse_quantity") // positions.nse.quantity
+  nse_avg_price         Float?        @map("nse_avg_price") // positions.nse.averagePrice
+  bse_quantity          Float?        @map("bse_quantity") // positions.bse.quantity
+  bse_avg_price         Float?        @map("bse_avg_price") // positions.bse.averagePrice
+  suspended_nse         Boolean?      @map("suspended_nse") // isSuspendedOrDelistedOnNSE
+  suspended_bse         Boolean?      @map("suspended_bse") // isSuspendedOrDelistedOnBSE
+  created_at            DateTime      @default(now())
+  updated_at            DateTime      @updatedAt
+  smallcase_user        SmallcaseUser @relation(fields: [smallcase_user_id], references: [id], onDelete: Cascade)
 
   @@unique([smallcase_user_id, ticker])
   @@index([smallcase_user_id])
   @@index([ticker])
   @@map("qc_smallcase_holdings")
+}
+
+model SmallcaseBasket {
+  id                String        @id @default(uuid())
+  smallcase_user_id String        @map("smallcase_user_id")
+  scid              String // smallcase id (e.g. "64796b3a529a6253633bec9b" or "SCAW_0001")
+  name              String?
+  short_description String?       @map("short_description")
+  investment_url    String?       @map("investment_url") // investmentDetailsURL
+  image_url         String?       @map("image_url")
+  current_value     Float?        @map("current_value") // stats.currentValue
+  total_returns     Float?        @map("total_returns") // stats.totalReturns
+  constituents      Json? // [{ ticker, shares }]
+  is_private        Boolean       @default(false) @map("is_private")
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+  smallcase_user    SmallcaseUser @relation(fields: [smallcase_user_id], references: [id], onDelete: Cascade)
+
+  @@unique([smallcase_user_id, scid])
+  @@index([smallcase_user_id])
+  @@index([scid])
+  @@map("qc_smallcase_baskets")
 }
 
 model SmallcaseOrder {
