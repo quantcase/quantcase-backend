@@ -47,4 +47,7 @@ module.exports = {
 
   // Google Sign-In (verifies ID tokens from the frontend's Google OAuth flow)
   googleClientId:    process.env.GOOGLE_CLIENT_ID,
+
+  // Sole account allowed to hit /admin/* (see middleware/requireAdmin.js)
+  adminEmail:        process.env.ADMIN_EMAIL || 'raj@quantcase.ai',
 };

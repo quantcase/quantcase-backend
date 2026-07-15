@@ -8,6 +8,8 @@ const transcriptsRouter   = require('./transcripts.routes');
 const summaryRouter       = require('./summary.routes');
 const jobsRouter          = require('./jobs.routes');
 const adminRouter         = require('./admin.routes');
+const authenticate        = require('../middleware/authenticate');
+const requireAdmin        = require('../middleware/requireAdmin');
 const wealthosRouter      = require('./wealthos.routes');
 const screenerRouter      = require('./screener.routes');
 const basketsRouter              = require('./baskets.routes');
@@ -97,7 +99,7 @@ router.use('/api/discover',         discoverRouter);
 router.use('/api/research-library', researchLibraryRouter);
 router.use('/api/market',           marketRouter);
 
-// Admin routes
-router.use('/admin', adminRouter);
+// Admin routes — restricted to the single admin account (see middleware/requireAdmin.js)
+router.use('/admin', authenticate, requireAdmin, adminRouter);
 
 module.exports = router;
