@@ -13,12 +13,21 @@ function _getProwessNameList() {
 }
 
 function _normName(s) {
-  return (s || '')
+  let out = (s || '')
     .toLowerCase()
     .replace(/\b(ltd\.?|limited|pvt\.?|private|inc\.?|llp|corp\.?|corporation)\b\.?/gi, '')
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  // Collapse spaced-out single-letter acronyms (Prowess stores many Indian
+  // names this way, e.g. "H D F C Bank", "I C I C I Bank", "S B I Life") into
+  // one token. Without this, _matchProwessName's word-length filter (>2 chars)
+  // drops every individual letter and leaves only a generic trailing word like
+  // "bank" to match on — every bank-name candidate then scores a false 1.0 and
+  // whichever is iterated first silently wins (this misrouted HDFCBANK to
+  // "A U Small Finance Bank Ltd." and ICICIBANK similarly).
+  out = out.replace(/\b(?:[a-z0-9] )+[a-z0-9]\b/g, (m) => m.replace(/ /g, ''));
+  return out;
 }
 
 function _matchProwessName(companyName) {
