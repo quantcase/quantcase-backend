@@ -38,9 +38,9 @@ async function computeIndices() {
     symbol: INDEX_SYMBOL_MAP[r.symbol],
     value: r.close,
     // CMIE's "Daily Index Returns" — vs. the prior trading day's close, not this
-    // row's own open→close. Stored as a raw fraction (0.0042 = 0.42%) — convert
-    // to percentage points.
-    change_pct: r.pct_change != null ? Number((r.pct_change * 100).toFixed(2)) : null,
+    // row's own open→close. Already stored in percentage points (0.0606 = 0.06%,
+    // verified against real Sensex close on 2026-07-13) — no ×100 conversion.
+    change_pct: r.pct_change != null ? Number(r.pct_change.toFixed(2)) : null,
   }));
 }
 
