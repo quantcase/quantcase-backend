@@ -1973,3 +1973,59 @@ model CompanyGroup {
 
   @@map("company_groups")
 }
+
+// ─── Curated Screens ──────────────────────────────────────────────────────────
+//
+// Precomputed screener cards for the investor dashboard (GET /api/discover/screens)
+// and the screener pages. The live screeners in controllers/baskets.controller.js
+// derive their results from the full universe at request time (~11-13s per screen,
+// ~40s+ for the dashboard's three cards) because each run pulls 5 years x 76 KPIs
+// x ~2900 companies out of prowess_values_new to compute what the UI renders as a
+// count and a list of names. Screen membership only changes when fundamentals are
+// refreshed (quarterly), so it is stored here instead and served as an indexed read.
+//
+// Seeded by prisma/seedScreens.js; intended to be maintained via admin APIs later.
+
+model Screen {
+  id          String    @id @default(uuid())
+  slug        String    @unique // stable id used by the FE (e.g. 'quality-compounders')
+  basketId    String?   @map("basket_id") // source screener in baskets.controller.js, if derived from one
+  category    String?
+  icon        String? // FE icon key (e.g. 'activity')
+  badgeKind   String?   @map("badge_kind") // 'warning' | 'new' | 'info'
+  title       String
+  description String?
+  conditions  String? // human-readable screen criteria
+  href        String?
+  sortOrder   Int       @default(0) @map("sort_order") // display order on the dashboard
+  isActive    Boolean   @default(true) @map("is_active")
+  computedAt  DateTime? @map("computed_at") // when the ticker list was last refreshed
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  tickers ScreenTicker[]
+
+  @@index([isActive, sortOrder])
+  @@map("qc_screens")
+}
+
+model ScreenTicker {
+  id            String   @id @default(uuid())
+  screenId      String   @map("screen_id")
+  ticker        String // NSE symbol, uppercase
+  companyName   String?  @map("company_name")
+  // Denormalised display/stat fields so a card or table renders from one query.
+  marketCapCr   Float?   @map("market_cap_cr")
+  pe            Float?
+  qcScore       Float?   @map("qc_score") // latest iit_weekly_stock_scores.composite_score
+  basicIndustry String?  @map("basic_industry") // powers the "IN YOUR SECTORS" stat
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  screen Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
+
+  @@unique([screenId, ticker])
+  @@index([screenId])
+  @@index([ticker])
+  @@map("qc_screen_tickers")
+}
