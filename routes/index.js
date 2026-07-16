@@ -12,6 +12,7 @@ const authenticate        = require('../middleware/authenticate');
 const requireAdmin        = require('../middleware/requireAdmin');
 const wealthosRouter      = require('./wealthos.routes');
 const screenerRouter      = require('./screener.routes');
+const tickersRouter       = require('./tickers.routes');
 const basketsRouter              = require('./baskets.routes');
 const industryBasketsRouter      = require('./industryBaskets.routes');
 const modelsRouter        = require('./models.routes');
@@ -47,6 +48,9 @@ router.use('/api/jobs',        jobsRouter);
 
 // Screener routes
 router.use('/api/screener', screenerRouter);
+
+// Batch ticker metrics (caller-supplied ticker list)
+router.use('/api/tickers', tickersRouter);
 
 // Baskets (stock screen) routes
 router.use('/api/baskets', basketsRouter);

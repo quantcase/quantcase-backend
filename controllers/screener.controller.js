@@ -12,6 +12,7 @@ const { resolveMetric, resolveIndicatorSeries } = require('../utils/formulaRegis
 const { fetchOhlcvBars, fetchMarketSnapshot, fetchMarketSnapshots, fetchMonthlyOhlcv, fetchPeTimeSeries } = require('../utils/formulaRegistry/dataFetcherMarket');
 const prisma    = require('../config/prisma');
 const jobQueue  = require('../lib/jobQueue');
+const tickerMetrics = require('../services/tickerMetrics.service');
 
 // ── Cache helpers ────────────────────────────────────────────────────────────
 
@@ -1272,141 +1273,20 @@ async function getPeers(req, res, next) {
 
     // ── 2. Find all peers in same basic industry ─────────────────────────────
     // Include subject itself so it appears in the table (highlighted by caller)
-    const peerRows = idRows.filter((r) => {
-      const ind = (r[ID_COL_NSE_BASIC_IND] || '').trim();
-      const sym = (r[ID_COL_NSE_SYMBOL] || '').trim();
-      return ind === subjectBasicInd && sym !== '';
-    });
+    const nseSymbols = idRows
+      .filter((r) => (r[ID_COL_NSE_BASIC_IND] || '').trim() === subjectBasicInd)
+      .map((r) => (r[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase())
+      .filter(Boolean);
 
-    if (peerRows.length === 0) {
+    if (nseSymbols.length === 0) {
       return res.status(404).json({ error: `No peers found for industry "${subjectBasicInd}"` });
     }
 
-    // ── 3. Load Prowess fundamentals ─────────────────────────────────────────
-    const { fundMap, qtrs } = loadPeerFundamentals();
-    const LATEST = PEER_PERIOD_COUNT - 1;   // index 7
-    const YEAR_AGO = LATEST - 4;            // index 3  (same quarter, prior year)
+    // ── 3. Build metric rows (shared with GET /api/tickers) ──────────────────
+    const { tickers } = await tickerMetrics.getMetricsForTickers(nseSymbols);
+    const { latestQuarter, yearAgoQuarter } = tickerMetrics.getQuarterLabels();
 
-    const nseSymbols = peerRows.map((r) => (r[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase()).filter(Boolean);
-
-    // ── 4. Bulk-fetch CMP, Market Cap, PE, and AI insight scores from DB ────────────────────────
-    const [snapsMap, aiInsightRows] = await Promise.all([
-      fetchMarketSnapshots(prisma, nseSymbols),
-      prisma.aiInsight.findMany({
-        where: { ticker: { in: nseSymbols }, type: { in: ['management', 'opportunity', 'deal'] } },
-        select: { ticker: true, type: true, insight: true },
-      }),
-    ]);
-
-    // aiInsightsMap[ticker][type] = { score, verdict }
-    const aiInsightsMap = {};
-    for (const row of aiInsightRows) {
-      const t = row.ticker.toUpperCase();
-      if (!aiInsightsMap[t]) aiInsightsMap[t] = {};
-      const insight = row.insight;
-      aiInsightsMap[t][row.type] = {
-        score:   insight?.score   ?? null,
-        verdict: insight?.verdict ?? null,
-      };
-    }
-
-    const cmpMap    = Object.fromEntries(Object.entries(snapsMap).map(([sym, s]) => [sym, s.close]));
-    const mktCapMap = Object.fromEntries(Object.entries(snapsMap).map(([sym, s]) => [sym, s.market_cap_cr]));
-    const peDbMap   = Object.fromEntries(Object.entries(snapsMap).map(([sym, s]) => [sym, s.pe]));
-
-    const modMap = loadModData();
-
-    // ── 5. Build table rows ──────────────────────────────────────────────────
-    const latestQtr = qtrs[LATEST];
-    const yearAgoQtr = qtrs[YEAR_AGO] || null;
-
-    const peers = peerRows.map((idRow) => {
-      const peerSymbol  = (idRow[ID_COL_NSE_SYMBOL] || '').trim().toUpperCase();
-      const companyName = (idRow[ID_COL_NAME] || '').trim();
-      const fundRow     = fundMap[companyName] || null;
-
-      // ── DB-sourced data ──
-      const cmp = r2(cmpMap[peerSymbol] ?? null);
-      let marketCap = r2(mktCapMap[peerSymbol] ?? null);
-
-      // Fallback: use market cap column from Prowess fund CSV (already in Cr)
-      if (marketCap == null && fundRow) {
-        const csvMcap = peerPeriodVal(fundRow, LATEST, PEER_OFF.MARKET_CAP);
-        if (csvMcap != null) marketCap = r2(csvMcap);
-      }
-
-      // ── Prowess fundamentals (latest period) ──
-      let pe           = r2(peDbMap[peerSymbol] ?? null);
-      let divYld       = null;
-      let npQtr        = null;
-      let salesQtr     = null;
-      let qtrProfitVar = null;
-      let qtrSalesVar  = null;
-
-      if (fundRow) {
-        // PE fallback: Prowess CSV if DB had no entry
-        if (pe == null) pe = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.PE));
-
-        divYld   = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.YIELD));
-        npQtr    = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.NET_PROFIT));
-        salesQtr = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.TOTAL_INCOME));
-
-        const npPrior    = peerPeriodVal(fundRow, YEAR_AGO, PEER_OFF.NET_PROFIT);
-        const salesPrior = peerPeriodVal(fundRow, YEAR_AGO, PEER_OFF.TOTAL_INCOME);
-        if (npQtr != null && npPrior != null && npPrior !== 0) {
-          qtrProfitVar = r2(((npQtr - npPrior) / Math.abs(npPrior)) * 100);
-        }
-        if (salesQtr != null && salesPrior != null && salesPrior !== 0) {
-          qtrSalesVar = r2(((salesQtr - salesPrior) / Math.abs(salesPrior)) * 100);
-        }
-      }
-
-      // ROCE: EBIT / Capital Employed × 100
-      //   EBIT = (Net Profit + Interest) × 4 (annualised from latest quarter)
-      //   Capital Employed = Paid-up Capital + Reserves + Borrowings
-      let roce = null;
-      const modRow = modMap[companyName] || null;
-      if (modRow) {
-        const totalCols   = modRow.length - 1;
-        const periodCount = Math.floor(totalCols / MOD_COLS_PER_PERIOD);
-        const lastPeriod  = periodCount - 1;
-        const base        = 1 + lastPeriod * MOD_COLS_PER_PERIOD;
-
-        const netProfit  = peerToFloat(modRow[base + MOD_OFF.NET_PROFIT]);
-        const interest   = peerToFloat(modRow[base + MOD_OFF.INTEREST]);
-        const paidCap    = peerToFloat(modRow[base + MOD_OFF.PAID_CAP]);
-        const reserves   = peerToFloat(modRow[base + MOD_OFF.RESERVES]);
-        const borrowings = peerToFloat(modRow[base + MOD_OFF.BORROWINGS]);
-
-        if (netProfit != null && interest != null && paidCap != null && reserves != null && borrowings != null) {
-          const ebitAnnualised  = (netProfit + interest) * 4;
-          const capitalEmployed = paidCap + reserves + borrowings;
-          if (capitalEmployed > 0) {
-            roce = r2((ebitAnnualised / capitalEmployed) * 100);
-          }
-        }
-      }
-
-      const aiScores = aiInsightsMap[peerSymbol] || {};
-
-      return {
-        symbol:      peerSymbol,
-        name:        companyName,
-        isSubject:   peerSymbol === symbol,
-        cmp:         cmp ?? null,
-        pe:          pe ?? null,
-        marketCapCr: marketCap ?? null,
-        divYld,
-        npQtrCr:     npQtr,
-        qtrProfitVar,
-        salesQtrCr:  salesQtr,
-        qtrSalesVar,
-        roce,
-        management:  aiScores.management  ?? null,
-        opportunity: aiScores.opportunity ?? null,
-        deal:        aiScores.deal        ?? null,
-      };
-    });
+    const peers = tickers.map((t) => ({ ...t, isSubject: t.symbol === symbol }));
 
     // Sort: subject first, then by marketCap desc
     peers.sort((a, b) => {
@@ -1420,8 +1300,8 @@ async function getPeers(req, res, next) {
       symbol,
       basicIndustry: subjectBasicInd,
       industryGroup: subjectIndGrp,
-      latestQuarter: latestQtr,
-      yearAgoQuarter: yearAgoQtr,
+      latestQuarter,
+      yearAgoQuarter,
       count: peers.length,
       peers,
     });
