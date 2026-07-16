@@ -4,10 +4,15 @@
  * Shared holding resolver for the investor dashboard.
  *
  * Returns a unified holdings list for a user, preferring their smallcase-synced
- * broker holdings (full fidelity: quantity / current_value / invested_value / pnl)
- * and falling back to their first-party CSV-uploaded portfolio (ticker +
- * amount_invested only; no share quantity, so current value is approximated from
- * live 1D enrichment).
+ * broker holdings (full fidelity: quantity known, so current_value is an exact
+ * qty × live-LTP market value) and falling back to their first-party CSV-uploaded
+ * portfolio (ticker + amount_invested only; no share quantity, so current value is
+ * approximated from live 1D enrichment).
+ *
+ * Both branches enrich from market data at read time. Neither the stored
+ * SmallcaseHolding.current_value nor SmallcasePortfolio.total_value carries a
+ * price — smallcase's holdings payload has none, so those columns sit at cost
+ * basis and must not be used as market value.
  *
  * Consumed by mod-synopsis and holdings-summary services.
  */
@@ -43,18 +48,37 @@ async function resolveHoldings(userId) {
   });
 
   if (scUser && scUser.is_connected && scUser.holdings.length > 0) {
-    const holdings = scUser.holdings.map(h => ({
-      ticker:         h.ticker.toUpperCase(),
-      quantity:       h.quantity ?? null,
-      invested_value: h.invested_value ?? 0,
-      current_value:  h.current_value ?? null,
-      pnl:            h.pnl ?? null,
-      pnl_pct:        h.pnl_pct ?? null,
-    }));
+    // The smallcase holdings payload carries no live price, so the stored
+    // current_value / pnl are null and the stored portfolio totals fall back to
+    // cost basis (total_value === total_invested). Enrich with live LTP here —
+    // the same path GET /api/smallcase/holdings uses — so every dashboard
+    // consumer sees true market value rather than what was paid.
+    const scTickers  = [...new Set(scUser.holdings.map(h => h.ticker.toUpperCase()))];
+    const marketData = await enrichHoldings(scTickers);
 
-    const totals = scUser.portfolio
-      ? { current_value: scUser.portfolio.total_value, invested_value: scUser.portfolio.total_invested }
-      : sumTotals(holdings);
+    const holdings = scUser.holdings.map(h => {
+      const sym          = h.ticker.toUpperCase();
+      const ltp          = marketData[sym]?.ltp ?? h.current_price ?? null;
+      const invested     = h.invested_value ?? 0;
+      // Quantity is authoritative for smallcase holdings, so qty × LTP is an exact
+      // market value. Only fall back to the stored column when there is no price.
+      const currentValue = (ltp != null && h.quantity != null) ? h.quantity * ltp : (h.current_value ?? null);
+      const pnl          = currentValue != null ? currentValue - invested : null;
+      const pnlPct       = pnl != null && invested > 0 ? (pnl / invested) * 100 : null;
+      return {
+        ticker:         sym,
+        quantity:       h.quantity ?? null,
+        invested_value: invested,
+        current_value:  currentValue,
+        pnl,
+        pnl_pct:        pnlPct,
+      };
+    });
+
+    // Recomputed from the enriched rows so the totals agree with them. The stored
+    // portfolio row is deliberately not trusted: it is cost basis until a sync
+    // lands prices, which would make equity_value read as invested_value.
+    const totals = sumTotals(holdings);
 
     return {
       empty:     false,
@@ -106,13 +130,20 @@ async function resolveHoldings(userId) {
   };
 }
 
+// A holding with no live price (ETFs and recent listings are absent from
+// nse_equity_new) contributes its cost basis, not nothing — dropping it would
+// shrink current_value while invested_value still counts it, understating P&L by
+// the whole position. Cost basis reads that holding as flat, which is the honest
+// unknown. current_value stays null on the row so callers can still see which
+// holdings lack a price.
 function sumTotals(holdings) {
   let invested = 0;
   let current  = 0;
   let anyCurrent = false;
   for (const h of holdings) {
     invested += h.invested_value ?? 0;
-    if (h.current_value != null) { current += h.current_value; anyCurrent = true; }
+    current  += h.current_value ?? h.invested_value ?? 0;
+    if (h.current_value != null) anyCurrent = true;
   }
   return { current_value: anyCurrent ? current : null, invested_value: invested };
 }
