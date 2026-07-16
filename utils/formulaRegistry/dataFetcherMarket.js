@@ -1,5 +1,8 @@
 'use strict';
 
+// Prisma.join — parameterises the IN list in fetchMonthlyCloseBatch's raw query.
+const { Prisma } = require('@prisma/client');
+
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 // ── Bar aggregation (shared utility) ─────────────────────────────────────────
@@ -279,6 +282,38 @@ async function fetchMonthlyClose(prisma, symbol, { since }) {
 }
 
 /**
+ * Monthly-aggregated close series for many symbols in one round-trip.
+ * Same shape as fetchMonthlyClose, keyed by symbol — prefer this when fetching
+ * more than one ticker, so a wide portfolio costs one query rather than N
+ * concurrent aggregates over nse_equity_new (~1.2M rows).
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string[]} symbols
+ * @param {{ since: Date }} opts
+ * @returns {Promise<Object<string, Array<{ month: Date, close: number }>>>}  keyed by symbol
+ */
+async function fetchMonthlyCloseBatch(prisma, symbols, { since }) {
+  if (!symbols.length) return {};
+  // symbol is stored upper-case; normalise so callers can pass either case and
+  // match the upper-cased keys this returns.
+  const upper = [...new Set(symbols.map(s => s.toUpperCase()))];
+
+  const rows = await prisma.$queryRaw`
+    SELECT symbol, DATE_TRUNC('month', datetime) AS month, AVG(close)::float AS close
+    FROM nse_equity_new
+    WHERE symbol IN (${Prisma.join(upper)}) AND datetime >= ${since}
+    GROUP BY symbol, DATE_TRUNC('month', datetime)
+    ORDER BY symbol ASC, month ASC
+  `;
+
+  const result = {};
+  for (const r of rows) {
+    (result[r.symbol.toUpperCase()] ??= []).push({ month: r.month, close: r.close });
+  }
+  return result;
+}
+
+/**
  * Monthly OHLCV + volume (for price chart group in prowess/financials views).
  *
  * @param {import('@prisma/client').PrismaClient} prisma
@@ -329,6 +364,7 @@ module.exports = {
   fetchPeTimeSeries,
   fetchPeTimeSeriesBatch,
   fetchMonthlyClose,
+  fetchMonthlyCloseBatch,
   fetchMonthlyOhlcv,
   fetchIndexBars,
 };

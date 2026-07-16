@@ -16,7 +16,7 @@ const prisma = require('../../config/prisma');
 const { resolveHoldings } = require('./resolve-holdings.service');
 const { resolveShadowHoldings, getShadowSyncedAt } = require('./resolve-shadow-holdings.service');
 const identity = require('./identity');
-const { fetchMarketSnapshots, fetchMonthlyClose } = require('../../utils/formulaRegistry/dataFetcherMarket');
+const { fetchMarketSnapshots, fetchMonthlyCloseBatch } = require('../../utils/formulaRegistry/dataFetcherMarket');
 
 const TREND_MONTHS = 12;
 
@@ -187,12 +187,13 @@ function buildIndustrySegments(holdings) {
 async function buildValueTrend(holdings, source) {
   const since = new Date(Date.now() - (TREND_MONTHS + 1) * 30 * 24 * 60 * 60 * 1000);
 
-  const series = await Promise.all(
-    holdings.map(async h => ({
-      holding: h,
-      monthly: await fetchMonthlyClose(prisma, h.ticker, { since }),
-    }))
-  );
+  // Batched deliberately: one query for all tickers, not one per holding — a
+  // fan-out here scales with portfolio size and exhausts the connection pool.
+  const byTicker = await fetchMonthlyCloseBatch(prisma, holdings.map(h => h.ticker), { since });
+  const series = holdings.map(h => ({
+    holding: h,
+    monthly: byTicker[h.ticker?.toUpperCase()] ?? [],
+  }));
 
   // Union of month buckets across holdings.
   const monthSet = new Set();
