@@ -90,6 +90,44 @@ function shapeJournal(journal, tickerCount) {
   };
 }
 
+// A holdings sync inserts its tickers via createMany, so they all share one
+// added_at — `added_at desc` alone leaves the order undefined and rows shuffle
+// between reads. Ticker breaks the tie so paging/refreshes are stable.
+const TICKER_ORDER = [{ added_at: 'desc' }, { ticker: 'asc' }];
+
+/**
+ * Shape a JournalTicker (loaded with `entries: { include: { health } }`, newest
+ * first) into the API ticker object. Shared by the journal detail endpoint and the
+ * expanded journal list so both surfaces stay identical.
+ *
+ * @param {object} t            JournalTicker with `entries` included
+ * @param {object} [md]         enrichHoldings() entry for this ticker
+ * @param {boolean} [withEntries] embed the full `entries` array
+ */
+function shapeJournalTicker(t, md = {}, withEntries = false) {
+  const entries      = t.entries ?? [];
+  // Latest thesis health = health of the most-recent thesis-typed entry.
+  const latestThesis = entries.find(e => e.dimension);
+
+  return {
+    ticker:     t.ticker,
+    source:     t.source,
+    addedAt:    t.added_at,
+    entryCount: entries.length,
+    market: {
+      ltp:           md?.ltp ?? null,
+      change:        md?.change ?? null,
+      changePercent: md?.change_percent ?? null,
+      qcScore:       md?.qc_score ?? null,
+      conviction:    md?.conviction ?? null,
+      thesisTags:    md?.thesis_tags ?? [],
+    },
+    latestEntry:        entries[0] ? shapeEntry(entries[0]) : null,
+    latestThesisHealth: latestThesis?.health?.thesis_health ?? (latestThesis ? 'none' : null),
+    ...(withEntries && { entries: entries.map(shapeEntry) }),
+  };
+}
+
 // ─── Default journals ─────────────────────────────────────────────────────────
 
 /**
@@ -116,19 +154,46 @@ async function ensureDefaultJournals(userId) {
 // ─── Journals CRUD ────────────────────────────────────────────────────────────
 
 /**
- * GET /api/journal/journals — list the user's journals (defaults ensured first).
+ * GET /api/journal/journals — the user's journals, fully expanded: every journal
+ * carries its tickers (market-enriched), and every ticker carries all of its
+ * entries (notes + theses). One call renders the whole journal UI.
+ *
+ * Defaults are ensured first, and the Holdings journal is synced (add-only) so its
+ * tickers are as current as a detail read.
  */
 async function listJournals(userId) {
   await ensureDefaultJournals(userId);
 
+  // Lazy require avoids a require cycle (holdings-sync → journal.service).
+  const { syncHoldingsJournal } = require('./holdings-sync.service');
+  try {
+    await syncHoldingsJournal(userId);
+  } catch (err) {
+    console.error('[listJournals] holdings sync failed:', err.message);
+  }
+
   const journals = await prisma.journal.findMany({
     where:   { user_id: userId },
-    include: { _count: { select: { tickers: true } } },
+    include: {
+      _count:  { select: { tickers: true } },
+      tickers: {
+        include: { entries: { orderBy: { created_at: 'desc' }, include: { health: true } } },
+        orderBy: TICKER_ORDER,
+      },
+    },
     orderBy: [{ is_default: 'desc' }, { created_at: 'asc' }],
   });
 
+  // One enrichment pass across every ticker in every journal — the same symbol in
+  // two journals is priced once, not once per journal.
+  const symbols    = [...new Set(journals.flatMap(j => j.tickers.map(t => t.ticker)))];
+  const marketData = symbols.length ? await enrichHoldings(symbols) : {};
+
   return {
-    journals: journals.map(j => shapeJournal(j, j._count.tickers)),
+    journals: journals.map(j => ({
+      ...shapeJournal(j, j._count.tickers),
+      tickers: j.tickers.map(t => shapeJournalTicker(t, marketData[t.ticker], true)),
+    })),
   };
 }
 
@@ -193,38 +258,15 @@ async function getJournalDetail(userId, journalId) {
     include: {
       entries: { orderBy: { created_at: 'desc' }, include: { health: true } },
     },
-    orderBy: { added_at: 'desc' },
+    orderBy: TICKER_ORDER,
   });
 
   const symbols    = [...new Set(tickers.map(t => t.ticker))];
   const marketData = symbols.length ? await enrichHoldings(symbols) : {};
 
-  const shapedTickers = tickers.map(t => {
-    const md          = marketData[t.ticker] ?? {};
-    const latestEntry = t.entries[0] ? shapeEntry(t.entries[0]) : null;
-    // Latest thesis health = health of the most-recent thesis-typed entry.
-    const latestThesis = t.entries.find(e => e.dimension);
-    return {
-      ticker:            t.ticker,
-      source:            t.source,
-      addedAt:           t.added_at,
-      entryCount:        t.entries.length,
-      market: {
-        ltp:           md.ltp ?? null,
-        change:        md.change ?? null,
-        changePercent: md.change_percent ?? null,
-        qcScore:       md.qc_score ?? null,
-        conviction:    md.conviction ?? null,
-        thesisTags:    md.thesis_tags ?? [],
-      },
-      latestEntry,
-      latestThesisHealth: latestThesis?.health?.thesis_health ?? (latestThesis ? 'none' : null),
-    };
-  });
-
   return {
     journal: shapeJournal(journal, tickers.length),
-    tickers: shapedTickers,
+    tickers: tickers.map(t => shapeJournalTicker(t, marketData[t.ticker])),
   };
 }
 

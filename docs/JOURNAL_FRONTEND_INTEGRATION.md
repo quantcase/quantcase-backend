@@ -77,6 +77,61 @@ List the user's journals (ensures the two defaults exist first).
 ```
 Defaults are returned first, then custom journals oldest-first.
 
+##### Fully expanded — the whole UI in one call
+
+This endpoint is **always fully expanded** — no query params. Each journal carries a
+`tickers[]` (market-enriched, with `latestEntry` + `latestThesisHealth`), and each
+ticker carries an `entries[]` with **all** of its notes and theses, newest first.
+You never need to fan out to `GET /journals/:id` per journal or `…/entries` per ticker
+to build the journal UI.
+
+Each object in `tickers[]` is **identical** to one from `GET /journals/:journalId`, so
+the same FE component renders both. Like the detail endpoint, this call runs the
+Holdings add-only sync first, so `tickers` are current.
+
+```json
+{
+  "success": true,
+  "data": {
+    "journals": [
+      {
+        "id": "uuid", "name": "Holdings", "kind": "holdings", "isDefault": true,
+        "tickerCount": 2, "createdAt": "…", "updatedAt": "…",
+        "tickers": [
+          {
+            "ticker": "ACE",
+            "source": "holdings_sync",
+            "addedAt": "…",
+            "entryCount": 1,
+            "market": {
+              "ltp": 985.7, "change": 111.3, "changePercent": 12.73,
+              "qcScore": 81.7, "conviction": "POSITIVE",
+              "thesisTags": ["MANAGEMENT", "OPPORTUNITY", "DEAL"]
+            },
+            "latestEntry": { "id": "uuid", "type": "thesis", "…": "…" },
+            "latestThesisHealth": "intact",
+            "entries": [
+              { "id": "uuid", "type": "thesis", "noteText": null, "dimension": "M",
+                "subFactors": ["Guidance Accuracy"], "thesis": "…", "conviction": 2,
+                "thesisHealth": "intact", "aiNudge": null, "createdAt": "…", "updatedAt": "…" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Tickers are ordered `addedAt` desc, then ticker A→Z as a tiebreaker (a holdings sync
+stamps every ticker it adds with the same `addedAt`, so the alphabetical tiebreak is
+what keeps the order stable between refreshes).
+
+**Cost:** this one call replaces the old `1 + N journals + M tickers` round-trips.
+Prices for a symbol held in several journals are fetched once, not once per journal.
+The remaining per-ticker/per-journal GETs still exist and are unchanged — you just
+don't need them to paint the main view.
+
 #### `POST /api/journal/journals`
 Create a custom journal.
 ```json
