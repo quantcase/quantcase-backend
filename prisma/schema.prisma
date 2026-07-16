@@ -664,9 +664,10 @@ model nse_equity_new {
   pe            Float?
   eps           Float?
   market_cap_cr Float?
-  // Raw daily return as Prowess reports it (fraction, e.g. -0.000620 = -0.062%,
-  // not pre-multiplied to a percentage) — populated for index rows today
-  // ("Daily Index Returns"), null for stocks (no equivalent source column).
+  // Daily return as Prowess reports it, already in percentage points
+  // (e.g. 0.060604 = 0.06%, verified against real Sensex close on 2026-07-13 —
+  // do not multiply by 100) — populated for index rows today ("Daily Index
+  // Returns"), null for stocks (no equivalent source column).
   pct_change    Float?
   // Nullable, no @default/@updatedAt-driven NOT NULL — this table has ~1.2M
   // pre-existing rows and neither column should force a backfill to add.
