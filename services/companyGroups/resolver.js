@@ -220,23 +220,66 @@ async function resolveDynamic(config) {
   return [...intersect(sets)].filter(Boolean).sort();
 }
 
-async function resolveGroup(group) {
+async function _resolveGroupUncached(group) {
   if (group.filter_type === 'manual') {
     return (group.filter_config?.tickers ?? []).filter(Boolean);
+  }
+  if (group.filter_type === 'kpi_filter') {
+    // Membership is precomputed (see services/companyGroups/filters.service.js
+    // #recomputeGroup) rather than live-scanned — evaluating a KPI condition
+    // against every company on every call would be far too expensive here.
+    const rows = await prisma.companyGroupMember.findMany({
+      where:  { company_group_slug: group.slug },
+      select: { symbol: true },
+    });
+    return rows.map(r => r.symbol).sort();
   }
   return resolveDynamic(group.filter_config ?? {});
 }
 
+// TTL cache over resolveGroup's *output* (a resolved ticker list), keyed by
+// slug — same lazy-TTL + explicit-invalidate-on-write shape as
+// utils/formulaRegistry/registryCache.js. Added because 'dynamic' groups
+// (nameRange/transcript/ppt/industries/marketCap) each cost at least one
+// full-ish table scan, and this function is no longer called only from the
+// admin '/resolve' preview button — utils/formulaRegistry's isCompanyInGroup
+// (checked on every resolveMetric call for a variant_for_group-tagged abbr,
+// e.g. BFSI's EBIT/EBIT_MARGIN/FCF, on every screener request) and
+// resolveConfigKeyForTicker (called PER TICKER inside
+// services/pipelineDispatch/l2MultiDispatch.service.js's dispatch loop) both
+// funnel through resolveGroup. A 60s staleness window after an admin edits a
+// group is the same accepted tradeoff already made for the Kpi registry
+// cache — every write path below (groups.service.js, filters.service.js)
+// calls invalidateGroupCache(slug) explicitly, so from an admin's
+// perspective edits still take effect immediately in practice.
+const GROUP_CACHE_TTL_MS = 60_000;
+const _groupCache = new Map(); // slug -> { tickers, loadedAt }
+
+async function resolveGroup(group) {
+  const cached = _groupCache.get(group.slug);
+  if (cached && Date.now() - cached.loadedAt < GROUP_CACHE_TTL_MS) return cached.tickers;
+  const tickers = await _resolveGroupUncached(group);
+  _groupCache.set(group.slug, { tickers, loadedAt: Date.now() });
+  return tickers;
+}
+
+/** Drop one group's (or, with no arg, every group's) cached resolution — called after any write that could change a group's membership. */
+function invalidateGroupCache(slug) {
+  if (slug) _groupCache.delete(slug);
+  else _groupCache.clear();
+}
+
 // Which config_key applies to a given ticker, via whichever config-mapped
-// group it currently falls into (groups are live — this is recomputed every
-// call, not cached). Groups are resolved most-recently-updated first; if a
-// ticker ends up in more than one config-mapped group at once, the one whose
-// config_key was set/changed most recently wins — this way tagging (or
-// re-tagging) a group with a config is an intentional override that takes
-// effect immediately, even over an older, broader group it also belongs to.
-// Returns null if the ticker isn't in any config-mapped group — callers treat
-// that as "run blocked, no config resolved" rather than silently falling back
-// to a skill's own default fields.
+// group it currently falls into. The config-mapped group *list* is fetched
+// fresh every call (cheap — just group rows, no membership resolution); each
+// group's resolveGroup() call benefits from the cache above. Groups are
+// resolved most-recently-updated first; if a ticker ends up in more than one
+// config-mapped group at once, the one whose config_key was set/changed most
+// recently wins — this way tagging (or re-tagging) a group with a config is
+// an intentional override that takes effect immediately, even over an older,
+// broader group it also belongs to. Returns null if the ticker isn't in any
+// config-mapped group — callers treat that as "run blocked, no config
+// resolved" rather than silently falling back to a skill's own default fields.
 async function resolveConfigKeyForTicker(ticker) {
   const groups = await prisma.companyGroup.findMany({
     where:   { config_key: { not: null } },
@@ -251,6 +294,7 @@ async function resolveConfigKeyForTicker(ticker) {
 
 module.exports = {
   resolveGroup,
+  invalidateGroupCache,
   resolveConfigKeyForTicker,
   getMarketCapCompanies,
   getIndustryCompanies,

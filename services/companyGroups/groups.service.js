@@ -2,7 +2,7 @@
 
 const prisma = require('../../config/prisma');
 const { slugify } = require('../../utils/slugify');
-const { resolveGroup } = require('./resolver');
+const { resolveGroup, invalidateGroupCache } = require('./resolver');
 
 function notFound(slug) {
   const err = new Error(`Company group "${slug}" not found`);
@@ -22,7 +22,7 @@ async function getGroup(slug) {
 
 async function createGroup(data) {
   const slug = data.slug ?? slugify(data.name);
-  return prisma.companyGroup.create({
+  const created = await prisma.companyGroup.create({
     data: {
       slug,
       name:          data.name,
@@ -31,16 +31,30 @@ async function createGroup(data) {
       filter_config: data.filter_config ?? {},
     },
   });
+  invalidateGroupCache(slug); // in case a same-slug group was deleted+recreated within the cache TTL
+  return created;
 }
 
 async function updateGroup(slug, data) {
   await getGroup(slug); // throws 404 if not found
-  return prisma.companyGroup.update({ where: { slug }, data });
+  const updated = await prisma.companyGroup.update({ where: { slug }, data });
+  invalidateGroupCache(slug);
+  if (data.slug && data.slug !== slug) invalidateGroupCache(data.slug);
+  return updated;
 }
 
 async function deleteGroup(slug) {
   await getGroup(slug); // throws 404 if not found
-  return prisma.companyGroup.delete({ where: { slug } });
+  // CompanyGroupFilter/CompanyGroupMember reference company_group_slug as a
+  // plain string (not an FK — see their schema docblocks), so they don't
+  // cascade-delete with the group; clean them up explicitly to avoid orphan
+  // rows (harmless no-op for 'manual'/'dynamic' groups, which never have any).
+  await prisma.$transaction([
+    prisma.companyGroupFilter.deleteMany({ where: { company_group_slug: slug } }),
+    prisma.companyGroupMember.deleteMany({ where: { company_group_slug: slug } }),
+    prisma.companyGroup.delete({ where: { slug } }),
+  ]);
+  invalidateGroupCache(slug);
 }
 
 async function resolveGroupBySlug(slug) {

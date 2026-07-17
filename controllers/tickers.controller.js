@@ -51,7 +51,7 @@ async function getTickers(req, res, next) {
     }
 
     const { tickers: rows, notFound } = await tickerMetrics.getMetricsForTickers(tickers);
-    const { latestQuarter, yearAgoQuarter } = tickerMetrics.getQuarterLabels();
+    const { latestQuarter, yearAgoQuarter } = await tickerMetrics.getQuarterLabels();
 
     setCacheTillMidnightIst(res);
     res.json({

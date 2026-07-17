@@ -14,6 +14,9 @@ const kpiDedupRouter         = require('./admin.kpiDedup.routes');
 const documentUploadRouter   = require('./admin.documentUpload.routes');
 const pipelineJobsRouter     = require('./admin.pipelineJobs.routes');
 const kpisRouter             = require('./admin.kpis.routes');
+const kpiGroupsRouter        = require('./admin.kpiGroups.routes');
+const kpiFiltersRouter       = require('./admin.kpiFilters.routes');
+const screenConfigRouter     = require('./admin.screenConfig.routes');
 const prowessHistoricRouter  = require('./admin.prowessHistoric.routes');
 const prowessBatchRouter     = require('./admin.prowessBatch.routes');
 const invitesRouter          = require('./admin.invites.routes');
@@ -134,6 +137,21 @@ router.use('/pipeline-jobs', pipelineJobsRouter);
 // quarterly/annual indicators without a code deploy) ────────────────────────
 
 router.use('/kpis', kpisRouter);
+
+// ─── KPI Groups (admin-defined display hierarchy for screener tables/charts) ─
+
+router.use('/kpi-groups', kpiGroupsRouter);
+
+// ─── KPI Filters (reusable threshold conditions, e.g. "EBITDA > 10000",
+// attachable to company-groups/:slug/filters for filter-driven groups) ──────
+
+router.use('/kpi-filters', kpiFiltersRouter);
+
+// ─── Screen Configs (which metrics/rows/series/columns an API response
+// section shows, in what order, with what precision — decoupled from
+// KpiGroup, see prisma/schema.prisma's ScreenConfig docblock) ──────────────
+
+router.use('/screen-configs', screenConfigRouter);
 
 // ─── Prowess Historic CSV Upload (manual gap-filling, preview → approve) ────
 

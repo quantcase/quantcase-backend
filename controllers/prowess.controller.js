@@ -1,16 +1,74 @@
 'use strict';
 
-const {
-  r2,
-  loadIdentityMap,
-  loadFundamentalData,
-  fundPeriodData,
-  findFundCompanyRow,
-  FUND_PERIOD_COUNT,
-} = require('../lib/prowess');
+const { r2, loadIdentityMap } = require('../lib/prowess');
 
 const prisma = require('../config/prisma');
 const { fetchMonthlyOhlcv } = require('../utils/formulaRegistry/dataFetcherMarket');
+const {
+  resolveProwessName, createResolutionContext, resolveFormulaSeries, getDefinition,
+} = require('../utils/formulaRegistry');
+
+function roundTo(v, decimals) {
+  if (v == null || isNaN(v)) return null;
+  const f = Math.pow(10, decimals);
+  return Math.round(v * f) / f;
+}
+
+function median(values) {
+  const sorted = values.filter((v) => v != null).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? r2((sorted[mid - 1] + sorted[mid]) / 2) : r2(sorted[mid]);
+}
+
+// Every chart group besides Price is built the same way: walk a
+// ScreenConfig's items, resolve each via resolveFormulaSeries (the same
+// per-index engine _buildTableFromConfig in lib/financials.js uses), route
+// into bar/line by item.series_type, and — for groups with exactly one line
+// series (every group except Sales & Margin, which has 3) — append a median
+// line, matching the original chart structure. No CSV involved: every value
+// comes from the Kpi catalogue via resCtx, the same resolveMetric path
+// GET /admin/kpis/:abbr/preview uses.
+async function _buildChartGroup(configKey, resCtx) {
+  const config = await prisma.screenConfig.findUnique({
+    where:   { key: configKey },
+    include: { items: { orderBy: { display_order: 'asc' } } },
+  });
+  if (!config || !config.items.length) return null;
+
+  const barSeries = [];
+  const lineSeries = [];
+
+  for (const item of config.items) {
+    const def      = await getDefinition(item.kpi_abbr);
+    const freq     = def?.frequency ?? 'quarterly';
+    const decimals = item.decimal_places ?? config.decimal_places;
+
+    const values     = await resolveFormulaSeries(item.kpi_abbr, resCtx, { frequency: freq });
+    const seriesMap  = await resCtx.getSeriesMap(freq);
+    const anyAbbr    = Object.keys(seriesMap)[0];
+    const periods    = anyAbbr ? seriesMap[anyAbbr] : [];
+
+    const data = periods.map((p, i) => ({
+      x: freq === 'daily' ? p.date : `${p.quarter} ${p.fiscal_year}`,
+      y: roundTo(values[i] ?? null, decimals),
+    }));
+
+    const seriesObj = { dataKey: item.kpi_abbr, name: item.label ?? def?.name ?? item.kpi_abbr, data };
+    (item.series_type === 'bar' ? barSeries : lineSeries).push(seriesObj);
+  }
+
+  if (lineSeries.length === 1) {
+    const med = median(lineSeries[0].data.map((d) => d.y));
+    lineSeries.push({
+      dataKey: 'median',
+      name: `Median = ${med}`,
+      data: lineSeries[0].data.map((d) => ({ x: d.x, y: med })),
+    });
+  }
+
+  return { group: config.label, source: 'registry', barSeries, lineSeries };
+}
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 
@@ -18,30 +76,38 @@ const { fetchMonthlyOhlcv } = require('../utils/formulaRegistry/dataFetcherMarke
  * GET /api/screener/:symbol/charts
  *
  * Chart groups:
- *   1. Price          — yfinance monthly (10 years)
- *   2. PE Ratio       — bar=Earnings Yield %, line=PE + Median PE
- *   3. Sales & Margin — bar=Quarter Sales (Cr), lines=GPM%/OPM%/NPM%
- *   4. EV / EBITDA    — bar=EV (Cr), line=EV/PBDITA + Median
- *   5. Price to Book  — bar=Stock Price (₹), line=P/B + Median PBV
- *   6. Market Cap / Sales — bar=Market Cap (Cr), line=MC/TTM Sales + Median
+ *   1. Price          — yfinance-equivalent monthly (nse_equity_new, 10 years) — unchanged
+ *   2-6. PE Ratio / Sales & Margin / EV-EBITDA / Price to Book / Market Cap-Sales
+ *        — each is a ScreenConfig (charts.pe-ratio / charts.sales-margin /
+ *        charts.ev-ebitda / charts.price-to-book / charts.mcap-sales), built by
+ *        _buildChartGroup. No CSV involved anywhere — every value resolves
+ *        through the Kpi catalogue via resCtx, the same path GET
+ *        /admin/kpis/:abbr/preview uses. EV/EBITDA, Price to Book, and
+ *        Market Cap/Sales's ratio lines return null/empty (their bar series
+ *        still resolve fine) until admin ingests quarterly-aligned data for
+ *        those mixed daily/quarterly ratios — see resolveFormulaSeries's docs.
  */
 async function getCharts(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
 
-    const companyRow = findFundCompanyRow(symbol);
-    if (!companyRow) {
+    const companyName = await resolveProwessName(prisma, symbol);
+    if (!companyName) {
       return res.status(404).json({
-        error: `Symbol "${symbol}" not found in Prowess identity mapping or fundamentals data.`,
+        error: `Symbol "${symbol}" not found in Prowess identity mapping.`,
       });
     }
-    const companyName = companyRow[0];
 
-    const { quarterLabels } = loadFundamentalData();
-    const periods = Array.from({ length: FUND_PERIOD_COUNT }, (_, i) => fundPeriodData(companyRow, i));
-    const quarterLabel = quarterLabels[FUND_PERIOD_COUNT - 1];
+    const resCtx = createResolutionContext({ symbol });
 
-    // ── 1. Price group — nse_equity_new ──────────────────────────────────────
+    // Latest known quarter label, for the top-level `quarter` field —
+    // derived from the same quarterly seriesMap the chart groups below read.
+    const quarterlySeriesMap = await resCtx.getSeriesMap('quarterly');
+    const anyQAbbr  = Object.keys(quarterlySeriesMap)[0];
+    const qPeriods  = anyQAbbr ? quarterlySeriesMap[anyQAbbr] : [];
+    const quarterLabel = qPeriods.length ? `${qPeriods.at(-1).quarter} ${qPeriods.at(-1).fiscal_year}` : null;
+
+    // ── 1. Price group — nse_equity_new (unchanged) ──────────────────────────
     const tenYearsAgo = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000);
 
     const monthlyPriceRows = await fetchMonthlyOhlcv(prisma, symbol, { since: tenYearsAgo });
@@ -97,204 +163,14 @@ async function getCharts(req, res, next) {
       ],
     };
 
-    // ── 2. PE Ratio group ─────────────────────────────────────────────────────
-    const peValues = periods.map((p) => p.pe).filter((v) => v != null).sort((a, b) => a - b);
-    let medianPe = null;
-    if (peValues.length > 0) {
-      const mid = Math.floor(peValues.length / 2);
-      medianPe = peValues.length % 2 === 0
-        ? r2((peValues[mid - 1] + peValues[mid]) / 2)
-        : r2(peValues[mid]);
-    }
-
-    const peGroup = {
-      group: 'PE Ratio',
-      source: 'prowess',
-      quarter: quarterLabel,
-      barSeries: [
-        {
-          dataKey: 'earningsYield',
-          name: 'Earnings Yield %',
-          data: periods.map((p, i) => ({
-            x: quarterLabels[i],
-            y: p.pe != null && p.pe !== 0 ? r2((1 / p.pe) * 100) : null,
-          })),
-        },
-      ],
-      lineSeries: [
-        {
-          dataKey: 'pe',
-          name: 'PE',
-          data: periods.map((p, i) => ({ x: quarterLabels[i], y: r2(p.pe) })),
-        },
-        {
-          dataKey: 'medianPe',
-          name: 'Median PE',
-          data: periods.map((_, i) => ({ x: quarterLabels[i], y: medianPe })),
-        },
-      ],
-    };
-
-    // ── 3. Sales & Margin group ───────────────────────────────────────────────
-    const salesMarginGroup = {
-      group: 'Sales & Margin',
-      source: 'prowess',
-      quarter: quarterLabel,
-      barSeries: [
-        {
-          dataKey: 'quarterSales',
-          name: 'Quarter Sales (Cr)',
-          data: periods.map((p, i) => ({ x: quarterLabels[i], y: r2(p.totalIncomeCr) })),
-        },
-      ],
-      lineSeries: [
-        {
-          dataKey: 'gpm',
-          name: 'GPM %',
-          data: periods.map((p, i) => ({
-            x: quarterLabels[i],
-            y: p.totalIncomeCr && p.cogsCr != null
-              ? r2(((p.totalIncomeCr - p.cogsCr) / p.totalIncomeCr) * 100) : null,
-          })),
-        },
-        {
-          dataKey: 'opm',
-          name: 'OPM %',
-          data: periods.map((p, i) => ({
-            x: quarterLabels[i],
-            y: p.totalIncomeCr && p.totalExpCr != null
-              ? r2(((p.totalIncomeCr - p.totalExpCr) / p.totalIncomeCr) * 100) : null,
-          })),
-        },
-        {
-          dataKey: 'npm',
-          name: 'NPM %',
-          data: periods.map((p, i) => ({
-            x: quarterLabels[i],
-            y: p.totalIncomeCr && p.netProfitCr != null
-              ? r2((p.netProfitCr / p.totalIncomeCr) * 100) : null,
-          })),
-        },
-      ],
-    };
-
-    // ── 4. EV / EBITDA group ──────────────────────────────────────────────────
-    const evEbitdaValues = periods.map((p) => p.evPbdita).filter((v) => v != null).sort((a, b) => a - b);
-    let MEDIAN_EV_EBITDA = null;
-    if (evEbitdaValues.length > 0) {
-      const mid = Math.floor(evEbitdaValues.length / 2);
-      MEDIAN_EV_EBITDA = evEbitdaValues.length % 2 === 0
-        ? r2((evEbitdaValues[mid - 1] + evEbitdaValues[mid]) / 2)
-        : r2(evEbitdaValues[mid]);
-    }
-    const evEbitdaGroup = {
-      group: 'EV / EBITDA',
-      source: 'prowess',
-      quarter: quarterLabel,
-      barSeries: [
-        {
-          dataKey: 'ev',
-          name: 'Enterprise Value (Cr)',
-          data: periods.map((p, i) => ({ x: quarterLabels[i], y: r2(p.ev) })),
-        },
-      ],
-      lineSeries: [
-        {
-          dataKey: 'evToEbitda',
-          name: 'EV / PBDITA',
-          data: periods.map((p, i) => ({ x: quarterLabels[i], y: r2(p.evPbdita) })),
-        },
-        {
-          dataKey: 'medianEvMultiple',
-          name: `Median EV Multiple = ${MEDIAN_EV_EBITDA}`,
-          data: periods.map((_, i) => ({ x: quarterLabels[i], y: MEDIAN_EV_EBITDA })),
-        },
-      ],
-    };
-
-    // ── 5. Price to Book group ────────────────────────────────────────────────
-    const pbValues = periods.map((p) => p.pb).filter((v) => v != null).sort((a, b) => a - b);
-    let MEDIAN_PBV = null;
-    if (pbValues.length > 0) {
-      const mid = Math.floor(pbValues.length / 2);
-      MEDIAN_PBV = pbValues.length % 2 === 0
-        ? r2((pbValues[mid - 1] + pbValues[mid]) / 2)
-        : r2(pbValues[mid]);
-    }
-    const priceToBookGroup = {
-      group: 'Price to Book',
-      source: 'prowess',
-      quarter: quarterLabel,
-      barSeries: [
-        {
-          dataKey: 'pricePerShare',
-          name: 'Stock Price (₹)',
-          data: periods.map((p, i) => ({
-            x: quarterLabels[i],
-            y: p.marketCapCr != null && p.shares != null && p.shares > 0
-              ? r2((p.marketCapCr * 1e7) / p.shares)
-              : null,
-          })),
-        },
-      ],
-      lineSeries: [
-        {
-          dataKey: 'priceToBV',
-          name: 'Price to BV',
-          data: periods.map((p, i) => ({ x: quarterLabels[i], y: r2(p.pb) })),
-        },
-        {
-          dataKey: 'medianPBV',
-          name: `Median PBV = ${MEDIAN_PBV}`,
-          data: periods.map((_, i) => ({ x: quarterLabels[i], y: MEDIAN_PBV })),
-        },
-      ],
-    };
-
-    // ── 6. Market Cap / Sales group ───────────────────────────────────────────
-    const latestTotalIncomeCr = periods[FUND_PERIOD_COUNT - 1].totalIncomeCr;
-    const ttmSalesCr = latestTotalIncomeCr != null ? latestTotalIncomeCr * 4 : null;
-    const mcSalesValues = periods
-      .map((p) => (p.marketCapCr != null && ttmSalesCr ? r2(p.marketCapCr / ttmSalesCr) : null))
-      .filter((v) => v != null)
-      .sort((a, b) => a - b);
-    let MEDIAN_MC_SALES = null;
-    if (mcSalesValues.length > 0) {
-      const mid = Math.floor(mcSalesValues.length / 2);
-      MEDIAN_MC_SALES = mcSalesValues.length % 2 === 0
-        ? r2((mcSalesValues[mid - 1] + mcSalesValues[mid]) / 2)
-        : r2(mcSalesValues[mid]);
-    }
-
-    const mcSalesGroup = {
-      group: 'Market Cap / Sales',
-      source: 'prowess',
-      quarter: quarterLabel,
-      barSeries: [
-        {
-          dataKey: 'marketCap',
-          name: 'Market Cap (Cr)',
-          data: periods.map((p, i) => ({ x: quarterLabels[i], y: r2(p.marketCapCr) })),
-        },
-      ],
-      lineSeries: [
-        {
-          dataKey: 'mcToSales',
-          name: 'Market Cap / Sales',
-          data: periods.map((p, i) => {
-            const ratio = p.marketCapCr != null && ttmSalesCr
-              ? r2(p.marketCapCr / ttmSalesCr)
-              : null;
-            return { x: quarterLabels[i], y: ratio };
-          }),
-        },
-        {
-          dataKey: 'medianMcToSales',
-          name: `Median Market Cap to Sales = ${MEDIAN_MC_SALES}`,
-          data: periods.map((_, i) => ({ x: quarterLabels[i], y: MEDIAN_MC_SALES })),
-        },
-      ],
-    };
+    // ── 2-6. Registry-driven groups ───────────────────────────────────────────
+    const [peGroup, salesMarginGroup, evEbitdaGroup, priceToBookGroup, mcSalesGroup] = await Promise.all([
+      _buildChartGroup('charts.pe-ratio', resCtx),
+      _buildChartGroup('charts.sales-margin', resCtx),
+      _buildChartGroup('charts.ev-ebitda', resCtx),
+      _buildChartGroup('charts.price-to-book', resCtx),
+      _buildChartGroup('charts.mcap-sales', resCtx),
+    ]);
 
     res.json({
       company: companyName,
@@ -307,7 +183,7 @@ async function getCharts(req, res, next) {
         evEbitdaGroup,
         priceToBookGroup,
         mcSalesGroup,
-      ],
+      ].filter(Boolean),
     });
   } catch (err) {
     next(err);

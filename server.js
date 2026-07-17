@@ -9,6 +9,7 @@ const jobQueue     = require('./lib/jobQueue');
 const router       = require('./routes/index');
 const notFound     = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
+const { warmRegistryCache } = require('./utils/formulaRegistry/registryCache');
 
 const app = express();
 
@@ -39,6 +40,11 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 prisma.$connect()
   .then(() => console.log('Successfully connected to PostgreSQL database via Prisma'))
   .catch((err) => console.error('Error connecting to the database:', err));
+
+// Warm the formulaRegistry Kpi-definitions cache so the first screener
+// request isn't slow — non-fatal if it fails, resolveMetric lazily loads on
+// first use either way.
+warmRegistryCache().catch((err) => console.error('[server] formulaRegistry cache warm-up failed:', err));
 
 app.use(router);
 app.use(notFound);

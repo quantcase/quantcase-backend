@@ -1,71 +1,49 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const csvParse = require('csv-parse/sync');
 const peerIdentity = require('../lib/peerIdentity');
-const { fetchMarketSnapshots } = require('../utils/formulaRegistry/dataFetcherMarket');
 const prisma = require('../config/prisma');
+const { createMultiCompanyResolutionContext, resolveMetric } = require('../utils/formulaRegistry');
 
-// Identity CSV column indices (0-based)
+// Identity CSV column indices (0-based) — company name/industry classification,
+// not a fundamentals source, so this stays untouched (same CSV screener.
+// controller.js#getTickerInfo already relies on for identity/classification).
 const ID_COL_NAME          = peerIdentity.COL_NAME;
 const ID_COL_INDUSTRY_GRP  = peerIdentity.COL_INDUSTRY_GRP;
 const ID_COL_NSE_BASIC_IND = peerIdentity.COL_NSE_BASIC_IND;
 const ID_COL_NSE_SYMBOL    = peerIdentity.COL_NSE_SYMBOL;
 
-// Fundamental CSV layout (same as prowess.controller / screener.controller)
-const PEER_COLS_PER_PERIOD = 20;
-const PEER_PERIOD_COUNT    = 8;
-const PEER_OFF = { SHARES: 0, MARKET_CAP: 1, ADJ_EPS: 3, PE: 5, PB: 6, YIELD: 8,
-                   EV: 9, TOTAL_INCOME: 13, NET_PROFIT: 15 };
+const AI_INSIGHT_TYPES = ['management', 'opportunity', 'deal'];
+const PEERS_CONFIG_KEY = 'peers.columns';
 
-// osc_mod_qtr_v1.csv layout — 54 data cols per period (col 0 = Company Name, then groups of 54)
-const MOD_COLS_PER_PERIOD = 54;
-const MOD_OFF = {
-  NET_PROFIT:  30,
-  INTEREST:    23,
-  PAID_CAP:    32,
-  RESERVES:    33,
-  BORROWINGS:  36,
+// Maps a peers.columns ScreenConfigItem's kpi_abbr to the named field the
+// peers[] API contract already exposes, plus which frequency to resolve it
+// at. Peers' response shape is a fixed set of named fields (frontend already
+// consumes cmp/pe/marketCapCr/...), unlike financials/charts' generic row/
+// series arrays keyed directly by kpi_abbr — this mapping is what lets the
+// ScreenConfig stay generic while the contract stays stable. `divYld` has no
+// entry yet, in practice — DIVIDEND_YIELD exists in the catalogue
+// (registry_enabled) but has zero source rows anywhere in
+// prowess_values_new (verified), so it resolves null until real data is
+// ingested through the normal Prowess pipeline. No CSV fallback.
+//
+// Per-field frequency, not one blanket override: PBT/TAX_EXP have zero
+// quarterly data anywhere in prowess_values_new (a real, confirmed ingestion
+// gap — see 2.2's findings), so ROCE's formula only ever resolves at annual
+// frequency (a real stored value there); the "Qtr"-named fields genuinely
+// need quarterly data by definition, so they keep that frequency regardless.
+const PEER_COLUMN_MAP = {
+  PRICE:         { field: 'cmp',          frequency: 'daily' },
+  PE_TTM:        { field: 'pe',           frequency: 'quarterly' },
+  MCAP_SNAPSHOT: { field: 'marketCapCr',  frequency: 'daily' },
+  DIVIDEND_YIELD: { field: 'divYld',      frequency: 'quarterly' },
+  PAT:           { field: 'npQtrCr',      frequency: 'quarterly' },
+  PAT_CAGR:      { field: 'qtrProfitVar', frequency: 'quarterly' },
+  REV_OP:        { field: 'salesQtrCr',   frequency: 'quarterly' },
+  REV_CAGR:      { field: 'qtrSalesVar',  frequency: 'quarterly' },
+  ROCE:          { field: 'roce',         frequency: 'annual' },
 };
 
-const AI_INSIGHT_TYPES = ['management', 'opportunity', 'deal'];
-
-let _peerFundMap  = null; // { companyName: row[] }
-let _peerFundQtrs = null; // string[]
-let _modMap       = null; // { companyName: row[] }
-let _symbolIndex  = null; // { SYMBOL: idRow }
-
-function loadPeerFundamentals() {
-  if (_peerFundMap) return { fundMap: _peerFundMap, qtrs: _peerFundQtrs };
-  const raw = fs.readFileSync(path.join(__dirname, '../lib/osc_fundamental_ind_qtr_v4.csv'), 'utf-8');
-  const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-  const all = csvParse.parse(content, { relax_column_count: true });
-  const quarterRow = all[4];
-  _peerFundQtrs = [];
-  for (let i = 0; i < PEER_PERIOD_COUNT; i++) {
-    _peerFundQtrs.push(quarterRow[1 + i * PEER_COLS_PER_PERIOD] || `Q${i + 1}`);
-  }
-  _peerFundMap = {};
-  for (const row of all.slice(6)) {
-    const name = (row[0] || '').trim();
-    if (name) _peerFundMap[name] = row;
-  }
-  return { fundMap: _peerFundMap, qtrs: _peerFundQtrs };
-}
-
-function loadModData() {
-  if (_modMap) return _modMap;
-  const raw = fs.readFileSync(path.join(__dirname, '../lib/osc_mod_qtr_v1.csv'), 'utf-8');
-  const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-  const all = csvParse.parse(content, { relax_column_count: true });
-  _modMap = {};
-  for (const row of all.slice(6)) {
-    const name = (row[0] || '').trim();
-    if (name) _modMap[name] = row;
-  }
-  return _modMap;
-}
+let _symbolIndex = null; // { SYMBOL: idRow }
 
 /**
  * Symbol → identity row index. Built once so batch lookups are O(1) per ticker
@@ -82,124 +60,39 @@ function loadSymbolIndex() {
   return _symbolIndex;
 }
 
-function toFloat(val) {
-  if (val === '' || val == null) return null;
-  const n = parseFloat(val);
-  return isNaN(n) ? null : n;
-}
-
-function r2(v) { return v == null ? null : Math.round(v * 100) / 100; }
-
-/** Extract one metric from a Prowess row at a given period index */
-function peerPeriodVal(row, periodIndex, offset) {
-  const start = 1 + periodIndex * PEER_COLS_PER_PERIOD;
-  return toFloat(row[start + offset]);
+function roundTo(v, decimals) {
+  if (v == null || isNaN(v)) return null;
+  const f = Math.pow(10, decimals);
+  return Math.round(v * f) / f;
 }
 
 /**
- * ROCE = EBIT / Capital Employed × 100
- *   EBIT = (Net Profit + Interest) × 4 (annualised from latest quarter)
- *   Capital Employed = Paid-up Capital + Reserves + Borrowings
+ * Resolves every peers.columns item for one company against its slice of the
+ * shared multi-company resolution context — same resolveMetric path GET
+ * /admin/kpis/:abbr/preview uses, so peer numbers can never silently diverge
+ * from what admin sees there (replaces the old CSV-sourced values and the
+ * completely disconnected, non-registry `computeRoce` formula).
  */
-function computeRoce(modRow) {
-  if (!modRow) return null;
-  const totalCols   = modRow.length - 1;
-  const periodCount = Math.floor(totalCols / MOD_COLS_PER_PERIOD);
-  const lastPeriod  = periodCount - 1;
-  if (lastPeriod < 0) return null;
-  const base = 1 + lastPeriod * MOD_COLS_PER_PERIOD;
-
-  const netProfit  = toFloat(modRow[base + MOD_OFF.NET_PROFIT]);
-  const interest   = toFloat(modRow[base + MOD_OFF.INTEREST]);
-  const paidCap    = toFloat(modRow[base + MOD_OFF.PAID_CAP]);
-  const reserves   = toFloat(modRow[base + MOD_OFF.RESERVES]);
-  const borrowings = toFloat(modRow[base + MOD_OFF.BORROWINGS]);
-
-  if (netProfit == null || interest == null || paidCap == null ||
-      reserves == null || borrowings == null) return null;
-
-  const ebitAnnualised  = (netProfit + interest) * 4;
-  const capitalEmployed = paidCap + reserves + borrowings;
-  if (capitalEmployed <= 0) return null;
-  return r2((ebitAnnualised / capitalEmployed) * 100);
-}
-
-/**
- * Build the metrics row for one symbol from pre-fetched maps.
- * Shape matches the `peers[]` entries of GET /api/screener/:symbol/peers.
- */
-function buildRow(symbol, ctx) {
-  const { symbolIndex, fundMap, modMap, snapsMap, aiInsightsMap } = ctx;
-  const idRow = symbolIndex[symbol];
-  if (!idRow) return null;
-
-  const companyName = (idRow[ID_COL_NAME] || '').trim();
-  const fundRow     = fundMap[companyName] || null;
-  const snap        = snapsMap[symbol] || null;
-  const LATEST      = PEER_PERIOD_COUNT - 1;
-  const YEAR_AGO    = LATEST - 4;
-
-  const cmp = r2(snap?.close ?? null);
-  let marketCap = r2(snap?.market_cap_cr ?? null);
-
-  // Fallback: market cap column from the Prowess fund CSV (already in Cr)
-  if (marketCap == null && fundRow) {
-    const csvMcap = peerPeriodVal(fundRow, LATEST, PEER_OFF.MARKET_CAP);
-    if (csvMcap != null) marketCap = r2(csvMcap);
+async function _resolvePeerColumns(resCtx, config) {
+  const out = {};
+  for (const item of config.items) {
+    const mapping = PEER_COLUMN_MAP[item.kpi_abbr];
+    if (!mapping) continue; // unmapped item -- skip rather than silently guess a field name
+    if (item.company_group_slug && !(await resCtx.isCompanyInGroup(item.company_group_slug))) continue;
+    const res = await resolveMetric(item.kpi_abbr, resCtx, { frequency: mapping.frequency });
+    const decimals = item.decimal_places ?? config.decimal_places;
+    out[mapping.field] = roundTo(res.value, decimals);
   }
-
-  let pe           = r2(snap?.pe ?? null);
-  let divYld       = null;
-  let npQtr        = null;
-  let salesQtr     = null;
-  let qtrProfitVar = null;
-  let qtrSalesVar  = null;
-
-  if (fundRow) {
-    // PE fallback: Prowess CSV if DB had no entry
-    if (pe == null) pe = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.PE));
-
-    divYld   = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.YIELD));
-    npQtr    = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.NET_PROFIT));
-    salesQtr = r2(peerPeriodVal(fundRow, LATEST, PEER_OFF.TOTAL_INCOME));
-
-    const npPrior    = peerPeriodVal(fundRow, YEAR_AGO, PEER_OFF.NET_PROFIT);
-    const salesPrior = peerPeriodVal(fundRow, YEAR_AGO, PEER_OFF.TOTAL_INCOME);
-    if (npQtr != null && npPrior != null && npPrior !== 0) {
-      qtrProfitVar = r2(((npQtr - npPrior) / Math.abs(npPrior)) * 100);
-    }
-    if (salesQtr != null && salesPrior != null && salesPrior !== 0) {
-      qtrSalesVar = r2(((salesQtr - salesPrior) / Math.abs(salesPrior)) * 100);
-    }
-  }
-
-  const aiScores = aiInsightsMap[symbol] || {};
-
-  return {
-    symbol,
-    name:          companyName,
-    basicIndustry: (idRow[ID_COL_NSE_BASIC_IND] || '').trim() || null,
-    industryGroup: (idRow[ID_COL_INDUSTRY_GRP]  || '').trim() || null,
-    cmp:           cmp ?? null,
-    pe:            pe ?? null,
-    marketCapCr:   marketCap ?? null,
-    divYld,
-    npQtrCr:       npQtr,
-    qtrProfitVar,
-    salesQtrCr:    salesQtr,
-    qtrSalesVar,
-    roce:          computeRoce(modMap[companyName] || null),
-    management:    aiScores.management  ?? null,
-    opportunity:   aiScores.opportunity ?? null,
-    deal:          aiScores.deal        ?? null,
-  };
+  return out;
 }
 
 /**
  * Fetch the full metrics row for a list of NSE symbols.
  *
- * Runs a fixed two queries regardless of list size (market snapshots + AI
- * insights), then joins against the cached Prowess CSVs in memory.
+ * Runs a small constant number of bulk queries regardless of list size (via
+ * createMultiCompanyResolutionContext — batched annual/quarterly/market-
+ * snapshot fetches, not one round trip per company), then resolves every
+ * peers.columns item per company against its slice of that shared context.
  *
  * @param {string[]} symbols  NSE symbols, any case
  * @returns {Promise<{ tickers: object[], notFound: string[] }>}
@@ -222,11 +115,9 @@ async function getMetricsForTickers(symbols) {
 
   if (known.length === 0) return { tickers: [], notFound };
 
-  const { fundMap } = loadPeerFundamentals();
-  const modMap = loadModData();
-
-  const [snapsMap, aiInsightRows] = await Promise.all([
-    fetchMarketSnapshots(prisma, known),
+  const [config, resCtxMap, aiInsightRows] = await Promise.all([
+    prisma.screenConfig.findUnique({ where: { key: PEERS_CONFIG_KEY }, include: { items: true } }),
+    createMultiCompanyResolutionContext({ symbols: known }),
     prisma.aiInsight.findMany({
       where: { ticker: { in: known }, type: { in: AI_INSIGHT_TYPES } },
       select: { ticker: true, type: true, insight: true },
@@ -244,17 +135,61 @@ async function getMetricsForTickers(symbols) {
     };
   }
 
-  const ctx = { symbolIndex, fundMap, modMap, snapsMap, aiInsightsMap };
-  const tickers = known.map((sym) => buildRow(sym, ctx)).filter(Boolean);
+  const tickers = [];
+  for (const sym of known) {
+    const idRow  = symbolIndex[sym];
+    const resCtx = resCtxMap.get(sym);
+    const columns   = config ? await _resolvePeerColumns(resCtx, config) : {};
+    const aiScores  = aiInsightsMap[sym] || {};
+
+    tickers.push({
+      symbol: sym,
+      name:          (idRow[ID_COL_NAME] || '').trim(),
+      basicIndustry: (idRow[ID_COL_NSE_BASIC_IND] || '').trim() || null,
+      industryGroup: (idRow[ID_COL_INDUSTRY_GRP]  || '').trim() || null,
+      cmp:           null,
+      pe:            null,
+      marketCapCr:   null,
+      divYld:        null,
+      npQtrCr:       null,
+      qtrProfitVar:  null,
+      salesQtrCr:    null,
+      qtrSalesVar:   null,
+      roce:          null,
+      ...columns,
+      management:    aiScores.management  ?? null,
+      opportunity:   aiScores.opportunity ?? null,
+      deal:          aiScores.deal        ?? null,
+    });
+  }
 
   return { tickers, notFound };
 }
 
-/** Latest and year-ago quarter labels the metrics are drawn from. */
-function getQuarterLabels() {
-  const { qtrs } = loadPeerFundamentals();
-  const LATEST = PEER_PERIOD_COUNT - 1;
-  return { latestQuarter: qtrs[LATEST], yearAgoQuarter: qtrs[LATEST - 4] || null };
+/**
+ * Latest and year-ago quarter labels the metrics are drawn from — a single,
+ * DB-derived representative label across the whole company universe
+ * (replaces the old CSV's own fixed 8-quarter column structure, which was
+ * implicitly the same "one global label" idea). "Year ago" is 4 positions
+ * back in the distinct sorted period list, matching the old CSV's positional
+ * LATEST-4 semantics.
+ */
+async function getQuarterLabels() {
+  const rows = await prisma.prowessValueNew.findMany({
+    where:    { callId: { startsWith: 'prowess_qtr_' } },
+    select:   { fiscal_year: true, quarter: true },
+    distinct: ['fiscal_year', 'quarter'],
+  });
+  const sorted = [...new Set(rows.map((r) => `${r.fiscal_year}|${r.quarter}`))].sort();
+  const fmt = (key) => {
+    if (!key) return null;
+    const [fy, q] = key.split('|');
+    return `${q} ${fy}`;
+  };
+  return {
+    latestQuarter:  fmt(sorted.at(-1)),
+    yearAgoQuarter: sorted.length > 4 ? fmt(sorted.at(-5)) : null,
+  };
 }
 
 module.exports = { getMetricsForTickers, getQuarterLabels };
