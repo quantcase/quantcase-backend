@@ -958,6 +958,13 @@ function computeRuleEngine(d, row, crsData) {
     : null;
   const sectorRule = _lookupRule(RS_SECTOR_INDICATOR_RULES, sectorSignal);
 
+  // Third leg (sector vs NIFTY). No canned rule text — the growth/value output tables cover
+  // stock-relative legs only; this leg exists so Module 5's 3-way table can be matched.
+  const sectorNiftyCrs = crsData?.vsSectorNifty ?? null;
+  const sectorNiftySignal = sectorNiftyCrs?.crsValue != null && sectorNiftyCrs?.prevCrsValue != null
+    ? (sectorNiftyCrs.crsValue > sectorNiftyCrs.prevCrsValue ? 'OUTPERFORMING' : 'UNDERPERFORMING')
+    : null;
+
   const dominanceEngine = {
     leadership: {
       vsNifty: {
@@ -978,6 +985,12 @@ function computeRuleEngine(d, row, crsData) {
         growthWatchouts: sectorRule.growthWatchouts,
         valueOutput:     sectorRule.valueOutput,
         valueWatchouts:  sectorRule.valueWatchouts,
+      },
+      vsSectorNifty: {
+        sectorTicker:    sectorNiftyCrs?.sectorTicker ?? null,
+        crsValue:        sectorNiftyCrs?.crsValue     ?? null,
+        prevCrsValue:    sectorNiftyCrs?.prevCrsValue ?? null,
+        signal:          sectorNiftySignal,
       },
     },
   };

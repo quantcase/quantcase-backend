@@ -88,6 +88,16 @@ async function main() {
   });
 
   for (const skill of diSkills) {
+    // DO NOT touch technical-intelligence. Its prompt and schema are owned by
+    // scripts/updateTechnicalIntelligenceSkill.js, and actionableInsight is no longer a
+    // string with an `action` enum — it is an object of new_position/existing_position/
+    // watch_for. The regex rewrites below no longer match it and the schema patch would
+    // graft a stale `action` enum onto the current shape.
+    if (skill.slug === 'technical-intelligence') {
+      console.log('⏭  Skipping technical-intelligence — owned by updateTechnicalIntelligenceSkill.js');
+      continue;
+    }
+
     const newPrompt = fixDecisionIntelligencePrompt(skill.promptTemplate || '');
     const newSchema = fixDecisionIntelligenceSchema(skill.outputSchema || {});
 

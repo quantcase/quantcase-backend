@@ -106,6 +106,11 @@ async function fetchOhlcvBars(prisma, symbol, { since } = {}) {
   const weeklyBars  = aggregateBars(weeklyRaw,  '1wk');
   const monthlyBars = aggregateBars(monthlyRaw, '1mo');
 
+  // Full 3-year daily series (not sliced to 1y like dailyBars). Needed by callers
+  // computing long-warmup stats — e.g. SMA_200 touch counts over the last 200 days
+  // require ~400 bars, which the 1-year dailyBars window cannot supply.
+  const dailyBarsFull = aggregateBars(allRows, '1d');
+
   const latest = dailyBars.at(-1) ?? null;
   const prev   = dailyBars.length > 1 ? dailyBars.at(-2) : null;
   const quote  = latest ? {
@@ -131,7 +136,7 @@ async function fetchOhlcvBars(prisma, symbol, { since } = {}) {
     low52wDate  = dailyBars.reduce((a, b) => b.low  < a.low  ? b : a).date;
   }
 
-  return { dailyBars, weeklyBars, monthlyBars, quote, nextEarningsDate: null, allTimeHigh, allTimeLow, allTimeHighDate, allTimeLowDate, high52wDate, low52wDate };
+  return { dailyBars, dailyBarsFull, weeklyBars, monthlyBars, quote, nextEarningsDate: null, allTimeHigh, allTimeLow, allTimeHighDate, allTimeLowDate, high52wDate, low52wDate };
 }
 
 /**

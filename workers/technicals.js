@@ -7,6 +7,7 @@ const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { loadSkillConfig }      = require('../utils/skillConfig');
 const technicalAnalysis        = require('../lib/technicalAnalysis');
 const { decisionIntelligencePrompt } = require('../prompts/decision_intelligence');
+const { expandTechnicalsInsight }    = require('../utils/technicalsShape');
 
 // ─── Processor ───────────────────────────────────────────────────────────────
 
@@ -35,7 +36,14 @@ async function processTechnicalsJob(job) {
     const { model, maxTokens, outputSchema, promptTemplate } = await loadSkillConfig('technical-intelligence');
     await job.updateProgress(40);
 
-    const prompt = decisionIntelligencePrompt(taResult, promptTemplate);
+    // Read the prior score BEFORE the upsert below overwrites it — this drives the
+    // composite tag's direction flag (Tier/Band Rising/Falling). Null on first run.
+    const prevRow = await prisma.aiInsight.findUnique({
+      where: { ticker_type: { ticker, type: 'technicals' } },
+    });
+    const previousScore = prevRow?.insight?.scores?.final_score ?? null;
+
+    const prompt = decisionIntelligencePrompt(taResult, promptTemplate, previousScore);
     console.log(`[Technicals] Prompt length for ${symbol}: ${prompt.length} chars`);
 
     const { text: responseText, usage } = await llmStream(
@@ -46,7 +54,9 @@ async function processTechnicalsJob(job) {
 
     if (!responseText) throw new Error('Empty response from LLM');
 
-    const insight = parseJson(responseText);
+    // The model returns a deliberately flat/compact shape (small compiled grammar);
+    // expand it back into the documented nested shape before persisting.
+    const insight = expandTechnicalsInsight(parseJson(responseText), taResult, previousScore);
     await job.updateProgress(90);
 
     await prisma.aiInsight.upsert({
