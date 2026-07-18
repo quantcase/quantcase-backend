@@ -8,8 +8,9 @@ const financials = require('../lib/financials');
 const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_intelligence');
 const { loadSkillConfig } = require('../utils/skillConfig');
 const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
-const { resolveMetric, resolveIndicatorSeries } = require('../utils/formulaRegistry/index');
+const { resolveMetric, resolveIndicatorSeries, createFlatContext, createSeriesOnlyContext } = require('../utils/formulaRegistry/index');
 const { fetchOhlcvBars, fetchMarketSnapshot, fetchMarketSnapshots, fetchMonthlyOhlcv, fetchPeTimeSeries } = require('../utils/formulaRegistry/dataFetcherMarket');
+const { isBFSI } = require('../utils/industryClassifier');
 const prisma    = require('../config/prisma');
 const jobQueue  = require('../lib/jobQueue');
 const tickerMetrics = require('../services/tickerMetrics.service');
@@ -180,12 +181,14 @@ async function getTickerInfo(req, res, next) {
     const industryGroup     = idRow ? (idRow[ID_COL_INDUSTRY_GRP] || '').trim() : null;
     const basicIndustry     = idRow ? (idRow[ID_COL_NSE_BASIC_IND] || '').trim() : null;
 
-    // BFSI flag — drives label and column visibility decisions passed to the frontend
-    const BFSI_INDUSTRY_KEYWORDS = ['bank', 'insurance', 'nbfc', 'financial services', 'microfinance', 'housing finance'];
-    const isBfsi = BFSI_INDUSTRY_KEYWORDS.some(
-      (kw) => (industryGroup || '').toLowerCase().includes(kw) ||
-               (basicIndustry || '').toLowerCase().includes(kw)
-    );
+    // BFSI flag — drives label and column visibility decisions passed to the
+    // frontend. Formula resolution (EBIT/EBIT_MARGIN/FCF variant selection)
+    // no longer needs this — the resolver determines it itself via the
+    // 'bfsi' CompanyGroup (see utils/formulaRegistry/financial.js). This is
+    // the canonical classifier (utils/industryClassifier.js) also used by
+    // admin.service.js/peerMetrics.js — consolidated from a separate,
+    // inconsistent keyword-match that used to live here.
+    const isBfsi = isBFSI(basicIndustry);
     const description       = idRow ? (idRow[8]  || '').trim() || null : null;
     const website           = idRow ? (idRow[50] || '').trim() || null : null;
     const isin              = idRow ? (idRow[21] || '').trim() || null : null;
@@ -362,15 +365,15 @@ async function getTickerInfo(req, res, next) {
       if (!trendPeriods[key]) trendPeriods[key] = { fiscal_year: row.fiscal_year, quarter: row.quarter };
       trendPeriods[key][row.kpi_abbr] = row.value != null ? parseFloat(row.value) : null;
     }
-    const quarterlyTrend = Object.values(trendPeriods)
+    const quarterlyTrend = await Promise.all(Object.values(trendPeriods)
       .sort((a, b) => {
         if (a.fiscal_year !== b.fiscal_year) return (a.fiscal_year ?? '').localeCompare(b.fiscal_year ?? '');
         return (a.quarter ?? '').localeCompare(b.quarter ?? '');
       })
-      .map((p) => {
+      .map(async (p) => {
         // EBITDA: try registry formula (PBT+FIN_COST+DEP_AMORT); fall back to
         // (REV_OP - TOTAL_OPEX) + DEP_AMORT when quarterly data lacks PBT
-        let ebitdaVal = resolveMetric('EBITDA', { kpiMap: p }).value;
+        let ebitdaVal = (await resolveMetric('EBITDA', createFlatContext({ kpiMap: p }))).value;
         if (ebitdaVal == null && p.REV_OP != null && p.TOTAL_OPEX != null) {
           const opProfit = p.REV_OP - p.TOTAL_OPEX;
           ebitdaVal = opProfit + (p.DEP_AMORT ?? 0);
@@ -427,7 +430,7 @@ async function getTickerInfo(req, res, next) {
           totalEquity:      totalEquityVal != null ? r2(totalEquityVal) : null,
           interestCoverage: icVal != null ? r2(icVal) : null,
         };
-      });
+      }));
 
     // ── 7b-ii. Dividend yield + fundamentals trend from peer fund CSV ─────────
     const dividendYieldTrend = [];
@@ -490,29 +493,25 @@ async function getTickerInfo(req, res, next) {
       }
     }
 
-    const _formulaUsed = {}; // provenance for admin endpoint — not in public response
-    function rk(field, abbr, extra = {}) {
-      const res = resolveMetric(abbr, { kpiMap: { ...flatKpiMap, ...extra }, prevKpiMap: flatPrevKpiMap });
-      if (res.source !== 'stored') {
-        _formulaUsed[field] = { source: res.source, formula: res.formula, inputs: res.inputs, inputValues: res.inputValues };
-      }
+    async function rk(abbr, extra = {}) {
+      const res = await resolveMetric(abbr, createFlatContext({ kpiMap: { ...flatKpiMap, ...extra }, prevKpiMap: flatPrevKpiMap }));
       return res.value; // raw unrounded; callers apply r2()
     }
 
-    const ebitdaRaw        = rk('ebitda',          'EBITDA');
-    const roeRaw           = rk('returnOnEquity',   'ROE');
-    const roaRaw           = rk('returnOnAssets',   'ROA');
-    const roceRaw          = rk('roce',             'ROCE');
-    const ebitdaMrgRaw     = rk('ebitdaMargins',    'EBITDA_MARGIN',  { EBITDA: ebitdaRaw });
-    const profMrgRaw       = rk('profitMargins',    'PROFIT_MARGIN');
-    const grossMrgRaw      = rk('grossMargins',     'GROSS_MARGIN');
-    const opMrgRaw         = rk('operatingMargins', 'OP_MARGIN');
-    const fcfRaw           = rk('freeCashflow',     'FCF');
-    const currRatRaw       = rk('currentRatio',     'CURRENT_RATIO');
-    const quickRatRaw      = rk('quickRatio',       'QUICK_RATIO');
-    const netDebtRaw       = rk('netDebt',          'NET_DEBT');
-    const netDebtEbRaw     = rk('netDebtEbitda',    'NET_DEBT_EBITDA', { NET_DEBT: netDebtRaw, EBITDA: ebitdaRaw });
-    const deRaw            = rk('debtToEquity',     'DE');
+    const ebitdaRaw        = await rk('EBITDA');
+    const roeRaw           = await rk('ROE');
+    const roaRaw           = await rk('ROA');
+    const roceRaw          = await rk('ROCE');
+    const ebitdaMrgRaw     = await rk('EBITDA_MARGIN',  { EBITDA: ebitdaRaw });
+    const profMrgRaw       = await rk('PROFIT_MARGIN');
+    const grossMrgRaw      = await rk('GROSS_MARGIN');
+    const opMrgRaw         = await rk('OP_MARGIN');
+    const fcfRaw           = await rk('FCF');
+    const currRatRaw       = await rk('CURRENT_RATIO');
+    const quickRatRaw      = await rk('QUICK_RATIO');
+    const netDebtRaw       = await rk('NET_DEBT');
+    const netDebtEbRaw     = await rk('NET_DEBT_EBITDA', { NET_DEBT: netDebtRaw, EBITDA: ebitdaRaw });
+    const deRaw            = await rk('DE');
 
     const ebitda           = r2(ebitdaRaw);
     const roe              = r2(roeRaw);
@@ -624,7 +623,7 @@ async function getTickerInfo(req, res, next) {
     // EPS 3Y CAGR — route through registry (EPS_CAGR_3Y, window=3, annual ASC series)
     const epsSeriesAsc = [...(kpiByPeriod['EPS_BASIC'] ?? [])].reverse()
       .map((r) => ({ value: r.value != null ? parseFloat(r.value) : null, fiscal_year: r.fiscal_year, period: r.quarter }));
-    const epsCagr3y = r2(resolveMetric('EPS_CAGR_3Y', { series: epsSeriesAsc }).value);
+    const epsCagr3y = r2((await resolveMetric('EPS_CAGR_3Y', createSeriesOnlyContext({ series: epsSeriesAsc }))).value);
 
     function epsCagrLabel(cagr) {
       if (cagr == null) return null;
@@ -638,7 +637,7 @@ async function getTickerInfo(req, res, next) {
     // ROCE 3Y avg — route through registry (ROCE_3Y_AVG, window=3, annual ASC series)
     const roceSeriesAsc = [...(kpiByPeriod['ROCE'] ?? [])].reverse()
       .map((r) => ({ value: r.value != null ? parseFloat(r.value) : null }));
-    const roce3yAvg = r2(resolveMetric('ROCE_3Y_AVG', { series: roceSeriesAsc }).value);
+    const roce3yAvg = r2((await resolveMetric('ROCE_3Y_AVG', createSeriesOnlyContext({ series: roceSeriesAsc }))).value);
 
     // ROE 3Y avg — build per-period ROE series (PAT/NET_WORTH), then route through registry
     const patPeriodMap = {}, nwPeriodMap = {};
@@ -655,7 +654,7 @@ async function getTickerInfo(req, res, next) {
         const pat = patPeriodMap[k], nw = nwPeriodMap[k];
         return { value: (pat != null && nw != null && nw !== 0) ? (pat / nw) * 100 : null };
       });
-    const roe3yAvg = r2(resolveMetric('ROE_3Y_AVG', { series: roeSeriesAsc }).value);
+    const roe3yAvg = r2((await resolveMetric('ROE_3Y_AVG', createSeriesOnlyContext({ series: roeSeriesAsc }))).value);
 
     // PE valuation label based on trailing PE
     function peValuationLabel(pe) {
@@ -931,321 +930,6 @@ async function getPrices(req, res, next) {
   }
 }
 
-// ── Charts ────────────────────────────────────────────────────────────────────
-
-/**
- * GET /api/screener/:symbol/charts
- *
- * Returns chart-ready data grouped by: Price, PE Ratio, Sales & Margin.
- * Each group contains barSeries and lineSeries arrays whose data share the same x values.
- */
-async function getCharts(req, res, next) {
-  try {
-    const symbol = req.params.symbol.toUpperCase();
-
-    // ── 1. Resolve company name ────────────────────────────────────────────
-    const ecRow = await prisma.earnings_calls.findFirst({
-      where:  { company: symbol },
-      select: { company_name: true },
-    });
-    const companyName = ecRow?.company_name ?? null;
-
-    // ── 2. Fetch raw data in parallel ──────────────────────────────────────
-    const now        = Date.now();
-    const tenYearsAgo = new Date(now - 10 * 365 * 24 * 60 * 60 * 1000);
-    const twoYearsAgo = new Date(now -  2 * 365 * 24 * 60 * 60 * 1000);
-
-    const [monthlyPriceRows, quarterlyPriceRows, peRows, prowessRows] = await Promise.all([
-      fetchMonthlyOhlcv(prisma, symbol, { since: tenYearsAgo }),
-
-      // Quarterly last-close for ratio chart price lookups
-      prisma.$queryRaw`
-        SELECT
-          DATE_TRUNC('quarter', datetime) AS quarter_date,
-          (ARRAY_AGG(close ORDER BY datetime DESC))[1]::float AS close
-        FROM nse_equity_new
-        WHERE symbol = ${symbol} AND datetime >= ${tenYearsAgo}
-        GROUP BY DATE_TRUNC('quarter', datetime)
-        ORDER BY quarter_date ASC
-      `,
-
-      fetchPeTimeSeries(prisma, symbol, { since: tenYearsAgo }),
-
-      // Quarterly prowess KPIs — standalone quarterly P&L + balance sheet for charts
-      companyName
-        ? prisma.$queryRaw`
-            SELECT kpi_abbr, value, raw_value, multiplier, fiscal_year, quarter
-            FROM prowess_values_new
-            WHERE company = ${companyName}
-              AND call_id LIKE 'prowess_qtr_%'
-            ORDER BY fiscal_year ASC, quarter ASC
-          `
-        : Promise.resolve([]),
-    ]);
-
-    // ── 3. Organise prowess rows into quarterly periods ────────────────────
-    // Build { "FY2024|Q1": { REV_OP: X, PAT: Y, ... }, ... }
-    const prowessByPeriod = {};
-    for (const row of prowessRows) {
-      const key = `${row.fiscal_year}|${row.quarter}`;
-      if (!prowessByPeriod[key]) prowessByPeriod[key] = { fiscal_year: row.fiscal_year, quarter: row.quarter };
-      // raw_value is in Cr; value is raw_value * multiplier
-      const crVal = row.raw_value != null && row.raw_value !== ''
-        ? parseFloat(row.raw_value)
-        : (row.value != null && row.multiplier ? parseFloat(row.value) / row.multiplier : null);
-      prowessByPeriod[key][row.kpi_abbr] = crVal;
-    }
-
-    // Sorted quarterly periods oldest→newest
-    const qPeriods = Object.values(prowessByPeriod).sort((a, b) => {
-      if (a.fiscal_year !== b.fiscal_year) return (a.fiscal_year ?? '').localeCompare(b.fiscal_year ?? '');
-      return (a.quarter ?? '').localeCompare(b.quarter ?? '');
-    });
-
-    // Period label: "Q1 FY2024"
-    const fmtPeriodLabel = (p) => `${p.quarter} ${p.fiscal_year}`;
-
-    // ── 4. Price group ─────────────────────────────────────────────────────
-    // Monthly bars sorted oldest→newest, labelled "Mon YYYY"
-    const monthlyQuotes = monthlyPriceRows
-      .filter((q) => q.close != null)
-      .map((q) => ({ date: q.month, close: parseFloat(q.close), volume: q.volume ? Number(q.volume) : null }));
-
-    // Compute rolling SMAs over the ordered close series
-    function rollingAvg(closes, window) {
-      return closes.map((_, i) => {
-        if (i < window - 1) return null;
-        const slice = closes.slice(i - window + 1, i + 1);
-        return Math.round((slice.reduce((s, v) => s + v, 0) / window) * 100) / 100;
-      });
-    }
-
-    const fmtMonthLabel = (date) => {
-      const d = date instanceof Date ? date : new Date(date);
-      return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-    };
-
-    const monthlyLabels = monthlyQuotes.map((q) => fmtMonthLabel(q.date));
-    const monthlyCloses = monthlyQuotes.map((q) => q.close);
-    // 50 DMA ≈ 50-day: using 3-month monthly window as rough proxy; for monthly bars use 3
-    // 200 DMA ≈ 200-day ≈ 10 months
-    const dma50Values  = rollingAvg(monthlyCloses, 3);
-    const dma200Values = rollingAvg(monthlyCloses, 10);
-
-    const priceGroup = {
-      group: 'Price',
-      barSeries: [
-        {
-          dataKey: 'volume',
-          name: 'Volume',
-          data: monthlyQuotes.map((q, i) => ({ x: monthlyLabels[i], y: q.volume ?? null })),
-        },
-      ],
-      lineSeries: [
-        {
-          dataKey: 'priceNSE',
-          name: 'Price on NSE',
-          data: monthlyQuotes.map((q, i) => ({ x: monthlyLabels[i], y: Math.round(q.close * 100) / 100 })),
-        },
-        {
-          dataKey: 'dma50',
-          name: '50 DMA',
-          data: monthlyLabels.map((x, i) => ({ x, y: dma50Values[i] })),
-        },
-        {
-          dataKey: 'dma200',
-          name: '200 DMA',
-          data: monthlyLabels.map((x, i) => ({ x, y: dma200Values[i] })),
-        },
-      ],
-    };
-
-    // ── 5. Shared helpers for fundamentals-based chart groups ─────────────
-    // quarterly price lookup: match period label to quarterly close
-    const qPriceMap = {};
-    for (const q of quarterlyPriceRows) {
-      const label = fmtMonthLabel(q.quarter_date);
-      qPriceMap[label] = q.close != null ? parseFloat(q.close) : null;
-    }
-
-    // Price for a prowess period: match closest quarterly price bar
-    function priceForPeriod(p) {
-      const label = fmtPeriodLabel(p);
-      if (qPriceMap[label] != null) return qPriceMap[label];
-      // Fallback: find nearest quarterly price entry by index
-      if (quarterlyPriceRows.length === 0) return null;
-      return parseFloat(quarterlyPriceRows[quarterlyPriceRows.length - 1].close);
-    }
-
-    const fundLabels = qPeriods.map(fmtPeriodLabel);
-
-    // Median helper
-    function median(arr) {
-      const sorted = arr.filter((v) => v != null).sort((a, b) => a - b);
-      if (!sorted.length) return null;
-      const mid = Math.floor(sorted.length / 2);
-      return sorted.length % 2 === 0
-        ? Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 100) / 100
-        : Math.round(sorted[mid] * 100) / 100;
-    }
-
-    // TTM sum of last 4 quarters up to index i for a given field
-    function ttmAt(i, field) {
-      const slice = qPeriods.slice(Math.max(0, i - 3), i + 1);
-      const vals  = slice.map((p) => p[field]).filter((v) => v != null);
-      if (vals.length === 0) return null;
-      return vals.reduce((s, v) => s + v, 0);
-    }
-
-    // ── 3. PE Ratio group ──────────────────────────────────────────────────
-    const allPeValues = peRows.map((r) => r.pe != null ? Number(r.pe) : null).filter((v) => v != null);
-    const medianPe = median(allPeValues);
-
-    const peData = qPeriods.map((p, i) => {
-      const price  = priceForPeriod(p);
-      const ttmEps = ttmAt(i, 'EPS_BASIC') ?? ttmAt(i, 'EPS_DILUTED');
-      let pe = price != null && ttmEps != null && ttmEps !== 0
-        ? Math.round((price / ttmEps) * 100) / 100 : null;
-      // Fallback to pe_data DB
-      if (pe == null && peRows.length > 0) {
-        pe = Math.round(Number(peRows[Math.min(i, peRows.length - 1)].pe) * 100) / 100;
-      }
-      return { ttmEps, pe };
-    });
-
-    const peGroup = {
-      group: 'PE Ratio',
-      barSeries: [{ dataKey: 'ttmEps', name: 'TTM EPS',
-        data: fundLabels.map((x, i) => ({ x, y: peData[i].ttmEps })) }],
-      lineSeries: [
-        { dataKey: 'pe',       name: 'PE',        data: fundLabels.map((x, i) => ({ x, y: peData[i].pe })) },
-        { dataKey: 'medianPe', name: 'Median PE', data: fundLabels.map((x) => ({ x, y: medianPe })) },
-      ],
-    };
-
-    // ── 4. Sales & Margin group ────────────────────────────────────────────
-    const smRevenue = qPeriods.map((p) => p['REV_OP'] ?? p['TOTAL_INCOME'] ?? null);
-
-    // Margins routed through registry; augment kpiMap with TOTAL_INCOME fallback for GROSS_MARGIN
-    const smGpm = qPeriods.map((p) => {
-      const km = { ...p, TOTAL_INCOME: p['TOTAL_INCOME'] ?? p['REV_OP'] };
-      return r2(resolveMetric('GROSS_MARGIN', { kpiMap: km }).value);
-    });
-    const smOpm = qPeriods.map((p) =>
-      r2(resolveMetric('OP_MARGIN', { kpiMap: p }).value)
-    );
-    const smNpm = qPeriods.map((p) =>
-      r2(resolveMetric('PROFIT_MARGIN', { kpiMap: p }).value)
-    );
-
-    const salesMarginGroup = {
-      group: 'Sales & Margin',
-      barSeries: [{ dataKey: 'quarterSales', name: 'Quarter Sales',
-        data: fundLabels.map((x, i) => ({ x, y: smRevenue[i] != null ? Math.round(smRevenue[i] * 100) / 100 : null })) }],
-      lineSeries: [
-        { dataKey: 'gpm', name: 'GPM %', data: fundLabels.map((x, i) => ({ x, y: smGpm[i] })) },
-        { dataKey: 'opm', name: 'OPM %', data: fundLabels.map((x, i) => ({ x, y: smOpm[i] })) },
-        { dataKey: 'npm', name: 'NPM %', data: fundLabels.map((x, i) => ({ x, y: smNpm[i] })) },
-      ],
-    };
-
-    // ── 5. EV / EBITDA group ───────────────────────────────────────────────
-    const evEbitdaData = qPeriods.map((p, i) => {
-      const price     = priceForPeriod(p);
-      // EBITDA via registry (PBT + FIN_COST + DEP_AMORT); derive PBT from PAT+TAX_EXP if absent
-      const pbtAugmented = p['PBT'] ?? (p['PAT'] != null && p['TAX_EXP'] != null ? p['PAT'] + p['TAX_EXP'] : null);
-      const ebitdaCr = r2(resolveMetric('EBITDA', { kpiMap: { ...p, PBT: pbtAugmented } }).value);
-
-      // EV = marketCap + debt - cash
-      const eqCapCr = p['EQ_SHARE_CAP'];
-      const FACE_VALUE = 10;
-      const shares = eqCapCr != null ? (eqCapCr * 1e7) / FACE_VALUE : null;
-      const debtCr = p['BORR_TOTAL'] ?? (((p['DEBT_LT'] ?? 0) + (p['DEBT_ST'] ?? 0)) || null);
-      const cashCr = p['CASH_EQUIV'];
-      const ev = price != null && shares != null
-        ? price * shares / 1e7 + (debtCr ?? 0) - (cashCr ?? 0) : null;
-
-      // TTM EBITDA via registry for each TTM quarter slice
-      const ttmKm = {
-        PBT:      (ttmAt(i, 'PAT') != null && ttmAt(i, 'TAX_EXP') != null) ? ttmAt(i, 'PAT') + ttmAt(i, 'TAX_EXP') : ttmAt(i, 'PBT'),
-        FIN_COST:  ttmAt(i, 'FIN_COST'),
-        DEP_AMORT: ttmAt(i, 'DEP_AMORT'),
-      };
-      const ttmEbitda = r2(resolveMetric('EBITDA', { kpiMap: ttmKm }).value);
-
-      const ratio = ev != null && ttmEbitda != null && ttmEbitda !== 0
-        ? Math.round((ev / ttmEbitda) * 100) / 100 : null;
-
-      return { ebitdaCr, ratio };
-    });
-
-    const MEDIAN_EV_EBITDA = median(evEbitdaData.map((d) => d.ratio));
-    const evEbitdaGroup = {
-      group: 'EV / EBITDA',
-      barSeries: [{ dataKey: 'ebitda', name: 'EBITDA',
-        data: fundLabels.map((x, i) => ({ x, y: evEbitdaData[i].ebitdaCr })) }],
-      lineSeries: [
-        { dataKey: 'evToEbitda',     name: 'EV / EBITDA',                        data: fundLabels.map((x, i) => ({ x, y: evEbitdaData[i].ratio })) },
-        { dataKey: 'medianEvMultiple', name: `Median EV Multiple = ${MEDIAN_EV_EBITDA}`, data: fundLabels.map((x) => ({ x, y: MEDIAN_EV_EBITDA })) },
-      ],
-    };
-
-    // ── 6. Price to Book group ─────────────────────────────────────────────
-    const pbvData = qPeriods.map((p) => {
-      const price   = priceForPeriod(p);
-      const nwCr    = p['NET_WORTH'];
-      const eqCapCr = p['EQ_SHARE_CAP'];
-      const FACE_VALUE = 10;
-      const shares  = eqCapCr != null ? (eqCapCr * 1e7) / FACE_VALUE : null;
-      const bvps    = nwCr != null && shares != null && shares !== 0
-        ? Math.round(((nwCr * 1e7) / shares) * 100) / 100 : null;
-      const pbv     = price != null && bvps != null && bvps !== 0
-        ? Math.round((price / bvps) * 100) / 100 : null;
-      return { bvps, pbv };
-    });
-
-    const MEDIAN_PBV = median(pbvData.map((d) => d.pbv));
-    const priceToBookGroup = {
-      group: 'Price to Book',
-      barSeries: [{ dataKey: 'bookValue', name: 'Book Value',
-        data: fundLabels.map((x, i) => ({ x, y: pbvData[i].bvps })) }],
-      lineSeries: [
-        { dataKey: 'priceToBV', name: 'Price to BV',              data: fundLabels.map((x, i) => ({ x, y: pbvData[i].pbv })) },
-        { dataKey: 'medianPBV', name: `Median PBV = ${MEDIAN_PBV}`, data: fundLabels.map((x) => ({ x, y: MEDIAN_PBV })) },
-      ],
-    };
-
-    // ── 7. Market Cap / Sales group ────────────────────────────────────────
-    const mcSalesData = qPeriods.map((p, i) => {
-      const price       = priceForPeriod(p);
-      const eqCapCr     = p['EQ_SHARE_CAP'];
-      const FACE_VALUE  = 10;
-      const shares      = eqCapCr != null ? (eqCapCr * 1e7) / FACE_VALUE : null;
-      const marketCapCr = price != null && shares != null ? (price * shares) / 1e7 : null;
-      const revCr       = p['REV_OP'] ?? p['TOTAL_INCOME'];
-      const ttmRevCr    = ttmAt(i, 'REV_OP') ?? ttmAt(i, 'TOTAL_INCOME');
-      const mcToSales   = marketCapCr != null && ttmRevCr != null && ttmRevCr !== 0
-        ? Math.round((marketCapCr / ttmRevCr) * 100) / 100 : null;
-      return { quarterRevenueCr: revCr != null ? Math.round(revCr * 100) / 100 : null, mcToSales };
-    });
-
-    const MEDIAN_MC_SALES = median(mcSalesData.map((d) => d.mcToSales));
-    const mcSalesGroup = {
-      group: 'Market Cap / Sales',
-      barSeries: [{ dataKey: 'sales', name: 'Sales',
-        data: fundLabels.map((x, i) => ({ x, y: mcSalesData[i].quarterRevenueCr })) }],
-      lineSeries: [
-        { dataKey: 'mcToSales',       name: 'Market Cap / Sales',                       data: fundLabels.map((x, i) => ({ x, y: mcSalesData[i].mcToSales })) },
-        { dataKey: 'medianMcToSales', name: `Median Market Cap to Sales = ${MEDIAN_MC_SALES}`, data: fundLabels.map((x) => ({ x, y: MEDIAN_MC_SALES })) },
-      ],
-    };
-
-    res.json({ chartGroups: [priceGroup, peGroup, salesMarginGroup, evEbitdaGroup, priceToBookGroup, mcSalesGroup] });
-  } catch (err) {
-    next(err);
-  }
-}
-
 // ── Peer comparison ───────────────────────────────────────────────────────────
 
 /**
@@ -1284,7 +968,7 @@ async function getPeers(req, res, next) {
 
     // ── 3. Build metric rows (shared with GET /api/tickers) ──────────────────
     const { tickers } = await tickerMetrics.getMetricsForTickers(nseSymbols);
-    const { latestQuarter, yearAgoQuarter } = tickerMetrics.getQuarterLabels();
+    const { latestQuarter, yearAgoQuarter } = await tickerMetrics.getQuarterLabels();
 
     const peers = tickers.map((t) => ({ ...t, isSubject: t.symbol === symbol }));
 
@@ -1310,4 +994,4 @@ async function getPeers(req, res, next) {
   }
 }
 
-module.exports = { getTickerInfo, getTechnicals, getFinancials, getPrices, getCharts, getPeers };
+module.exports = { getTickerInfo, getTechnicals, getFinancials, getPrices, getPeers };

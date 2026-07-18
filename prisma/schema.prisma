@@ -100,10 +100,160 @@ model Kpi {
   prowess_name  String?
   prowessValues ProwessValueNew[]
 
+  // ── Generic, admin-defined computation (see utils/formulaRegistry) ──────────
+  // True for every Kpi row formulaRegistry's registry cache should load.
+  // Needed because `abbr` is a shared namespace with an unrelated
+  // transcript-metric dedup pipeline (~23k rows, source:'transcript') — a
+  // handful of abbrs (EBITDA, ROE, EPS_BASIC, ...) collide with that
+  // pipeline's canonical names. `source: 'QE'` alone can't disambiguate raw
+  // leaves (frequency stays null by design, since e.g. EPS_BASIC is fetched
+  // at either annual or quarterly cadence depending on caller context) from
+  // an untouched transcript-dedup row that also happens to have no formula.
+  registry_enabled   Boolean       @default(false)
+  // Anchored to the 3 real ingestion pipelines (Prowess annual/quarterly CSV,
+  // daily OHLCV/valuation) — not a business taxonomy, so this stays an enum.
+  // Null for purely organizational "header" Kpi rows (see KpiRelationship's
+  // 'statement_of' usage) that have no data of their own.
+  frequency          KpiFrequency?
+  // Null = raw leaf, value read directly from the frequency-appropriate
+  // source table for this abbr. Non-null = admin-authored expression,
+  // evaluated by utils/formulaRegistry/expressionEvaluator.js.
+  formula_expression String?
+  // Ordered list of other Kpi.abbr to try (in order) if this metric's own
+  // resolution comes back null. Plain string refs, not a DB relation —
+  // validated at write time, mirrors ProwessUploader's abbr-string matching.
+  fallback_abbrs     String[]      @default([])
+  // Display unit, e.g. "Cr", "%", "x", "₹" — finer-grained than `denomination`.
+  unit_label         String?
+  description        String?
+  // Default ordering among siblings; overridable per-relationship via
+  // KpiRelationship.display_order.
+  display_order      Int           @default(0)
+
   @@index([abbr])
   @@index([source])
   @@index([prowess_name])
+  @@index([frequency])
+  @@index([registry_enabled])
   @@map("kpis")
+}
+
+// Generic, admin-editable relationships between KPIs (and optionally a
+// CompanyGroup). Originally also covered display grouping (expandable
+// constituent rollups, PnL/Balance Sheet/Cashflow statement sections) via
+// 'constituent_of'/'statement_of' — both superseded by KpiGroup below (a
+// real tree; these were flat/single-level). Existing rows of those two types
+// are left in place but no longer read by any consumer. The one
+// relationship_type still live: 'variant_for_group' — company-group-scoped
+// formula selection (e.g. BFSI companies resolve EBIT_BFSI instead of EBIT).
+// `relationship_type` is deliberately a free string, not an enum — new
+// relationship kinds should never require a schema migration.
+model KpiRelationship {
+  id                 String   @id @default(uuid())
+  kpi_abbr           String
+  relationship_type  String
+  // kpi-to-kpi target: parent in a rollup, statement header, or the variant
+  // abbr to use instead of kpi_abbr. Plain string ref, not a DB relation.
+  related_kpi_abbr   String?
+  // kpi-to-CompanyGroup scoping (e.g. 'variant_for_group' rows) — references
+  // CompanyGroup.slug as a plain string, not an FK; CompanyGroup is owned by
+  // services/companyGroups and intentionally untouched by this feature.
+  company_group_slug String?
+  display_order      Int      @default(0)
+  created_at         DateTime @default(now())
+
+  @@index([kpi_abbr])
+  @@index([relationship_type])
+  @@map("kpi_relationships")
+}
+
+// Admin-editable display hierarchy for KPIs — replaces KpiRelationship's old
+// 'constituent_of'/'statement_of' usage (both were flat, single-level; this
+// is a real tree). A node is either a container (kpi_abbr null, e.g. "P&L
+// Statement", "Reserves & Surplus") or a leaf pointing at one Kpi.abbr.
+// Siblings need no separate concept — just query WHERE parent_id = X.
+// Seeded with one root per existing Kpi.kpi_type value so the old
+// enum-based grouping and this free-form tree coexist (kpi_type roots are
+// just ordinary KpiGroup rows an admin can rename/re-nest/add siblings to).
+// Purely a display/layout concern — never consulted by resolveMetric.
+model KpiGroup {
+  id                 String     @id @default(uuid())
+  slug               String     @unique
+  label              String
+  parent_id          String?
+  parent             KpiGroup?  @relation("KpiGroupTree", fields: [parent_id], references: [id], onDelete: Cascade)
+  children           KpiGroup[] @relation("KpiGroupTree")
+  // Set = this node represents one specific Kpi (a leaf). Null = pure
+  // container node. Plain string ref, not a DB relation (matches
+  // KpiRelationship's related_kpi_abbr convention).
+  kpi_abbr           String?
+  // Optional: this node/branch is only shown for companies in this group
+  // (e.g. a BFSI-only "Provisions" branch). Plain string ref to
+  // CompanyGroup.slug, not an FK — same convention as KpiRelationship.
+  company_group_slug String?
+  display_order      Int        @default(0)
+  created_at         DateTime   @default(now())
+
+  @@index([parent_id])
+  @@index([kpi_abbr])
+  @@map("kpi_groups")
+}
+
+// A single, reusable threshold condition on a Kpi's resolved value (e.g.
+// "EBITDA > 10000"). Not tied to any one CompanyGroup — see
+// CompanyGroupFilter for how filters are attached to a group (many-to-many,
+// AND-combined).
+model KpiFilter {
+  id         String        @id @default(uuid())
+  slug       String        @unique
+  label      String
+  kpi_abbr   String
+  operator   String // '>' | '<' | '>=' | '<=' | '=' | '!=' | 'between' — validated against this fixed set at write time (see admin.kpiFilters.service.js)
+  value      Float
+  value_max  Float? // only used when operator = 'between'
+  // Optional override of which cadence to resolve kpi_abbr at; defaults to
+  // the Kpi's own frequency (or 'annual' if that's also unset).
+  frequency  KpiFrequency?
+  created_at DateTime      @default(now())
+
+  companyGroupFilters CompanyGroupFilter[]
+
+  @@index([kpi_abbr])
+  @@map("kpi_filters")
+}
+
+// Attaches a reusable KpiFilter to a CompanyGroup. All filters attached to
+// the same company_group_slug are AND-combined when the group is recomputed
+// (see services/companyGroups/recompute.service.js). company_group_slug is a
+// plain string ref to CompanyGroup.slug, not an FK — same convention as
+// KpiRelationship/KpiGroup.
+model CompanyGroupFilter {
+  id                 String    @id @default(uuid())
+  company_group_slug String
+  kpi_filter_id      String
+  kpi_filter         KpiFilter @relation(fields: [kpi_filter_id], references: [id], onDelete: Cascade)
+  created_at         DateTime  @default(now())
+
+  @@unique([company_group_slug, kpi_filter_id])
+  @@index([company_group_slug])
+  @@map("company_group_filters")
+}
+
+// Materialized membership cache for CompanyGroup rows with
+// filter_type: 'kpi_filter' — resolving a KPI value for every company on
+// every request would be expensive, so membership is computed once (admin
+// POST /admin/company-groups/:slug/recompute) and read from here instead of
+// live-scanned, unlike the existing 'manual'/'dynamic' filter_types.
+// company_group_slug is a plain string ref to CompanyGroup.slug, not an FK.
+model CompanyGroupMember {
+  id                 String   @id @default(uuid())
+  company_group_slug String
+  symbol             String
+  computed_at        DateTime @default(now())
+
+  @@unique([company_group_slug, symbol])
+  @@index([company_group_slug])
+  @@map("company_group_members")
 }
 
 model SubstituteKpi {
@@ -1551,6 +1701,14 @@ enum KpiSource {
   QE
 }
 
+// Anchored to the 3 real data-ingestion pipelines (Prowess annual CSV,
+// Prowess quarterly CSV, daily OHLCV/valuation) — see Kpi.frequency.
+enum KpiFrequency {
+  annual
+  quarterly
+  daily
+}
+
 enum KpiTypeCategory {
   assets
   liabilities
@@ -2029,4 +2187,62 @@ model ScreenTicker {
   @@index([screenId])
   @@index([ticker])
   @@map("qc_screen_tickers")
+}
+
+// Admin config for which metrics/rows/series/columns a given API response
+// section shows, in what order, with what precision — decoupled from
+// KpiGroup (which stays the KPI display-hierarchy tool, kpi_type roots +
+// statement tree + variant_for_group). Intentionally its own mechanism, not
+// bolted onto KpiGroup, since this is meant to eventually cover config for
+// any controller's response shape, not just KPI grouping specifically.
+// One ScreenConfig per screen table/chart-group/column-set (e.g.
+// "financials.pnl.annual", "charts.pe-ratio", "peers.columns"); one
+// ScreenConfigItem per row/series/column within it.
+model ScreenConfig {
+  id             String             @id @default(uuid())
+  // Stable identifier code refers to directly.
+  key            String             @unique
+  label          String
+  // Free-text note of which endpoint/controller this powers — admin
+  // browsing only, not read by any resolution logic.
+  endpoint       String?
+  // Null = show all available periods (today's unconditional behavior).
+  periods_shown  Int?
+  decimal_places Int                @default(2)
+  created_at     DateTime           @default(now())
+  updated_at     DateTime           @updatedAt
+  items          ScreenConfigItem[]
+
+  @@map("screen_configs")
+}
+
+model ScreenConfigItem {
+  id               String       @id @default(uuid())
+  screen_config_id String
+  screen_config    ScreenConfig @relation(fields: [screen_config_id], references: [id], onDelete: Cascade)
+  // Which Kpi this row/series/column represents. Plain string ref, not a DB
+  // relation — matches KpiGroup/KpiRelationship's existing convention.
+  kpi_abbr           String
+  // Override label; null = use Kpi.full_form.
+  label              String?
+  display_order      Int          @default(0)
+  highlight          Boolean      @default(false)
+  expandable         Boolean      @default(false)
+  // Overrides the parent ScreenConfig's decimal_places.
+  decimal_places     Int?
+  // Optional — only include this row for companies in this group (same
+  // mechanism KpiGroup/variant_for_group already use), e.g. a BFSI-only
+  // "Provisions" row in the balance sheet. Plain string ref to
+  // CompanyGroup.slug, not an FK.
+  company_group_slug String?
+  // 'line' | 'bar' — only meaningful for chart-shaped ScreenConfigs
+  // (financials tables ignore this). Default 'line' matches every ratio
+  // series (PE, GPM/OPM/NPM, EV/EBITDA, P/B, Mcap/Sales); a chart's backdrop
+  // metric (Quarter Sales, Enterprise Value, Stock Price, Market Cap) is
+  // seeded as 'bar'.
+  series_type        String       @default("line")
+
+  @@unique([screen_config_id, kpi_abbr])
+  @@index([screen_config_id])
+  @@map("screen_config_items")
 }

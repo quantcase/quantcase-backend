@@ -332,11 +332,121 @@ async function fetchProwessTimeSeries(prisma, companyName, abbr) {
   }));
 }
 
+// ── Multi-company batches (one query for N companies, not N round trips) ─────
+// Same query shape/semantics as fetchAnnualBatch/fetchQuarterlyBatch, batched
+// across companies the way fetchKpiMapsMultiBatch (dataFetcherKpiMaps.js)
+// already batches fetchKpiMapsMulti — built for createMultiCompanyResolutionContext.
+
+function _groupByCompany(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.company)) map.set(r.company, []);
+    map.get(r.company).push(r);
+  }
+  return map;
+}
+
+/**
+ * Bulk version of fetchAnnualBatch. Preserves the per-company C-preferred/
+ * S-fallback logic (a company with any consolidated periods uses only those;
+ * a company with none falls back to its own standalone rows) — not a
+ * blanket "if nobody has C data, everybody uses S" shortcut.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string[]} companyNames — already-resolved prowess company names
+ * @param {string[]} abbrs
+ * @returns {Promise<Object<string, Record<string, Array>>>} keyed by company name, each value shaped like fetchAnnualBatch's return
+ */
+async function fetchAnnualBatchMulti(prisma, companyNames, abbrs) {
+  if (!companyNames.length) return {};
+
+  const [periodRowsC, kpiRowsC] = await Promise.all([
+    prisma.prowessValueNew.findMany({
+      where:   { company: { in: companyNames }, source_type: 'C', callId: { startsWith: 'prowess_new_' } },
+      select:  { company: true, fiscal_year: true, quarter: true },
+      distinct: ['company', 'fiscal_year', 'quarter'],
+      orderBy: [{ company: 'asc' }, { fiscal_year: 'asc' }, { quarter: 'asc' }],
+    }),
+    prisma.prowessValueNew.findMany({
+      where:  { company: { in: companyNames }, kpi_abbr: { in: abbrs }, source_type: 'C', callId: { startsWith: 'prowess_new_' } },
+      select: { company: true, fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
+    }),
+  ]);
+
+  const periodsByCoC = _groupByCompany(periodRowsC);
+  const kpisByCoC     = _groupByCompany(kpiRowsC);
+  const companiesNeedingS = companyNames.filter(c => !periodsByCoC.has(c));
+
+  let periodsByCoS = new Map(), kpisByCoS = new Map();
+  if (companiesNeedingS.length) {
+    const [periodRowsS, kpiRowsS] = await Promise.all([
+      prisma.prowessValueNew.findMany({
+        where:   { company: { in: companiesNeedingS }, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
+        select:  { company: true, fiscal_year: true, quarter: true },
+        distinct: ['company', 'fiscal_year', 'quarter'],
+        orderBy: [{ company: 'asc' }, { fiscal_year: 'asc' }, { quarter: 'asc' }],
+      }),
+      prisma.prowessValueNew.findMany({
+        where:  { company: { in: companiesNeedingS }, kpi_abbr: { in: abbrs }, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
+        select: { company: true, fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
+      }),
+    ]);
+    periodsByCoS = _groupByCompany(periodRowsS);
+    kpisByCoS    = _groupByCompany(kpiRowsS);
+  }
+
+  const result = {};
+  for (const company of companyNames) {
+    const periods = periodsByCoC.get(company);
+    result[company] = periods
+      ? _buildResult(abbrs, periods, kpisByCoC.get(company) ?? [])
+      : _buildResult(abbrs, periodsByCoS.get(company) ?? [], kpisByCoS.get(company) ?? []);
+  }
+  return result;
+}
+
+/**
+ * Bulk version of fetchQuarterlyBatch — always standalone (source_type='S'),
+ * no C/S fallback needed (matches fetchQuarterlyBatch's own semantics).
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string[]} companyNames
+ * @param {string[]} abbrs
+ * @returns {Promise<Object<string, Record<string, Array>>>} keyed by company name
+ */
+async function fetchQuarterlyBatchMulti(prisma, companyNames, abbrs) {
+  if (!companyNames.length) return {};
+
+  const [periodRows, kpiRows] = await Promise.all([
+    prisma.prowessValueNew.findMany({
+      where:   { company: { in: companyNames }, source_type: 'S', callId: { startsWith: 'prowess_qtr_' } },
+      select:  { company: true, fiscal_year: true, quarter: true },
+      distinct: ['company', 'fiscal_year', 'quarter'],
+      orderBy: [{ company: 'asc' }, { fiscal_year: 'asc' }, { quarter: 'asc' }],
+    }),
+    prisma.prowessValueNew.findMany({
+      where:  { company: { in: companyNames }, kpi_abbr: { in: abbrs }, source_type: 'S', callId: { startsWith: 'prowess_qtr_' } },
+      select: { company: true, fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
+    }),
+  ]);
+
+  const periodsByCo = _groupByCompany(periodRows);
+  const kpisByCo    = _groupByCompany(kpiRows);
+
+  const result = {};
+  for (const company of companyNames) {
+    result[company] = _buildResult(abbrs, periodsByCo.get(company) ?? [], kpisByCo.get(company) ?? []);
+  }
+  return result;
+}
+
 module.exports = {
   resolveProwessName,
   fetchTimeSeries,
   fetchTimeSeriesBatch,
   fetchAnnualBatch,
   fetchQuarterlyBatch,
+  fetchAnnualBatchMulti,
+  fetchQuarterlyBatchMulti,
   fetchProwessTimeSeries,
 };

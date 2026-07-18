@@ -224,6 +224,71 @@ async function fetchPeTimeSeries(prisma, symbol, { months, since } = {}) {
   }));
 }
 
+// Which nse_equity_new column backs each daily-frequency Kpi abbr this
+// fetcher understands. Extend alongside resolutionContext.js's
+// DAILY_ABBR_TO_SNAPSHOT_FIELD (current-value map) when adding a new one —
+// the two maps intentionally mirror each other.
+const DAILY_SERIES_FIELDS = { PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'market_cap_cr' };
+
+/**
+ * Full daily history of one nse_equity_new column for one symbol, oldest →
+ * newest — the generic series-fetching counterpart to fetchMarketSnapshot's
+ * single-latest-row read. Mirrors fetchPeTimeSeries's query shape exactly,
+ * parameterized over which column to pull.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} symbol
+ * @param {string} abbr - a key of DAILY_SERIES_FIELDS
+ * @returns {Promise<Array<{ value: number|null, date: string }>>}
+ */
+async function fetchDailySeries(prisma, symbol, abbr) {
+  const field = DAILY_SERIES_FIELDS[abbr];
+  if (!field) return [];
+
+  const rows = await prisma.nse_equity_new.findMany({
+    where:   { symbol, [field]: { not: null } },
+    orderBy: { datetime: 'asc' },
+    select:  { datetime: true, [field]: true },
+  });
+
+  return rows.map(r => ({
+    value: r[field] != null ? parseFloat(r[field]) : null,
+    date:  r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
+  }));
+}
+
+/**
+ * All three daily-frequency series (PRICE/PE_DAILY/MCAP_SNAPSHOT) for one
+ * symbol in a single query — nse_equity_new stores close/pe/market_cap_cr on
+ * the same row per day, so one bulk read serves every daily abbr at once,
+ * same "one bulk fetch per frequency" shape fetchAnnualBatch/fetchQuarterlyBatch
+ * already use for Prowess data. Every series is padded to the same
+ * date-indexed length (null where that day's field is missing), so indices
+ * line up across abbrs the same way padded quarterly/annual series already do.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} symbol
+ * @returns {Promise<{ PRICE: Array<{value,date}>, PE_DAILY: Array<{value,date}>, MCAP_SNAPSHOT: Array<{value,date}> }>}
+ */
+async function fetchAllDailySeries(prisma, symbol) {
+  const rows = await prisma.nse_equity_new.findMany({
+    where:   { symbol },
+    orderBy: { datetime: 'asc' },
+    select:  { datetime: true, close: true, pe: true, market_cap_cr: true },
+  });
+
+  const toPoints = (field) => rows.map(r => ({
+    value: r[field] != null ? parseFloat(r[field]) : null,
+    date:  r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
+  }));
+
+  return {
+    PRICE:         toPoints('close'),
+    PE_DAILY:      toPoints('pe'),
+    MCAP_SNAPSHOT: toPoints('market_cap_cr'),
+  };
+}
+
 /**
  * Bulk version of fetchPeTimeSeries — one query for many symbols instead of one
  * query per symbol. Built for screeners scanning hundreds of candidates (see
@@ -361,6 +426,9 @@ module.exports = {
   fetchOhlcvBars,
   fetchMarketSnapshot,
   fetchMarketSnapshots,
+  fetchDailySeries,
+  fetchAllDailySeries,
+  DAILY_SERIES_FIELDS,
   fetchPeTimeSeries,
   fetchPeTimeSeriesBatch,
   fetchMonthlyClose,
