@@ -9,7 +9,8 @@ const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_inte
 const { loadSkillConfig } = require('../utils/skillConfig');
 const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { resolveMetric, resolveIndicatorSeries, createFlatContext, createSeriesOnlyContext } = require('../utils/formulaRegistry/index');
-const { fetchOhlcvBars, fetchMarketSnapshot, fetchMarketSnapshots, fetchMonthlyOhlcv, fetchPeTimeSeries } = require('../utils/formulaRegistry/dataFetcherMarket');
+const { fetchOhlcvBars, fetchWyckoffBars, fetchMarketSnapshot, fetchMarketSnapshots, fetchMonthlyOhlcv, fetchPeTimeSeries } = require('../utils/formulaRegistry/dataFetcherMarket');
+const wyckoff = require('../lib/wyckoff');
 const { isBFSI } = require('../utils/industryClassifier');
 const prisma    = require('../config/prisma');
 const jobQueue  = require('../lib/jobQueue');
@@ -125,6 +126,66 @@ function peerPeriodVal(row, periodIndex, offset) {
   return peerToFloat(row[start + offset]);
 }
 
+const TECHNICALS_QUEUE = 'technicals_analysis';
+
+/**
+ * Deterministic per-symbol job id — makes enqueue idempotent while a job is in flight.
+ * Note: BullMQ rejects ':' in custom job ids ("Custom Id cannot contain :"), hence '-'.
+ */
+function technicalsJobId(symbol) { return `technicals-${symbol}`; }
+
+/**
+ * Ensure an insight job exists for `symbol` and describe it to the caller.
+ *
+ * Uses a deterministic jobId so that a frontend polling this endpoint every few seconds
+ * does not enqueue a duplicate job per poll (BullMQ auto-increments ids otherwise, and the
+ * previous fire-and-forget `addJob` produced one job per request).
+ *
+ * A `failed` terminal state is reported as-is rather than silently retried, so the caller
+ * can stop polling immediately instead of waiting out its full timeout. `force` (from
+ * ?refresh=1) clears a terminal job and starts a fresh one.
+ *
+ * @returns {Promise<{id: string, status: 'queued'|'processing'|'failed', error?: string}>}
+ */
+async function ensureTechnicalsJob(symbol, { force = false } = {}) {
+  const queue = jobQueue.getQueue(TECHNICALS_QUEUE);
+  const jobId = technicalsJobId(symbol);
+
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === 'active')                            return { id: jobId, status: 'processing' };
+    if (state === 'waiting' || state === 'delayed')    return { id: jobId, status: 'queued' };
+    if (state === 'failed' && !force) {
+      return { id: jobId, status: 'failed', error: existing.failedReason || 'Job failed' };
+    }
+    // Terminal (completed, or failed with force) — remove so the id can be reused.
+    await existing.remove();
+  }
+
+  await jobQueue.addJob(TECHNICALS_QUEUE, { symbol }, { jobId });
+  return { id: jobId, status: 'queued' };
+}
+
+/**
+ * Describe an in-flight (queued/processing) job for `symbol`, or null if none is running.
+ * Never enqueues. Terminal states (completed/failed) return null — callers that care about
+ * failure read it from the status endpoint's own branch.
+ */
+async function inFlightTechnicalsJob(symbol) {
+  try {
+    const job = await jobQueue.getQueue(TECHNICALS_QUEUE).getJob(technicalsJobId(symbol));
+    if (!job) return null;
+    const state = await job.getState();
+    if (state === 'active')                         return { id: job.id, status: 'processing', progress: job.progress ?? 0 };
+    if (state === 'waiting' || state === 'delayed') return { id: job.id, status: 'queued',     progress: 0 };
+    return null;
+  } catch (err) {
+    console.error('[technicals] Failed to read job state:', err.message);
+    return null;
+  }
+}
+
 async function getTechnicals(req, res, next) {
   try {
     const symbol      = req.params.symbol.toUpperCase();
@@ -137,11 +198,25 @@ async function getTechnicals(req, res, next) {
 
     if (dbInsight?.insight) {
       result.decisionIntelligence = dbInsight.insight;
+      result.insightStatus    = 'ready';
+      result.insightUpdatedAt = dbInsight.updated_at;
+      // Surface an in-flight regeneration (e.g. a prior ?refresh=1) so the caller knows the
+      // insight it just received is about to be superseded and can keep polling /status.
+      result.insightJob = await inFlightTechnicalsJob(symbol);
     } else {
       result.decisionIntelligence = null;
-      jobQueue.addJob('technicals_analysis', { symbol }).catch((err) =>
-        console.error('[getTechnicals] Failed to enqueue job:', err.message)
-      );
+      result.insightUpdatedAt     = null;
+      // Distinguish the states the frontend previously had to guess at: a null insight now
+      // always carries either 'generating' (keep polling) or 'failed' (stop polling).
+      try {
+        const job = await ensureTechnicalsJob(symbol, { force: forceRefresh });
+        result.insightJob    = job;
+        result.insightStatus = job.status === 'failed' ? 'failed' : 'generating';
+      } catch (err) {
+        console.error('[getTechnicals] Failed to enqueue job:', err.message);
+        result.insightJob    = null;
+        result.insightStatus = 'failed';
+      }
     }
 
     // Strip joined watchout strings from ruleEngine — decisionIntelligence has distilled versions
@@ -170,6 +245,69 @@ async function getTechnicals(req, res, next) {
     next(err);
   }
 }
+
+/**
+ * Cheap poll target for a pending insight.
+ *
+ * Deliberately does NOT call technicalAnalysis.analyze() — that re-fetches bars and
+ * recomputes every indicator, which is far too expensive to run on a 3-second poll.
+ * Reads only the stored insight and the BullMQ job state.
+ */
+async function getTechnicalsStatus(req, res, next) {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const jobId  = technicalsJobId(symbol);
+
+    const [dbInsight, job] = await Promise.all([
+      prisma.aiInsight.findUnique({
+        where:  { ticker_type: { ticker: symbol, type: 'technicals' } },
+        select: { updated_at: true },
+      }),
+      jobQueue.getQueue(TECHNICALS_QUEUE).getJob(jobId),
+    ]);
+
+    const state            = job ? await job.getState() : null;
+    const insightUpdatedAt = dbInsight?.updated_at ?? null;
+
+    // Job state is checked BEFORE the stored row: after ?refresh=1 the previous insight is
+    // still in the table (the worker overwrites it only on success), so keying off the row
+    // alone would report 'ready' for a regeneration that is still running and the caller
+    // would never learn the refresh finished. `insightUpdatedAt` is always returned so a
+    // stale-but-renderable insight can stay on screen while its replacement is generated.
+    if (state === 'active' || state === 'waiting' || state === 'delayed') {
+      return res.json({
+        symbol,
+        insightStatus: 'generating',
+        insightJob: {
+          id:       jobId,
+          status:   state === 'active' ? 'processing' : 'queued',
+          progress: job.progress ?? 0,
+        },
+        insightUpdatedAt,
+      });
+    }
+
+    if (state === 'failed') {
+      return res.json({
+        symbol,
+        insightStatus: 'failed',
+        insightJob: { id: jobId, status: 'failed', progress: job.progress ?? 0, error: job.failedReason || 'Job failed' },
+        insightUpdatedAt,
+      });
+    }
+
+    if (dbInsight) {
+      return res.json({ symbol, insightStatus: 'ready', insightJob: null, insightUpdatedAt });
+    }
+
+    // No job and no insight: nothing has ever been requested for this symbol. Report
+    // 'absent' rather than enqueueing — this endpoint is a read, GET /technicals starts work.
+    res.json({ symbol, insightStatus: 'absent', insightJob: null, insightUpdatedAt: null });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function getTickerInfo(req, res, next) {
   try {
     const sym = req.params.symbol.toUpperCase();
@@ -930,6 +1068,52 @@ async function getPrices(req, res, next) {
   }
 }
 
+// ── Wyckoff ───────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/screener/:symbol/wyckoff
+ *
+ * Server-side Wyckoff phase analysis — the engine the frontend used to run in the
+ * browser (see docs/FRONTEND_WYCKOFF_API.md).
+ *
+ * Query: chartYears (int, default 3), includeBars (bool, default true),
+ *        minPct (float, overrides the adaptive zigzag threshold).
+ *
+ * Insufficient history is NOT an HTTP error — it returns 200 with
+ * meta.insufficientData so the page can render its own empty state.
+ */
+async function getWyckoff(req, res, next) {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+
+    const chartYears = Math.max(1, Math.min(20, parseInt(req.query.chartYears, 10) || 3));
+    const includeBars = req.query.includeBars !== 'false';
+    const minPctRaw = parseFloat(req.query.minPct);
+    const minPct = Number.isFinite(minPctRaw) ? minPctRaw : null;
+
+    const allBars = await fetchWyckoffBars(prisma, symbol);
+    if (allBars.length === 0) {
+      return res.status(404).json({ error: `No price data found for symbol ${symbol}` });
+    }
+
+    const era = wyckoff.selectContiguousDailyEra(allBars);
+    const result = wyckoff.analyzeWyckoff(era.bars, { minPct });
+    const payload = wyckoff.buildWyckoffResponse({
+      symbol,
+      bars: era.bars,
+      result,
+      era,
+      totalRows: allBars.length,
+      options: { chartYears, includeBars },
+    });
+
+    setCacheTillMidnightIst(res);
+    res.json(payload);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ── Peer comparison ───────────────────────────────────────────────────────────
 
 /**
@@ -994,4 +1178,4 @@ async function getPeers(req, res, next) {
   }
 }
 
-module.exports = { getTickerInfo, getTechnicals, getFinancials, getPrices, getPeers };
+module.exports = { getTickerInfo, getTechnicals, getTechnicalsStatus, getFinancials, getPrices, getPeers, getWyckoff };

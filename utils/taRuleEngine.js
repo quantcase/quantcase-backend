@@ -821,13 +821,17 @@ function _collectAlerts(engines) {
  * @param {object} d          Daily indicators from taIndicators.computeAll()
  * @param {object} row        Watchlist row from Google Sheet
  * @param {object} crsData    { vsNifty: {crsValue, prevCrsValue}|null, vsSector: {sectorTicker, crsValue, prevCrsValue}|null }
+ * @param {string|null} fallbackPhase  Price-derived Wyckoff phase (lib/wyckoff.js), already
+ *                                     mapped to IndicatorRules.WYCKOFF. Used only when the
+ *                                     sheet has no PHASE for this ticker — the hand-maintained
+ *                                     sheet value still wins where it exists.
  * @returns {object}          ruleEngine payload
  */
-function computeRuleEngine(d, row, crsData) {
+function computeRuleEngine(d, row, crsData, fallbackPhase = null) {
   const cmp        = d.cmp;
   const support    = parseFloat(row['SUPPORT'])    || null;
   const resistance = parseFloat(row['RESISTANCE']) || null;
-  const phase      = (row['PHASE'] || '').toUpperCase().trim();
+  const phase      = (row['PHASE'] || '').toUpperCase().trim() || (fallbackPhase || '');
 
   // ── Structure Engine ───────────────────────────────────────────────────────
 

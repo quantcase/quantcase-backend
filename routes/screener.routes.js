@@ -7,11 +7,17 @@ const prowessController = require('../controllers/prowess.controller');
 // GET /api/screener/:symbol/technicals — technical data from Google Sheet watchlist
 router.get('/:symbol/technicals', screenerController.getTechnicals);
 
+// GET /api/screener/:symbol/technicals/status — cheap poll target for a pending AI insight
+router.get('/:symbol/technicals/status', screenerController.getTechnicalsStatus);
+
 // GET /api/screener/:symbol/financials — P&L, balance sheet, cash flow, TTM, metrics, valuation
 router.get('/:symbol/financials', screenerController.getFinancials);
 
 // GET /api/screener/:symbol/prices — day-wise OHLCV data (query: from, to as YYYY-MM-DD)
 router.get('/:symbol/prices', screenerController.getPrices);
+
+// GET /api/screener/:symbol/wyckoff — server-side Wyckoff phase analysis
+router.get('/:symbol/wyckoff', screenerController.getWyckoff);
 
 // GET /api/screener/:symbol/charts — chart-ready data grouped by Price, PE Ratio, Sales & Margin
 router.get('/:symbol/charts', prowessController.getCharts);

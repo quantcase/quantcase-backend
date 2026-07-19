@@ -140,6 +140,29 @@ async function fetchOhlcvBars(prisma, symbol, { since } = {}) {
 }
 
 /**
+ * Full unsliced daily OHLCV for the Wyckoff engine.
+ *
+ * Unlike fetchOhlcvBars this applies no `since` window — the engine wants every bar it
+ * can get for ATH/ATL and the long return horizons, and does its own era selection
+ * (lib/wyckoff.js#selectContiguousDailyEra) to discard the pre-2025 stretch where the
+ * table holds daily bars sampled weekly rather than true daily bars.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} symbol
+ * @returns {Promise<Array<{date,open,high,low,close,volume}>>} ascending, deduped by date
+ */
+async function fetchWyckoffBars(prisma, symbol) {
+  const rows = await prisma.nse_equity_new.findMany({
+    where:   { symbol },
+    orderBy: { datetime: 'asc' },
+    select:  { datetime: true, open: true, high: true, low: true, close: true, volume: true },
+  });
+  // aggregateBars('1d') also dedupes should the table ever gain two rows for one date —
+  // getPrices maps rows straight through and would not.
+  return aggregateBars(rows.filter(r => r.close != null), '1d');
+}
+
+/**
  * Latest single-row snapshot: close, pe, eps, market_cap_cr, datetime.
  *
  * @param {import('@prisma/client').PrismaClient} prisma
@@ -429,6 +452,7 @@ module.exports = {
   aggregateBars,
   aggregateIndexBars,
   fetchOhlcvBars,
+  fetchWyckoffBars,
   fetchMarketSnapshot,
   fetchMarketSnapshots,
   fetchDailySeries,
