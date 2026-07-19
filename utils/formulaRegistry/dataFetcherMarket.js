@@ -34,14 +34,18 @@ function aggregateBars(rows, interval) {
     const highVal  = isFinite(parseFloat(r.high))  ? parseFloat(r.high)  : closeVal;
     const lowVal   = isFinite(parseFloat(r.low))   ? parseFloat(r.low)   : closeVal;
     const openVal  = isFinite(parseFloat(r.open))  ? parseFloat(r.open)  : closeVal;
+    // marketCap tracks close (last value in the bucket wins) and is only present when the
+    // caller selected market_cap_cr; consumers that don't need it just ignore it.
+    const mcapVal = isFinite(parseFloat(r.market_cap_cr)) ? parseFloat(r.market_cap_cr) : null;
     if (!buckets.has(key)) {
-      buckets.set(key, { date: key, open: openVal, high: highVal, low: lowVal, close: closeVal, volume: Number(r.volume ?? 0) });
+      buckets.set(key, { date: key, open: openVal, high: highVal, low: lowVal, close: closeVal, volume: Number(r.volume ?? 0), marketCap: mcapVal });
     } else {
       const b  = buckets.get(key);
       b.high   = Math.max(b.high, highVal);
       b.low    = Math.min(b.low,  lowVal);
       b.close  = closeVal;
       b.volume += Number(r.volume ?? 0);
+      b.marketCap = mcapVal;
     }
   }
 
@@ -149,13 +153,16 @@ async function fetchOhlcvBars(prisma, symbol, { since } = {}) {
  *
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string} symbol
- * @returns {Promise<Array<{date,open,high,low,close,volume}>>} ascending, deduped by date
+ * market_cap_cr rides along so wyckoff.backAdjustSplits() can tell a bonus or split from a
+ * genuine crash — market cap is continuous across the former and collapses on the latter.
+ *
+ * @returns {Promise<Array<{date,open,high,low,close,volume,marketCap}>>} ascending, deduped by date
  */
 async function fetchWyckoffBars(prisma, symbol) {
   const rows = await prisma.nse_equity_new.findMany({
     where:   { symbol },
     orderBy: { datetime: 'asc' },
-    select:  { datetime: true, open: true, high: true, low: true, close: true, volume: true },
+    select:  { datetime: true, open: true, high: true, low: true, close: true, volume: true, market_cap_cr: true },
   });
   // aggregateBars('1d') also dedupes should the table ever gain two rows for one date —
   // getPrices maps rows straight through and would not.

@@ -1097,14 +1097,18 @@ async function getWyckoff(req, res, next) {
     }
 
     const era = wyckoff.selectContiguousDailyEra(allBars);
-    const result = wyckoff.analyzeWyckoff(era.bars, { minPct });
+    // Correct corroborated splits/bonuses before analysis — left raw, a 1:1 bonus reads
+    // as a -50% crash and pins the phase to Markdown.
+    const splits = wyckoff.backAdjustSplits(era.bars);
+    const result = wyckoff.analyzeWyckoff(splits.bars, { minPct });
     const payload = wyckoff.buildWyckoffResponse({
       symbol,
-      bars: era.bars,
+      bars: splits.bars,
       result,
       era,
       totalRows: allBars.length,
       options: { chartYears, includeBars },
+      splits,
     });
 
     setCacheTillMidnightIst(res);
