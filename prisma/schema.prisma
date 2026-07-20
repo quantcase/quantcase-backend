@@ -2209,6 +2209,14 @@ model ScreenConfig {
   // Null = show all available periods (today's unconditional behavior).
   periods_shown  Int?
   decimal_places Int                @default(2)
+  // Which KpiGroup branch populates this section's rows (e.g.
+  // "pnl-statement--annual") -- its direct children become top-level rows,
+  // and any of THEIR children (e.g. Fixed Assets' component assets) become
+  // nested rows. Plain string ref to KpiGroup.slug, not an FK -- same
+  // convention as kpi_abbr/company_group_slug elsewhere. Null = section has
+  // no rows (or, for chart/peer configs, isn't row-based at all -- those
+  // keep using `items` below, untouched).
+  kpi_group_slug String?
   created_at     DateTime           @default(now())
   updated_at     DateTime           @updatedAt
   items          ScreenConfigItem[]

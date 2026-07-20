@@ -78,6 +78,38 @@ async function resolveProwessName(prisma, ticker) {
   return prowessName;
 }
 
+/**
+ * Bulk-populates _nameCache for many tickers in one query instead of one
+ * findFirst per ticker — resolveProwessName's per-ticker query is fine for a
+ * handful of companies, but createMultiCompanyResolutionContext calling it
+ * once per symbol via Promise.all floods the connection pool before any
+ * financial data is even fetched once symbol counts run into the hundreds.
+ * Same match logic as resolveProwessName, just batched; already-cached
+ * tickers are skipped.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string[]} tickers
+ */
+async function warmProwessNameCache(prisma, tickers) {
+  const uncached = [...new Set(tickers)].filter(t => !_nameCache.has(t));
+  if (!uncached.length) return;
+
+  const rows = await prisma.earnings_calls.findMany({
+    where:    { company: { in: uncached } },
+    select:   { company: true, company_name: true },
+    distinct: ['company'],
+  });
+  const nameByTicker = new Map(rows.map(r => [r.company, r.company_name]));
+
+  const identityMap = loadIdentityMap();
+  for (const ticker of uncached) {
+    const companyName = nameByTicker.get(ticker);
+    let prowessName = companyName ? _matchProwessName(companyName) : null;
+    if (!prowessName) prowessName = identityMap[ticker] ?? null;
+    _nameCache.set(ticker, prowessName);
+  }
+}
+
 // ── Period helpers ────────────────────────────────────────────────────────────
 
 function _distinctPeriods(rows) {
@@ -110,6 +142,8 @@ function _buildResult(abbrs, allPeriods, kpiRows) {
         period:      `${p.fiscal_year}-${p.quarter}`,
         fiscal_year: p.fiscal_year,
         quarter:     p.quarter,
+        start_date:  p.start_date ?? null,
+        end_date:    p.end_date ?? null,
         call_date:   null,
         value,
         abbrUsed:    value != null ? abbr : null,
@@ -137,7 +171,7 @@ async function fetchTimeSeries(prisma, ticker, abbr) {
   const [allPeriods, kpiRows] = await Promise.all([
     prisma.prowessValueNew.findMany({
       where:    { company: prowessName, source_type: 'C' },
-      select:   { fiscal_year: true, quarter: true },
+      select:   { fiscal_year: true, quarter: true, start_date: true, end_date: true },
       distinct: ['fiscal_year', 'quarter'],
       orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
     }),
@@ -150,7 +184,7 @@ async function fetchTimeSeries(prisma, ticker, abbr) {
   const [allPeriodsEff, kpiRowsEff] = allPeriods.length ? [allPeriods, kpiRows] : await Promise.all([
     prisma.prowessValueNew.findMany({
       where:    { company: prowessName, source_type: 'S' },
-      select:   { fiscal_year: true, quarter: true },
+      select:   { fiscal_year: true, quarter: true, start_date: true, end_date: true },
       distinct: ['fiscal_year', 'quarter'],
       orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
     }),
@@ -195,7 +229,7 @@ async function fetchTimeSeriesBatch(prisma, ticker, abbrs) {
   let [allPeriods, kpiRows] = await Promise.all([
     prisma.prowessValueNew.findMany({
       where:    { company: prowessName, source_type: 'C' },
-      select:   { fiscal_year: true, quarter: true },
+      select:   { fiscal_year: true, quarter: true, start_date: true, end_date: true },
       distinct: ['fiscal_year', 'quarter'],
       orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
     }),
@@ -243,7 +277,7 @@ async function fetchAnnualBatch(prisma, ticker, abbrs) {
   let [allPeriods, kpiRows] = await Promise.all([
     prisma.prowessValueNew.findMany({
       where:    { company: prowessName, source_type: 'C', callId: { startsWith: 'prowess_new_' } },
-      select:   { fiscal_year: true, quarter: true },
+      select:   { fiscal_year: true, quarter: true, start_date: true, end_date: true },
       distinct: ['fiscal_year', 'quarter'],
       orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
     }),
@@ -289,7 +323,7 @@ async function fetchQuarterlyBatch(prisma, ticker, abbrs) {
   const [allPeriods, kpiRows] = await Promise.all([
     prisma.prowessValueNew.findMany({
       where:    { company: prowessName, source_type: 'S', callId: { startsWith: 'prowess_qtr_' } },
-      select:   { fiscal_year: true, quarter: true },
+      select:   { fiscal_year: true, quarter: true, start_date: true, end_date: true },
       distinct: ['fiscal_year', 'quarter'],
       orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
     }),
@@ -442,6 +476,7 @@ async function fetchQuarterlyBatchMulti(prisma, companyNames, abbrs) {
 
 module.exports = {
   resolveProwessName,
+  warmProwessNameCache,
   fetchTimeSeries,
   fetchTimeSeriesBatch,
   fetchAnnualBatch,

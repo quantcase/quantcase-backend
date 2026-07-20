@@ -14,6 +14,10 @@ const screenConfigFieldsSchema = z.object({
   endpoint:       z.string().nullable().optional(),
   periods_shown:  z.coerce.number().int().positive().nullable().optional(),
   decimal_places: z.coerce.number().int().min(0).optional(),
+  // Which KpiGroup branch populates this section's rows (e.g.
+  // "pnl-statement--annual") -- null/omitted for chart/peer configs, which
+  // still use `items` below.
+  kpi_group_slug: z.string().nullable().optional(),
 });
 
 const createScreenConfigSchema = screenConfigFieldsSchema.extend({

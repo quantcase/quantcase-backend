@@ -15,8 +15,8 @@
  * automated instead of manually specified.
  */
 
-const { resolveProwessName, fetchAnnualBatch, fetchQuarterlyBatch, fetchAnnualBatchMulti, fetchQuarterlyBatchMulti } = require('./dataFetcherCore');
-const { fetchMarketSnapshot, fetchMarketSnapshots, fetchAllDailySeries, DAILY_SERIES_FIELDS } = require('./dataFetcherMarket');
+const { resolveProwessName, warmProwessNameCache, fetchAnnualBatch, fetchQuarterlyBatch, fetchAnnualBatchMulti, fetchQuarterlyBatchMulti } = require('./dataFetcherCore');
+const { fetchMarketSnapshot, fetchMarketSnapshots, fetchAllDailySeries, DAILY_SERIES_FIELDS, DAILY_RESAMPLE_MODE, resampleToFrequency, resampleToPeriods } = require('./dataFetcherMarket');
 const { getProwessRawAbbrs, getDailyRawAbbrs } = require('./registryCache');
 const companyGroups = require('../../services/companyGroups/resolver');
 const prismaDefault = require('../../config/prisma');
@@ -29,7 +29,13 @@ const DAILY_ABBR_TO_SNAPSHOT_FIELD = DAILY_SERIES_FIELDS;
 function _seriesToPoints(seriesRows) {
   // fetchAnnualBatch/fetchQuarterlyBatch return period-padded arrays
   // (one entry per known period, value null where missing), oldest → newest.
-  return (seriesRows ?? []).map(r => ({ value: r.value, fiscal_year: r.fiscal_year, quarter: r.quarter }));
+  // start_date/end_date (when present) are each period's real fiscal-quarter
+  // boundary -- kept so daily-native abbrs can be resampled onto this exact
+  // period list, see getProwessSeriesMap's daily-abbr merge below.
+  return (seriesRows ?? []).map(r => ({
+    value: r.value, fiscal_year: r.fiscal_year, quarter: r.quarter,
+    start_date: r.start_date ?? null, end_date: r.end_date ?? null,
+  }));
 }
 
 /**
@@ -37,9 +43,15 @@ function _seriesToPoints(seriesRows) {
  * @param {import('@prisma/client').PrismaClient} [opts.prisma]
  * @param {string} opts.symbol   — ticker, e.g. "RELIANCE" (used for nse_equity_new + CompanyGroup membership)
  * @param {string} [opts.company] — already-resolved Prowess company name; resolved from `symbol` if omitted
- * @param {string} [opts.frequency] — default frequency when a Kpi definition doesn't pin one ('annual'|'quarterly')
+ * @param {string} [opts.frequency] — explicit default frequency for calls that don't pass their own;
+ *   left undefined when omitted (not defaulted to 'annual') so financial.js's precedence chain can
+ *   tell "caller asked for X" apart from "caller didn't say" — see resolveMetric's frequency selection.
+ * @param {string} [opts.resampleMode] — 'average'|'latest', overrides DAILY_RESAMPLE_MODE for every
+ *   daily-native abbr resolved through THIS context. Debug/testing knob only (admin.kpis.service.js's
+ *   previewKpi threads its ?resample_mode= query param through here) — not persisted anywhere, and no
+ *   other caller sets it, so every other context still uses each abbr's fixed default policy.
  */
-function createResolutionContext({ prisma, symbol, company, frequency = 'annual' } = {}) {
+function createResolutionContext({ prisma, symbol, company, frequency, resampleMode } = {}) {
   const db = prisma ?? prismaDefault;
 
   let companyNamePromise = company ? Promise.resolve(company) : null;
@@ -62,6 +74,24 @@ function createResolutionContext({ prisma, symbol, company, frequency = 'annual'
           : await fetchAnnualBatch(db, symbol, abbrs);
         const out = {};
         for (const abbr of abbrs) out[abbr] = _seriesToPoints(raw[abbr]);
+
+        // Merge in daily-native abbrs (PRICE/PE_DAILY/MCAP_SNAPSHOT), resampled
+        // onto this SAME period list (real start_date/end_date per period, not
+        // a guessed calendar boundary) -- so a formula that references one of
+        // them mid-walk (_resolveAtIndex, e.g. ENTERPRISE_VALUE's MCAP_SNAPSHOT
+        // term inside EV_EBITDA's historical series) finds a real, correctly
+        // fiscal-period-aligned value at seriesMap[abbr][i] instead of nothing.
+        // No change needed in _resolveAtIndex itself -- it already reads
+        // straight from this map.
+        const periods = out[abbrs[0]];
+        if (periods?.length) {
+          const dailyMap = await getDailySeriesMap();
+          for (const dailyAbbr of Object.keys(DAILY_SERIES_FIELDS)) {
+            const mode = resampleMode ?? DAILY_RESAMPLE_MODE[dailyAbbr];
+            if (!mode) continue;
+            out[dailyAbbr] = resampleToPeriods(dailyMap[dailyAbbr] ?? [], periods, mode);
+          }
+        }
         return out;
       })());
     }
@@ -96,11 +126,24 @@ function createResolutionContext({ prisma, symbol, company, frequency = 'annual'
     return groupMembership.get(slug);
   }
 
-  /** Non-null-filtered points, oldest → newest, for CAGR/AVG/SUM. */
+  /**
+   * Non-null-filtered points, oldest → newest, for CAGR/AVG/SUM.
+   *
+   * Routing is decided by whether `abbr` is a daily-native (nse_equity_new-
+   * backed) abbr, not by `freq` — the resolver is agnostic to which cadence
+   * is being asked for. A daily-native abbr asked for at its own native
+   * 'daily' is served directly; asked at a coarser 'quarterly'/'annual', its
+   * native series is bucketed via DAILY_RESAMPLE_MODE (see
+   * dataFetcherMarket.js) instead of silently returning nothing.
+   */
   async function getSeries(abbr, freq) {
-    if (freq === 'daily') {
+    if (DAILY_SERIES_FIELDS[abbr]) {
       const map = await getDailySeriesMap();
-      return map[abbr] ?? [];
+      const native = map[abbr] ?? [];
+      if (freq === 'daily' || !freq) return native;
+      const mode = resampleMode ?? DAILY_RESAMPLE_MODE[abbr];
+      if (!mode) return []; // no resample policy declared for this abbr -- can't serve a coarser request
+      return resampleToFrequency(native, freq, mode);
     }
     const map = await getProwessSeriesMap(freq);
     return map[abbr] ?? [];
@@ -114,11 +157,15 @@ function createResolutionContext({ prisma, symbol, company, frequency = 'annual'
 
   /** Latest non-null value for a raw abbr — matches fetchKpiMap's "latest period that has a value" semantics. */
   async function getCurrentValue(abbr, freq) {
-    if (freq === 'daily') {
-      const field = DAILY_ABBR_TO_SNAPSHOT_FIELD[abbr];
-      if (!field) return null;
-      const snap = await getDailySnapshot();
-      return snap ? snap[field] ?? null : null;
+    if (DAILY_SERIES_FIELDS[abbr]) {
+      if (freq === 'daily' || !freq) {
+        const field = DAILY_ABBR_TO_SNAPSHOT_FIELD[abbr];
+        if (!field) return null;
+        const snap = await getDailySnapshot();
+        return snap ? snap[field] ?? null : null;
+      }
+      const points = await getSeries(abbr, freq); // resampled to freq
+      return points.length ? points[points.length - 1].value : null;
     }
     const points = await getSeries(abbr, freq);
     for (let i = points.length - 1; i >= 0; i--) {
@@ -129,7 +176,13 @@ function createResolutionContext({ prisma, symbol, company, frequency = 'annual'
 
   /** Strictly-adjacent current/previous pair (last two known periods) — matches today's prevKpiMap delta semantics. */
   async function getCurrentAndPrevious(abbr, freq) {
-    if (freq === 'daily') return { curr: await getCurrentValue(abbr, freq), prev: null };
+    if (DAILY_SERIES_FIELDS[abbr]) {
+      if (freq === 'daily' || !freq) return { curr: await getCurrentValue(abbr, freq), prev: null };
+      const points = await getSeries(abbr, freq); // resampled to freq
+      const curr = points.length ? points[points.length - 1].value : null;
+      const prev = points.length > 1 ? points[points.length - 2].value : null;
+      return { curr, prev };
+    }
     const map = await getProwessSeriesMap(freq);
     const points = map[abbr] ?? [];
     const curr = points.length ? points[points.length - 1].value : null;
@@ -139,11 +192,21 @@ function createResolutionContext({ prisma, symbol, company, frequency = 'annual'
 
   /** Period (fiscal_year/quarter, or date for daily) the value getCurrentValue would return came from — admin-preview display only, never used in computation. */
   async function getCurrentPeriod(abbr, freq) {
-    if (freq === 'daily') {
-      const field = DAILY_ABBR_TO_SNAPSHOT_FIELD[abbr];
-      if (!field) return null;
-      const snap = await getDailySnapshot();
-      return snap?.datetime ? { frequency: 'daily', date: snap.datetime } : null;
+    if (DAILY_SERIES_FIELDS[abbr]) {
+      if (freq === 'daily' || !freq) {
+        const field = DAILY_ABBR_TO_SNAPSHOT_FIELD[abbr];
+        if (!field) return null;
+        const snap = await getDailySnapshot();
+        return snap?.datetime ? { frequency: 'daily', date: snap.datetime } : null;
+      }
+      // Always 'daily' here, never `freq` -- a resampled value is still
+      // fundamentally "as of a specific date", regardless of which coarser
+      // frequency it was requested at. Reporting `freq` (e.g. 'annual')
+      // alongside a `date` field produced a self-contradictory period shape
+      // that confused the admin preview UI (looked like neither a normal
+      // daily period nor a normal fiscal one).
+      const points = await getSeries(abbr, freq); // resampled to freq
+      return points.length ? { frequency: 'daily', date: points[points.length - 1].date } : null;
     }
     const points = await getSeries(abbr, freq);
     for (let i = points.length - 1; i >= 0; i--) {
@@ -238,6 +301,7 @@ function createSeriesOnlyContext({ series = [], frequency = 'annual' } = {}) {
 async function createMultiCompanyResolutionContext({ prisma, symbols, frequency = 'annual' } = {}) {
   const db = prisma ?? prismaDefault;
 
+  await warmProwessNameCache(db, symbols);
   const companyNames = await Promise.all(symbols.map(sym => resolveProwessName(db, sym)));
   const symbolToCompany = new Map(symbols.map((sym, i) => [sym, companyNames[i]]));
   const validCompanyNames = [...new Set(companyNames.filter(Boolean))];
