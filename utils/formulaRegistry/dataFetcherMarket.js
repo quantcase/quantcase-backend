@@ -265,6 +265,86 @@ async function fetchPeTimeSeries(prisma, symbol, { months, since } = {}) {
 // the two maps intentionally mirror each other.
 const DAILY_SERIES_FIELDS = { PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'market_cap_cr' };
 
+// How to collapse this daily abbr's native series into a coarser bucket
+// (calendar quarter/year) when something asks for it at 'quarterly' or
+// 'annual' -- application-level policy, not admin-configurable: every abbr
+// in DAILY_SERIES_FIELDS is expected to have an entry here (resolutionContext
+// .js treats a missing entry as "can't be resampled", so add one whenever a
+// new daily abbr is added above). All three today are point-in-time
+// snapshots (a price/ratio "as of" a date), so 'latest' -- the most recent
+// value within the bucket -- is the only mode that makes sense; 'average'
+// exists for a future abbr where a period mean would be more meaningful.
+const DAILY_RESAMPLE_MODE = { PRICE: 'latest', PE_DAILY: 'latest', MCAP_SNAPSHOT: 'latest' };
+
+/**
+ * Buckets an ascending {value, date}[] series into calendar quarters or
+ * years and reduces each bucket to one point via `mode` -- the mechanism
+ * that lets a genuinely-daily abbr (PRICE) serve a 'quarterly'/'annual'
+ * request with the exact same CAGR/AVG/SUM formula grammar every annual
+ * Kpi already uses, no bespoke date-anchoring logic. Calendar-based (not
+ * fiscal-year-aligned) -- stock price has no fiscal year of its own, and
+ * this mirrors how the old windowedStockCagr bucketed by calendar month.
+ *
+ * @param {Array<{value: number|null, date: string}>} points
+ * @param {'quarterly'|'annual'} freq
+ * @param {'average'|'latest'} mode
+ * @returns {Array<{value: number|null, date: string}>} one point per bucket, ascending
+ */
+function resampleToFrequency(points, freq, mode) {
+  const buckets = new Map(); // bucketKey -> points in that bucket, ascending
+  for (const p of points) {
+    if (p.value == null) continue;
+    const d = new Date(p.date);
+    const year = d.getUTCFullYear();
+    const key = freq === 'annual' ? `${year}` : `${year}-Q${Math.floor(d.getUTCMonth() / 3) + 1}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(p);
+  }
+  return [...buckets.keys()].sort().map((key) => {
+    const pts = buckets.get(key);
+    const value = mode === 'average'
+      ? pts.reduce((s, p) => s + p.value, 0) / pts.length
+      : pts[pts.length - 1].value; // 'latest'
+    return { value, date: pts[pts.length - 1].date };
+  });
+}
+
+/**
+ * Same idea as resampleToFrequency, but bucketed against a real, explicit
+ * list of periods (each with its own [start_date, end_date]) instead of
+ * computed calendar boundaries -- what makes the resampled series land on
+ * the *company's actual fiscal quarters* (e.g. Apr-Jun, not calendar Q2)
+ * instead of drifting out of alignment with it. This is what lets a
+ * daily-native abbr (PRICE/MCAP_SNAPSHOT) sit correctly, index-for-index,
+ * alongside genuine Prowess fundamentals in the same seriesMap that
+ * _resolveAtIndex walks -- no changes needed there, since the map it reads
+ * now just has real values for these abbrs instead of nothing.
+ *
+ * @param {Array<{value: number|null, date: string}>} points — ascending daily points
+ * @param {Array<{fiscal_year: string, quarter: string|null, start_date: string|null, end_date: string|null}>} periods — ascending, from fetchAnnualBatch/fetchQuarterlyBatch's period list
+ * @param {'average'|'latest'} mode
+ * @returns {Array<{value: number|null, fiscal_year: string, quarter: string|null}>} one entry per period, same order/length as `periods`
+ */
+function resampleToPeriods(points, periods, mode) {
+  const valid = points.filter((p) => p.value != null);
+  return periods.map((period) => {
+    if (!period.start_date || !period.end_date) {
+      return { value: null, fiscal_year: period.fiscal_year, quarter: period.quarter };
+    }
+    const start = new Date(period.start_date);
+    const end   = new Date(period.end_date);
+    const inRange = valid.filter((p) => {
+      const d = new Date(p.date);
+      return d >= start && d <= end;
+    });
+    if (!inRange.length) return { value: null, fiscal_year: period.fiscal_year, quarter: period.quarter };
+    const value = mode === 'average'
+      ? inRange.reduce((s, p) => s + p.value, 0) / inRange.length
+      : inRange[inRange.length - 1].value; // 'latest'
+    return { value, fiscal_year: period.fiscal_year, quarter: period.quarter };
+  });
+}
+
 /**
  * Full daily history of one nse_equity_new column for one symbol, oldest →
  * newest — the generic series-fetching counterpart to fetchMarketSnapshot's
@@ -458,6 +538,9 @@ async function fetchIndexBars(prisma, sector, { since } = {}) {
 module.exports = {
   aggregateBars,
   aggregateIndexBars,
+  DAILY_RESAMPLE_MODE,
+  resampleToFrequency,
+  resampleToPeriods,
   fetchOhlcvBars,
   fetchWyckoffBars,
   fetchMarketSnapshot,

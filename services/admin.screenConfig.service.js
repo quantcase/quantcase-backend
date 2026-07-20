@@ -28,6 +28,12 @@ async function _assertCompanyGroupExists(slug) {
   if (!exists) throw new HttpError(422, `company_group_slug "${slug}" does not exist.`);
 }
 
+async function _assertKpiGroupExists(slug) {
+  if (!slug) return;
+  const exists = await prisma.kpiGroup.findUnique({ where: { slug }, select: { slug: true } });
+  if (!exists) throw new HttpError(422, `kpi_group_slug "${slug}" does not exist.`);
+}
+
 // ── ScreenConfig ─────────────────────────────────────────────────────────────
 
 async function listScreenConfigs({ search } = {}) {
@@ -48,9 +54,10 @@ async function getScreenConfig(key) {
   return config;
 }
 
-async function createScreenConfig({ key, label, endpoint, periods_shown, decimal_places }) {
+async function createScreenConfig({ key, label, endpoint, periods_shown, decimal_places, kpi_group_slug }) {
   const existing = await prisma.screenConfig.findUnique({ where: { key } });
   if (existing) throw new HttpError(409, `ScreenConfig with key "${key}" already exists.`);
+  await _assertKpiGroupExists(kpi_group_slug);
 
   return prisma.screenConfig.create({
     data: {
@@ -59,6 +66,7 @@ async function createScreenConfig({ key, label, endpoint, periods_shown, decimal
       endpoint: endpoint ?? null,
       periods_shown: periods_shown ?? null,
       decimal_places: decimal_places ?? 2,
+      kpi_group_slug: kpi_group_slug ?? null,
     },
   });
 }
@@ -66,9 +74,10 @@ async function createScreenConfig({ key, label, endpoint, periods_shown, decimal
 async function updateScreenConfig(key, patch) {
   const existing = await prisma.screenConfig.findUnique({ where: { key } });
   if (!existing) throw new HttpError(404, `No ScreenConfig with key "${key}".`);
+  if ('kpi_group_slug' in patch) await _assertKpiGroupExists(patch.kpi_group_slug);
 
   const data = {};
-  for (const field of ['label', 'endpoint', 'periods_shown', 'decimal_places']) {
+  for (const field of ['label', 'endpoint', 'periods_shown', 'decimal_places', 'kpi_group_slug']) {
     if (field in patch) data[field] = patch[field];
   }
   return prisma.screenConfig.update({ where: { key }, data });

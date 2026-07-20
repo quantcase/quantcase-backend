@@ -11,7 +11,7 @@
  */
 
 const prisma = require('../../config/prisma');
-const { resolveMetric, createResolutionContext } = require('../../utils/formulaRegistry');
+const { resolveMetric, createMultiCompanyResolutionContext } = require('../../utils/formulaRegistry');
 const { invalidateGroupCache } = require('./resolver');
 
 class HttpError extends Error {
@@ -87,13 +87,30 @@ async function detachFilter(slug, attachmentId) {
 
 /**
  * Evaluates every filter attached to `slug` (AND-combined) against every
- * known company and repopulates CompanyGroupMember. Runs with bounded
- * concurrency since it self-fetches per-company data via
- * createResolutionContext — for the full ~2k-company universe this can take
- * a while; it's meant to be triggered on demand (after editing a group's
- * filters), not on a hot request path.
+ * known company and repopulates CompanyGroupMember. Companies are resolved
+ * in batches via createMultiCompanyResolutionContext (a handful of bulk
+ * queries per batch, covering every company in that batch at once) rather
+ * than self-fetching one company at a time — the old per-company approach
+ * (createResolutionContext + a bounded worker pool) issued 2-8+ DB round
+ * trips per company sequentially; for the ~2k-company universe that was
+ * enough to exhaust prisma's connection pool (connection_limit=10 against
+ * the pgbouncer pooler — see .env) or outlive Supabase's statement timeout
+ * partway through, without ever finishing. Batched (rather than one
+ * multi-company call for the whole universe) to keep each batch's
+ * result-set size and query duration bounded.
+ *
+ * Note: createMultiCompanyResolutionContext only serves current-value
+ * resolution for daily-native abbrs (PRICE/PE_DAILY/MCAP_SNAPSHOT) — a
+ * KpiFilter on a CAGR/AVG/SUM formula over one of those abbrs won't resolve
+ * correctly here (see that function's own docblock in resolutionContext.js).
+ * Not a concern for any filter today (all reference Prowess-backed
+ * annual/quarterly KPIs), but worth knowing if a daily-derived filter is
+ * ever added.
+ *
+ * Meant to be triggered on demand (after editing a group's filters), not on
+ * a hot request path.
  */
-async function recomputeGroup(slug, { concurrency = 8 } = {}) {
+async function recomputeGroup(slug, { batchSize = 100 } = {}) {
   const group = await _getGroup(slug);
   if (group.filter_type !== 'kpi_filter') {
     throw new HttpError(422, `Company group "${slug}" has filter_type "${group.filter_type}", not "kpi_filter" — recompute only applies to kpi_filter groups.`);
@@ -109,12 +126,11 @@ async function recomputeGroup(slug, { concurrency = 8 } = {}) {
     const companies = await prisma.earnings_calls.findMany({ select: { company: true }, distinct: ['company'] });
     const symbols = companies.map(c => c.company).filter(Boolean);
 
-    let idx = 0;
-    async function worker() {
-      const hits = [];
-      while (idx < symbols.length) {
-        const symbol = symbols[idx++];
-        const ctx = createResolutionContext({ symbol });
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      const batch = symbols.slice(i, i + batchSize);
+      const contexts = await createMultiCompanyResolutionContext({ symbols: batch });
+      for (const symbol of batch) {
+        const ctx = contexts.get(symbol);
         let ok = true;
         for (const att of attachments) {
           const f = att.kpi_filter;
@@ -122,12 +138,9 @@ async function recomputeGroup(slug, { concurrency = 8 } = {}) {
           const { value } = await resolveMetric(f.kpi_abbr, ctx, opts);
           if (!_passesFilter(value, f)) { ok = false; break; }
         }
-        if (ok) hits.push(symbol);
+        if (ok) matched.push(symbol);
       }
-      return hits;
     }
-    const results = await Promise.all(Array.from({ length: Math.min(concurrency, symbols.length) || 1 }, worker));
-    matched = results.flat();
   }
 
   await prisma.$transaction([

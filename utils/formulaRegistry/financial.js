@@ -49,11 +49,15 @@ async function _resolveVariantOverride(abbr, resCtx) {
  * (e.g. ROCE_3Y_AVG averaging ROCE, itself a formula), not just a raw abbr's
  * own stored series.
  *
- * Deliberately narrower than the main async resolveMetric: only supports
- * plain arithmetic over bare refs / raw-with-fallback chains (no nested
- * CAGR/AVG/SUM/DELTA, no company-group variant selection) — sufficient for
- * every current average-type entry. A formula that needs more than this at a
- * historical index resolves to null at that index rather than throwing.
+ * Deliberately narrower than the main async resolveMetric: plain arithmetic
+ * over bare refs / raw-with-fallback chains, plus CAGR/SUM (only) windowed
+ * over the SAME seriesMap/index space as the outer walk — correct with no
+ * date-alignment logic needed, because the referenced abbr's own history at
+ * each index k comes from this same per-frequency period list (including
+ * daily-native abbrs like PRICE/MCAP_SNAPSHOT, which resolutionContext.js's
+ * getProwessSeriesMap now resamples onto that exact list too). AVG/DELTA
+ * remain unsupported mid-walk — no current formula needs them here, and
+ * still resolve to null at that index rather than throwing, same as before.
  */
 async function _resolveAtIndex(abbr, seriesMap, i, visiting) {
   if (visiting.has(abbr)) return null;
@@ -71,8 +75,15 @@ async function _resolveAtIndex(abbr, seriesMap, i, visiting) {
   } else {
     value = await evaluate(def.ast, {
       resolveRef:       (refAbbr) => _resolveAtIndex(refAbbr, seriesMap, i, nextVisiting),
-      resolveAggregate: async () => null,
-      resolveDelta:     async () => null,
+      resolveAggregate: async (fnName, refAbbr, window) => {
+        if (fnName !== 'CAGR' && fnName !== 'SUM') return null;
+        const points = [];
+        for (let k = 0; k <= i; k++) {
+          points.push({ value: await _resolveAtIndex(refAbbr, seriesMap, k, nextVisiting) });
+        }
+        return fnName === 'CAGR' ? cagrFromSeries(points, window) : sumFromSeries(points, window);
+      },
+      resolveDelta: async () => null,
     });
   }
 
@@ -108,7 +119,13 @@ async function resolveFormulaSeries(abbr, resCtx, opts = {}) {
   const def = await getDefinition(abbr);
   if (!def) return [];
 
-  const freq = def.frequency ?? opts.frequency ?? resCtx.frequency ?? 'annual';
+  // Caller intent (opts.frequency, then resCtx.frequency if the caller set
+  // one at context-creation time) outranks the Kpi's own pinned frequency —
+  // the pin is only a fallback DEFAULT for callers that don't say, not a
+  // silent override of an explicit request (this is what makes e.g. the
+  // admin preview's ?frequency= param actually take effect for a pinned
+  // abbr like PRICE, instead of being unconditionally ignored).
+  const freq = opts.frequency ?? resCtx.frequency ?? def.frequency ?? 'annual';
   const seriesMap = await resCtx.getSeriesMap(freq);
   const anyAbbr = Object.keys(seriesMap)[0];
   const length = anyAbbr ? seriesMap[anyAbbr].length : 0;
@@ -168,9 +185,21 @@ async function _evaluateFormula(def, freq, resCtx, visiting) {
       if (r.period) periods.push(r.period);
       return r.value;
     },
+    // refFreq: the formula being evaluated (`freq`, already resolved via
+    // resolveMetric/resolveFormulaSeries's own caller-outranks-pin logic)
+    // always wins over the referenced abbr's own pin here — deliberately the
+    // opposite emphasis from that top-level chain, but consistent with the
+    // same "explicit beats stored default" rule: `freq` at this point IS an
+    // explicit, already-decided value (never absent), so a referenced abbr's
+    // pin (e.g. PRICE's 'daily') never gets a chance to silently win. This is
+    // what lets e.g. CAGR(PRICE, 3) at 'annual' actually resample PRICE to
+    // annual instead of being stuck at its own daily pin. Safe today because
+    // no existing formula's CAGR/AVG/SUM/DELTA argument references an abbr
+    // that also carries its own pin (verified) — if one ever does, it now
+    // inherits the outer formula's frequency, not its own.
     resolveAggregate: async (fnName, refAbbr, window) => {
       const refDef = await getDefinition(refAbbr);
-      const refFreq = refDef?.frequency ?? freq;
+      const refFreq = freq ?? refDef?.frequency;
       const points = await _seriesForAggregate(refAbbr, refFreq, resCtx);
       if (fnName === 'CAGR') return cagrFromSeries(points, window);
       if (fnName === 'AVG')  return averageFromSeries(points, window);
@@ -179,7 +208,7 @@ async function _evaluateFormula(def, freq, resCtx, visiting) {
     },
     resolveDelta: async (refAbbr) => {
       const refDef = await getDefinition(refAbbr);
-      const refFreq = refDef?.frequency ?? freq;
+      const refFreq = freq ?? refDef?.frequency;
       const { curr, prev } = await resCtx.getCurrentAndPrevious(refAbbr, refFreq);
       return curr != null && prev != null ? curr - prev : null;
     },
@@ -199,7 +228,11 @@ async function resolveMetric(abbr, resCtx, opts = {}) {
   const def = await getDefinition(abbr);
   if (!def) return { value: null, source: 'no_data' };
 
-  const freq = def.frequency ?? opts.frequency ?? resCtx.frequency ?? 'annual';
+  // Explicit caller intent outranks the Kpi's own pinned frequency — the pin
+  // is a fallback default for callers that don't say, not a silent override
+  // of a request (see resolveFormulaSeries's identical chain for the full
+  // rationale).
+  const freq = opts.frequency ?? resCtx.frequency ?? def.frequency ?? 'annual';
 
   const visiting = opts._visiting ?? new Set();
   if (visiting.has(abbr)) return { value: null, source: 'cycle_detected' };

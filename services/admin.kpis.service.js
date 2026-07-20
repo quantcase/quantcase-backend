@@ -183,13 +183,25 @@ async function updateKpi(abbr, patch) {
 
 // ── Preview / formula validation (admin-facing "verify before trusting") ────
 
-/** Resolves `abbr` for a real company so admin can sanity-check a formula/fallback chain before trusting it. */
-async function previewKpi(abbr, { symbol, frequency } = {}) {
+/**
+ * Resolves `abbr` for a real company so admin can sanity-check a formula/fallback chain before trusting it.
+ *
+ * `resample_mode` is a debug-only override — lets admin compare 'average' vs
+ * 'latest' for a daily-native abbr (PRICE/PE_DAILY/MCAP_SNAPSHOT) at a
+ * coarser frequency without persisting anything; every abbr still resolves
+ * via its fixed DAILY_RESAMPLE_MODE policy everywhere else (see
+ * dataFetcherMarket.js) when this isn't passed.
+ */
+async function previewKpi(abbr, { symbol, frequency, resample_mode } = {}) {
   if (!symbol) throw new HttpError(422, 'symbol query param is required, e.g. ?symbol=RELIANCE');
   const kpi = await prisma.kpi.findUnique({ where: { abbr } });
   if (!kpi) throw new HttpError(404, `No Kpi with abbr "${abbr}".`);
 
-  const ctx = createResolutionContext({ symbol, ...(frequency ? { frequency } : {}) });
+  const ctx = createResolutionContext({
+    symbol,
+    ...(frequency ? { frequency } : {}),
+    ...(resample_mode ? { resampleMode: resample_mode } : {}),
+  });
   return previewMetric(abbr, ctx);
 }
 

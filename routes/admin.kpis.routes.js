@@ -37,9 +37,9 @@ const listQuerySchema = z.object({
 // it never did.
 const kpiFieldsSchema = z.object({
   full_form:          z.string().min(1),
-  denomination:        z.enum(DENOMINATIONS).optional(),
-  kpi_type:            z.enum(KPI_TYPES).optional(),
-  prowess_name:        z.string().optional(),
+  denomination:        z.enum(DENOMINATIONS).nullable().optional(),
+  kpi_type:            z.enum(KPI_TYPES).nullable().optional(),
+  prowess_name:        z.string().nullable().optional(),
   // Null = raw leaf. Arithmetic + CAGR/AVG/SUM/DELTA/MAX/MIN/COALESCE — see
   // utils/formulaRegistry/expressionEvaluator.js. Validated (parsed, refs
   // checked, cycle-checked) server-side before it's ever saved.
@@ -56,10 +56,15 @@ const createKpiSchema = kpiFieldsSchema.extend({
 
 const updateKpiSchema = kpiFieldsSchema.partial();
 
-// GET /admin/kpis/:abbr/preview?symbol=&frequency= — query params
+// GET /admin/kpis/:abbr/preview?symbol=&frequency=&resample_mode= — query params
 const previewQuerySchema = z.object({
   symbol:    z.string().min(1),
   frequency: z.enum(FREQUENCIES).optional(),
+  // Debug-only override for daily-native abbrs (PRICE/PE_DAILY/MCAP_SNAPSHOT)
+  // resolved at a coarser frequency -- lets admin compare 'average' vs
+  // 'latest' without persisting anything. Every abbr has a fixed default
+  // policy (dataFetcherMarket.js#DAILY_RESAMPLE_MODE) used everywhere else.
+  resample_mode: z.enum(['average', 'latest']).optional(),
 });
 
 // POST /admin/kpis/validate-formula — live parse+reference check while

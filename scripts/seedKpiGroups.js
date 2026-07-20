@@ -1,134 +1,191 @@
 'use strict';
 
 /**
- * One-off, idempotent seed for the new KpiGroup display hierarchy:
+ * ONE-TIME MIGRATION. Bootstraps the KpiGroup display hierarchy for P&L /
+ * Balance Sheet / Cash Flow from the (previously live) ScreenConfigItem rows,
+ * then points each financials.* ScreenConfig at its new KpiGroup branch via
+ * `kpi_group_slug` — lib/financials.js now builds these tables by walking
+ * that KpiGroup tree directly, not ScreenConfigItem. Going forward, admin
+ * manages the row list/hierarchy for these tables through /admin/kpi-groups
+ * (create/reparent/reorder/delete nodes) instead of per-item CRUD on
+ * ScreenConfigItem.
  *
- *  1. One root KpiGroup per distinct Kpi.kpi_type value among registry_enabled
- *     rows (the "mixture of kpi_type and parent-child grouping" the admin
- *     asked for) — a leaf child under each root for every Kpi with that type.
- *  2. Migrates the existing 'statement_of' KpiRelationship rows (PNL/Balance
- *     Sheet/Cashflow headers) into a parallel KpiGroup tree — same source
- *     data, now expressed as a real tree instead of a flat one-level
- *     relationship. The old KpiRelationship rows and PNL_STATEMENT/
- *     BALANCE_SHEET_STATEMENT/CASHFLOW_STATEMENT header Kpi rows are left in
- *     place (harmless, just no longer the canonical grouping mechanism) —
- *     not deleted here.
+ * DO NOT RE-RUN this after admin starts editing groups via /admin/kpi-groups
+ * -- it still deletes+rebuilds the 3 statement roots from the ScreenConfigItem
+ * snapshot below (now frozen/unused), so re-running would silently wipe any
+ * manual edits made directly on the KpiGroup tree since. It's kept here as
+ * the historical record of how the tree was originally built, and as a
+ * reference pattern if a *new* statement/section ever needs the same
+ * bootstrap treatment.
  *
- * A Kpi can legitimately appear as a leaf under both a kpi_type root and a
- * statement root — these are two independent, simultaneous views admin can
- * use for different table/chart sections, not a single taxonomy to merge.
+ * The old ScreenConfigItem rows for these 6 keys are left in place,
+ * deliberately not deleted -- nothing reads them anymore (harmless, dormant),
+ * and leaving them is the reversible choice if anything about this migration
+ * needs to be double-checked against the old shape.
  *
- * Usage:
- *   node scripts/seedKpiGroups.js            # dry run, prints planned inserts
- *   node scripts/seedKpiGroups.js --insert   # actually write
+ * Context for why this tree existed before it drove the live tables: it was
+ * migrated once from old KpiRelationship('statement_of') rows and never
+ * touched again, so it drifted from the real screener (referenced abbrs no
+ * longer shown, e.g. TOTAL_INCOME/CURR_LIAB/DEBT_LT, and was missing ones
+ * that are shown, e.g. OP_PROFIT/OPM) -- this rebuild fixed that drift once,
+ * from the then-live ScreenConfigItem rows.
+ *
+ * Structure (order/labels verified against screener.in's own P&L/Balance
+ * Sheet/Cash Flow tables, e.g. https://www.screener.in/company/MSUMI/):
+ *
+ *   pnl-statement                    ("Profit & Loss")
+ *     +- pnl-statement--annual       ("Annual")    -- leaves = financials.pnl.annual's items
+ *     +- pnl-statement--quarterly    ("Quarterly") -- leaves = financials.pnl.quarterly's items
+ *   balance-sheet-statement          ("Balance Sheet")
+ *     +- ...--annual / ...--quarterly              -- leaves = financials.balance-sheet.{annual,quarterly}
+ *   cashflow-statement               ("Cash Flow")
+ *     +- ...--annual / ...--quarterly              -- leaves = financials.cashflow.{annual,quarterly}
+ *
+ * Leaf label = the ScreenConfigItem's own label (e.g. "Sales", "Reserves") --
+ * the friendly name actually shown on screen -- not Kpi.full_form (e.g.
+ * "Revenue from Operations"), so this tree can double as a label->abbr
+ * lookup for admin.
+ *
+ * The old kpi_type-based roots (kpi-type-*) are deleted outright: kpi_type
+ * has no remaining consumer now that KpiGroup owns display grouping (only
+ * this script and the admin CRUD schema still reference the field), so
+ * leaving those roots in place would just be more dead filter options.
+ *
+ * Not idempotent by upsert -- deletes and fully rebuilds the 3 statement
+ * roots (and, once, the kpi-type-* roots) every run. Cheap (~60 rows) and
+ * avoids reconciling old flat slugs against the new nested annual/quarterly
+ * ones.
+ *
+ * A 4th level exists for the handful of statement rows that have a real,
+ * data-backed breakdown available -- today just Fixed Assets (component
+ * assets from the original Prowess ingestion, e.g. Land/Building/Plant &
+ * Machinery, each verified against prowess_values_new to have real coverage
+ * across 1,000+ companies before being flipped registry_enabled) and
+ * Borrowings (Long/Short-Term, both already registry_enabled). Declared in
+ * SUB_ITEMS below, keyed by the parent leaf's kpi_abbr. P&L/Cash Flow have no
+ * entries here by design -- their sub-item data (e.g. Employee Cost, Power &
+ * Fuel) is either missing or too thin to enable yet; left for admin to wire
+ * once ready, same mechanism (just add an entry to SUB_ITEMS).
+ *
+ * Usage: node scripts/seedKpiGroups.js
  */
 
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../config/prisma');
 const { slugify } = require('../utils/slugify');
 
-const prisma = new PrismaClient();
-const INSERT = process.argv.includes('--insert');
-
-const KPI_TYPE_LABELS = {
-  assets: 'Assets',
-  liabilities: 'Liabilities',
-  equity: 'Equity',
-  revenue: 'Revenue',
-  cogs: 'Cost of Goods Sold',
-  operating_expenses: 'Operating Expenses',
-  profit_lines: 'Profit Lines',
-  cashflow: 'Cashflow',
-  customer_kpis: 'Customer KPIs',
-  industry_specific: 'Industry Specific',
-};
-
-const STATEMENT_HEADERS = [
-  { abbr: 'PNL_STATEMENT', slug: 'pnl-statement', label: 'P&L Statement' },
-  { abbr: 'BALANCE_SHEET_STATEMENT', slug: 'balance-sheet-statement', label: 'Balance Sheet' },
-  { abbr: 'CASHFLOW_STATEMENT', slug: 'cashflow-statement', label: 'Cashflow Statement' },
+const STATEMENTS = [
+  { rootSlug: 'pnl-statement', rootLabel: 'Profit & Loss', annualKey: 'financials.pnl.annual', quarterlyKey: 'financials.pnl.quarterly' },
+  { rootSlug: 'balance-sheet-statement', rootLabel: 'Balance Sheet', annualKey: 'financials.balance-sheet.annual', quarterlyKey: 'financials.balance-sheet.quarterly' },
+  { rootSlug: 'cashflow-statement', rootLabel: 'Cash Flow', annualKey: 'financials.cashflow.annual', quarterlyKey: 'financials.cashflow.quarterly' },
 ];
 
-async function upsertGroup(data) {
-  console.log(`  ${INSERT ? 'upsert' : '[dry] would upsert'}: ${data.slug} (parent=${data.parent_id ?? 'root'}, kpi_abbr=${data.kpi_abbr ?? '-'})`);
-  if (!INSERT) return { id: `dry:${data.slug}` };
-  return prisma.kpiGroup.upsert({
-    where: { slug: data.slug },
-    update: { label: data.label, parent_id: data.parent_id ?? null, kpi_abbr: data.kpi_abbr ?? null, display_order: data.display_order ?? 0 },
-    create: data,
-  });
+// parent leaf kpi_abbr -> ordered list of {abbr, label} children. Every abbr
+// here must already be registry_enabled (checked at runtime, not assumed).
+const SUB_ITEMS = {
+  ASSET_PPE: [
+    { abbr: 'ASSET_LAND_NET', label: 'Land' },
+    { abbr: 'ASSET_BLDG_NET', label: 'Building' },
+    { abbr: 'ASSET_PM_NET', label: 'Plant & Machinery' },
+    { abbr: 'ASSET_ELEC_NET', label: 'Electrical Installations' },
+    { abbr: 'ASSET_FURN_NET', label: 'Furniture & Fixtures' },
+    { abbr: 'ASSET_IT_NET', label: 'Computers & IT Equipment' },
+    { abbr: 'ASSET_TRANS_NET', label: 'Vehicles' },
+    { abbr: 'ASSET_LEASE_IMP_NET', label: 'Leasehold Improvements' },
+    { abbr: 'ASSET_MINING_NET', label: 'Mining / Oil & Gas Properties' },
+    { abbr: 'ASSET_BIO_NET', label: 'Biological Assets (Bearer Plants)' },
+  ],
+  BORR_TOTAL: [
+    { abbr: 'DEBT_LT', label: 'Long-Term Borrowings' },
+    { abbr: 'DEBT_ST', label: 'Short-Term Borrowings' },
+  ],
+};
+
+const STALE_KPI_TYPE_ROOTS = [
+  'kpi-type-assets', 'kpi-type-liabilities', 'kpi-type-equity', 'kpi-type-revenue',
+  'kpi-type-cogs', 'kpi-type-operating-expenses', 'kpi-type-profit-lines',
+  'kpi-type-cashflow', 'kpi-type-customer-kpis', 'kpi-type-industry-specific',
+];
+
+async function deleteStaleGroups() {
+  console.log('== Deleting stale groups (kpi-type-* roots, old statement roots) ==');
+  const staleRootSlugs = [...STALE_KPI_TYPE_ROOTS, ...STATEMENTS.map((s) => s.rootSlug)];
+  const { count } = await prisma.kpiGroup.deleteMany({ where: { slug: { in: staleRootSlugs } } });
+  console.log(`  deleted ${count} root(s) (cascades to their descendants)`);
 }
 
-async function seedKpiTypeRoots() {
-  console.log('\n== kpi_type roots ==');
-  const kpis = await prisma.kpi.findMany({
-    where: { registry_enabled: true, kpi_type: { not: null } },
-    orderBy: [{ kpi_type: 'asc' }, { display_order: 'asc' }, { abbr: 'asc' }],
+async function buildFrequencyBranch(parentId, label, configKey, slugPrefix, order) {
+  const branchSlug = `${slugPrefix}--${slugify(label)}`;
+  const branch = await prisma.kpiGroup.create({
+    data: { slug: branchSlug, label, parent_id: parentId, kpi_abbr: null, display_order: order },
   });
-  const byType = new Map();
-  for (const k of kpis) {
-    if (!byType.has(k.kpi_type)) byType.set(k.kpi_type, []);
-    byType.get(k.kpi_type).push(k);
+  console.log(`  + ${label} (${branchSlug})`);
+
+  const config = await prisma.screenConfig.findUnique({ where: { key: configKey }, include: { items: true } });
+  if (!config) {
+    console.log(`    !! no ScreenConfig found for key "${configKey}" -- branch left empty`);
+    return;
   }
 
-  let rootOrder = 0;
-  for (const [kpiType, members] of byType) {
-    const rootSlug = `kpi-type-${slugify(kpiType)}`;
-    const root = await upsertGroup({
-      slug: rootSlug,
-      label: KPI_TYPE_LABELS[kpiType] ?? kpiType,
-      parent_id: null,
-      kpi_abbr: null,
-      display_order: rootOrder++,
+  const items = [...config.items].sort((a, b) => a.display_order - b.display_order);
+  for (const item of items) {
+    const leaf = await prisma.kpiGroup.create({
+      data: {
+        slug: `${branchSlug}--${slugify(item.kpi_abbr)}`,
+        label: item.label ?? item.kpi_abbr,
+        parent_id: branch.id,
+        kpi_abbr: item.kpi_abbr,
+        display_order: item.display_order,
+      },
     });
-    let childOrder = 0;
-    for (const kpi of members) {
-      await upsertGroup({
-        slug: `${rootSlug}--${slugify(kpi.abbr)}`,
-        label: kpi.full_form,
-        parent_id: root.id,
-        kpi_abbr: kpi.abbr,
-        display_order: childOrder++,
-      });
-    }
+    console.log(`    - ${item.kpi_abbr} (${item.label})`);
+    await buildSubItems(leaf, branchSlug);
   }
 }
 
-async function seedStatementTree() {
-  console.log('\n== statement tree (migrated from KpiRelationship statement_of) ==');
-  const rels = await prisma.kpiRelationship.findMany({ where: { relationship_type: 'statement_of' } });
-  const byHeader = new Map();
-  for (const r of rels) {
-    if (!byHeader.has(r.related_kpi_abbr)) byHeader.set(r.related_kpi_abbr, []);
-    byHeader.get(r.related_kpi_abbr).push(r);
-  }
-
-  for (const header of STATEMENT_HEADERS) {
-    const root = await upsertGroup({
-      slug: header.slug,
-      label: header.label,
-      parent_id: null,
-      kpi_abbr: null,
-      display_order: 0,
-    });
-    const children = (byHeader.get(header.abbr) ?? []).sort((a, b) => a.display_order - b.display_order);
-    let childOrder = 0;
-    for (const rel of children) {
-      const kpi = await prisma.kpi.findUnique({ where: { abbr: rel.kpi_abbr } });
-      await upsertGroup({
-        slug: `${header.slug}--${slugify(rel.kpi_abbr)}`,
-        label: kpi?.full_form ?? rel.kpi_abbr,
-        parent_id: root.id,
-        kpi_abbr: rel.kpi_abbr,
-        display_order: childOrder++,
-      });
+async function buildSubItems(parentLeaf, branchSlug) {
+  const subItems = SUB_ITEMS[parentLeaf.kpi_abbr];
+  if (!subItems) return;
+  let order = 0;
+  for (const sub of subItems) {
+    const kpi = await prisma.kpi.findUnique({ where: { abbr: sub.abbr }, select: { registry_enabled: true } });
+    if (!kpi?.registry_enabled) {
+      console.log(`      !! skipping ${sub.abbr} -- not registry_enabled`);
+      continue;
     }
+    await prisma.kpiGroup.create({
+      data: {
+        slug: `${branchSlug}--${slugify(parentLeaf.kpi_abbr)}--${slugify(sub.abbr)}`,
+        label: sub.label,
+        parent_id: parentLeaf.id,
+        kpi_abbr: sub.abbr,
+        display_order: order++,
+      },
+    });
+    console.log(`      * ${sub.abbr} (${sub.label})`);
   }
+}
+
+async function buildStatementTree(stmt, order) {
+  console.log(`\n== ${stmt.rootLabel} ==`);
+  const root = await prisma.kpiGroup.create({
+    data: { slug: stmt.rootSlug, label: stmt.rootLabel, parent_id: null, kpi_abbr: null, display_order: order },
+  });
+  await buildFrequencyBranch(root.id, 'Annual', stmt.annualKey, stmt.rootSlug, 0);
+  await buildFrequencyBranch(root.id, 'Quarterly', stmt.quarterlyKey, stmt.rootSlug, 1);
+
+  const annualBranchSlug    = `${stmt.rootSlug}--annual`;
+  const quarterlyBranchSlug = `${stmt.rootSlug}--quarterly`;
+  await prisma.screenConfig.update({ where: { key: stmt.annualKey }, data: { kpi_group_slug: annualBranchSlug } });
+  await prisma.screenConfig.update({ where: { key: stmt.quarterlyKey }, data: { kpi_group_slug: quarterlyBranchSlug } });
+  console.log(`  wired ${stmt.annualKey} -> ${annualBranchSlug}, ${stmt.quarterlyKey} -> ${quarterlyBranchSlug}`);
 }
 
 async function main() {
-  console.log(`seedKpiGroups.js — mode: ${INSERT ? 'INSERT' : 'DRY RUN (pass --insert to write)'}`);
-  await seedKpiTypeRoots();
-  await seedStatementTree();
+  await deleteStaleGroups();
+  let order = 0;
+  for (const stmt of STATEMENTS) {
+    await buildStatementTree(stmt, order++);
+  }
   console.log('\nDone.');
 }
 
