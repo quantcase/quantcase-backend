@@ -56,7 +56,14 @@ async function getExistingKpisForPrompt(basicIndustry) {
     ? { source: 'transcript', industry: { has: basicIndustry } }
     : { source: 'transcript' };
   const [qeKpis, transcriptKpis] = await Promise.all([
-    prisma.kpi.findMany({ where: { source: 'QE' } }),
+    // Raw leaves only -- a computed/formula Kpi (STOCK_CAGR_3Y, TTM_EBITDA,
+    // REV_CAGR_5Y, ...) is a derived ratio, never something a transcript
+    // reports as a distinct figure, so including it here only invites the
+    // LLM to spuriously match transcript text against an abbr that can
+    // never actually appear as an extractable raw value. registry_enabled
+    // is deliberately NOT filtered on -- that flag belongs to the
+    // formulaRegistry/resolver pipeline, unrelated to this one.
+    prisma.kpi.findMany({ where: { source: 'QE', formula_expression: null } }),
     prisma.kpi.findMany({ where: transcriptWhere }),
   ]);
   return [...qeKpis, ...transcriptKpis]

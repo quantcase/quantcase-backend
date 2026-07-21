@@ -8,7 +8,7 @@ const financials = require('../lib/financials');
 const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_intelligence');
 const { loadSkillConfig } = require('../utils/skillConfig');
 const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
-const { resolveMetric, resolveIndicatorSeries, createFlatContext, createSeriesOnlyContext } = require('../utils/formulaRegistry/index');
+const { resolveMetric, resolveFormulaSeries, resolveIndicatorSeries, createFlatContext, createSeriesOnlyContext, createSeriesMapContext } = require('../utils/formulaRegistry/index');
 const { fetchOhlcvBars, fetchWyckoffBars, fetchMarketSnapshot, fetchMarketSnapshots, fetchMonthlyOhlcv, fetchPeTimeSeries } = require('../utils/formulaRegistry/dataFetcherMarket');
 const wyckoff = require('../lib/wyckoff');
 const { isBFSI } = require('../utils/industryClassifier');
@@ -1026,6 +1026,39 @@ async function getFinancials(req, res, next) {
   }
 }
 
+const SMA_PERIODS = [20, 50, 100, 200];
+
+/**
+ * SMA_20/50/100/200 via the Kpi-driven resolver (AVG(PRICE, N), the same
+ * formula an admin can inspect/edit at /admin/kpis/SMA_20) instead of
+ * taIndicators' own smaSeries — one source of truth shared with
+ * technicalAnalysis.js's /technicals endpoint. Seeded from bars getPrices
+ * already fetched (createSeriesMapContext), so this adds no extra DB round
+ * trip.
+ *
+ * averageFromSeries doesn't null out on a short window (see
+ * createSeriesMapContext's docs — that's deliberate, other formulas like
+ * ROE_3Y_AVG rely on it), so the `period - 1` warmup nulling below is applied
+ * here to match taIndicators.smaSeries' "null until `period` days of history
+ * exist" convention instead of silently showing a partial-window average.
+ */
+async function resolveSmaSeries(prices) {
+  const resCtx = createSeriesMapContext({
+    seriesMap: { PRICE: prices.map((p) => ({ value: p.close })) },
+    frequency: 'daily',
+  });
+  const results = await Promise.all(SMA_PERIODS.map((p) => resolveFormulaSeries(`SMA_${p}`, resCtx)));
+
+  const out = {};
+  SMA_PERIODS.forEach((period, idx) => {
+    out[`sma${period}`] = prices.map((p, i) => ({
+      date:  p.date,
+      value: i >= period - 1 ? (results[idx][i] ?? null) : null,
+    }));
+  });
+  return out;
+}
+
 async function getPrices(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
@@ -1059,7 +1092,11 @@ async function getPrices(req, res, next) {
         volume: r.volume != null ? Number(r.volume) : null,
       }));
 
-    const indicators = resolveIndicatorSeries(prices);
+    const [indicators, smaSeries] = await Promise.all([
+      Promise.resolve(resolveIndicatorSeries(prices)),
+      resolveSmaSeries(prices),
+    ]);
+    Object.assign(indicators, smaSeries);
 
     setCacheTillMidnightIst(res);
     res.json({ symbol, count: prices.length, prices, indicators });
