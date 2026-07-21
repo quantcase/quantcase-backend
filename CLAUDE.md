@@ -114,7 +114,43 @@ Required in `.env`:
 - `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` - Redis configuration for BullMQ
 - `CLAUDE_API_KEY` - Anthropic API key (current default)
 - `OPENAI_API_KEY` - OpenAI API key (if switching LLMs)
+- `OPENROUTER_API_KEY` - OpenRouter API key (default LLM router — see `config/llm.js`)
 - `PORT` - API server port (default: 8000)
+
+Optional (Vertex AI for the L1 pipeline — see below):
+- `GCP_PROJECT_ID` - Google Cloud project ID (enables Vertex routing when set)
+- `GCP_VERTEX_LOCATION` - Vertex region, default `global`
+- `VERTEX_GEMINI_ENABLED` - `true` to route L1 Gemini calls through Vertex; unset = OpenRouter
+- `VERTEX_GEMINI_MODELS` - ordered model preference, default `google/gemini-3.5-flash,google/gemini-2.5-flash-lite`
+
+### L1 Pipeline on Vertex AI (Gemini)
+
+The L1 extraction workers (`workers/summarization_v2.js`, `summarization_v2_ppt.js`,
+`summarization_v2_annual_report.js`) can send their Gemini calls to Vertex AI's
+OpenAI-compatible endpoint instead of OpenRouter, so they draw on GCP credits.
+
+- **Opt-in per call**: only these three L1 workers pass `{ vertex: true }` to `llmStream()`.
+  Everything else (Claude, L2/L3, screener, journal) stays on OpenRouter untouched.
+- **Gated**: routing happens only when `VERTEX_GEMINI_ENABLED=true`, `GCP_PROJECT_ID` is set,
+  and the model is a Gemini model. Otherwise it transparently falls back to OpenRouter — so
+  the switch is fully reversible via env (no code change).
+- **Model preference**: the Vertex path ignores the per-skill DB model and uses
+  `VERTEX_GEMINI_MODELS` in order — `gemini-3.5-flash` first, falling back to
+  `gemini-2.5-flash-lite` if 3.5 isn't offered on Vertex. Unavailable models are cached
+  in-process so later calls skip the dead probe.
+- **Auth**: GCP Application Default Credentials (short-lived OAuth token, auto-refreshed via
+  `google-auth-library`) — no static key. Local: `gcloud auth application-default login`.
+  Prod: a service account with the "Vertex AI User" role.
+- **Verify first**: `node scripts/testVertexGemini.js` probes each configured model's
+  availability before you flip the flag.
+
+- **PDF blocks**: Vertex's OpenAI layer rejects the `{type:"file"}` PDF block OpenRouter uses
+  (400 "Unrecognized 'type' field ... found: 'file'"). `llmStream` rewrites it to
+  `{type:"image_url", image_url:{url:"data:application/pdf;base64,..."}}` on the Vertex path only
+  (Gemini reads PDFs fine that way). Workers are unchanged.
+
+Key files: `config/vertexLlm.js` (client + ADC auth + model fallback + PDF block conversion),
+`utils/workerUtils.js` (`llmStream` routing), `config/env.js` (env wiring).
 
 ### Worker Limits
 Configured in worker.js:

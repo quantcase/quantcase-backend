@@ -21,6 +21,18 @@ module.exports = {
   openaiApiKey:     process.env.OPENAI_API_KEY,
   openrouterApiKey: process.env.OPENROUTER_API_KEY,
 
+  // Google Cloud Vertex AI — OpenAI-compatible endpoint for Gemini.
+  // When enabled, the L1 pipeline's Gemini calls route here (GCP credits)
+  // instead of OpenRouter. Auth is GCP ADC (no static key). See config/vertexLlm.js.
+  gcpProjectId:        process.env.GCP_PROJECT_ID,
+  gcpVertexLocation:   process.env.GCP_VERTEX_LOCATION || 'global',
+  // Master on/off switch — leave unset to keep the L1 pipeline on OpenRouter.
+  vertexGeminiEnabled: process.env.VERTEX_GEMINI_ENABLED === 'true',
+  // Ordered model preference for L1 Vertex calls: the first available model wins,
+  // falling back to the next if a model isn't offered on Vertex.
+  vertexGeminiModels:  (process.env.VERTEX_GEMINI_MODELS || 'google/gemini-3.5-flash,google/gemini-2.5-flash-lite')
+                         .split(',').map((s) => s.trim()).filter(Boolean),
+
   // App config
   fiscalYearEnd:    process.env.FISCAL_YEAR_END || '03-31',
   // Base URL used to build absolute links to locally-uploaded files (see

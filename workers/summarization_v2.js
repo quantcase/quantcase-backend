@@ -179,7 +179,7 @@ async function processSummarizationV2Job(job) {
   if (outputSchema) llmParams.response_format = outputSchema;
 
   wlog.info(`[summarization-v2] Calling LLM for chunk ${chunkIndex}/${totalChunks}...`);
-  const { text: responseText, usage } = await llmStream(llmParams);
+  const { text: responseText, usage } = await llmStream(llmParams, { vertex: true });
   logUsage('summarization-v2', usage);
   if (!responseText) throw new Error(`Empty LLM response for chunk ${chunkIndex}`);
   await job.updateProgress(80);

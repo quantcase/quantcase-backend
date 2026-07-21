@@ -223,7 +223,7 @@ async function processSummarizationV2AnnualReportJob(job) {
   if (outputSchema) llmParams.response_format = outputSchema;
 
   wlog.info(`[${SKILL_SLUG}] Calling LLM for chunk ${chunkIndex}/${totalChunks}...`);
-  const { text: responseText, usage } = await llmStream(llmParams);
+  const { text: responseText, usage } = await llmStream(llmParams, { vertex: true });
   logUsage(SKILL_SLUG, usage);
   if (!responseText) throw new Error(`Empty LLM response for chunk ${chunkIndex}`);
   await job.updateProgress(80);

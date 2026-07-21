@@ -1,6 +1,10 @@
 'use strict';
 
 const openRouter = require('../config/llm');
+const {
+  vertexEnabled, getVertexClient, getVertexAccessToken,
+  isGeminiModel, toVertexMessages, vertexModelCandidates, markModelUnavailable, isModelUnavailableError,
+} = require('../config/vertexLlm');
 
 // ─── Colored logger ───────────────────────────────────────────────────────────
 
@@ -37,22 +41,67 @@ function parseJson(responseText) {
 }
 
 /**
- * Stream an LLM request through OpenRouter.
+ * Stream an LLM request.
+ *
+ * By default this goes through OpenRouter. The L1 summarization workers pass
+ * `{ vertex: true }` to route Gemini calls through Vertex AI's OpenAI-compatible
+ * endpoint instead (GCP credits) — but only when Vertex is enabled AND the model
+ * is a Gemini model; otherwise it transparently stays on OpenRouter. On the
+ * Vertex path the model comes from the configured preference list
+ * (env.vertexGeminiModels — default: gemini-3.5-flash, then gemini-2.5-flash-lite),
+ * trying the next model when one isn't offered on Vertex.
+ *
+ * @param {object} params  OpenAI chat.completions params ({ model, max_tokens, messages, response_format? })
+ * @param {{ vertex?: boolean }} [opts]
  */
-async function llmStream(params) {
+async function llmStream(params, opts = {}) {
+  const useVertex = Boolean(opts.vertex) && isGeminiModel(params.model) && vertexEnabled();
+
+  if (!useVertex) {
+    return runChatStream(openRouter, { ...params, stream: true }, {}, 'OpenRouter');
+  }
+
+  // Vertex path: reuse one access token across the fallback attempts, and rewrite
+  // OpenRouter-style PDF blocks ({type:"file"}) into Vertex's {type:"image_url"} form.
+  const reqOpts    = { headers: { Authorization: `Bearer ${await getVertexAccessToken()}` } };
+  const client     = getVertexClient();
+  const messages   = toVertexMessages(params.messages);
+  const candidates = vertexModelCandidates();
+  let lastErr;
+  for (let i = 0; i < candidates.length; i++) {
+    const model = candidates[i];
+    const body  = { ...params, model, messages, stream: true, stream_options: { include_usage: true } };
+    try {
+      return await runChatStream(client, body, reqOpts, `Vertex(${model})`);
+    } catch (err) {
+      const hasNext = i < candidates.length - 1;
+      if (hasNext && isModelUnavailableError(err)) {
+        markModelUnavailable(model);
+        wlog.warn(`[llmStream] Vertex model "${model}" unavailable — falling back to "${candidates[i + 1]}"`);
+        lastErr = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Open a streamed chat.completions request on `client` and accumulate the text.
+ * @param {string} label  Provider/model label for error logs.
+ */
+async function runChatStream(client, requestBody, reqOpts, label) {
   let stream;
   try {
-    stream = await openRouter.chat.completions.create({
-      ...params,
-      stream: true,
-    });
+    stream = await client.chat.completions.create(requestBody, reqOpts);
   } catch (err) {
     const status = err?.status ?? err?.response?.status;
     const body   = err?.error ?? err?.response?.data ?? err?.message;
     const detail = typeof body === 'object' ? JSON.stringify(body) : String(body ?? err.message);
-    console.error(`[llmStream] API error (HTTP ${status ?? '?'}):`, detail);
-    if (status === 400 && params.response_format) {
-      console.error('[llmStream] response_format sent:', JSON.stringify(params.response_format, null, 2));
+    console.error(`[llmStream] ${label} API error (HTTP ${status ?? '?'}):`, detail);
+    if (status === 400 && requestBody.response_format) {
+      console.error('[llmStream] response_format sent:', JSON.stringify(requestBody.response_format, null, 2));
     }
     const enriched    = new Error(`[llmStream] HTTP ${status ?? '?'}: ${detail}`);
     enriched.status   = status;
@@ -71,7 +120,7 @@ async function llmStream(params) {
   } catch (err) {
     const body   = err?.error ?? err?.response?.data ?? err?.message;
     const detail = typeof body === 'object' ? JSON.stringify(body) : String(body ?? err.message);
-    console.error('[llmStream] stream error:', detail);
+    console.error(`[llmStream] ${label} stream error:`, detail);
     const enriched    = new Error(`[llmStream] ${detail}`);
     enriched.status   = err?.status ?? err?.response?.status;
     enriched.original = err;
