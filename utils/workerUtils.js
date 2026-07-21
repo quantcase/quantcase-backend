@@ -24,6 +24,12 @@ const wlog = {
   error: msg => console.error(c.red(msg)),
 };
 
+// Vertex's OpenAI-compatible endpoint hard-rejects max_tokens above the Gemini
+// output ceiling with a bare `400 (no body)` — 65536 for gemini-3.5-flash,
+// 65535 for gemini-2.5-flash-lite. (OpenRouter silently clamped instead.) Since
+// the candidate list may fall through to flash-lite, clamp to the lower ceiling.
+const GEMINI_MAX_OUTPUT_TOKENS = 65535;
+
 /**
  * Parse JSON from LLM response text, handling markdown code-fenced blocks.
  */
@@ -70,7 +76,8 @@ async function llmStream(params, opts = {}) {
   let lastErr;
   for (let i = 0; i < candidates.length; i++) {
     const model = candidates[i];
-    const body  = { ...params, model, messages, stream: true, stream_options: { include_usage: true } };
+    const maxTokens = Math.min(params.max_tokens ?? GEMINI_MAX_OUTPUT_TOKENS, GEMINI_MAX_OUTPUT_TOKENS);
+    const body  = { ...params, model, messages, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true } };
     try {
       return await runChatStream(client, body, reqOpts, `Vertex(${model})`);
     } catch (err) {

@@ -11,6 +11,7 @@ const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { resolveMetric, resolveIndicatorSeries, createFlatContext, createSeriesOnlyContext } = require('../utils/formulaRegistry/index');
 const { fetchOhlcvBars, fetchWyckoffBars, fetchMarketSnapshot, fetchMarketSnapshots, fetchMonthlyOhlcv, fetchPeTimeSeries } = require('../utils/formulaRegistry/dataFetcherMarket');
 const wyckoff = require('../lib/wyckoff');
+const crs = require('../lib/crs');
 const { isBFSI } = require('../utils/industryClassifier');
 const prisma    = require('../config/prisma');
 const jobQueue  = require('../lib/jobQueue');
@@ -1060,6 +1061,18 @@ async function getPrices(req, res, next) {
       }));
 
     const indicators = resolveIndicatorSeries(prices);
+
+    // CRS (comparative relative strength) lines vs NIFTY 50 and the stock's sector index.
+    // Kept out of resolveIndicatorSeries — which is pure and price-only — because these need
+    // index price history (nse_equity_new) plus sector resolution. Additive and best-effort:
+    // a failure here must never break the core price payload, and the three keys are always
+    // present (aligned, all-null when an index isn't backfilled yet) so the contract is stable.
+    try {
+      Object.assign(indicators, await crs.computeCrsSeries(symbol, prices, period1, period2));
+    } catch (err) {
+      console.error(`[getPrices] CRS computation failed for ${symbol}:`, err.message);
+      Object.assign(indicators, { crsStockVsNifty: [], crsStockVsSector: [], crsSectorVsNifty: [] });
+    }
 
     setCacheTillMidnightIst(res);
     res.json({ symbol, count: prices.length, prices, indicators });
