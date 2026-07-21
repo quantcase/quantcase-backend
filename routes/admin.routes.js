@@ -19,6 +19,7 @@ const kpiFiltersRouter       = require('./admin.kpiFilters.routes');
 const screenConfigRouter     = require('./admin.screenConfig.routes');
 const prowessHistoricRouter  = require('./admin.prowessHistoric.routes');
 const prowessBatchRouter     = require('./admin.prowessBatch.routes');
+const prowessCoverageRouter  = require('./admin.prowessCoverage.routes');
 const invitesRouter          = require('./admin.invites.routes');
 const errorReportsRouter     = require('./admin.errorReports.routes');
 
@@ -161,6 +162,12 @@ router.use('/prowess/historic', prowessHistoricRouter);
 // ProwessBatchRequest, polled by the scheduler's prowess_batch_poll job) ─────
 
 router.use('/prowess/batch', prowessBatchRouter);
+
+// ─── Prowess/NSE Coverage (read-only data-presence preview — for a chosen
+// ticker set, which KPIs exist in prowess_values_new at annual/quarterly
+// cadence and whether nse_equity_new has any rows at all) ───────────────────
+
+router.use('/prowess/coverage', prowessCoverageRouter);
 
 // ─── Invites (invite-only registration) ─────────────────────────────────────
 

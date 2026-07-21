@@ -86,7 +86,8 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
         const periods = out[abbrs[0]];
         if (periods?.length) {
           const dailyMap = await getDailySeriesMap();
-          for (const dailyAbbr of Object.keys(DAILY_SERIES_FIELDS)) {
+          const dailyRawAbbrs = await getDailyRawAbbrs();
+          for (const dailyAbbr of dailyRawAbbrs) {
             const mode = resampleMode ?? DAILY_RESAMPLE_MODE[dailyAbbr];
             if (!mode) continue;
             out[dailyAbbr] = resampleToPeriods(dailyMap[dailyAbbr] ?? [], periods, mode);
@@ -110,6 +111,23 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
   function getDailySeriesMap() {
     if (!dailySeriesMapPromise) dailySeriesMapPromise = fetchAllDailySeries(db, symbol);
     return dailySeriesMapPromise;
+  }
+
+  // DAILY_SERIES_FIELDS is a *static* map of which abbrs are backed by an
+  // nse_equity_new column — it says nothing about whether that abbr is
+  // *currently* a raw leaf in the registry. An admin can give e.g. PE_DAILY
+  // a formula_expression (it's an ordinary Kpi row, nothing stops this), at
+  // which point the raw nse_equity_new.pe column must stop being treated as
+  // "the stored value" for it, or the formula can never take effect (it'll
+  // always be pre-empted below). getDailyRawAbbrs() is the same isRaw-aware
+  // set _resolveAtIndex already keys off of for historical series — this
+  // makes the single-value path (getCurrentValue et al) agree with it
+  // instead of unconditionally trusting DAILY_SERIES_FIELDS membership.
+  let dailyRawAbbrsPromise = null;
+  async function isDailyRaw(abbr) {
+    if (!DAILY_SERIES_FIELDS[abbr]) return false;
+    if (!dailyRawAbbrsPromise) dailyRawAbbrsPromise = getDailyRawAbbrs();
+    return (await dailyRawAbbrsPromise).includes(abbr);
   }
 
   // Map<groupSlug, Promise<boolean>>
@@ -137,7 +155,7 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
    * dataFetcherMarket.js) instead of silently returning nothing.
    */
   async function getSeries(abbr, freq) {
-    if (DAILY_SERIES_FIELDS[abbr]) {
+    if (await isDailyRaw(abbr)) {
       const map = await getDailySeriesMap();
       const native = map[abbr] ?? [];
       if (freq === 'daily' || !freq) return native;
@@ -157,7 +175,7 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
 
   /** Latest non-null value for a raw abbr — matches fetchKpiMap's "latest period that has a value" semantics. */
   async function getCurrentValue(abbr, freq) {
-    if (DAILY_SERIES_FIELDS[abbr]) {
+    if (await isDailyRaw(abbr)) {
       if (freq === 'daily' || !freq) {
         const field = DAILY_ABBR_TO_SNAPSHOT_FIELD[abbr];
         if (!field) return null;
@@ -176,7 +194,7 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
 
   /** Strictly-adjacent current/previous pair (last two known periods) — matches today's prevKpiMap delta semantics. */
   async function getCurrentAndPrevious(abbr, freq) {
-    if (DAILY_SERIES_FIELDS[abbr]) {
+    if (await isDailyRaw(abbr)) {
       if (freq === 'daily' || !freq) return { curr: await getCurrentValue(abbr, freq), prev: null };
       const points = await getSeries(abbr, freq); // resampled to freq
       const curr = points.length ? points[points.length - 1].value : null;
@@ -192,7 +210,7 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
 
   /** Period (fiscal_year/quarter, or date for daily) the value getCurrentValue would return came from — admin-preview display only, never used in computation. */
   async function getCurrentPeriod(abbr, freq) {
-    if (DAILY_SERIES_FIELDS[abbr]) {
+    if (await isDailyRaw(abbr)) {
       if (freq === 'daily' || !freq) {
         const field = DAILY_ABBR_TO_SNAPSHOT_FIELD[abbr];
         if (!field) return null;
@@ -279,6 +297,47 @@ function createSeriesOnlyContext({ series = [], frequency = 'annual' } = {}) {
 }
 
 /**
+ * Like createSeriesOnlyContext, but for a formula whose aggregate references
+ * a DIFFERENT named abbr than the one being resolved — e.g. SMA_20 =
+ * AVG(PRICE, 20): resolving SMA_20 needs PRICE's own series, not SMA_20's.
+ * `seriesMap` is a real Map<abbr, series> built from data the caller already
+ * has in memory (e.g. OHLCV bars a chart endpoint already fetched), so
+ * genuinely Kpi-driven computation (resolveMetric/resolveFormulaSeries) can
+ * be reused with zero extra DB round trips and no resampling — every series
+ * here is expected to already be in the SAME native cadence (e.g. all daily,
+ * one entry per trading day; index k means "the k-th day", not a fiscal
+ * period), matching what technicalAnalysis.js/getPrices already hold once
+ * they've fetched bars.
+ *
+ * Frequency-gated on purpose: this is NOT a general "resolve any abbr at any
+ * frequency" context like createResolutionContext (which has real
+ * resampling logic via DAILY_RESAMPLE_MODE/resampleToPeriods for exactly
+ * this reason). If resolveMetric/resolveFormulaSeries is ever asked for a
+ * frequency other than the one this context was built for, getSeries/
+ * getSeriesMap return empty rather than silently handing back the seeded
+ * series mislabeled as a different cadence — same failure mode as the
+ * PE_DAILY stored-value bug this session started with, just in a new spot.
+ * Only plain arithmetic + CAGR/AVG/SUM aggregates over these named series
+ * work — same scope as _resolveAtIndex generally (DELTA/
+ * getCurrentAndPrevious is not supported, same as createSeriesOnlyContext).
+ *
+ * @param {object} opts
+ * @param {Record<string, Array<{ value: number|null }>>} opts.seriesMap — each series oldest → newest, all at the same native cadence
+ * @param {string} [opts.frequency] — the cadence `seriesMap` is actually in (e.g. 'daily')
+ */
+function createSeriesMapContext({ seriesMap = {}, frequency = 'daily' } = {}) {
+  return {
+    frequency,
+    getCurrentValue: async () => null,
+    getCurrentAndPrevious: async () => ({ curr: null, prev: null }),
+    getSeries: async (abbr, freq) => (freq == null || freq === frequency) ? (seriesMap[abbr] ?? []) : [],
+    getSeriesMap: async (freq) => (freq == null || freq === frequency) ? seriesMap : {},
+    getCurrentPeriod: async () => null,
+    isCompanyInGroup: async () => false,
+  };
+}
+
+/**
  * Batched counterpart to createResolutionContext, for callers resolving the
  * same handful of metrics for many companies at once (e.g. Peer Comparison)
  * — turns what would be N self-fetching contexts (N sets of bulk queries)
@@ -291,6 +350,21 @@ function createSeriesOnlyContext({ series = [], frequency = 'annual' } = {}) {
  * trend, so there's no batched daily-series fetcher to match
  * fetchAnnualBatchMulti/fetchQuarterlyBatchMulti. Add one if a future caller
  * needs it instead of quietly special-casing around this gap.
+ *
+ * That current-value snapshot is served for ANY requested frequency, not
+ * just 'daily', for abbrs whose DAILY_RESAMPLE_MODE is 'latest' (PRICE/
+ * PE_DAILY/MCAP_SNAPSHOT today) — a "current value" request never means "as
+ * of some past quarter", so the most-recent-value-in-the-current-bucket that
+ * 'latest' resampling would produce is, by definition, just the latest raw
+ * snapshot already fetched here; no extra query needed. This is what makes
+ * e.g. PE_TTM (= PRICE / TTM_EPS, resolved at 'quarterly' by
+ * tickerMetrics.service.js's PEER_COLUMN_MAP) actually get a real PRICE
+ * instead of silently resolving to null because the batched context didn't
+ * know how to serve a daily-native abbr at a non-daily frequency. VOLUME_
+ * DAILY (DAILY_RESAMPLE_MODE 'average') is NOT covered by this — a genuine
+ * quarterly/annual average needs the whole bucket's data, which isn't
+ * fetched here, so it still resolves to null at a non-daily frequency; add a
+ * batched daily-series fetch if a caller ever needs that.
  *
  * @param {object} opts
  * @param {import('@prisma/client').PrismaClient} [opts.prisma]
@@ -322,6 +396,30 @@ async function createMultiCompanyResolutionContext({ prisma, symbols, frequency 
     return groupRowCache.get(slug);
   }
 
+  // Same isRaw-aware gate as the single-company context (see isDailyRaw
+  // above) — without it, a daily abbr (PE_DAILY/PRICE/MCAP_SNAPSHOT) that's
+  // been given a formula_expression would still resolve to its raw
+  // nse_equity_new column here in Peer Comparison, same bug, different context.
+  let dailyRawAbbrsPromise = null;
+  async function isDailyRaw(abbr) {
+    if (!DAILY_ABBR_TO_SNAPSHOT_FIELD[abbr]) return false;
+    if (!dailyRawAbbrsPromise) dailyRawAbbrsPromise = getDailyRawAbbrs();
+    return (await dailyRawAbbrsPromise).includes(abbr);
+  }
+
+  // Whether the already-fetched snapshot can answer a getCurrentValue/
+  // getCurrentPeriod call for `abbr` at `freq` -- true at the abbr's native
+  // 'daily', or at any coarser frequency IF its resample mode is 'latest'
+  // (see this function's file-level docstring for why that's always safe
+  // for a *current*-value request). 'average'-mode abbrs have no such
+  // shortcut -- they'd need the whole bucket's data, not just the latest
+  // snapshot, so they fall through to "no data" at a non-daily frequency.
+  async function servesSnapshotFor(abbr, freq) {
+    if (!(await isDailyRaw(abbr))) return false;
+    if (freq === 'daily' || freq == null) return true;
+    return DAILY_RESAMPLE_MODE[abbr] === 'latest';
+  }
+
   const contexts = new Map();
   for (const symbol of symbols) {
     const companyName = symbolToCompany.get(symbol);
@@ -350,7 +448,7 @@ async function createMultiCompanyResolutionContext({ prisma, symbols, frequency 
       return seriesMapFor(freq);
     }
     async function getCurrentValue(abbr, freq) {
-      if (freq === 'daily') {
+      if (await servesSnapshotFor(abbr, freq)) {
         const field = DAILY_ABBR_TO_SNAPSHOT_FIELD[abbr];
         return field && snap ? snap[field] ?? null : null;
       }
@@ -361,7 +459,7 @@ async function createMultiCompanyResolutionContext({ prisma, symbols, frequency 
       return null;
     }
     async function getCurrentAndPrevious(abbr, freq) {
-      if (freq === 'daily') return { curr: await getCurrentValue(abbr, freq), prev: null };
+      if (await servesSnapshotFor(abbr, freq)) return { curr: await getCurrentValue(abbr, freq), prev: null };
       const points = seriesMapFor(freq)[abbr] ?? [];
       const curr = points.length ? points[points.length - 1].value : null;
       const prev = points.length > 1 ? points[points.length - 2].value : null;
@@ -374,7 +472,7 @@ async function createMultiCompanyResolutionContext({ prisma, symbols, frequency 
       return tickers.includes(symbol);
     }
     async function getCurrentPeriod(abbr, freq) {
-      if (freq === 'daily') {
+      if (await servesSnapshotFor(abbr, freq)) {
         const field = DAILY_ABBR_TO_SNAPSHOT_FIELD[abbr];
         return field && snap?.datetime ? { frequency: 'daily', date: snap.datetime } : null;
       }
@@ -402,6 +500,6 @@ async function createMultiCompanyResolutionContext({ prisma, symbols, frequency 
 }
 
 module.exports = {
-  createResolutionContext, createFlatContext, createSeriesOnlyContext,
+  createResolutionContext, createFlatContext, createSeriesOnlyContext, createSeriesMapContext,
   createMultiCompanyResolutionContext, getDailyRawAbbrs,
 };

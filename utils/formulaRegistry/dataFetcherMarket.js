@@ -180,7 +180,7 @@ async function fetchMarketSnapshot(prisma, symbol) {
   const row = await prisma.nse_equity_new.findFirst({
     where:   { symbol, close: { not: null } },
     orderBy: { datetime: 'desc' },
-    select:  { close: true, pe: true, eps: true, market_cap_cr: true, datetime: true },
+    select:  { close: true, pe: true, eps: true, market_cap_cr: true, volume: true, datetime: true },
   });
   if (!row) return null;
   return {
@@ -188,6 +188,7 @@ async function fetchMarketSnapshot(prisma, symbol) {
     pe:            row.pe            != null ? parseFloat(row.pe)            : null,
     eps:           row.eps           != null ? parseFloat(row.eps)           : null,
     market_cap_cr: row.market_cap_cr != null ? parseFloat(row.market_cap_cr) : null,
+    volume:        row.volume        != null ? Number(row.volume)            : null,
     datetime:      row.datetime instanceof Date ? row.datetime.toISOString().slice(0, 10) : null,
   };
 }
@@ -202,9 +203,9 @@ async function fetchMarketSnapshot(prisma, symbol) {
 async function fetchMarketSnapshots(prisma, symbols) {
   if (!symbols.length) return {};
   const rows = await prisma.$queryRaw`
-    SELECT symbol, close::float, pe::float, eps::float, market_cap_cr::float, datetime
+    SELECT symbol, close::float, pe::float, eps::float, market_cap_cr::float, volume, datetime
     FROM (
-      SELECT symbol, close, pe, eps, market_cap_cr, datetime,
+      SELECT symbol, close, pe, eps, market_cap_cr, volume, datetime,
              ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY datetime DESC) AS rn
       FROM nse_equity_new
       WHERE symbol = ANY(${symbols}) AND close IS NOT NULL
@@ -216,13 +217,14 @@ async function fetchMarketSnapshots(prisma, symbols) {
   const map = {};
   for (const row of rows) {
     const sym = row.symbol.toUpperCase();
-    if (!map[sym]) map[sym] = { close: null, prevClose: null, pe: null, eps: null, market_cap_cr: null };
+    if (!map[sym]) map[sym] = { close: null, prevClose: null, pe: null, eps: null, market_cap_cr: null, volume: null };
     const snap = map[sym];
     if (snap.close === null) {
       snap.close         = row.close         != null ? parseFloat(row.close)         : null;
       snap.pe            = row.pe            != null ? parseFloat(row.pe)            : null;
       snap.eps           = row.eps           != null ? parseFloat(row.eps)           : null;
       snap.market_cap_cr = row.market_cap_cr != null ? parseFloat(row.market_cap_cr) : null;
+      snap.volume        = row.volume        != null ? Number(row.volume)            : null;
     } else {
       snap.prevClose = row.close != null ? parseFloat(row.close) : null;
     }
@@ -263,18 +265,26 @@ async function fetchPeTimeSeries(prisma, symbol, { months, since } = {}) {
 // fetcher understands. Extend alongside resolutionContext.js's
 // DAILY_ABBR_TO_SNAPSHOT_FIELD (current-value map) when adding a new one —
 // the two maps intentionally mirror each other.
-const DAILY_SERIES_FIELDS = { PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'market_cap_cr' };
+// VOLUME_DAILY, not VOLUME -- 'VOLUME' already exists as a source:'transcript'
+// dedup-pipeline abbr meaning industry-specific sales/units volume (76
+// industries), an unrelated concept from a different pipeline. Same abbr-
+// collision class as EV (Electric Vehicle, transcript) vs. ENTERPRISE_VALUE
+// -- a genuine collision, not safe to reuse, hence the _DAILY suffix
+// (mirrors PE_DAILY's own naming for the same reason).
+const DAILY_SERIES_FIELDS = { PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'market_cap_cr', VOLUME_DAILY: 'volume' };
 
 // How to collapse this daily abbr's native series into a coarser bucket
 // (calendar quarter/year) when something asks for it at 'quarterly' or
 // 'annual' -- application-level policy, not admin-configurable: every abbr
 // in DAILY_SERIES_FIELDS is expected to have an entry here (resolutionContext
 // .js treats a missing entry as "can't be resampled", so add one whenever a
-// new daily abbr is added above). All three today are point-in-time
-// snapshots (a price/ratio "as of" a date), so 'latest' -- the most recent
-// value within the bucket -- is the only mode that makes sense; 'average'
-// exists for a future abbr where a period mean would be more meaningful.
-const DAILY_RESAMPLE_MODE = { PRICE: 'latest', PE_DAILY: 'latest', MCAP_SNAPSHOT: 'latest' };
+// new daily abbr is added above). PRICE/PE_DAILY/MCAP_SNAPSHOT are point-in-
+// time snapshots (a price/ratio "as of" a date), so 'latest' -- the most
+// recent value within the bucket -- is what makes sense; VOLUME_DAILY is a
+// genuine per-day flow rather than a snapshot, so a coarser request means
+// "average daily volume over the bucket", not "one day's volume standing in
+// for the whole quarter/year".
+const DAILY_RESAMPLE_MODE = { PRICE: 'latest', PE_DAILY: 'latest', MCAP_SNAPSHOT: 'latest', VOLUME_DAILY: 'average' };
 
 /**
  * Buckets an ascending {value, date}[] series into calendar quarters or
@@ -373,23 +383,24 @@ async function fetchDailySeries(prisma, symbol, abbr) {
 }
 
 /**
- * All three daily-frequency series (PRICE/PE_DAILY/MCAP_SNAPSHOT) for one
- * symbol in a single query — nse_equity_new stores close/pe/market_cap_cr on
- * the same row per day, so one bulk read serves every daily abbr at once,
- * same "one bulk fetch per frequency" shape fetchAnnualBatch/fetchQuarterlyBatch
- * already use for Prowess data. Every series is padded to the same
- * date-indexed length (null where that day's field is missing), so indices
- * line up across abbrs the same way padded quarterly/annual series already do.
+ * All daily-frequency series (PRICE/PE_DAILY/MCAP_SNAPSHOT/VOLUME_DAILY) for
+ * one symbol in a single query — nse_equity_new stores close/pe/
+ * market_cap_cr/volume on the same row per day, so one bulk read serves
+ * every daily abbr at once, same "one bulk fetch per frequency" shape
+ * fetchAnnualBatch/fetchQuarterlyBatch already use for Prowess data. Every
+ * series is padded to the same date-indexed length (null where that day's
+ * field is missing), so indices line up across abbrs the same way padded
+ * quarterly/annual series already do.
  *
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string} symbol
- * @returns {Promise<{ PRICE: Array<{value,date}>, PE_DAILY: Array<{value,date}>, MCAP_SNAPSHOT: Array<{value,date}> }>}
+ * @returns {Promise<{ PRICE: Array<{value,date}>, PE_DAILY: Array<{value,date}>, MCAP_SNAPSHOT: Array<{value,date}>, VOLUME_DAILY: Array<{value,date}> }>}
  */
 async function fetchAllDailySeries(prisma, symbol) {
   const rows = await prisma.nse_equity_new.findMany({
     where:   { symbol },
     orderBy: { datetime: 'asc' },
-    select:  { datetime: true, close: true, pe: true, market_cap_cr: true },
+    select:  { datetime: true, close: true, pe: true, market_cap_cr: true, volume: true },
   });
 
   const toPoints = (field) => rows.map(r => ({
@@ -401,6 +412,7 @@ async function fetchAllDailySeries(prisma, symbol) {
     PRICE:         toPoints('close'),
     PE_DAILY:      toPoints('pe'),
     MCAP_SNAPSHOT: toPoints('market_cap_cr'),
+    VOLUME_DAILY:  toPoints('volume'),
   };
 }
 

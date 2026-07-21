@@ -50,14 +50,16 @@ async function _resolveVariantOverride(abbr, resCtx) {
  * own stored series.
  *
  * Deliberately narrower than the main async resolveMetric: plain arithmetic
- * over bare refs / raw-with-fallback chains, plus CAGR/SUM (only) windowed
- * over the SAME seriesMap/index space as the outer walk — correct with no
- * date-alignment logic needed, because the referenced abbr's own history at
- * each index k comes from this same per-frequency period list (including
+ * over bare refs / raw-with-fallback chains, plus CAGR/SUM/AVG windowed over
+ * the SAME seriesMap/index space as the outer walk — correct with no date-
+ * alignment logic needed, because the referenced abbr's own history at each
+ * index k comes from this same per-frequency period list (including
  * daily-native abbrs like PRICE/MCAP_SNAPSHOT, which resolutionContext.js's
- * getProwessSeriesMap now resamples onto that exact list too). AVG/DELTA
- * remain unsupported mid-walk — no current formula needs them here, and
- * still resolve to null at that index rather than throwing, same as before.
+ * getProwessSeriesMap now resamples onto that exact list too — or, for a
+ * purely daily seriesMap like SMA_20's, k is just "the k-th trading day",
+ * no resampling involved at all). DELTA remains unsupported mid-walk — no
+ * current formula needs it here, and still resolves to null at that index
+ * rather than throwing, same as before.
  */
 async function _resolveAtIndex(abbr, seriesMap, i, visiting) {
   if (visiting.has(abbr)) return null;
@@ -76,12 +78,14 @@ async function _resolveAtIndex(abbr, seriesMap, i, visiting) {
     value = await evaluate(def.ast, {
       resolveRef:       (refAbbr) => _resolveAtIndex(refAbbr, seriesMap, i, nextVisiting),
       resolveAggregate: async (fnName, refAbbr, window) => {
-        if (fnName !== 'CAGR' && fnName !== 'SUM') return null;
+        if (fnName !== 'CAGR' && fnName !== 'SUM' && fnName !== 'AVG') return null;
         const points = [];
         for (let k = 0; k <= i; k++) {
           points.push({ value: await _resolveAtIndex(refAbbr, seriesMap, k, nextVisiting) });
         }
-        return fnName === 'CAGR' ? cagrFromSeries(points, window) : sumFromSeries(points, window);
+        if (fnName === 'CAGR') return cagrFromSeries(points, window);
+        if (fnName === 'AVG')  return averageFromSeries(points, window);
+        return sumFromSeries(points, window);
       },
       resolveDelta: async () => null,
     });
@@ -100,12 +104,10 @@ async function _resolveAtIndex(abbr, seriesMap, i, visiting) {
  * Historical series of a Kpi's value, one entry per period in
  * resCtx.getSeriesMap(freq), via the existing (unmodified) _resolveAtIndex —
  * a plain export of internal machinery _seriesForAggregate already uses, not
- * new capability. Only supports plain arithmetic over bare refs / raw-with-
- * fallback chains at each index (see _resolveAtIndex's own docs) — any
- * formula that needs CAGR/AVG/SUM/DELTA mid-walk resolves to null at every
- * index, same as _resolveAtIndex always has. That's a deliberate limit, not
- * a bug: a historical trend of an aggregate-based formula needs the
- * aggregate's own inputs resampled into the same period index, which this
+ * new capability. Supports plain arithmetic over bare refs / raw-with-
+ * fallback chains, plus CAGR/SUM/AVG mid-walk (see _resolveAtIndex's own
+ * docs) — DELTA still resolves to null at every index. That's a deliberate
+ * limit, not a bug: DELTA needs a true previous-period lookup, which this
  * intentionally does not attempt — see resolveFormulaSeries's callers for
  * how that's handled (raw-ingested series instead, not engine work).
  *
