@@ -5,6 +5,7 @@ pdf-extractor
 tmp
 logs
 uploads
+.DS_Store
 
 kpi_coverage_report_v2.md
 lib/prowess data
