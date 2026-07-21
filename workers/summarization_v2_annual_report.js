@@ -37,7 +37,7 @@ const pdfSemaphore = (() => {
 // ─── PDF helpers ──────────────────────────────────────────────────────────────
 
 async function extractPageRange(arrayBuffer, pageStart, pageEnd) {
-  const srcDoc = await PDFDocument.load(arrayBuffer);
+  const srcDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
   const subDoc = await PDFDocument.create();
   const indices = Array.from({ length: pageEnd - pageStart }, (_, i) => pageStart + i);
   const pages   = await subDoc.copyPages(srcDoc, indices);
