@@ -19,10 +19,21 @@ const previewSchema = z.object({
   page: z.string().optional(),
 });
 
-router.post('/run',     c.triggerRun);
-router.get( '/runs',    c.getRuns);
-router.get( '/urls',    c.listUrls);
-router.get( '/preview', validate(previewSchema, 'query'), c.previewDocument);
-router.post('/approve', validate(approveSchema, 'body'), c.approve);
+const dismissSchema = z.object({
+  url:    z.string().min(1),
+  reason: z.string().optional(),
+});
+
+const undismissSchema = z.object({
+  url: z.string().min(1),
+});
+
+router.post('/run',       c.triggerRun);
+router.get( '/runs',      c.getRuns);
+router.get( '/urls',      c.listUrls);
+router.get( '/preview',   validate(previewSchema, 'query'), c.previewDocument);
+router.post('/approve',   validate(approveSchema, 'body'), c.approve);
+router.post('/dismiss',   validate(dismissSchema, 'body'), c.dismiss);
+router.post('/undismiss', validate(undismissSchema, 'body'), c.undismiss);
 
 module.exports = router;

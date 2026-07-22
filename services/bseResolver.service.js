@@ -98,14 +98,15 @@ function extractUrlsFromText(text) {
 async function extractPdfFullText(buf, maxPages = 3) {
   const pdfjsLib  = require('pdfjs-dist/legacy/build/pdf.js');
   const pdf       = await pdfjsLib.getDocument({ data: new Uint8Array(buf), standardFontDataUrl: STANDARD_FONT_DATA_URL }).promise;
-  const scanPages = Math.min(maxPages, pdf.numPages);
+  const numPages  = pdf.numPages;
+  const scanPages = Math.min(maxPages, numPages);
   const parts     = [];
   for (let i = 1; i <= scanPages; i++) {
     const page    = await pdf.getPage(i);
     const content = await page.getTextContent();
     parts.push(content.items.map(x => x.str).join(' '));
   }
-  return parts.join('\n').replace(/\s+/g, ' ');
+  return { text: parts.join('\n').replace(/\s+/g, ' '), numPages };
 }
 
 /**
@@ -136,14 +137,21 @@ async function extractPdfPageText(buf, pageNumber = 1) {
   return { text, page, totalPages };
 }
 
+// Metadata record stored per URL in bse_url_meta (see prisma/schema.prisma).
+const pendingMeta = ()      => ({ page_count: null, file_size: null, status: 'pending' });
+const nonPdfMeta  = (size)  => ({ page_count: null, file_size: size, status: 'non_pdf' });
+const pdfMeta     = (p, s)  => ({ page_count: p,    file_size: s,    status: 'resolved' });
+
 /**
  * Attempt to resolve a single BSE URL (AttachLive/ or AttachHis/).
  * Tries the given URL first; if 404, tries the other base path automatically.
  *
  * @param {string} bseUrl — original BSE URL (AttachLive/ preferred for new docs)
- * @returns {Promise<string[]>} — array of URLs to store (always includes bseUrl)
+ * @returns {Promise<{ urls: string[], meta: Object<string, {page_count, file_size, status}> }>}
+ *          urls: URLs to store (always includes bseUrl); meta: per-URL metadata.
  */
 async function resolveUrl(bseUrl) {
+  const meta = {};
   let buf;
   let resolvedFrom = bseUrl;
 
@@ -159,18 +167,18 @@ async function resolveUrl(bseUrl) {
       } catch {
         // Both paths failed — keep original URL for manual resolution
         console.log(`[bse-resolver] unresolvable (both Live+Archive) ${bseUrl.slice(-40)}`);
-        return [bseUrl];
+        return { urls: [bseUrl], meta: { [bseUrl]: pendingMeta() } };
       }
     } else {
       console.log(`[bse-resolver] unresolvable ${bseUrl.slice(-40)} — ${err.message}`);
-      return [bseUrl];
+      return { urls: [bseUrl], meta: { [bseUrl]: pendingMeta() } };
     }
   }
 
   // Verify it's actually a PDF
   if (buf.slice(0, 5).toString('ascii') !== '%PDF-') {
     console.log(`[bse-resolver] non-PDF response for ${bseUrl.slice(-40)}`);
-    return [bseUrl];
+    return { urls: [bseUrl], meta: { [bseUrl]: nonPdfMeta(buf.length) } };
   }
 
   // If we resolved from the alternate path, store that URL instead (it's the working one)
@@ -178,26 +186,31 @@ async function resolveUrl(bseUrl) {
   const urlsToReturn = resolvedFrom !== bseUrl ? [bseUrl, resolvedFrom] : [bseUrl];
 
   let text = '';
+  let numPages = null;
   try {
-    text = await extractPdfFullText(buf);
+    ({ text, numPages } = await extractPdfFullText(buf));
   } catch {
-    // PDF parse error — keep original
-    return [bseUrl];
+    // PDF parse error — keep original, resolved but page count unknown
+    return { urls: [bseUrl], meta: { [bseUrl]: pdfMeta(null, buf.length) } };
   }
+
+  // The downloaded PDF's metadata applies to whichever URL fetched it.
+  const downloadedMeta = pdfMeta(numPages, buf.length);
+  for (const u of urlsToReturn) meta[u] = downloadedMeta;
 
   if (!COVER_LETTER_RE.test(text)) {
     // PDF is the actual document
-    return urlsToReturn;
+    return { urls: urlsToReturn, meta };
   }
 
   // Cover letter — extract embedded URLs then chain-resolve each one:
-  //   200 + PDF  → actual document, keep
+  //   200 + PDF  → actual document, keep (+ capture its page count)
   //   200 + !PDF → webpage / login page, discard
-  //   4xx/timeout → uncertain (might be a direct PDF not yet reachable), keep
+  //   4xx/timeout → uncertain (might be a direct PDF not yet reachable), keep as pending
   const extracted = extractUrlsFromText(text);
   if (!extracted.length) {
     console.log(`[bse-resolver] cover letter but no URLs extracted from ${bseUrl.slice(-40)}`);
-    return urlsToReturn;
+    return { urls: urlsToReturn, meta };
   }
 
   const chainResults = await Promise.all(extracted.map(async u => {
@@ -206,9 +219,14 @@ async function resolveUrl(bseUrl) {
       chainBuf = await fetchBuffer(u);
     } catch (err) {
       if (err.httpStatus === 403) return null; // blocked, not useful
-      return u; // 404 / timeout → keep as candidate
+      meta[u] = pendingMeta();                 // 404 / timeout → keep as candidate
+      return u;
     }
-    return chainBuf.slice(0, 5).toString('ascii') === '%PDF-' ? u : null;
+    if (chainBuf.slice(0, 5).toString('ascii') !== '%PDF-') return null;
+    let pages = null;
+    try { ({ numPages: pages } = await extractPdfFullText(chainBuf)); } catch { /* keep null */ }
+    meta[u] = pdfMeta(pages, chainBuf.length);
+    return u;
   }));
 
   const kept = chainResults.filter(Boolean);
@@ -217,26 +235,30 @@ async function resolveUrl(bseUrl) {
   } else {
     console.log(`[bse-resolver] cover letter → 0/${extracted.length} were PDFs (all discarded) from ${bseUrl.slice(-40)}`);
   }
-  return [...new Set([...urlsToReturn, ...kept])];
+  return { urls: [...new Set([...urlsToReturn, ...kept])], meta };
 }
 
 /**
- * Resolve an array of BSE URLs, returning a flat deduplicated array.
- * Sleeps between downloads to avoid hammering the CDN.
+ * Resolve an array of BSE URLs, returning a flat deduplicated array plus a
+ * merged per-URL metadata map. Sleeps between downloads to avoid hammering the CDN.
+ *
+ * @returns {Promise<{ urls: string[], meta: Object<string, object> }>}
  */
 async function resolveUrlArray(urls) {
-  const all = [];
+  const all  = [];
   const seen = new Set();
+  const meta = {};
 
   for (let i = 0; i < urls.length; i++) {
     if (i > 0) await sleep(SLEEP_BETWEEN_DL_MS);
-    const resolved = await resolveUrl(urls[i]);
+    const { urls: resolved, meta: m } = await resolveUrl(urls[i]);
+    Object.assign(meta, m);
     for (const u of resolved) {
       if (!seen.has(u)) { seen.add(u); all.push(u); }
     }
   }
 
-  return all;
+  return { urls: all, meta };
 }
 
 module.exports = { resolveUrl, resolveUrlArray, fetchBuffer, extractPdfPageText };

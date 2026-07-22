@@ -29,6 +29,21 @@ function median(values) {
 // line, matching the original chart structure. No CSV involved: every value
 // comes from the Kpi catalogue via resCtx, the same resolveMetric path
 // GET /admin/kpis/:abbr/preview uses.
+//
+// One shared frequency for the whole group ('quarterly', same as
+// lib/financials.js#_buildTableFromKpiGroup's single `freq` param for a
+// whole table) — NOT each item's own Kpi.frequency pin. Bar and line series
+// share one x-axis, so they need one seriesMap/period list; a per-item pin
+// (e.g. PRICE/MCAP_SNAPSHOT/PE_DAILY are all pinned 'daily', for single-
+// value preview purposes) would desync a group's bar from its line, and for
+// a mixed-frequency formula (PE_DAILY = PRICE/EPS_DILUTED) walking at
+// 'daily' can't even resolve — EPS_DILUTED has no per-day value, only
+// per-quarter. At 'quarterly' every item resolves cleanly instead: a daily-
+// native raw abbr resamples onto the real fiscal-quarter boundaries via
+// resolutionContext.js's daily-abbr merge (resampleToPeriods, 'latest' —
+// that quarter's own most recent trading day), landing index-for-index next
+// to genuine quarterly abbrs like EPS_DILUTED — no look-ahead risk, since
+// nothing is forward-filled across quarters.
 async function _buildChartGroup(configKey, resCtx) {
   const config = await prisma.screenConfig.findUnique({
     where:   { key: configKey },
@@ -36,21 +51,22 @@ async function _buildChartGroup(configKey, resCtx) {
   });
   if (!config || !config.items.length) return null;
 
+  const freq = 'quarterly';
+  const seriesMap  = await resCtx.getSeriesMap(freq);
+  const anyAbbr    = Object.keys(seriesMap)[0];
+  const periods    = anyAbbr ? seriesMap[anyAbbr] : [];
+
   const barSeries = [];
   const lineSeries = [];
 
   for (const item of config.items) {
     const def      = await getDefinition(item.kpi_abbr);
-    const freq     = def?.frequency ?? 'quarterly';
     const decimals = item.decimal_places ?? config.decimal_places;
 
     const values     = await resolveFormulaSeries(item.kpi_abbr, resCtx, { frequency: freq });
-    const seriesMap  = await resCtx.getSeriesMap(freq);
-    const anyAbbr    = Object.keys(seriesMap)[0];
-    const periods    = anyAbbr ? seriesMap[anyAbbr] : [];
 
     const data = periods.map((p, i) => ({
-      x: freq === 'daily' ? p.date : `${p.quarter} ${p.fiscal_year}`,
+      x: `${p.quarter} ${p.fiscal_year}`,
       y: roundTo(values[i] ?? null, decimals),
     }));
 
@@ -82,10 +98,13 @@ async function _buildChartGroup(configKey, resCtx) {
  *        charts.ev-ebitda / charts.price-to-book / charts.mcap-sales), built by
  *        _buildChartGroup. No CSV involved anywhere — every value resolves
  *        through the Kpi catalogue via resCtx, the same path GET
- *        /admin/kpis/:abbr/preview uses. EV/EBITDA, Price to Book, and
- *        Market Cap/Sales's ratio lines return null/empty (their bar series
- *        still resolve fine) until admin ingests quarterly-aligned data for
- *        those mixed daily/quarterly ratios — see resolveFormulaSeries's docs.
+ *        /admin/kpis/:abbr/preview uses, all at one shared 'quarterly'
+ *        frequency per group (see _buildChartGroup's own docs for why).
+ *        EV/EBITDA's and Price to Book's ratio lines (and some periods of
+ *        their bar series) still come back null on periods missing a real
+ *        start_date/end_date boundary — a data-completeness gap (admin needs
+ *        to ingest quarterly period boundaries for those), not a frequency
+ *        bug — see resampleToPeriods's docs.
  */
 async function getCharts(req, res, next) {
   try {

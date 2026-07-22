@@ -12,13 +12,10 @@
  *
  * Resolution order per abbr:
  *   1. Cycle guard (a formula referencing itself, directly or transitively).
- *   2. Company-group variant override (KpiRelationship relationship_type
- *      'variant_for_group') — e.g. BFSI companies resolve a different abbr
- *      entirely for EBIT/EBIT_MARGIN/FCF.
- *   3. Raw leaf (formula_expression null) → resolutionContext.getCurrentValue.
+ *   2. Raw leaf (formula_expression null) → resolutionContext.getCurrentValue.
  *      Formula (formula_expression set) → expressionEvaluator.evaluate,
  *      recursing back into resolveMetric for every referenced abbr.
- *   4. Fallback chain (Kpi.fallback_abbrs) — first non-null wins.
+ *   3. Fallback chain (Kpi.fallback_abbrs) — first non-null wins.
  *
  * A Kpi's own `frequency` (if set) is fixed and overrides the calling
  * context's frequency for that definition and everything it references —
@@ -26,20 +23,17 @@
  * granularity regardless of whether the caller is building an annual or
  * quarterly view. Definitions with frequency == null inherit the caller's
  * requested frequency.
+ *
+ * No abbr is ever silently substituted for another based on company group —
+ * a company-group-scoped variant (e.g. a BFSI-specific formula) is a
+ * different admin-authored Kpi entirely, referenced explicitly by its own
+ * ScreenConfig/KpiGroup (see ScreenConfig.variant_of_key in
+ * prisma/schema.prisma, resolved by lib/financials.js#_resolveScreenConfig).
  */
 
 const { evaluate, collectReferences } = require('./expressionEvaluator');
-const { getDefinition, getRelationships, getRegistrySnapshot } = require('./registryCache');
+const { getDefinition, getRegistrySnapshot } = require('./registryCache');
 const { cagrFromSeries, averageFromSeries, sumFromSeries } = require('./math');
-
-async function _resolveVariantOverride(abbr, resCtx) {
-  const rels = await getRelationships(abbr, 'variant_for_group');
-  for (const rel of rels.sort((a, b) => a.display_order - b.display_order)) {
-    if (!rel.company_group_slug || !rel.related_kpi_abbr) continue;
-    if (await resCtx.isCompanyInGroup(rel.company_group_slug)) return rel.related_kpi_abbr;
-  }
-  return null;
-}
 
 /**
  * Point-in-time resolution of an abbr at a specific historical period index
@@ -243,12 +237,9 @@ async function resolveMetric(abbr, resCtx, opts = {}) {
 
   let result;
 
-  const variantAbbr = await _resolveVariantOverride(abbr, resCtx);
-  const storedValue = variantAbbr && variantAbbr !== abbr ? null : await resCtx.getCurrentValue(abbr, freq);
+  const storedValue = await resCtx.getCurrentValue(abbr, freq);
 
-  if (variantAbbr && variantAbbr !== abbr) {
-    result = await resolveMetric(variantAbbr, resCtx, { frequency: freq, _visiting: nextVisiting });
-  } else if (storedValue != null) {
+  if (storedValue != null) {
     // Stored-value-wins, for raw AND formula-type abbrs alike — Prowess
     // itself directly reports some ratios (ROCE, DE, CR, IC, ...) that Kpi
     // otherwise treats as formula-derived; a stored value always pre-empts

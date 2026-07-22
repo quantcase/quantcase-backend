@@ -75,12 +75,15 @@ const validateFormulaSchema = z.object({
 
 const createRelationshipSchema = z.object({
   // Free text on purpose — see feedback_generic_over_enum_design memory.
-  // The only relationship_type the resolver still acts on is
-  // 'variant_for_group' (company-group-scoped formula selection, e.g. BFSI).
-  // 'constituent_of'/'statement_of' (flat, single-level grouping) have been
-  // superseded by KpiGroup (admin.kpiGroups.routes.js) — a real tree, so
-  // don't create new rows of those two types here; existing ones are left in
-  // place but are no longer read by any display consumer.
+  // No relationship_type is read by the resolver anymore: 'constituent_of'/
+  // 'statement_of' (flat, single-level grouping) were superseded by KpiGroup
+  // (admin.kpiGroups.routes.js) — a real tree; 'variant_for_group' (a silent,
+  // company-group-scoped formula swap, e.g. BFSI companies transparently
+  // getting EBIT_BFSI instead of EBIT) was removed for being invisible to
+  // admin — see ScreenConfig.variant_of_key/company_group_slug
+  // (admin.screenConfig.routes.js) for the admin-visible replacement. This
+  // CRUD is kept for reference/future relationship kinds; existing rows are
+  // left in place but nothing here drives resolution.
   relationship_type:  z.string().min(1),
   related_kpi_abbr:    z.string().optional(),
   company_group_slug:  z.string().optional(),
@@ -113,9 +116,10 @@ router.put('/:abbr', validate(updateKpiSchema, 'body'), ctrl.updateKpi);
 // chain before trusting it.
 router.get('/:abbr/preview', validate(previewQuerySchema, 'query'), ctrl.previewKpi);
 
-// KpiRelationship — now only used for company-group-scoped variant selection
-// (e.g. BFSI, 'variant_for_group'). Display grouping (expandable rollups,
-// statement sections) lives in KpiGroup instead — see admin.kpiGroups.routes.js.
+// KpiRelationship — no longer read by any resolution/display logic (see the
+// createRelationshipSchema comment above); kept as a generic, browsable CRUD.
+// Display grouping (expandable rollups, statement sections) lives in
+// KpiGroup instead — see admin.kpiGroups.routes.js.
 router.get(   '/:abbr/relationships', ctrl.listRelationships);
 router.post(  '/:abbr/relationships', validate(createRelationshipSchema, 'body'), ctrl.createRelationship);
 router.delete('/:abbr/relationships/:id', ctrl.deleteRelationship);

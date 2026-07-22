@@ -10,7 +10,7 @@
  */
 
 const prisma = require('../config/prisma');
-const { loadIdentityMap } = require('../lib/prowess');
+const { loadIdentityMap, loadIndustryMap } = require('../lib/prowess');
 
 // Same Indian-FY (Apr–Mar) derivation as scripts/importConcalls.js, applied
 // to a BSE scrape_date instead of a concall call_date.
@@ -136,7 +136,8 @@ async function approveTranscriptOrPpt({ docType, url, company, fiscal_year, quar
     data: {
       id: `${company}_${fiscal_year}_${quarter}`,
       company, fiscal_year, quarter, call_date,
-      company_name: loadIdentityMap()[company.toUpperCase()] ?? null,
+      company_name:   loadIdentityMap()[company.toUpperCase()] ?? null,
+      basic_industry: loadIndustryMap()[company.toUpperCase()] ?? null,
       [field]: url,
     },
   });

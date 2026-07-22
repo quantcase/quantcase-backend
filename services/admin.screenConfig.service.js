@@ -34,6 +34,21 @@ async function _assertKpiGroupExists(slug) {
   if (!exists) throw new HttpError(422, `kpi_group_slug "${slug}" does not exist.`);
 }
 
+async function _assertScreenConfigExists(key) {
+  if (!key) return;
+  const exists = await prisma.screenConfig.findUnique({ where: { key }, select: { key: true } });
+  if (!exists) throw new HttpError(422, `variant_of_key "${key}" does not reference an existing ScreenConfig.`);
+}
+
+// variant_of_key and company_group_slug are a pair -- a variant with no
+// company group to gate on (or a company_group_slug with nothing marking it
+// as a variant) is ambiguous, so both must be set or both left null.
+function _assertVariantPairing(variant_of_key, company_group_slug) {
+  if (Boolean(variant_of_key) !== Boolean(company_group_slug)) {
+    throw new HttpError(422, 'variant_of_key and company_group_slug must be set together (or both omitted).');
+  }
+}
+
 // ── ScreenConfig ─────────────────────────────────────────────────────────────
 
 async function listScreenConfigs({ search } = {}) {
@@ -54,10 +69,13 @@ async function getScreenConfig(key) {
   return config;
 }
 
-async function createScreenConfig({ key, label, endpoint, periods_shown, decimal_places, kpi_group_slug }) {
+async function createScreenConfig({ key, label, endpoint, periods_shown, decimal_places, kpi_group_slug, variant_of_key, company_group_slug }) {
   const existing = await prisma.screenConfig.findUnique({ where: { key } });
   if (existing) throw new HttpError(409, `ScreenConfig with key "${key}" already exists.`);
   await _assertKpiGroupExists(kpi_group_slug);
+  _assertVariantPairing(variant_of_key, company_group_slug);
+  await _assertScreenConfigExists(variant_of_key);
+  await _assertCompanyGroupExists(company_group_slug);
 
   return prisma.screenConfig.create({
     data: {
@@ -67,6 +85,8 @@ async function createScreenConfig({ key, label, endpoint, periods_shown, decimal
       periods_shown: periods_shown ?? null,
       decimal_places: decimal_places ?? 2,
       kpi_group_slug: kpi_group_slug ?? null,
+      variant_of_key: variant_of_key ?? null,
+      company_group_slug: company_group_slug ?? null,
     },
   });
 }
@@ -76,8 +96,14 @@ async function updateScreenConfig(key, patch) {
   if (!existing) throw new HttpError(404, `No ScreenConfig with key "${key}".`);
   if ('kpi_group_slug' in patch) await _assertKpiGroupExists(patch.kpi_group_slug);
 
+  const nextVariantOfKey     = 'variant_of_key' in patch ? patch.variant_of_key : existing.variant_of_key;
+  const nextCompanyGroupSlug = 'company_group_slug' in patch ? patch.company_group_slug : existing.company_group_slug;
+  _assertVariantPairing(nextVariantOfKey, nextCompanyGroupSlug);
+  if ('variant_of_key' in patch) await _assertScreenConfigExists(patch.variant_of_key);
+  if ('company_group_slug' in patch) await _assertCompanyGroupExists(patch.company_group_slug);
+
   const data = {};
-  for (const field of ['label', 'endpoint', 'periods_shown', 'decimal_places', 'kpi_group_slug']) {
+  for (const field of ['label', 'endpoint', 'periods_shown', 'decimal_places', 'kpi_group_slug', 'variant_of_key', 'company_group_slug']) {
     if (field in patch) data[field] = patch[field];
   }
   return prisma.screenConfig.update({ where: { key }, data });

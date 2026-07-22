@@ -23,12 +23,40 @@ const { scrapeAllCompanies } = require('../../services/bseScraper.service');
 const { resolveUrlArray }    = require('../../services/bseResolver.service');
 
 async function resolveGroup(group) {
-  const [transcript_urls, ppt_urls, annual_report_urls] = await Promise.all([
+  const [transcript, ppt, annual] = await Promise.all([
     resolveUrlArray(group.transcript_urls),
     resolveUrlArray(group.ppt_urls),
     resolveUrlArray(group.annual_report_urls),
   ]);
-  return { ...group, transcript_urls, ppt_urls, annual_report_urls };
+  return {
+    ...group,
+    transcript_urls:    transcript.urls,
+    ppt_urls:           ppt.urls,
+    annual_report_urls: annual.urls,
+    _meta:              { ...transcript.meta, ...ppt.meta, ...annual.meta },
+  };
+}
+
+// Upsert per-URL metadata (page count / size / status) captured during
+// resolution. Never downgrades a previously 'resolved' row: a later lookback
+// re-scrape where the CDN briefly 404s (status 'pending', null counts) must not
+// wipe good data — COALESCE keeps existing non-null counts, and status only
+// ever climbs to 'resolved'.
+async function upsertUrlMeta(meta) {
+  const entries = Object.entries(meta);
+  for (const [url, m] of entries) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO bse_url_meta (url, page_count, file_size, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, NOW(), NOW())
+       ON CONFLICT (url) DO UPDATE SET
+         page_count = COALESCE(EXCLUDED.page_count, bse_url_meta.page_count),
+         file_size  = COALESCE(EXCLUDED.file_size,  bse_url_meta.file_size),
+         status     = CASE WHEN EXCLUDED.status = 'resolved' OR bse_url_meta.status = 'resolved'
+                           THEN 'resolved' ELSE EXCLUDED.status END,
+         updated_at = NOW()`,
+      url, m.page_count, m.file_size, m.status,
+    );
+  }
 }
 
 async function run(config = {}) {
@@ -78,6 +106,8 @@ async function run(config = {}) {
       g.ppt_urls,
       g.annual_report_urls,
     );
+
+    await upsertUrlMeta(g._meta);
 
     upserted++;
     totalUrls += g.transcript_urls.length + g.ppt_urls.length + g.annual_report_urls.length;
