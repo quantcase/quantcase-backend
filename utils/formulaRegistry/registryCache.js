@@ -17,7 +17,6 @@ const { parse, ExpressionError } = require('./expressionEvaluator');
 const TTL_MS = 60_000;
 
 let _cache = null;          // Map<abbr, entry>
-let _relationships = null;  // KpiRelationship[]
 let _loadedAt = 0;
 let _loadingPromise = null;
 
@@ -63,14 +62,10 @@ function _buildEntry(row) {
 // description, display_order) to the existing row — never `source`,
 // `full_form`, `kpi_type`, etc., which the dedup pipeline owns and reads.
 async function _load() {
-  const [kpiRows, relRows] = await Promise.all([
-    prisma.kpi.findMany({ where: { registry_enabled: true } }),
-    prisma.kpiRelationship.findMany(),
-  ]);
+  const kpiRows = await prisma.kpi.findMany({ where: { registry_enabled: true } });
   const map = new Map();
   for (const row of kpiRows) map.set(row.abbr, _buildEntry(row));
   _cache = map;
-  _relationships = relRows;
   _loadedAt = Date.now();
 }
 
@@ -117,15 +112,9 @@ function getRegistrySnapshot() {
   return _cache ? Object.fromEntries(_cache) : {};
 }
 
-async function getRelationships(abbr, relationshipType) {
-  await _ensureLoaded();
-  return _relationships.filter(r => r.kpi_abbr === abbr && (!relationshipType || r.relationship_type === relationshipType));
-}
-
 /** Force-drop the cache — used by tests / scripts that write Kpi rows and need to see them immediately. */
 function invalidateRegistryCache() {
   _cache = null;
-  _relationships = null;
   _loadedAt = 0;
 }
 
@@ -135,7 +124,6 @@ module.exports = {
   getProwessRawAbbrs,
   getDailyRawAbbrs,
   getRegistrySnapshot,
-  getRelationships,
   invalidateRegistryCache,
   ExpressionError,
 };

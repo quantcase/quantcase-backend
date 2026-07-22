@@ -18,6 +18,13 @@ const screenConfigFieldsSchema = z.object({
   // "pnl-statement--annual") -- null/omitted for chart/peer configs, which
   // still use `items` below.
   kpi_group_slug: z.string().nullable().optional(),
+  // Makes this ScreenConfig a company-group-scoped variant of another one --
+  // e.g. a BFSI-only "financials.pnl.quarterly.bfsi" with variant_of_key:
+  // "financials.pnl.quarterly", company_group_slug: "bfsi", and its own
+  // kpi_group_slug tree. Both fields must be set together (or neither) --
+  // see admin.screenConfig.service.js for the pairing check.
+  variant_of_key:     z.string().nullable().optional(),
+  company_group_slug: z.string().nullable().optional(),
 });
 
 const createScreenConfigSchema = screenConfigFieldsSchema.extend({

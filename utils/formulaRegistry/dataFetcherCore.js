@@ -260,6 +260,40 @@ async function fetchTimeSeriesBatch(prisma, ticker, abbrs) {
 // ── Annual / quarterly split batches ─────────────────────────────────────────
 
 /**
+ * One row per (fiscal_year, quarter) for a company/source_type/callId-prefix,
+ * carrying the period's start_date/end_date boundary — the thing
+ * resampleToPeriods needs to bucket a daily-native abbr (PRICE/MCAP_SNAPSHOT)
+ * onto real fiscal-quarter boundaries (see resolutionContext.js's
+ * getProwessSeriesMap). A plain `distinct(['fiscal_year','quarter'])`
+ * findMany can't express *which* of the ~20-30 kpi_abbr rows sharing a
+ * period to prefer: balance-sheet/snapshot metrics (BORR_TOTAL, CASH_EQUIV,
+ * CURR_ASSETS, ...) are correctly stored with start_date NULL (a balance
+ * sheet has no "start", only an as-of date) alongside P&L/flow metrics
+ * (TOTAL_INCOME, ...) that correctly carry the real start_date — Prisma's
+ * distinct then non-deterministically returns whichever row the scan hits
+ * first, sometimes a snapshot row, silently nulling that whole period's
+ * start_date (this is what caused PB_TTM/MCAP_SALES/PE_DAILY's chart lines
+ * to go null on SOME quarters but not others, not a missing-data gap).
+ * DISTINCT ON + ORDER BY start_date (Postgres default: NULLS LAST for ASC)
+ * picks a non-null-start_date row whenever one exists for that period.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} company
+ * @param {string} sourceType - 'C' | 'S'
+ * @param {string} callIdPrefix - e.g. 'prowess_new_' | 'prowess_qtr_'
+ * @returns {Promise<Array<{fiscal_year, quarter, start_date, end_date}>>} ascending
+ */
+async function _fetchPeriodBoundaries(prisma, company, sourceType, callIdPrefix) {
+  return prisma.$queryRaw`
+    SELECT DISTINCT ON (fiscal_year, quarter)
+           fiscal_year, quarter, start_date, end_date
+    FROM   prowess_values_new
+    WHERE  company = ${company} AND source_type = ${sourceType} AND call_id LIKE ${callIdPrefix + '%'}
+    ORDER  BY fiscal_year, quarter, start_date
+  `;
+}
+
+/**
  * Annual-only batch from prowess_values_new (callId prefix: prowess_new_*).
  * Q4 rows represent full fiscal-year audited figures.
  * Prefers consolidated (source_type='C'); falls back to standalone.
@@ -275,12 +309,7 @@ async function fetchAnnualBatch(prisma, ticker, abbrs) {
   if (!prowessName) return result;
 
   let [allPeriods, kpiRows] = await Promise.all([
-    prisma.prowessValueNew.findMany({
-      where:    { company: prowessName, source_type: 'C', callId: { startsWith: 'prowess_new_' } },
-      select:   { fiscal_year: true, quarter: true, start_date: true, end_date: true },
-      distinct: ['fiscal_year', 'quarter'],
-      orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
-    }),
+    _fetchPeriodBoundaries(prisma, prowessName, 'C', 'prowess_new_'),
     prisma.prowessValueNew.findMany({
       where:   { company: prowessName, kpi_abbr: { in: abbrs }, source_type: 'C', callId: { startsWith: 'prowess_new_' } },
       select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
@@ -289,12 +318,7 @@ async function fetchAnnualBatch(prisma, ticker, abbrs) {
 
   if (!allPeriods.length) {
     [allPeriods, kpiRows] = await Promise.all([
-      prisma.prowessValueNew.findMany({
-        where:    { company: prowessName, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
-        select:   { fiscal_year: true, quarter: true },
-        distinct: ['fiscal_year', 'quarter'],
-        orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
-      }),
+      _fetchPeriodBoundaries(prisma, prowessName, 'S', 'prowess_new_'),
       prisma.prowessValueNew.findMany({
         where:   { company: prowessName, kpi_abbr: { in: abbrs }, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
         select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
@@ -321,12 +345,7 @@ async function fetchQuarterlyBatch(prisma, ticker, abbrs) {
   if (!prowessName) return result;
 
   const [allPeriods, kpiRows] = await Promise.all([
-    prisma.prowessValueNew.findMany({
-      where:    { company: prowessName, source_type: 'S', callId: { startsWith: 'prowess_qtr_' } },
-      select:   { fiscal_year: true, quarter: true, start_date: true, end_date: true },
-      distinct: ['fiscal_year', 'quarter'],
-      orderBy:  [{ fiscal_year: 'asc' }, { quarter: 'asc' }],
-    }),
+    _fetchPeriodBoundaries(prisma, prowessName, 'S', 'prowess_qtr_'),
     prisma.prowessValueNew.findMany({
       where:   { company: prowessName, kpi_abbr: { in: abbrs }, source_type: 'S', callId: { startsWith: 'prowess_qtr_' } },
       select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },

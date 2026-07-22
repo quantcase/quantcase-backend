@@ -76,6 +76,17 @@ const listUrls = async (req, res, next) => {
   try {
     const days          = Math.min(parseInt(req.query.days ?? '14', 10), 90);
     const hideApproved  = req.query.hideApproved === 'true';
+    const showDismissed = req.query.showDismissed === 'true';
+
+    // Optional numeric/status filters (applied against bse_url_meta below).
+    // A null-valued row fails an active numeric filter (standard filter semantics);
+    // use status='pending' to surface not-yet-resolved candidates instead.
+    const toInt      = v => (v === undefined || v === '' ? null : parseInt(v, 10));
+    const minPages   = toInt(req.query.minPages);
+    const maxPages   = toInt(req.query.maxPages);
+    const minSize    = toInt(req.query.minSize);   // bytes
+    const maxSize    = toInt(req.query.maxSize);    // bytes
+    const statusFilt = req.query.status ?? null;    // 'resolved' | 'pending' | 'non_pdf'
 
     const rows = await prisma.$queryRaw`
       SELECT scrip_cd, company_name, scrape_date, 'transcript' AS doc_type, unnest(transcript_urls) AS url
@@ -133,6 +144,44 @@ const listUrls = async (req, res, next) => {
     for (const u of urls) u.alreadyApproved = approvedUrlSet.has(u.url);
 
     if (hideApproved) urls = urls.filter(u => !u.alreadyApproved);
+
+    // ── metadata (page_count / file_size / status) + soft-delete (dismissed) ──
+    const [metaRows, dismissedRows] = await Promise.all([
+      candidateUrls.length
+        ? prisma.bseUrlMeta.findMany({
+            where:  { url: { in: candidateUrls } },
+            select: { url: true, page_count: true, file_size: true, status: true },
+          })
+        : [],
+      candidateUrls.length
+        ? prisma.bseDismissedUrl.findMany({
+            where:  { url: { in: candidateUrls } },
+            select: { url: true, reason: true, dismissed_at: true },
+          })
+        : [],
+    ]);
+    const metaByUrl      = new Map(metaRows.map(m => [m.url, m]));
+    const dismissedByUrl = new Map(dismissedRows.map(d => [d.url, d]));
+
+    for (const u of urls) {
+      const m = metaByUrl.get(u.url);
+      u.page_count = m?.page_count ?? null;
+      u.file_size  = m?.file_size  ?? null;
+      u.status     = m?.status     ?? null;
+      const d = dismissedByUrl.get(u.url);
+      u.dismissed        = !!d;
+      u.dismissed_reason = d?.reason ?? null;
+      u.dismissed_at     = d?.dismissed_at ?? null;
+    }
+
+    if (!showDismissed) urls = urls.filter(u => !u.dismissed);
+
+    // Numeric/status filters. Null values fail an active numeric bound.
+    if (minPages   != null) urls = urls.filter(u => u.page_count != null && u.page_count >= minPages);
+    if (maxPages   != null) urls = urls.filter(u => u.page_count != null && u.page_count <= maxPages);
+    if (minSize    != null) urls = urls.filter(u => u.file_size  != null && u.file_size  >= minSize);
+    if (maxSize    != null) urls = urls.filter(u => u.file_size  != null && u.file_size  <= maxSize);
+    if (statusFilt != null) urls = urls.filter(u => u.status === statusFilt);
 
     // ── existingUrl / willOverwrite: what's currently in that slot, via suggested fields ──
     const transcriptPptKeySet = new Map();
@@ -206,4 +255,35 @@ const approve = async (req, res, next) => {
   }
 };
 
-module.exports = { triggerRun, getRuns, listUrls, previewDocument, approve };
+// POST /admin/bse-discovery/dismiss
+// body: { url, reason? } — soft-delete a candidate so it stops appearing in the
+// listing (unless ?showDismissed=true). Idempotent; re-dismissing updates reason.
+const dismiss = async (req, res, next) => {
+  try {
+    const { url, reason } = req.body ?? {};
+    if (!url) return res.status(400).json({ error: 'url is required' });
+    const record = await prisma.bseDismissedUrl.upsert({
+      where:  { url },
+      create: { url, reason: reason ?? null },
+      update: { reason: reason ?? null },
+    });
+    res.json({ success: true, dismissed: record });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /admin/bse-discovery/undismiss
+// body: { url } — restore a previously dismissed candidate. Idempotent.
+const undismiss = async (req, res, next) => {
+  try {
+    const { url } = req.body ?? {};
+    if (!url) return res.status(400).json({ error: 'url is required' });
+    await prisma.bseDismissedUrl.deleteMany({ where: { url } });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { triggerRun, getRuns, listUrls, previewDocument, approve, dismiss, undismiss };

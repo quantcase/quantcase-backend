@@ -2,7 +2,7 @@
 
 module.exports = {
   ...require('./financial'),           // resolveMetric, getRegistrySnapshot
-  ...require('./registryCache'),       // warmRegistryCache, getDefinition, getRelationships, getRegistrySnapshot, invalidateRegistryCache, ...
+  ...require('./registryCache'),       // warmRegistryCache, getDefinition, getRegistrySnapshot, invalidateRegistryCache, ...
   ...require('./resolutionContext'),   // createResolutionContext
   ...require('./expressionEvaluator'), // parse, validate, evaluate, collectReferences, ExpressionError
   ...require('./technical'),          // TECHNICAL_REGISTRY, resolveTechnicalIndicators, resolveIndicatorSeries

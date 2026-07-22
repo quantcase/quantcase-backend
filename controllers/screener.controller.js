@@ -321,12 +321,15 @@ async function getTickerInfo(req, res, next) {
     const basicIndustry     = idRow ? (idRow[ID_COL_NSE_BASIC_IND] || '').trim() : null;
 
     // BFSI flag — drives label and column visibility decisions passed to the
-    // frontend. Formula resolution (EBIT/EBIT_MARGIN/FCF variant selection)
-    // no longer needs this — the resolver determines it itself via the
-    // 'bfsi' CompanyGroup (see utils/formulaRegistry/financial.js). This is
-    // the canonical classifier (utils/industryClassifier.js) also used by
-    // admin.service.js/peerMetrics.js — consolidated from a separate,
-    // inconsistent keyword-match that used to live here.
+    // frontend only (e.g. "Op. Profit" vs "EBITDA" below); the underlying
+    // value is computed the same way for every company. This is purely a
+    // display concern, unrelated to KPI resolution — a BFSI-specific table
+    // with its own rows/formulas is a separate ScreenConfig variant (see
+    // ScreenConfig.variant_of_key in prisma/schema.prisma), not a flag
+    // threaded through here. This is the canonical classifier
+    // (utils/industryClassifier.js) also used by admin.service.js/
+    // peerMetrics.js — consolidated from a separate, inconsistent
+    // keyword-match that used to live here.
     const isBfsi = isBFSI(basicIndustry);
     const description       = idRow ? (idRow[8]  || '').trim() || null : null;
     const website           = idRow ? (idRow[50] || '').trim() || null : null;

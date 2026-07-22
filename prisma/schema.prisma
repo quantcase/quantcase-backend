@@ -142,10 +142,15 @@ model Kpi {
 // CompanyGroup). Originally also covered display grouping (expandable
 // constituent rollups, PnL/Balance Sheet/Cashflow statement sections) via
 // 'constituent_of'/'statement_of' — both superseded by KpiGroup below (a
-// real tree; these were flat/single-level). Existing rows of those two types
-// are left in place but no longer read by any consumer. The one
-// relationship_type still live: 'variant_for_group' — company-group-scoped
-// formula selection (e.g. BFSI companies resolve EBIT_BFSI instead of EBIT).
+// real tree; these were flat/single-level). It also used to carry
+// 'variant_for_group' — a silent, per-abbr, company-group-scoped formula
+// swap (e.g. BFSI companies transparently resolving EBIT_BFSI instead of
+// EBIT with no visible indication) — removed because it was invisible to
+// admin and produced inconsistent results between callers. The admin-visible
+// replacement is ScreenConfig.variant_of_key/company_group_slug (see below):
+// a whole separate, explicitly-authored config/KpiGroup per company group,
+// not a hidden per-row substitution. No relationship_type is read by any
+// consumer today; existing rows are left in place for reference only.
 // `relationship_type` is deliberately a free string, not an enum — new
 // relationship kinds should never require a schema migration.
 model KpiRelationship {
@@ -2072,6 +2077,34 @@ model BseDiscoveredUrl {
   @@map("bse_discovered_urls")
 }
 
+// Per-candidate-URL metadata captured during discovery resolution (the resolver
+// already downloads + parses every PDF, so page count / size are free there).
+// Keyed by the URL itself so the admin listing can join it and filter.
+// status: 'resolved' (downloaded + is a PDF), 'pending' (404/timeout — BSE
+// propagation delay, retry later), 'non_pdf' (downloaded but not a PDF).
+model BseUrlMeta {
+  url        String   @id
+  page_count Int?
+  file_size  Int?
+  status     String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([status])
+  @@map("bse_url_meta")
+}
+
+// Soft-delete for discovery candidates. A URL listed here is hidden from the
+// admin discovery listing (unless showDismissed=true). Restorable by deleting
+// the row (POST /admin/bse-discovery/undismiss).
+model BseDismissedUrl {
+  url          String   @id
+  reason       String?
+  dismissed_at DateTime @default(now())
+
+  @@map("bse_dismissed_urls")
+}
+
 // ─── Scheduler ───────────────────────────────────────────────────────────────
 
 model SchedulerJob {
@@ -2192,23 +2225,26 @@ model ScreenTicker {
 // Admin config for which metrics/rows/series/columns a given API response
 // section shows, in what order, with what precision — decoupled from
 // KpiGroup (which stays the KPI display-hierarchy tool, kpi_type roots +
-// statement tree + variant_for_group). Intentionally its own mechanism, not
-// bolted onto KpiGroup, since this is meant to eventually cover config for
-// any controller's response shape, not just KPI grouping specifically.
+// statement tree). Intentionally its own mechanism, not bolted onto KpiGroup,
+// since this is meant to eventually cover config for any controller's
+// response shape, not just KPI grouping specifically.
 // One ScreenConfig per screen table/chart-group/column-set (e.g.
 // "financials.pnl.annual", "charts.pe-ratio", "peers.columns"); one
-// ScreenConfigItem per row/series/column within it.
+// ScreenConfigItem per row/series/column within it. A ScreenConfig can also
+// be a company-group-scoped *variant* of another one (variant_of_key +
+// company_group_slug below) -- e.g. a BFSI-specific P&L table with its own
+// rows -- fully admin-visible/editable, not a silent per-row formula swap.
 model ScreenConfig {
-  id             String             @id @default(uuid())
+  id                 String             @id @default(uuid())
   // Stable identifier code refers to directly.
-  key            String             @unique
-  label          String
+  key                String             @unique
+  label              String
   // Free-text note of which endpoint/controller this powers — admin
   // browsing only, not read by any resolution logic.
-  endpoint       String?
+  endpoint           String?
   // Null = show all available periods (today's unconditional behavior).
-  periods_shown  Int?
-  decimal_places Int                @default(2)
+  periods_shown      Int?
+  decimal_places     Int                @default(2)
   // Which KpiGroup branch populates this section's rows (e.g.
   // "pnl-statement--annual") -- its direct children become top-level rows,
   // and any of THEIR children (e.g. Fixed Assets' component assets) become
@@ -2216,18 +2252,33 @@ model ScreenConfig {
   // convention as kpi_abbr/company_group_slug elsewhere. Null = section has
   // no rows (or, for chart/peer configs, isn't row-based at all -- those
   // keep using `items` below, untouched).
-  kpi_group_slug String?
-  created_at     DateTime           @default(now())
-  updated_at     DateTime           @updatedAt
-  items          ScreenConfigItem[]
+  kpi_group_slug     String?
+  // Company-group-scoped alternate of another ScreenConfig — e.g. a BFSI-only
+  // version of "financials.pnl.quarterly" with its own kpi_group_slug tree.
+  // When set, `company_group_slug` must be set too (and vice versa). Plain
+  // string ref to another ScreenConfig.key, not an FK -- same convention as
+  // kpi_abbr/company_group_slug elsewhere. Resolved by
+  // lib/financials.js#_resolveScreenConfig: for a given base key, any
+  // ScreenConfig with variant_of_key == that key is preferred over the base
+  // when the company being rendered belongs to company_group_slug. Null for
+  // every ordinary (non-variant) ScreenConfig, including every base config a
+  // variant points at.
+  variant_of_key     String?
+  // Which CompanyGroup.slug this variant applies to (e.g. "bfsi"). Plain
+  // string ref, not an FK -- same convention as KpiGroup/KpiRelationship.
+  company_group_slug String?
+  created_at         DateTime           @default(now())
+  updated_at         DateTime           @updatedAt
+  items              ScreenConfigItem[]
 
+  @@index([variant_of_key])
   @@map("screen_configs")
 }
 
 model ScreenConfigItem {
-  id               String       @id @default(uuid())
-  screen_config_id String
-  screen_config    ScreenConfig @relation(fields: [screen_config_id], references: [id], onDelete: Cascade)
+  id                 String       @id @default(uuid())
+  screen_config_id   String
+  screen_config      ScreenConfig @relation(fields: [screen_config_id], references: [id], onDelete: Cascade)
   // Which Kpi this row/series/column represents. Plain string ref, not a DB
   // relation — matches KpiGroup/KpiRelationship's existing convention.
   kpi_abbr           String

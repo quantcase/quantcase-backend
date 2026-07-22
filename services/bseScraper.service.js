@@ -77,6 +77,9 @@ function formatDate(d) {
   return d.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
+// BSE always returns 50 announcement rows per page.
+const PAGE_SIZE = 50;
+
 // BSE API requires strPrevDate === strToDate (same date both params).
 // Multi-day ranges return empty results. Scrape each date separately.
 async function fetchPage(page, date) {
@@ -150,7 +153,15 @@ async function scrapeAllCompanies(lookbackDays = 1) {
     try {
       const firstData  = await fetchPage(1, date);
       const firstRows  = firstData.Table || [];
-      const totalPages = firstRows[0]?.TotalPageCnt ?? 0;
+
+      // BSE only populates Table[0].TotalPageCnt for today/yesterday; for any
+      // older date it's absent even though data exists (this silently skipped
+      // whole days on longer lookbacks). Table1[0].ROWCNT (total match count)
+      // is always present — derive page count from it. Fall back to
+      // TotalPageCnt, then to "1 page if page 1 had rows" as a last resort.
+      const rowCnt     = firstData.Table1?.[0]?.ROWCNT ?? 0;
+      const totalPages = rowCnt        ? Math.ceil(rowCnt / PAGE_SIZE)
+                       : firstRows[0]?.TotalPageCnt ?? (firstRows.length ? 1 : 0);
 
       if (!totalPages) {
         console.log(`[bse-scraper] ${date}: no data`);

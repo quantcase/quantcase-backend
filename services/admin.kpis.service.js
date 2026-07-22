@@ -63,6 +63,34 @@ async function _validateFallbackAbbrs(abbr, fallbackAbbrs) {
   if (unknown.length) throw new HttpError(422, `fallback_abbrs for "${abbr}" reference unknown abbr(s): ${unknown.join(', ')}`);
 }
 
+/**
+ * A CSV column can only ever feed one abbr — ProwessUploader's dynamic
+ * indicator matching (prowess_mappers/ProwessUploader.js#resolveDynamicIndicators)
+ * queries the kpis table by prowess_name with no ORDER BY, so if two Kpi rows
+ * share a prowess_name, only one of them silently ends up wired to that CSV
+ * column on any given ingestion run — no error, no unmatchedColumns warning
+ * (the column *did* match, just arbitrarily), and it isn't even stable
+ * across re-uploads. Block this at creation time instead of letting it
+ * surface as unexplained missing data later.
+ *
+ * Checked against every existing Kpi regardless of `source` — the ingestion
+ * query itself doesn't filter by source, so a stray transcript-pipeline row
+ * with a matching prowess_name is just as much a collision as a QE one.
+ */
+async function _assertProwessNameNotTaken(abbr, prowessName) {
+  if (!prowessName) return;
+  const existing = await prisma.kpi.findFirst({
+    where: { prowess_name: prowessName, abbr: { not: abbr } },
+    select: { abbr: true },
+  });
+  if (existing) {
+    throw new HttpError(
+      409,
+      `prowess_name "${prowessName}" is already used by Kpi "${existing.abbr}" — use that KPI instead of creating a duplicate mapping.`
+    );
+  }
+}
+
 /** DFS over formula_expression refs + fallback_abbrs, starting from a candidate abbr's own edges. */
 async function _wouldCreateCycle(abbr, formulaExpression, fallbackAbbrs) {
   const startRefs = new Set(fallbackAbbrs ?? []);
@@ -133,6 +161,11 @@ async function createKpi({
   const existing = await prisma.kpi.findFirst({ where: { abbr } });
   if (existing) throw new HttpError(409, `Kpi with abbr "${abbr}" already exists.`);
 
+  // Mirrors the `prowess_name ?? abbr` default applied below -- an
+  // unspecified prowess_name still needs checking, since it silently
+  // becomes `abbr` itself, which can collide with another Kpi's prowess_name.
+  const effectiveProwessName = prowess_name?.trim() || abbr;
+  await _assertProwessNameNotTaken(abbr, effectiveProwessName);
   await _validateExpression(abbr, formula_expression ?? null);
   await _validateFallbackAbbrs(abbr, fallback_abbrs ?? []);
   await _validateNoCycle(abbr, formula_expression ?? null, fallback_abbrs ?? []);
@@ -144,7 +177,7 @@ async function createKpi({
       denomination: denomination ?? null,
       kpi_type: kpi_type ?? null,
       source: 'QE',
-      prowess_name: prowess_name?.trim() || abbr,
+      prowess_name: effectiveProwessName,
       registry_enabled: true,
       formula_expression: formula_expression ?? null,
       frequency: frequency ?? null,
@@ -164,6 +197,7 @@ async function updateKpi(abbr, patch) {
   const formulaExpression = 'formula_expression' in patch ? patch.formula_expression : existing.formula_expression;
   const fallbackAbbrs     = 'fallback_abbrs'     in patch ? patch.fallback_abbrs     : existing.fallback_abbrs;
 
+  if ('prowess_name' in patch) await _assertProwessNameNotTaken(abbr, patch.prowess_name?.trim() || null);
   await _validateExpression(abbr, formulaExpression ?? null);
   await _validateFallbackAbbrs(abbr, fallbackAbbrs ?? []);
   await _validateNoCycle(abbr, formulaExpression ?? null, fallbackAbbrs ?? []);
