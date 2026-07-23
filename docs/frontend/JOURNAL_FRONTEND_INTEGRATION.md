@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Frontend](../README.md#existing-reference-material) · Investment Journal — Frontend Integration Guide
+
 # Investment Journal — Frontend Integration Guide
 
 This document describes the **unified Journal** feature and how the frontend should

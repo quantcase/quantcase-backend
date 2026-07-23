@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Subsystems](../README.md#subsystems) · Auth, Invites & Google Sign-In
+
 # Auth, Invites & Google Sign-In
 
 JWT bearer authentication for the QuantCase API, plus the **invite-only** registration gate that fronts both email/password signup and Google Sign-In. No one gets an account without an admin-issued invite.
@@ -36,7 +38,8 @@ Relevant Prisma models (see [../data-model.md](../data-model.md) and [`prisma/sc
 - **`UserProfile`** (`qc_user_profiles`) — `full_name`, `phone`, `date_of_birth`, `risk_profile`, `onboarding_completed`, `onboarding_step` (`OnboardingStep` enum). Created 1:1 with the user in the same transaction.
 - **`Invite`** (`qc_invites`) — `email`, `token` (unique 64-hex random), `status` (`InviteStatus`: `pending` / `accepted` / `expired`), `invitedBy?`, `acceptedAt?`, `expiresAt`. Indexed on `email` and `token`.
 
-> Note: `register()` / `googleAuth()` also create a `UserSubscription` (`plan_type: 'trial'`, 7-day trial window) in the same transaction — see [./billing-razorpay.md](./billing-razorpay.md).
+> [!NOTE]
+> `register()` / `googleAuth()` also create a `UserSubscription` (`plan_type: 'trial'`, 7-day trial window) in the same transaction — see [./billing-razorpay.md](./billing-razorpay.md).
 
 ## Authentication (JWT)
 
@@ -55,7 +58,8 @@ So downstream handlers read `req.user.sub` (user id) and `req.user.accountType` 
 | access | `JWT_SECRET` | `JWT_EXPIRES_IN` = `24h` |
 | refresh | `JWT_REFRESH_SECRET` | `JWT_REFRESH_EXPIRES_IN` = `7d` |
 
-> **Gotcha:** all four values fall back to hard-coded dev defaults (`qc2026-secret`, …). Set real secrets in every non-local environment. See [../configuration.md](../configuration.md).
+> [!WARNING]
+> All four values fall back to hard-coded dev defaults (`qc2026-secret`, …). Set real secrets in every non-local environment. See [../configuration.md](../configuration.md).
 
 ### Global gate (all routes require a token by default)
 
@@ -78,6 +82,7 @@ Everything else — all `/api/*` data/pipeline routes — now needs a valid Bear
 ## Invite-only registration flow
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 sequenceDiagram
   participant Admin
   participant API as /admin/invites

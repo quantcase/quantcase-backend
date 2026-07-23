@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Admin guides](../README.md#existing-reference-material) · Pipeline Dispatch — L1 Multi — Admin Guide
+
 # Pipeline Dispatch — L1 Multi — Admin Guide
 
 For the frontend team, to build an admin screen for on-demand L1 extraction

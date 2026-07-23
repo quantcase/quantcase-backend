@@ -1,3 +1,5 @@
+[Docs](./README.md) · Deployment
+
 # Deployment
 
 QuantCase runs bare-metal on a GCP Ubuntu VM: the four Node processes are supervised by **PM2**, fronted by **nginx** with **Certbot** TLS. There is **no Docker, docker-compose, or CI pipeline** — deployment is a git pull plus PM2 reload.
@@ -24,7 +26,7 @@ For the full step-by-step VM bring-up, follow the runbooks linked below; this pa
                  PostgreSQL + Redis
 ```
 
-The [scheduler monitoring runbook](./runbooks/schedular-monitoring.md) also documents an optional **two-server split** (Server1 = API only; Server2 = worker + scheduler + Redis), where the API reaches the scheduler via `SCHEDULER_HOST` and the scheduler reaches the API via `API_URL`.
+The [scheduler monitoring runbook](./runbooks/scheduler-monitoring.md) also documents an optional **two-server split** (Server1 = API only; Server2 = worker + scheduler + Redis), where the API reaches the scheduler via `SCHEDULER_HOST` and the scheduler reaches the API via `API_URL`.
 
 ## PM2 processes
 
@@ -113,7 +115,7 @@ The full Ubuntu bring-up — `apt` packages (`git`, `nodejs`, `npm`, `build-esse
 
 - PM2 writes per-app stdout/stderr to `logs/` (`backend-*.log`, `worker-*.log`, `scheduler-*.log`, `bullboard-*.log`); `time: true` prepends timestamps.
 - **Bull Board** (`queue-dev.quantcase.ai`, basic-auth) shows live queue depth, active/failed jobs, and retries.
-- The API exposes queue/scheduler/pipeline monitoring under `/api/monitoring/` — see the [scheduler monitoring runbook](./runbooks/schedular-monitoring.md).
+- The API exposes queue/scheduler/pipeline monitoring under `/api/monitoring/` — see the [scheduler monitoring runbook](./runbooks/scheduler-monitoring.md).
 
 ## See also
 
@@ -121,6 +123,6 @@ The full Ubuntu bring-up — `apt` packages (`git`, `nodejs`, `npm`, `build-esse
 - [subsystems/scheduler.md](./subsystems/scheduler.md) — scheduler internals and job types
 - [configuration.md](./configuration.md) — environment variables (including split-server vars)
 - [runbooks/deploy-qc-gcp.md](./runbooks/deploy-qc-gcp.md) — full GCP VM provisioning
-- [runbooks/schedular-monitoring.md](./runbooks/schedular-monitoring.md) — scheduler & monitoring change log
+- [runbooks/scheduler-monitoring.md](./runbooks/scheduler-monitoring.md) — scheduler & monitoring change log
 - [runbooks/JOB_QUEUE_GUIDE.md](./runbooks/JOB_QUEUE_GUIDE.md) — BullMQ job queue operations
 - [`ecosystem.config.js`](../ecosystem.config.js), [`qc-backend.nginx.conf`](../qc-backend.nginx.conf) — sources

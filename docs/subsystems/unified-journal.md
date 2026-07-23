@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Subsystems](../README.md#subsystems) · Unified Journal
+
 # Unified Journal
 
 One `/api/journal` flow that collapses the old **Watchlist + HoldingNotes + InvestmentJournal** into a single model: named ticker containers ("journals"), the tickers inside them, timestamped notes/theses per ticker, and AI-evaluated thesis health.
@@ -59,6 +61,7 @@ This sync is invoked from:
 ## Thesis health evaluation
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart TD
   A[Create/Update thesis entry] --> B[fetchLensScoreMap: latest non-stale lens_scores for ticker]
   B --> C[buildSnapshot: score per sub-factor → scores_snapshot]

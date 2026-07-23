@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Subsystems](../README.md#subsystems) · Smallcase Gateway Integration
+
 # Smallcase Gateway Integration
 
 Connects a user's broker account through [smallcase Gateway](https://developers.gateway.smallcase.com) to import holdings, track baskets, and place BUY / SELL / rebalance orders — all driven server-to-server, with the frontend SDK only running short-lived transactions.
@@ -54,6 +56,7 @@ Every outbound Gateway request carries **both** headers. `signAuthToken()` build
 ## End-to-end flow
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 sequenceDiagram
   participant FE as Frontend + Gateway SDK
   participant API as /api/smallcase

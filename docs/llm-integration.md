@@ -1,3 +1,5 @@
+[Docs](./README.md) · LLM Integration
+
 # LLM Integration
 
 Every LLM call in the backend goes through **one function** — `llmStream` in [`utils/workerUtils.js`](../utils/workerUtils.js). It always streams `chat.completions`, accumulates the deltas into a single string, captures token usage, and by default routes to **OpenRouter**. The three L1 summarization workers can opt their Gemini calls onto **Vertex AI** instead. Nothing else in the codebase talks to a provider SDK directly.
@@ -37,6 +39,7 @@ const useVertex = Boolean(opts.vertex) && isGeminiModel(params.model) && vertexE
 All three conditions must hold to leave OpenRouter. `vertexEnabled()` is `VERTEX_GEMINI_ENABLED === 'true' && GCP_PROJECT_ID` set. So the switch is **fully reversible by env** — with the flag off (or a non-Gemini model, or a caller that didn't pass `{ vertex: true }`) everything transparently stays on OpenRouter.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart TD
   call["llmStream(params, opts)"]
   q1{"opts.vertex === true?"}

@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Subsystems](../README.md#subsystems) · Prowess (CMIE) Ingestion
+
 # Prowess (CMIE) Ingestion
 
 Ingests financial data from **CMIE Prowess** — daily stock OHLCV/valuation and quarterly/annual company financials (KPIs). Two independent ingestion paths feed two destination tables: price data lands in `nse_equity_new`, and filing KPIs land in `prowess_values_new`.
@@ -5,6 +7,7 @@ Ingests financial data from **CMIE Prowess** — daily stock OHLCV/valuation and
 ## The two paths at a glance
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart TD
     subgraph A["(a) Live Batch API — async"]
       admin["Admin uploads CMIE binary batchfile"] --> send["POST /admin/prowess/batch/send"]

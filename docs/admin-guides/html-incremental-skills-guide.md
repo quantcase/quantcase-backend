@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Admin guides](../README.md#existing-reference-material) · HTML Incremental Skills — Admin Guide
+
 # HTML Incremental Skills — Admin Guide
 
 For the frontend team, to build a help section for the admin tool at

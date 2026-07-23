@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Subsystems](../README.md#subsystems) · WealthOS
+
 # WealthOS
 
 An advisory / relationship-manager (RM) module: a separate domain where RMs manage
@@ -110,6 +112,7 @@ Both AI features are enqueued by the API and processed by dedicated BullMQ
 workers registered in [`worker.js`](../../worker.js).
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart LR
   A[POST /suggestions/generate] --> B[enqueueSuggestionGeneration]
   B --> C[score each client<br/>scoring.service]

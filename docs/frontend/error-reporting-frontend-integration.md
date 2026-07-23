@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Frontend](../README.md#existing-reference-material) · Error Reporting — Frontend Integration
+
 # Error Reporting — Frontend Integration
 
 This is the complete reference for wiring the "Report Error" button into the frontend.

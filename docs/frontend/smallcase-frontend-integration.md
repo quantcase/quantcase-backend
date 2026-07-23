@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Frontend](../README.md#existing-reference-material) · Smallcase Gateway — Frontend Integration Guide
+
 # Smallcase Gateway — Frontend Integration Guide
 
 This document describes how the QuantCase frontend connects a user's broker account

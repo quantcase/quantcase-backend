@@ -1,4 +1,13 @@
-🧱 1. Top-Level Response Structure
+[Docs](../README.md) · [Specs](../README.md#existing-reference-material) · Technicals Guide
+
+# Technicals Response Guide
+
+> [!NOTE]
+> Response-structure design guide for the technicals payload. For the **as-built** backend see
+> [../subsystems/technicals-wyckoff.md](../subsystems/technicals-wyckoff.md); for the live frontend
+> contract see [../frontend/FRONTEND_TECHNICALS_API.md](../frontend/FRONTEND_TECHNICALS_API.md).
+
+## 1. Top-Level Response Structure
 {
   "symbol": "MSUMI",
   "exchange": "NSE",
@@ -17,12 +26,12 @@
   "insights": []
 }
 
-👉 Design principles:
+ Design principles:
 
 Flat but logically grouped
 Each block independently computable
 Easy caching per block
-💰 2. Price Block (Raw + Context)
+## 2. Price Block (Raw + Context)
 "price": {
   "cmp": 37.2,
   "change": -0.07,
@@ -42,7 +51,7 @@ Easy caching per block
   "distanceFrom52wHigh": -30.58,
   "distanceFrom52wLow": 32.3
 }
-📈 3. Trend Block (Quant-Based, Not Subjective)
+## 3. Trend Block (Quant-Based, Not Subjective)
 "trend": {
   "direction": "SIDEWAYS", 
   "strength": "WEAK",      
@@ -55,7 +64,7 @@ Easy caching per block
 
   "phase": "ACCUMULATION"
 }
-📊 4. Moving Averages
+## 4. Moving Averages
 "movingAverages": {
   "sma": {
     "20": 36.8,
@@ -80,7 +89,7 @@ Easy caching per block
     "lastCrossoverDate": null
   }
 }
-⚡ 5. Momentum Indicators
+## 5. Momentum Indicators
 "momentum": {
   "rsi": {
     "value": 48.2,
@@ -101,7 +110,7 @@ Easy caching per block
     "signal": "BUY"
   }
 }
-🔥 6. Volume Intelligence
+## 6. Volume Intelligence
 "volume": {
   "current": 1250000,
   "avg20": 980000,
@@ -115,7 +124,7 @@ Easy caching per block
     "distribution": false
   }
 }
-📉 7. Volatility & Bands
+## 7. Volatility & Bands
 "volatility": {
   "atr14": 1.2,
 
@@ -127,7 +136,7 @@ Easy caching per block
     "squeeze": false
   }
 }
-🧱 8. Support / Resistance (Multi-Method)
+## 8. Support / Resistance (Multi-Method)
 "supportResistance": {
   "static": {
     "support": [30],
@@ -149,7 +158,7 @@ Easy caching per block
 
   "fibonacci": [34.5, 36.8, 39.2]
 }
-🧠 9. Pattern Engine
+## 9. Pattern Engine
 "patterns": [
   {
     "name": "Wide Consolidation",
@@ -160,7 +169,7 @@ Easy caching per block
     "breakdownLevel": 30
   }
 ]
-🚨 10. Signal Engine (CORE PRODUCT LAYER)
+## 10. Signal Engine (CORE PRODUCT LAYER)
 "signals": {
   "overall": "NEUTRAL",
   "score": 52,
@@ -178,7 +187,7 @@ Easy caching per block
     "volatility": 7
   }
 }
-⏱️ 11. Multi-Timeframe (Scalable Design)
+⏱ 11. Multi-Timeframe (Scalable Design)
 "timeframes": {
   "daily": {
     "trend": "SIDEWAYS",
@@ -194,16 +203,16 @@ Easy caching per block
   }
 }
 
-👉 You can later expand each timeframe → full nested object (same schema)
+ You can later expand each timeframe → full nested object (same schema)
 
-💡 12. Insights Layer (LLM / Rules Hybrid)
+## 12. Insights Layer (LLM / Rules Hybrid)
 "insights": [
   "Price trading below 200DMA indicates long-term weakness",
   "RSI rising from neutral suggests early momentum pickup",
   "Volume spike supports accumulation phase",
   "Stock stuck in wide consolidation range (30–53)"
 ]
-🔌 13. Optional (Enterprise Add-ons)
+## 13. Optional (Enterprise Add-ons)
 
 Add later without breaking schema:
 
@@ -217,8 +226,8 @@ Add later without breaking schema:
   "dataQuality": "HIGH",
   "latencyMs": 120
 }
-🧠 Key Architectural Decisions
-✅ Separation of concerns
+ Key Architectural Decisions
+ Separation of concerns
 Raw (price)
 Derived (indicators)
 Interpretation (signals)
@@ -231,7 +240,7 @@ Deterministic (no black-box surprises)
 Explainable (UI-friendly breakdown)
 Extensible (you can tune weights later)
 Fast (O(n) over indicators)
-🧠 1. Core Idea
+## 1. Core Idea
 
 You compute normalized sub-scores (0–100) for each pillar:
 
@@ -244,7 +253,7 @@ Then map score → signal:
 45–55  → NEUTRAL
 55–65  → WEAK BUY
 65–100 → BUY
-⚖️ 2. Recommended Weights (Balanced)
+## 2. Recommended Weights (Balanced)
 {
   "trend": 0.30,
   "momentum": 0.30,
@@ -252,12 +261,12 @@ Then map score → signal:
   "volatility": 0.20
 }
 
-👉 Why:
+ Why:
 
 Trend + Momentum = core (60%)
 Volume confirms
 Volatility refines entries
-📈 3. Trend Score (0–100)
+## 3. Trend Score (0–100)
 Inputs:
 Price vs SMA20/50/200
 ADX
@@ -275,7 +284,7 @@ if (price > SMA20) score += 20;
 if (price > SMA50) score += 30;
 if (price > SMA200) score += 50;
 
-👉 Max = 100
+ Max = 100
 
 2. ADX Score (trend strength)
 if (adx < 20) score = 20;
@@ -286,7 +295,7 @@ else score = 100;
 if (higherHighs && higherLows) score = 100;
 else if (mixed) score = 50;
 else score = 20;
-⚡ 4. Momentum Score (0–100)
+## 4. Momentum Score (0–100)
 Inputs:
 RSI
 MACD
@@ -302,7 +311,7 @@ else if (rsi < 55) score = 50;
 else if (rsi < 70) score = 70;
 else score = 40;                 // overbought risk
 
-👉 You can boost if RSI trending up:
+ You can boost if RSI trending up:
 
 if (rsiTrend === "RISING") score += 5;
 MACD Score
@@ -315,7 +324,7 @@ if (k > d && k < 80) score = 80;
 else if (k > 80) score = 40;
 else if (k < 20) score = 70;
 else score = 50;
-🔥 5. Volume Score (0–100)
+## 5. Volume Score (0–100)
 Inputs:
 Volume ratio
 Volume trend
@@ -336,9 +345,9 @@ DECREASING → 20
 Breakout Confirmation
 if (volumeBreakout) score = 100;
 else score = 40;
-📉 6. Volatility Score (0–100)
+## 6. Volatility Score (0–100)
 
-👉 Not directional → measures quality of setup
+ Not directional → measures quality of setup
 
 Inputs:
 Bollinger Band width
@@ -359,13 +368,13 @@ else score = 40;
 Squeeze
 true → 100
 false → 50
-🧮 7. Final Score
+## 7. Final Score
 finalScore =
   (trendScore * 0.30) +
   (momentumScore * 0.30) +
   (volumeScore * 0.20) +
   (volatilityScore * 0.20);
-🚦 8. Signal Mapping
+## 8. Signal Mapping
 function getSignal(score) {
   if (score >= 65) return "BUY";
   if (score >= 55) return "WEAK_BUY";
@@ -373,7 +382,7 @@ function getSignal(score) {
   if (score >= 35) return "WEAK_SELL";
   return "SELL";
 }
-⏱️ 9. Multi-Timeframe Logic
+⏱ 9. Multi-Timeframe Logic
 
 Compute separately for:
 
@@ -387,7 +396,7 @@ overallScore =
   (daily * 0.5) +
   (weekly * 0.3) +
   (monthly * 0.2);
-🧠 10. Insight Generator (Deterministic Rules)
+## 10. Insight Generator (Deterministic Rules)
 
 Examples:
 

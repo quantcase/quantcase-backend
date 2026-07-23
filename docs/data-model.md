@@ -1,6 +1,34 @@
+[Docs](./README.md) · Data Model
+
 # Data Model
 
 Reference for every table QuantCase Backend persists in PostgreSQL. The schema is defined in [`../prisma/schema.prisma`](../prisma/schema.prisma) (~2,300 lines) and accessed through the Prisma client. Tables are grouped by **domain** below; a lineage diagram and the full enum catalogue follow.
+
+<details>
+<summary><b>Contents</b></summary>
+
+- [Conventions](#conventions)
+- [Pipeline table lineage](#pipeline-table-lineage)
+- [Core Pipeline](#core-pipeline)
+- [KPI & Prowess](#kpi--prowess)
+- [Signals & Lenses](#signals--lenses)
+- [Skills & Plugins](#skills--plugins)
+- [Market Data](#market-data)
+- [Industry Intelligence (IIT)](#industry-intelligence-iit)
+- [WealthOS](#wealthos)
+- [User & Auth](#user--auth)
+- [Portfolio](#portfolio)
+- [Unified Journal](#unified-journal)
+- [Billing](#billing)
+- [Error Reporting](#error-reporting)
+- [Smallcase](#smallcase)
+- [BSE Discovery](#bse-discovery)
+- [Scheduler](#scheduler)
+- [Curated Screens](#curated-screens)
+- [Deprecated tables (retained, no active callers)](#deprecated-tables-retained-no-active-callers)
+- [Enum catalogue](#enum-catalogue)
+
+</details>
 
 ## Conventions
 
@@ -15,6 +43,7 @@ Reference for every table QuantCase Backend persists in PostgreSQL. The schema i
 The three-layer pipeline (raw → L1 → L2 → L3) plus the KPI registry and market-data feeds. Dashed edges are **string-key joins** (no FK); solid edges are real foreign keys.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart TD
   subgraph raw["Raw ingest"]
     EC["earnings_calls<br/><small>id = call_id</small>"]
@@ -59,7 +88,8 @@ flowchart TD
   KPI -. "formula inputs" .-> KV
 ```
 
-> **Note on L1 tables.** `transcript_signals_v2` (`TranscriptSignalV2`) is the **current** L1 output — the JSON-rich signal store written by the `summarization_v2*` workers and read by L2/L3 and the HTML skills. `extracted_signals` (`ExtractedSignal`) is the **older** numeric-signal L1 model; it still exists and is what `GET /api/signals` reads to resolve a ticker's latest `call_id`.
+> [!NOTE]
+> **L1 tables.** `transcript_signals_v2` (`TranscriptSignalV2`) is the **current** L1 output — the JSON-rich signal store written by the `summarization_v2*` workers and read by L2/L3 and the HTML skills. `extracted_signals` (`ExtractedSignal`) is the **older** numeric-signal L1 model; it still exists and is what `GET /api/signals` reads to resolve a ticker's latest `call_id`.
 
 ---
 

@@ -1,6 +1,28 @@
+[Docs](./README.md) · API Reference
+
 # API Reference
 
 Every HTTP endpoint the Express server exposes, grouped by feature area. The mount map lives in [`../routes/index.js`](../routes/index.js); each feature router is a file under [`../routes/`](../routes). Paths below are absolute (as seen by the client).
+
+<details>
+<summary><b>Contents</b></summary>
+
+- [Auth model & conventions](#auth-model--conventions)
+- [Health & monitoring](#health--monitoring)
+- [Auth & registration](#auth--registration)
+- [Calls, transcripts, summaries, jobs](#calls-transcripts-summaries-jobs)
+- [Pipeline — query & trigger](#pipeline--query--trigger)
+- [HTML skills](#html-skills)
+- [HTML incremental skills](#html-incremental-skills)
+- [Screener, tickers, baskets, models](#screener-tickers-baskets-models)
+- [Portfolio, journal, investor dashboard](#portfolio-journal-investor-dashboard)
+- [Mutual funds, private equity, industry intelligence, error reports](#mutual-funds-private-equity-industry-intelligence-error-reports)
+- [Billing](#billing)
+- [Smallcase](#smallcase)
+- [WealthOS](#wealthos)
+- [Admin](#admin)
+
+</details>
 
 ## Auth model & conventions
 
@@ -28,7 +50,8 @@ Legend for the **Auth** column:
 | Admin | Requires `authenticate` + `requireAdmin` (whole `/admin` tree) |
 | Checksum | Server-to-server webhook, verified by HMAC checksum on the raw body (allowlisted) |
 
-> **Notes / caveats (verified against source):**
+> [!NOTE]
+> **Caveats (verified against source):**
 > - Only **`GET /health`** is mounted (standalone in `routes/index.js`). `routes/health.routes.js` exists but is **not mounted anywhere** — there is currently **no** `/api/health` route.
 > - All `/api/*` data/pipeline routers — `/api/calls`, `/api/transcript`, `/api/summary`, `/api/jobs`, `/api/annual-reports`, `/api/signals`, `/api/lenses`, `/api/analysis`, `/api/post-html-analysis`, `/api/pipeline`, `/api/html-skills`, `/api/html-incremental-skills`, `/api/screener`, `/api/tickers`, `/api/baskets`, `/api/industry-baskets`, `/api/models`, `/api/mutual-funds`, `/api/private-equity`, `/api/industry-intelligence`, `/api/monitoring`, and `/api/wealthos` — are now **JWT-protected via the global gate**. (They were public before the gate was added.)
 > - Routers that also call `router.use(authenticate)` internally (`/api/portfolio`, `/api/journal`, `/api/smallcase`, `/api/discover`, `/api/research-library`, `/api/market`) simply run `authenticate` twice, which is idempotent — no behaviour change.
@@ -317,7 +340,7 @@ Base: `/admin` — the **entire** tree is behind `authenticate` + `requireAdmin`
 
 ### Scheduler jobs
 
-See [`./subsystems/scheduler.md`](./subsystems/scheduler.md), [`./runbooks/schedular-monitoring.md`](./runbooks/schedular-monitoring.md).
+See [`./subsystems/scheduler.md`](./subsystems/scheduler.md), [`./runbooks/scheduler-monitoring.md`](./runbooks/scheduler-monitoring.md).
 
 | Method | Path | Purpose |
 |---|---|---|

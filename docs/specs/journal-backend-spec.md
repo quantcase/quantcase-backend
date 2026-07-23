@@ -1,6 +1,9 @@
+[Docs](../README.md) · [Specs](../README.md#existing-reference-material) · QuantCase — Investment Journal: Backend Spec
+
 # QuantCase — Investment Journal: Backend Spec
 
-> ⚠️ **SUPERSEDED (2026-07-15).** This describes the *old* single-thesis-per-holding
+> [!WARNING]
+> **SUPERSEDED (2026-07-15).** This describes the *old* single-thesis-per-holding
 > journal (`portfolioType`, `/api/journal/entries`), which has been replaced by the
 > unified multi-journal flow. Do **not** implement against this document.
 > See **[JOURNAL_FRONTEND_INTEGRATION.md](../frontend/JOURNAL_FRONTEND_INTEGRATION.md)** for the

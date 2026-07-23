@@ -1,3 +1,5 @@
+[Docs](./README.md) · Configuration
+
 # Configuration
 
 Every runtime setting is supplied through environment variables loaded from a `.env` file at process start (`require('dotenv').config()`). This page is the authoritative catalogue of those variables, grouped by concern, with defaults and whether each is required.
@@ -134,13 +136,32 @@ All four of `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` are required 
 | `SCHEDULER_BIND_HOST` | `127.0.0.1` | No | Interface the scheduler binds. **The endpoint is unauthenticated** — keep it on loopback unless network-level access controls are in place. |
 | `SCHEDULER_HOST` | `127.0.0.1` | No | Host the **API** uses to reach the scheduler (reload/trigger). Set to the scheduler host's private IP in a split deployment. |
 
-> Note: the [scheduler monitoring runbook](./runbooks/schedular-monitoring.md) refers to a `SCHEDULER_BIND` var — the live code uses `SCHEDULER_BIND_HOST`.
+> [!NOTE]
+> The [scheduler monitoring runbook](./runbooks/scheduler-monitoring.md) refers to a `SCHEDULER_BIND` var — the live code uses `SCHEDULER_BIND_HOST`.
 
 ## Bull Board (admin)
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `ADMIN_PORT` | `9000` | No | Port for the Bull Board queue dashboard ([`lib/admin.js`](../lib/admin.js)). |
+
+## Uploads & file handling
+
+Three endpoints accept file uploads via `multer`; there is no shared config — each route sets its own
+limit and storage:
+
+| Endpoint | Field | Storage | Limit | Accepted |
+|----------|-------|---------|-------|----------|
+| `POST /api/private-equity/drhp-analyser` | `document` | in-memory | 50 MB | `application/pdf`, `text/plain` |
+| `POST /api/portfolio/user/upload` | `file` | in-memory | 10 MB | CSV / XLSX |
+| `POST /admin/documents/upload/:docType` | `file` | disk → `uploads/<docType>/<uuid>.pdf` | 75 MB | `application/pdf` |
+
+> [!NOTE]
+> The admin document upload writes to local disk with a **server-generated** filename (never the
+> client's) and is then served back statically from `server.js` (`/uploads/*`, on the public
+> allowlist) so the rest of the pipeline can `fetch()` it exactly like a BSE URL. The two in-memory
+> uploads hold the whole file in the API/worker heap for the request's duration. See
+> [subsystems/private-equity-drhp.md](./subsystems/private-equity-drhp.md).
 
 ## Security notes
 

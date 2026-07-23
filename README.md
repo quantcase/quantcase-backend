@@ -1,5 +1,14 @@
 # QuantCase Backend
 
+![Node.js](https://img.shields.io/badge/Node.js-18+-339933?logo=node.js&logoColor=white&style=flat-square)
+![Express](https://img.shields.io/badge/Express-API-000000?logo=express&logoColor=white&style=flat-square)
+![BullMQ](https://img.shields.io/badge/BullMQ-Redis_queues-b71c1c?style=flat-square)
+![Redis](https://img.shields.io/badge/Redis-ioredis-DC382D?logo=redis&logoColor=white&style=flat-square)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Prisma-4169E1?logo=postgresql&logoColor=white&style=flat-square)
+![Prisma](https://img.shields.io/badge/Prisma-~92_models-2D3748?logo=prisma&logoColor=white&style=flat-square)
+![LLM](https://img.shields.io/badge/LLM-OpenRouter_%2F_Vertex-6366f1?style=flat-square)
+[![Docs](https://img.shields.io/badge/docs-in__%2Fdocs-6366f1?style=flat-square)](./docs/README.md)
+
 QuantCase is a Node.js API that turns Indian-market earnings calls, investor presentations,
 and annual reports into structured intelligence. It runs a multi-layer LLM pipeline
 (signal extraction → lens scoring → narrative insights) and serves screener, portfolio,
@@ -8,9 +17,11 @@ journal, billing, and broker-integration APIs.
 **Stack:** Express · BullMQ + Redis · PostgreSQL via Prisma · LLMs via OpenRouter (default)
 and Google Vertex AI / Gemini (opt-in for L1).
 
-> 📚 **Full documentation lives in [`docs/`](./docs/).** Start with the
+> [!NOTE]
+> **Full documentation lives in [`docs/`](./docs/).** Start with the
 > [documentation index](./docs/README.md), the [architecture overview](./docs/architecture.md),
-> or the [local setup guide](./docs/setup.md).
+> or the [local setup guide](./docs/setup.md). Not sure a flow is documented? Check the
+> [coverage matrix](./docs/coverage.md).
 
 ## Architecture at a glance
 
@@ -30,6 +41,15 @@ See [docs/architecture.md](./docs/architecture.md) for the request/enqueue/worke
 
 Documents are enriched through progressive layers, each cached on a content hash so
 unchanged inputs skip repeat LLM calls:
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
+flowchart LR
+  RAW["Raw docs<br/>earnings_calls"] --> L1["L1 · signals<br/>transcript_signals_v2"]
+  L1 --> L2["L2 · lens scores<br/>lens_scores"]
+  L2 --> L3["L3 · AI insights<br/>ai_insights"]
+  L1 -.-> HTML["HTML skills<br/>html_skill_outputs"] -.-> PH["post-HTML<br/>L3/L4"]
+```
 
 | Layer | Output table | What it produces |
 |-------|--------------|------------------|
@@ -69,7 +89,8 @@ The full step-by-step is in [docs/setup.md](./docs/setup.md); production deploym
   [pipeline](./docs/pipeline.md) ·
   [LLM integration](./docs/llm-integration.md) ·
   [data model](./docs/data-model.md) ·
-  [API reference](./docs/api-reference.md)
+  [API reference](./docs/api-reference.md) ·
+  [coverage matrix](./docs/coverage.md)
 - **Operate:** [setup](./docs/setup.md) ·
   [configuration](./docs/configuration.md) ·
   [deployment](./docs/deployment.md) ·
@@ -77,12 +98,19 @@ The full step-by-step is in [docs/setup.md](./docs/setup.md); production deploym
 - **Subsystems:** [auth & invites](./docs/subsystems/auth-invites-google.md) ·
   [smallcase](./docs/subsystems/smallcase-gateway.md) ·
   [journal](./docs/subsystems/unified-journal.md) ·
+  [investor dashboard](./docs/subsystems/investor-dashboard.md) ·
   [billing](./docs/subsystems/billing-razorpay.md) ·
+  [screener & KPIs](./docs/subsystems/screener-kpi-registry.md) ·
+  [technicals & Wyckoff](./docs/subsystems/technicals-wyckoff.md) ·
+  [industry intelligence](./docs/subsystems/industry-intelligence.md) ·
+  [mutual funds](./docs/subsystems/mutual-funds.md) ·
+  [private equity / DRHP](./docs/subsystems/private-equity-drhp.md) ·
   [Prowess](./docs/subsystems/prowess-ingestion.md) ·
   [BSE discovery](./docs/subsystems/bse-discovery.md) ·
   [scheduler](./docs/subsystems/scheduler.md) ·
-  [WealthOS](./docs/subsystems/wealthos.md) ·
-  [screener & KPIs](./docs/subsystems/screener-kpi-registry.md)
+  [monitoring](./docs/subsystems/monitoring.md) ·
+  [error reporting](./docs/subsystems/error-reporting.md) ·
+  [WealthOS](./docs/subsystems/wealthos.md)
 - **Frontend integration:** [docs/frontend/](./docs/frontend/)
 
 ## Repository layout
@@ -95,7 +123,7 @@ The full step-by-step is in [docs/setup.md](./docs/setup.md); production deploym
 | `workers/` | BullMQ processors — the L1/L2/L3 pipeline + HTML skills + WealthOS. |
 | `lib/`, `utils/` | Cross-cutting helpers (`jobQueue`, `mailer`, `smallcaseGateway`, `workerUtils`, …). |
 | `config/` | `env`, `prisma`, `redis`, `auth`, `llm`, `vertexLlm`. |
-| `prisma/` | `schema.prisma` (~90 models) + seed scripts. |
+| `prisma/` | `schema.prisma` (~92 models) + seed scripts. |
 | `prompts/`, `outputSchemas/` | LLM prompt builders and structured-output JSON schemas. |
 | `scripts/` | Seeders, backfills, ingestion, and one-off tooling. |
 | `docs/` | Project documentation (this map). |

@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Frontend](../README.md#existing-reference-material) · Razorpay Checkout — Next.js Frontend Integration
+
 # Razorpay Checkout — Next.js Frontend Integration
 
 This is the complete reference for wiring the QuantCase subscription checkout into the
@@ -372,4 +374,3 @@ handler fires → `/verify` returns `{ status: "active" }` → your `onSuccess` 
 - Going live is a backend change only: the backend swaps its `RAZORPAY_KEY_ID` to the
   `rzp_live_…` key + live secret, and `/config` starts returning `mode: "live"`. The
   frontend needs no changes.
-```

@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Admin guides](../README.md#existing-reference-material) · Company Groups — Admin Guide
+
 # Company Groups — Admin Guide
 
 For the frontend team, to build a "manage company groups" admin screen and to
@@ -178,7 +180,8 @@ All responses are `{ success: true, data: ... }`. Errors are
 *unsaved* filter — see note below) or just call it right after `POST`/`PUT`
 so they can see "this group currently matches 42 companies" before moving on.
 
-> Note: there is currently no "dry-run resolve an arbitrary filter_config
+> [!NOTE]
+> There is currently no "dry-run resolve an arbitrary filter_config
 > without saving" endpoint — resolution only works against a saved group.
 > If you need live-preview-while-editing in the create/edit form (recommended
 > UX), flag it and we'll add a `POST /company-groups/resolve-preview` that

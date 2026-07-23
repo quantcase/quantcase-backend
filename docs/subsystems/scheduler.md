@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Subsystems](../README.md#subsystems) · Scheduler
+
 # Scheduler
 
 A standalone, DB-driven cron process (`scheduler.js`) — separate from the BullMQ
@@ -75,6 +77,7 @@ they are plain Prisma models, but treat migrations for them with care.
 ## Execution flow
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart TD
   A[scheduler.js start] --> B[loadAndRegisterAll]
   B --> C{for each active job}
@@ -228,7 +231,7 @@ See [configuration](../configuration.md) for the full env reference.
 
 ## See also
 
-- [Scheduler & monitoring runbook](../runbooks/schedular-monitoring.md) — change log, two-server env, monitoring endpoints
+- [Scheduler & monitoring runbook](../runbooks/scheduler-monitoring.md) — change log, two-server env, monitoring endpoints
 - [Pipeline](../pipeline.md) — the L1/L2/L3 stages the dispatch jobs feed
 - [BSE discovery](./bse-discovery.md) — the `bse_discovery` handler in depth
 - [Prowess ingestion](./prowess-ingestion.md) — the `prowess_*` handlers

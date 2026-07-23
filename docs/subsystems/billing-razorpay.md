@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Subsystems](../README.md#subsystems) · Billing & Subscriptions (Razorpay)
+
 # Billing & Subscriptions (Razorpay)
 
 QuantCase gates full access behind a paid subscription. Payments run through **Razorpay** using the one-time **Orders API** (not Razorpay's recurring Subscriptions product); QuantCase models the recurring plan, trial, and billing period entirely in its own database and rolls the period forward itself on each captured payment.
@@ -60,6 +62,7 @@ Mounted at `/api/billing` ([`routes/index.js`](../../routes/index.js)).
 ## End-to-end flow
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 sequenceDiagram
     participant FE as Frontend
     participant API as /api/billing
@@ -107,7 +110,8 @@ Rejects with a typed `err.status` when the coupon is missing/inactive (404), exp
 
 [`middleware/requireActiveSubscription.js`](../../middleware/requireActiveSubscription.js) wraps this and returns **403** `{ error: 'Subscription required', subscription_status, days_remaining }` when `is_access_blocked`. It is ready to drop in front of any subscription-only route.
 
-> **Gotcha — middleware is defined but not yet mounted.** As of this writing no route file imports `requireActiveSubscription`; gating is currently surfaced to the frontend via the `is_access_blocked` field on `GET /subscription` rather than enforced server-side. Wire the middleware into a router to hard-gate an endpoint.
+> [!IMPORTANT]
+> **Middleware is defined but not yet mounted.** As of this writing no route file imports `requireActiveSubscription`; gating is currently surfaced to the frontend via the `is_access_blocked` field on `GET /subscription` rather than enforced server-side. Wire the middleware into a router to hard-gate an endpoint.
 
 ## Webhook raw-body handling
 

@@ -1,5 +1,13 @@
-🧠 WealthOS — PRD + Technical Design Document
-1. 📌 Product Overview
+[Docs](../README.md) · [Specs](../README.md#existing-reference-material) · WealthOS PRD
+
+# WealthOS — PRD & Technical Design
+
+> [!NOTE]
+> Design document for the WealthOS advisory module (kept for product/design context). For the
+> **as-built** backend, see [../subsystems/wealthos.md](../subsystems/wealthos.md); for the live
+> API contract see [../frontend/wealthos-api.md](../frontend/wealthos-api.md).
+
+## 1. Product Overview
 1.1 What is WealthOS?
 
 WealthOS is a Relationship Manager (RM) operating system that:
@@ -30,7 +38,7 @@ Standardize communication quality
 
 Create audit/compliance trail
 
-2. 🎯 Product Goals
+## 2. Product Goals
 2.1 Primary Goals
 
 Daily RM Guidance
@@ -56,7 +64,7 @@ Suggestion Adoption Rate	>60%
 Client Engagement Rate	+25%
 Compliance Violations	0 critical
 Time spent per RM per day	↓ 30%
-3. 🧩 Feature Breakdown
+## 3. Feature Breakdown
 3.1 Daily RM Dashboard (Core)
 Features
 
@@ -183,7 +191,7 @@ Improved messaging suggestions
 
 RM performance insights
 
-4. 🧠 System Architecture
+## 4. System Architecture
 4.1 High-Level Architecture
                 ┌────────────────────┐
                 │  Diligence Terminal│
@@ -204,7 +212,7 @@ Suggestion Engine	Generate daily actions
 Messaging Engine	Generate communication
 Compliance Service	Rule enforcement
 Analytics Service	RM + client insights
-5. ⚙️ Backend Design
+## 5. Backend Design
 5.1 Tech Stack (Recommended)
 
 Backend: Node.js (NestJS preferred)
@@ -255,7 +263,7 @@ POST /suggestions/generate
 GET /suggestions/:clientId
 Actions
 POST /actions/log
-6. 🤖 AI / LLM Layer
+## 6. AI / LLM Layer
 6.1 Design Principles
 
 No direct free-form generation
@@ -288,7 +296,7 @@ CONSTRAINTS:
 6.3 Pipelines
 Suggestion Pipeline
 Trigger → Feature extraction → Scoring → LLM generation → Validation → Output
-7. 📊 Scoring Systems
+## 7. Scoring Systems
 7.1 Client Priority Score
 
 Factors:
@@ -317,7 +325,7 @@ Conversion rate
 
 Client retention
 
-8. 🔐 Compliance & Safety
+## 8. Compliance & Safety
 Rules
 
 Only approved portfolios can be referenced
@@ -336,7 +344,7 @@ When
 
 Based on which model
 
-9. 🖥️ Frontend (Dashboard UX)
+## 9. Frontend (Dashboard UX)
 Sections
 1. Today View
 
@@ -360,7 +368,7 @@ RM performance
 
 Client segmentation
 
-10. 🚀 Rollout Plan
+## 10. Rollout Plan
 Phase 1 (MVP)
 
 Dashboard
@@ -385,13 +393,13 @@ Deep integrations
 
 Compliance automation
 
-11. ⚠️ Risks & Mitigations
+## 11. Risks & Mitigations
 Risk	Mitigation
 Hallucinated advice	Strict grounding
 RM ignoring system	UX simplicity
 Data quality issues	Validation pipelines
 Compliance breach	Rule engine + audit logs
-12. 🧱 Future Enhancements
+## 12. Future Enhancements
 
 Voice call real-time assistance
 
@@ -401,7 +409,7 @@ Predictive churn alerts
 
 RM copilot mode
 
-🧠 Final Summary
+ Final Summary
 
 WealthOS is essentially:
 
@@ -413,7 +421,7 @@ WealthOS → decides what to say
 
 
 
-🗄️ 1. DATABASE SCHEMA (Postgres)
+## 1. DATABASE SCHEMA (Postgres)
 
 Designed for:
 
@@ -423,7 +431,7 @@ Flexibility (JSONB where needed)
 
 Auditability (compliance-first)
 
-🧩 Core Tables
+ Core Tables
 1. clients
 CREATE TABLE clients (
   id UUID PRIMARY KEY,
@@ -524,7 +532,7 @@ CREATE TABLE feature_store (
   value FLOAT,
   updated_at TIMESTAMP DEFAULT NOW()
 );
-🔗 2. ER DIAGRAM (Textual)
+## 2. ER DIAGRAM (Textual)
 RM_USERS (1) ────────< INTERACTIONS >──────── (1) CLIENTS
                          │
                          ▼
@@ -552,11 +560,11 @@ Client → Approved Models: Many-to-many
 
 Everything → Audit Logs: append-only
 
-⚙️ 3. LLM PROMPT TEMPLATES
+## 3. LLM PROMPT TEMPLATES
 
 These are production-ready and aligned with your system.
 
-🧠 3.1 Suggestion Generation Prompt
+## 3. 1 Suggestion Generation Prompt
 SYSTEM:
 You are a financial assistant helping Relationship Managers communicate with clients.
 You MUST follow all constraints strictly.
@@ -593,7 +601,7 @@ CONSTRAINTS:
 - No hallucinated data
 - Be conservative and professional
 - Keep message human and simple
-🗣️ 3.2 Message Personalization Prompt
+## 3. 2 Message Personalization Prompt
 SYSTEM:
 You generate client-ready financial communication.
 
@@ -614,7 +622,7 @@ CONSTRAINTS:
 - No promises of returns
 - No speculative statements
 - Must align with provided talking points
-📊 3.3 Interaction Summary Prompt
+## 3. 3 Interaction Summary Prompt
 SYSTEM:
 You summarize RM-client conversations.
 
@@ -631,9 +639,9 @@ Extract:
 CONSTRAINTS:
 - Do not include raw transcript text
 - No assumptions beyond transcript
-🚨 4. LLM GUARDRAILS (CRITICAL)
-🔒 4.1 Hard Constraints (Must enforce in code)
-✅ Retrieval grounding
+## 4. LLM GUARDRAILS (CRITICAL)
+## 4. 1 Hard Constraints (Must enforce in code)
+ Retrieval grounding
 
 Every prompt must include:
 
@@ -643,7 +651,7 @@ Portfolio data
 
 → NEVER allow free-form generation
 
-✅ Output validation layer
+ Output validation layer
 
 After LLM response:
 
@@ -655,7 +663,7 @@ Mentions “new opportunities”
 
 Contains numbers not in input
 
-✅ Schema validation
+ Schema validation
 
 Use strict JSON output format:
 
@@ -666,7 +674,7 @@ Use strict JSON output format:
   "talking_points": ["...", "..."],
   "message": "..."
 }
-🧱 4.2 System Guardrails
+## 4. 2 System Guardrails
 1. Approved Universe Filter
 
 Before LLM:
@@ -702,7 +710,7 @@ Block phrases:
 
 “confidential tip”
 
-🧪 4.3 Scoring + Ranking Layer (Pre-LLM)
+## 4. 3 Scoring + Ranking Layer (Pre-LLM)
 
 Don’t rely on LLM for priority.
 
@@ -716,8 +724,8 @@ priorityScore =
 
 LLM only converts → language
 
-🧠 5. Recommended Architecture Pattern
-🔥 Golden Rule
+## 5. Recommended Architecture Pattern
+ Golden Rule
 
 LLM = formatter, NOT decision maker
 

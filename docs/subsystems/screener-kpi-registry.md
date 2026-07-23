@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Subsystems](../README.md#subsystems) · Screener & KPI Registry
+
 # Screener & KPI Registry
 
 The per-company research surface (`/api/screener/:symbol`) — financials,
@@ -94,6 +96,7 @@ thereafter). Scripts that write `Kpi` rows call `invalidateRegistryCache()` to
 see them immediately.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart TD
   R[GET /api/screener/:symbol/financials] --> C[lib/financials.js]
   C --> SC[_resolveScreenConfig<br/>ScreenConfig + variant]
@@ -155,6 +158,54 @@ rows, and can be a **company-group-scoped variant** of another config
   `utils/taStockType.js`, `utils/technicalsShape.js`), plus relative strength
   ([`lib/crs.js`](../../lib/crs.js)).
 - [`lib/wyckoff.js`](../../lib/wyckoff.js) — server-side Wyckoff phase detection.
+
+## Baskets, batch tickers & models
+
+Three read surfaces sit on top of the same registry-resolved metrics.
+
+### Stock baskets — `/api/baskets`
+
+Pre-defined **screens** ([`controllers/baskets.controller.js`](../../controllers/baskets.controller.js))
+— 11 baskets across three categories (Value & Quality, Growth & Turnaround, Technical Signals). Each
+basket is a hard-coded definition (`id`, a `conditions` string shown to the UI verbatim, and the
+`columns` to display). Running one is a three-stage funnel that keeps DB fan-out bounded:
+
+1. **Stage 1 — cheap bulk filter.** `buildMarketMap()` pulls one market snapshot for the whole
+   universe (`fetchMarketSnapshots`, values already in `nse_equity_new`) and applies the cheap
+   conditions (market cap, PE) in memory.
+2. **Stage 2 — fundamentals for survivors only.** `fetchKpiMapsMultiBatch` / `fetchPeTimeSeriesBatch`
+   batch-fetch annual/quarterly series for the candidates in 1–2 queries, then each is filtered
+   in-process (ROE, D/E, CAGR, PEG, historical PE, industry PE, …).
+3. **Stage 3 — price bars only where needed.** `fetchOhlcvBars` + `resolveTechnicalIndicators` for the
+   technical screens (golden crossover, RSI, SMA confluence, power candle).
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `GET` | `/api/baskets` | Bearer | List basket definitions (grouped by category; no stock data) |
+| `GET` | `/api/baskets/:basketId/stocks` | Bearer | Run the screen (`page`, `size`≤200, `sort`, `order`) |
+
+> [!NOTE]
+> The same `runScreener()` is reused by the investor dashboard's discover cards
+> ([investor-dashboard.md](./investor-dashboard.md)), which precompute results offline to avoid the
+> live screen's ~40s cost. **Industry** baskets (`/api/industry-baskets`) are a *different* surface
+> driven by IIT scores — see [industry-intelligence.md](./industry-intelligence.md).
+
+### Batch tickers — `/api/tickers`
+
+`GET /api/tickers?tickers=TCS,INFY` (or `POST { tickers: [...] }` for long lists) returns the same
+row shape as the screener's peers table for a caller-supplied set, up to **100 tickers** per request
+([`services/tickerMetrics.service.js`](../../services/tickerMetrics.service.js)). Responses are cached
+until midnight IST.
+
+### Portfolio models — `/api/models`
+
+`PortfolioModel` CRUD — named model portfolios with a risk profile, capital, asset classes, and
+positions ([`controllers/models.controller.js`](../../controllers/models.controller.js)).
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `GET` | `/api/models` | Bearer | List models (newest first) |
+| `POST` | `/api/models` | Bearer | Create a model (`name`, `riskProfile`, `capital`, `assetClasses` required) |
 
 ## Admin KPI management
 

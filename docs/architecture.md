@@ -1,3 +1,5 @@
+[Docs](./README.md) · Architecture
+
 # Architecture
 
 QuantCase Backend is a Node.js system that turns raw earnings-call documents (transcripts, investor PPTs, annual reports) into structured, layered intelligence using LLMs. It runs as **four independent long-running processes** that share one PostgreSQL database and one Redis instance; heavy LLM work is pushed onto BullMQ queues so HTTP requests stay fast.
@@ -16,6 +18,7 @@ All four processes are declared in [`ecosystem.config.js`](../ecosystem.config.j
 Because the queue and DB are the only coupling, the worker (and scheduler) can run on a different host from the API server — set `SCHEDULER_BIND_HOST` / network rules accordingly. See [deployment.md](./deployment.md).
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart LR
   client([Frontend / Admin])
 
@@ -106,6 +109,7 @@ Per-skill model / token / prompt / schema come from the DB at runtime via `loadS
 ## Data flow at a glance
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart TD
   raw["earnings_calls / annual_reports<br/>(raw PDFs + metadata)"]
   l1["L1 — transcript_signals_v2<br/>(structured signals)"]

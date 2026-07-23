@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Frontend](../README.md#existing-reference-material) · Wyckoff API — Frontend Note
+
 # Wyckoff API — Frontend Note
 
 The Wyckoff engine now runs server-side. `src/lib/wyckoff.ts` is a **1:1 port** — verified

@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Frontend](../README.md#existing-reference-material) · Technicals API — Frontend Note
+
 # Technicals API — Frontend Note
 
 Covers the `technical-intelligence` skill rewrite. All shapes below are copied from a

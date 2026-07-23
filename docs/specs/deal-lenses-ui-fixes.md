@@ -1,4 +1,7 @@
-Backend Fix Requirements — Deal Lenses
+[Docs](../README.md) · [Specs](../README.md#existing-reference-material) · Deal Lenses UI Fixes
+
+# Backend Fix Requirements — Deal Lenses
+
 All changes are additive — no existing keys are removed or renamed. The generic schema (slug, key_metrics, highlights, risks, top_signals, takeaway, score, status) stays identical for all lens categories.
 
 1. earnings-forecast — add 12 keys to key_metrics

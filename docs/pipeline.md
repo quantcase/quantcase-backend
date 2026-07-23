@@ -1,8 +1,11 @@
+[Docs](./README.md) · The Analysis Pipeline
+
 # The Analysis Pipeline
 
 QuantCase processes each earnings-call document through a progressive, cached pipeline: **L1** extracts structured signals from PDFs, **L2** scores those signals through analytical "lenses", and **L3** synthesises lens scores into narrative insights. A parallel **HTML-skills** branch renders per-ticker reports from the same signals. Every stage caches on a content hash so unchanged inputs skip the LLM entirely.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart TD
   src["Raw docs<br/>earnings_calls.transcript_url / ppt_url<br/>annual_reports.annual_report_url"]
 
@@ -73,7 +76,8 @@ Smaller chunks are a deliberate fix for LLM output truncation (`finish_reason=le
 
 **Output — `transcript_signals_v2` (`TranscriptSignalV2`).** Each row carries `signal_type`, `source_doc_type` (`transcript` / `ppt` / `annual_report`), `metric`, `impact`, `severity`, `statement`, the full extracted `data` JSON, plus lineage/caching columns `lineage_id`, `source_hash`, `prompt_v`, `extractor_model`.
 
-> **Table note:** the current v2 workers write **`transcript_signals_v2`**, read back by L2/HTML via `querySignalsV2` (`services/db/signals.db.js`). An older `extracted_signals` (`ExtractedSignal`) table still exists and is served by `/api/signals`, but is **not** what the v2 pipeline writes. See [data-model.md](./data-model.md).
+> [!NOTE]
+> The current v2 workers write **`transcript_signals_v2`**, read back by L2/HTML via `querySignalsV2` (`services/db/signals.db.js`). An older `extracted_signals` (`ExtractedSignal`) table still exists and is served by `/api/signals`, but is **not** what the v2 pipeline writes. See [data-model.md](./data-model.md).
 
 ## L2 — lens scoring
 
@@ -146,6 +150,22 @@ To run a whole layer over many tickers at once, [`services/pipelineDispatch/`](.
 ## Terminal failures
 
 L1 chunk workers record terminal failures (after exhausting `attempts`) into `pipeline_job_failures` (`PipelineJobFailure`) with the queue, `call_id`, chunk index, and `lineage_id`. `services/pipelineJobRetry.service.js` and the `admin.pipelineJobs` controller offer retry and split-retry (re-chunk a too-large PDF into more, smaller jobs). See [runbooks/JOB_QUEUE_GUIDE.md](./runbooks/JOB_QUEUE_GUIDE.md).
+
+## Read & query API (ingress vs. processing)
+
+Everything above is the **processing** side (workers writing signals/scores/insights). The **read**
+side — how clients query what the pipeline produced, and re-trigger it — is a separate set of routers:
+
+| Surface | Routes | Reads |
+|---------|--------|-------|
+| Calls / transcripts / summaries | `/api/calls`, `/api/transcript`, `/api/summary`, `/api/annual-reports` | `earnings_calls`, `SummaryNew`, `annual_reports` |
+| L1 signals | `/api/signals` | `extracted_signals` (the older table — **not** `transcript_signals_v2`; see the table note above) |
+| L2 lenses | `/api/lenses` | `lens_scores` + `lens_configs` |
+| L3 insights | `/api/analysis`, `/api/post-html-analysis` | `ai_insights`, `post_html_analysis` |
+| Coverage | `/api/pipeline/coverage`, `/api/pipeline/missing` | live counts per source type |
+
+The `POST` variants (`/api/calls/:id/summarize-v2*`, `/api/lenses/compute`, `/api/analysis`) enqueue
+the jobs described above. Full endpoint list with auth: [api-reference.md](./api-reference.md).
 
 ## See also
 

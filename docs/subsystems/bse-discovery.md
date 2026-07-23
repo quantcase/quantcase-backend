@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Subsystems](../README.md#subsystems) · BSE Document Discovery
+
 # BSE Document Discovery
 
 Crawls the **BSE corporate-announcements API** for newly filed earnings-call transcripts, investor presentations, and annual reports; resolves each candidate PDF (following cover-letter links); and stores the URLs for an admin to review and approve. Approved URLs become `earnings_calls` / `annual_reports` rows that feed the L1 pipeline.
@@ -43,6 +45,7 @@ Quirks handled in [`bseScraper.service.js`](../../services/bseScraper.service.js
 ## End-to-end flow
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef2ff','primaryBorderColor':'#6366f1','primaryTextColor':'#111827','lineColor':'#6366f1','secondaryColor':'#f1f5f9','tertiaryColor':'#f8fafc','fontSize':'13px'}}}%%
 flowchart TD
     trigger["POST /admin/bse-discovery/run (Server 1)"] -->|internal HTTP /trigger/:slug| s2["Scheduler process (Server 2)"]
     s2 --> scrape["scrapeAllCompanies(lookbackDays)"]
@@ -117,5 +120,5 @@ Creates `bse_discovered_urls` (+ its indexes) via raw SQL. `bse_url_meta` and `b
 - [Pipeline](../pipeline.md) — how approved URLs are ingested into L1
 - [Scheduler](./scheduler.md) — the Server 2 process and internal `/trigger` API
 - [Data model](../data-model.md) — `bse_discovered_urls`, `bse_url_meta`, `bse_dismissed_urls`, `earnings_calls`, `annual_reports`
-- [Scheduler monitoring runbook](../runbooks/schedular-monitoring.md) — reading run history
+- [Scheduler monitoring runbook](../runbooks/scheduler-monitoring.md) — reading run history
 - [Architecture](../architecture.md) — the two-server split

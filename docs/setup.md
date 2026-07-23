@@ -1,3 +1,5 @@
+[Docs](./README.md) · Local Setup
+
 # Local Setup
 
 How to get the QuantCase backend running on a development machine: install dependencies, provision Postgres + Redis, generate the Prisma client, seed reference data, and start the four processes.
@@ -66,7 +68,7 @@ npx prisma db pull    # introspect an existing DB into schema.prisma
 npm run db:studio     # prisma studio — GUI to inspect/edit data
 ```
 
-> Some tables (e.g. `scheduler_jobs`, `scheduler_runs`) are created via raw SQL against `DIRECT_DATABASE_URL`, not through `db:push`. See the [scheduler monitoring runbook](./runbooks/schedular-monitoring.md).
+> Some tables (e.g. `scheduler_jobs`, `scheduler_runs`) are created via raw SQL against `DIRECT_DATABASE_URL`, not through `db:push`. See the [scheduler monitoring runbook](./runbooks/scheduler-monitoring.md).
 
 ## 5. Seed reference data
 

@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Frontend](../README.md#existing-reference-material) · WealthOS API Reference
+
 # WealthOS API Reference
 
 Base path: `/api/wealthos`

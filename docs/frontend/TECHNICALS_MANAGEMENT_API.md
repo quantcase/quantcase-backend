@@ -1,3 +1,5 @@
+[Docs](../README.md) · [Frontend](../README.md#existing-reference-material) · Technicals Management API — Frontend Note
+
 # Technicals Management API — Frontend Note
 
 Everything the admin dashboard needs to (a) view & edit the **technicals analysis skill**
