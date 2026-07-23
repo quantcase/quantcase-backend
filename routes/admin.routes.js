@@ -22,6 +22,7 @@ const prowessBatchRouter     = require('./admin.prowessBatch.routes');
 const prowessCoverageRouter  = require('./admin.prowessCoverage.routes');
 const invitesRouter          = require('./admin.invites.routes');
 const errorReportsRouter     = require('./admin.errorReports.routes');
+const technicalsRouter       = require('./admin.technicals.routes');
 
 // ─── Existing admin routes ────────────────────────────────────────────────────
 
@@ -176,5 +177,10 @@ router.use('/invites', invitesRouter);
 // ─── Error Reports (triage for the frontend "Report Error" button) ─────────
 
 router.use('/error-reports', errorReportsRouter);
+
+// ─── Technicals Management (bulk regenerate/poll the L3 technical-intelligence
+// insight for many tickers — feeds the admin technicals dashboard) ──────────
+
+router.use('/technicals', technicalsRouter);
 
 module.exports = router;
