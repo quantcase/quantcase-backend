@@ -57,6 +57,19 @@ So downstream handlers read `req.user.sub` (user id) and `req.user.accountType` 
 
 > **Gotcha:** all four values fall back to hard-coded dev defaults (`qc2026-secret`, …). Set real secrets in every non-local environment. See [../configuration.md](../configuration.md).
 
+### Global gate (all routes require a token by default)
+
+`authenticate` is no longer opt-in per router. A single gate — [`middleware/globalAuth.js`](../../middleware/globalAuth.js), mounted in [`server.js`](../../server.js) before the router — runs `authenticate` on **every** request except a small **public allowlist** ([`middleware/publicRoutes.js`](../../middleware/publicRoutes.js)):
+
+- `GET /health`
+- `POST /api/auth/register`, `POST /api/auth/google`, `POST /api/auth/signin`
+- `GET /api/invites/validate`
+- `GET /api/billing/config`, `GET /api/billing/products`
+- `POST /api/billing/webhook`, `POST /api/smallcase/webhook` (checksum-verified, not JWT)
+- `/uploads/*` (static PDF fetch by the worker) and CORS `OPTIONS` preflight
+
+Everything else — all `/api/*` data/pipeline routes — now needs a valid Bearer token. Routers that still call `router.use(authenticate)` internally (`/api/portfolio`, `/api/journal`, `/api/smallcase`, and the dashboard routers) just run `authenticate` twice, which is idempotent. `/admin/*` layers `requireAdmin` on top of the gate (see below). The allowlist is matched on `req.path` + method, exactly like the `WEBHOOK_PATHS` JSON-parser carve-out in `server.js`.
+
 ### Role gates
 
 - **`requireAdmin`** — runs after `authenticate`; rejects unless `req.user.accountType === 'admin'` (`403`). Mounted on `/admin/*`. Wealth managers (`account_type === 'manager'`) are elevated for billing/access but are **not** super-admins.

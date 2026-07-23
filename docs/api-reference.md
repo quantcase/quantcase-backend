@@ -4,50 +4,60 @@ Every HTTP endpoint the Express server exposes, grouped by feature area. The mou
 
 ## Auth model & conventions
 
-Authentication is applied per-router (or per-route), not globally. Three middlewares matter:
+Authentication is enforced by a **global gate** ([`../middleware/globalAuth.js`](../middleware/globalAuth.js)), mounted in `server.js` in front of the router: **every request requires a valid Bearer JWT unless its path is on the public allowlist** ([`../middleware/publicRoutes.js`](../middleware/publicRoutes.js)). Three middlewares matter:
 
-- **`authenticate`** ([`../middleware/authenticate.js`](../middleware/authenticate.js)) — verifies a Bearer JWT and attaches `req.user` (`sub`, `email`, `accountType`).
-- **`requireAdmin`** ([`../middleware/requireAdmin.js`](../middleware/requireAdmin.js)) — restricts to the admin account. Applied together with `authenticate` to the **entire** `/admin` tree in `routes/index.js`.
-- **Webhooks** (`/api/billing/webhook`, `/api/smallcase/webhook`) are **not** JWT-authenticated — they verify a Razorpay/smallcase **checksum** over the raw request body. `server.js` skips the global `express.json()` parser for these two paths so the raw body survives.
+- **`authenticate`** ([`../middleware/authenticate.js`](../middleware/authenticate.js)) — verifies a Bearer JWT and attaches `req.user` (`sub`, `email`, `accountType`). The global gate runs this for every non-allowlisted request.
+- **`requireAdmin`** ([`../middleware/requireAdmin.js`](../middleware/requireAdmin.js)) — restricts to the admin account. Applied together with `authenticate` to the **entire** `/admin` tree in `routes/index.js` (layered on top of the global gate).
+- **Webhooks** (`/api/billing/webhook`, `/api/smallcase/webhook`) are **not** JWT-authenticated — they verify a Razorpay/smallcase **checksum** over the raw request body. `server.js` skips the global `express.json()` parser for these two paths so the raw body survives, and they sit on the public allowlist so the JWT gate lets them through.
+
+**Public allowlist** (reachable without a token — everything else is **JWT**):
+
+- `GET /health`
+- `POST /api/auth/register`, `POST /api/auth/google`, `POST /api/auth/signin`
+- `GET /api/invites/validate`
+- `GET /api/billing/config`, `GET /api/billing/products`
+- `POST /api/billing/webhook`, `POST /api/smallcase/webhook` (checksum)
+- `/uploads/*` (static; server-to-server PDF fetch) and CORS `OPTIONS` preflight
 
 Legend for the **Auth** column:
 
 | Value | Meaning |
 |---|---|
-| Public | No auth middleware on the route |
-| JWT | Requires `authenticate` (valid Bearer token) |
+| Public | On the global public allowlist — reachable without a token |
+| JWT | Requires a valid Bearer token (enforced globally by the gate) |
 | Admin | Requires `authenticate` + `requireAdmin` (whole `/admin` tree) |
-| Checksum | Server-to-server webhook, verified by HMAC checksum on the raw body |
+| Checksum | Server-to-server webhook, verified by HMAC checksum on the raw body (allowlisted) |
 
 > **Notes / caveats (verified against source):**
 > - Only **`GET /health`** is mounted (standalone in `routes/index.js`). `routes/health.routes.js` exists but is **not mounted anywhere** — there is currently **no** `/api/health` route.
-> - A large set of data/pipeline routers are currently mounted **without** `authenticate` and are therefore **Public**: `/api/calls`, `/api/transcript`, `/api/summary`, `/api/jobs`, `/api/annual-reports`, `/api/signals`, `/api/lenses`, `/api/analysis`, `/api/post-html-analysis`, `/api/pipeline`, `/api/html-skills`, `/api/html-incremental-skills`, `/api/screener`, `/api/tickers`, `/api/baskets`, `/api/industry-baskets`, `/api/models`, `/api/mutual-funds`, `/api/private-equity`, `/api/industry-intelligence`, `/api/monitoring`, and `/api/wealthos`. Treat "Public" as "what the code does today," not necessarily the intended access policy.
+> - All `/api/*` data/pipeline routers — `/api/calls`, `/api/transcript`, `/api/summary`, `/api/jobs`, `/api/annual-reports`, `/api/signals`, `/api/lenses`, `/api/analysis`, `/api/post-html-analysis`, `/api/pipeline`, `/api/html-skills`, `/api/html-incremental-skills`, `/api/screener`, `/api/tickers`, `/api/baskets`, `/api/industry-baskets`, `/api/models`, `/api/mutual-funds`, `/api/private-equity`, `/api/industry-intelligence`, `/api/monitoring`, and `/api/wealthos` — are now **JWT-protected via the global gate**. (They were public before the gate was added.)
+> - Routers that also call `router.use(authenticate)` internally (`/api/portfolio`, `/api/journal`, `/api/smallcase`, `/api/discover`, `/api/research-library`, `/api/market`) simply run `authenticate` twice, which is idempotent — no behaviour change.
 > - `requireActiveSubscription` ([`../middleware/requireActiveSubscription.js`](../middleware/requireActiveSubscription.js)) exists but is **not currently wired into any route**.
 
 ---
 
 ## Health & monitoring
 
-Base: `/health`, `/api/monitoring` — all **Public**.
+Base: `/health` (**Public**), `/api/monitoring` (**JWT** via the global gate).
 
 | Method | Path | Purpose | Auth |
 |---|---|---|---|
 | GET | `/health` | Health check with a DB connectivity probe | Public |
-| GET | `/api/monitoring/overview` | Dashboard overview (counts across the pipeline) | Public |
-| GET | `/api/monitoring/queues` | BullMQ queue stats (all queues) | Public |
-| GET | `/api/monitoring/queues/:name` | Stats for one BullMQ queue | Public |
-| GET | `/api/monitoring/scheduler` | Scheduler run history | Public |
-| GET | `/api/monitoring/pipeline/coverage` | L1/L2/L3 coverage snapshot | Public |
-| GET | `/api/monitoring/pipeline/failures` | Recent `pipeline_job_failures` | Public |
-| GET | `/api/monitoring/signals/stats` | Signal-store statistics | Public |
-| GET | `/api/monitoring/bse/discovered` | Discovered BSE URLs (written by the Server-2 scraper) | Public |
-| GET | `/api/monitoring/bse/discovered/:scripCd` | Discovered URLs for one company | Public |
-| GET | `/api/monitoring/kpis/registry` | Full computed-metric catalogue (formulaRegistry) | Public |
-| GET | `/api/monitoring/kpis/:ticker` | Resolved KPI values for a ticker | Public |
-| GET | `/api/monitoring/kpis/:ticker/:kpiAbbr/timeseries` | One KPI's time series for a ticker | Public |
-| GET | `/api/monitoring/market/:ticker` | Market snapshot (latest OHLCV + valuation) | Public |
-| GET | `/api/monitoring/market/:ticker/ohlcv` | OHLCV series | Public |
-| GET | `/api/monitoring/market/:ticker/pe` | PE series | Public |
+| GET | `/api/monitoring/overview` | Dashboard overview (counts across the pipeline) | JWT |
+| GET | `/api/monitoring/queues` | BullMQ queue stats (all queues) | JWT |
+| GET | `/api/monitoring/queues/:name` | Stats for one BullMQ queue | JWT |
+| GET | `/api/monitoring/scheduler` | Scheduler run history | JWT |
+| GET | `/api/monitoring/pipeline/coverage` | L1/L2/L3 coverage snapshot | JWT |
+| GET | `/api/monitoring/pipeline/failures` | Recent `pipeline_job_failures` | JWT |
+| GET | `/api/monitoring/signals/stats` | Signal-store statistics | JWT |
+| GET | `/api/monitoring/bse/discovered` | Discovered BSE URLs (written by the Server-2 scraper) | JWT |
+| GET | `/api/monitoring/bse/discovered/:scripCd` | Discovered URLs for one company | JWT |
+| GET | `/api/monitoring/kpis/registry` | Full computed-metric catalogue (formulaRegistry) | JWT |
+| GET | `/api/monitoring/kpis/:ticker` | Resolved KPI values for a ticker | JWT |
+| GET | `/api/monitoring/kpis/:ticker/:kpiAbbr/timeseries` | One KPI's time series for a ticker | JWT |
+| GET | `/api/monitoring/market/:ticker` | Market snapshot (latest OHLCV + valuation) | JWT |
+| GET | `/api/monitoring/market/:ticker/ohlcv` | OHLCV series | JWT |
+| GET | `/api/monitoring/market/:ticker/pe` | PE series | JWT |
 
 ## Auth & registration
 
@@ -69,16 +79,16 @@ Base: `/api/calls`, `/api/transcript`, `/api/summary`, `/api/annual-reports`, `/
 
 | Method | Path | Purpose | Auth |
 |---|---|---|---|
-| GET | `/api/calls?page=&size=` | List earnings calls (paginated) | Public |
-| GET | `/api/calls/:callId` | One earnings call | Public |
-| GET | `/api/calls/:callId/summary` | The call's `SummaryNew` | Public |
-| POST | `/api/calls/:callId/summarize-v2` | Enqueue L1 signal extraction (transcript) | Public |
-| POST | `/api/calls/:callId/summarize-v2-ppt` | Enqueue L1 signal extraction (PPT) | Public |
-| GET | `/api/transcript/stocks` | Stocks that have transcript calls | Public |
-| GET | `/api/transcript/calls?symbol=` | Calls for a symbol | Public |
-| GET | `/api/summary/:callId` | Summary for a call | Public |
-| POST | `/api/annual-reports/:reportId/summarize-v2` | Enqueue L1 extraction for an annual-report PDF | Public |
-| GET | `/api/jobs/:jobId` | Job status (DB record + BullMQ state) | Public |
+| GET | `/api/calls?page=&size=` | List earnings calls (paginated) | JWT |
+| GET | `/api/calls/:callId` | One earnings call | JWT |
+| GET | `/api/calls/:callId/summary` | The call's `SummaryNew` | JWT |
+| POST | `/api/calls/:callId/summarize-v2` | Enqueue L1 signal extraction (transcript) | JWT |
+| POST | `/api/calls/:callId/summarize-v2-ppt` | Enqueue L1 signal extraction (PPT) | JWT |
+| GET | `/api/transcript/stocks` | Stocks that have transcript calls | JWT |
+| GET | `/api/transcript/calls?symbol=` | Calls for a symbol | JWT |
+| GET | `/api/summary/:callId` | Summary for a call | JWT |
+| POST | `/api/annual-reports/:reportId/summarize-v2` | Enqueue L1 extraction for an annual-report PDF | JWT |
+| GET | `/api/jobs/:jobId` | Job status (DB record + BullMQ state) | JWT |
 
 ## Pipeline — query & trigger
 
@@ -86,93 +96,93 @@ Base: `/api/signals`, `/api/lenses`, `/api/analysis`, `/api/post-html-analysis`,
 
 | Method | Path | Purpose | Auth |
 |---|---|---|---|
-| GET | `/api/signals?ticker=&signalType=&metricFamily=&sourceType=` | L1 signals for a ticker's latest call (reads `extracted_signals`) | Public |
-| GET | `/api/signals/lineage/:lineageId` | All signals sharing a lineage id | Public |
-| GET | `/api/lenses?ticker=&category=` | L2 lens scores by category for a ticker's latest quarter | Public |
-| GET | `/api/lenses/configs?includeInactive=` | List `LensConfig`s | Public |
-| POST | `/api/lenses/configs` | Upsert a `LensConfig` (marks affected scores stale) | Public |
-| GET | `/api/lenses/scores?callId=` | Computed L2 scores for a call | Public |
-| POST | `/api/lenses/compute` | Enqueue lens computation jobs (`{ callId, lenses? }`) | Public |
-| GET | `/api/analysis?callId=&type=` | L3 insights for a call (comma-separated types) | Public |
-| POST | `/api/analysis` | Enqueue L3 analysis (`{ callId, types, forceRefresh? }`) | Public |
-| GET | `/api/analysis/overview?callId=` | L3 overview insight | Public |
-| POST | `/api/analysis/overview` | Enqueue overview generation | Public |
-| GET | `/api/post-html-analysis/configs?includeInactive=` | List post-HTML-analysis configs | Public |
-| GET | `/api/post-html-analysis/configs/:layer_id/:type/preview?ticker=` | Preview the assembled prompt | Public |
-| GET | `/api/post-html-analysis/configs/:layer_id/:type` | Get one config | Public |
-| PUT | `/api/post-html-analysis/configs/:layer_id/:type` | Update a config | Public |
-| DELETE | `/api/post-html-analysis/configs/:layer_id/:type` | Soft-delete a config | Public |
-| GET | `/api/post-html-analysis?ticker=&layer_id=&type=` | Read results | Public |
-| POST | `/api/post-html-analysis` | Enqueue a run (`{ ticker, layer_id, types?, forceRefresh? }`) | Public |
-| GET | `/api/pipeline/coverage` | L1 signal coverage per source type | Public |
-| GET | `/api/pipeline/missing?source=transcript\|ppt\|annual_report` | Unprocessed eligible rows | Public |
+| GET | `/api/signals?ticker=&signalType=&metricFamily=&sourceType=` | L1 signals for a ticker's latest call (reads `extracted_signals`) | JWT |
+| GET | `/api/signals/lineage/:lineageId` | All signals sharing a lineage id | JWT |
+| GET | `/api/lenses?ticker=&category=` | L2 lens scores by category for a ticker's latest quarter | JWT |
+| GET | `/api/lenses/configs?includeInactive=` | List `LensConfig`s | JWT |
+| POST | `/api/lenses/configs` | Upsert a `LensConfig` (marks affected scores stale) | JWT |
+| GET | `/api/lenses/scores?callId=` | Computed L2 scores for a call | JWT |
+| POST | `/api/lenses/compute` | Enqueue lens computation jobs (`{ callId, lenses? }`) | JWT |
+| GET | `/api/analysis?callId=&type=` | L3 insights for a call (comma-separated types) | JWT |
+| POST | `/api/analysis` | Enqueue L3 analysis (`{ callId, types, forceRefresh? }`) | JWT |
+| GET | `/api/analysis/overview?callId=` | L3 overview insight | JWT |
+| POST | `/api/analysis/overview` | Enqueue overview generation | JWT |
+| GET | `/api/post-html-analysis/configs?includeInactive=` | List post-HTML-analysis configs | JWT |
+| GET | `/api/post-html-analysis/configs/:layer_id/:type/preview?ticker=` | Preview the assembled prompt | JWT |
+| GET | `/api/post-html-analysis/configs/:layer_id/:type` | Get one config | JWT |
+| PUT | `/api/post-html-analysis/configs/:layer_id/:type` | Update a config | JWT |
+| DELETE | `/api/post-html-analysis/configs/:layer_id/:type` | Soft-delete a config | JWT |
+| GET | `/api/post-html-analysis?ticker=&layer_id=&type=` | Read results | JWT |
+| POST | `/api/post-html-analysis` | Enqueue a run (`{ ticker, layer_id, types?, forceRefresh? }`) | JWT |
+| GET | `/api/pipeline/coverage` | L1 signal coverage per source type | JWT |
+| GET | `/api/pipeline/missing?source=transcript\|ppt\|annual_report` | Unprocessed eligible rows | JWT |
 
 ## HTML skills
 
-Base: `/api/html-skills` — all **Public**. Skill definitions plus preview/run/output reads.
+Base: `/api/html-skills` — all **JWT**. Skill definitions plus preview/run/output reads.
 
 | Method | Path | Purpose | Auth |
 |---|---|---|---|
-| GET | `/api/html-skills` | List skills | Public |
-| POST | `/api/html-skills` | Create a skill | Public |
-| GET | `/api/html-skills/:slug` | Get a skill | Public |
-| PUT | `/api/html-skills/:slug` | Update a skill | Public |
-| DELETE | `/api/html-skills/:slug` | Delete a skill | Public |
-| POST | `/api/html-skills/run-preview` | Run a skill without persisting | Public |
-| GET | `/api/html-skills/signals/count/:ticker` | Available-signal counts for a ticker | Public |
-| GET | `/api/html-skills/:slug/signals/:ticker` | Signals a skill would consume | Public |
-| GET | `/api/html-skills/:slug/prompt/:ticker` | Assembled prompt for a ticker | Public |
-| POST | `/api/html-skills/:slug/run` | Run and persist an `HtmlSkillOutput` | Public |
-| GET | `/api/html-skills/:slug/outputs/:ticker` | Outputs for a ticker | Public |
-| GET | `/api/html-skills/:slug/outputs/:ticker/:fiscal_year/:quarter` | Output for a specific period | Public |
+| GET | `/api/html-skills` | List skills | JWT |
+| POST | `/api/html-skills` | Create a skill | JWT |
+| GET | `/api/html-skills/:slug` | Get a skill | JWT |
+| PUT | `/api/html-skills/:slug` | Update a skill | JWT |
+| DELETE | `/api/html-skills/:slug` | Delete a skill | JWT |
+| POST | `/api/html-skills/run-preview` | Run a skill without persisting | JWT |
+| GET | `/api/html-skills/signals/count/:ticker` | Available-signal counts for a ticker | JWT |
+| GET | `/api/html-skills/:slug/signals/:ticker` | Signals a skill would consume | JWT |
+| GET | `/api/html-skills/:slug/prompt/:ticker` | Assembled prompt for a ticker | JWT |
+| POST | `/api/html-skills/:slug/run` | Run and persist an `HtmlSkillOutput` | JWT |
+| GET | `/api/html-skills/:slug/outputs/:ticker` | Outputs for a ticker | JWT |
+| GET | `/api/html-skills/:slug/outputs/:ticker/:fiscal_year/:quarter` | Output for a specific period | JWT |
 
 ## HTML incremental skills
 
-Base: `/api/html-incremental-skills` — all **Public**. Adds per-config bundles and output history. See [`./admin-guides/html-incremental-skills-guide.md`](./admin-guides/html-incremental-skills-guide.md).
+Base: `/api/html-incremental-skills` — all **JWT**. Adds per-config bundles and output history. See [`./admin-guides/html-incremental-skills-guide.md`](./admin-guides/html-incremental-skills-guide.md).
 
 | Method | Path | Purpose | Auth |
 |---|---|---|---|
-| GET | `/api/html-incremental-skills` | List skills | Public |
-| POST | `/api/html-incremental-skills` | Create a skill | Public |
-| GET | `/api/html-incremental-skills/:slug` | Get a skill | Public |
-| PUT | `/api/html-incremental-skills/:slug` | Update a skill | Public |
-| DELETE | `/api/html-incremental-skills/:slug` | Delete a skill | Public |
-| GET | `/api/html-incremental-skills/:slug/configs` | List a skill's config bundles | Public |
-| GET | `/api/html-incremental-skills/:slug/configs/:key` | Get one config bundle | Public |
-| POST | `/api/html-incremental-skills/:slug/configs` | Create a config bundle | Public |
-| PUT | `/api/html-incremental-skills/:slug/configs/:key` | Update a config bundle | Public |
-| DELETE | `/api/html-incremental-skills/:slug/configs/:key` | Delete a config bundle | Public |
-| GET | `/api/html-incremental-skills/signals/count/:ticker` | Available-signal counts | Public |
-| GET | `/api/html-incremental-skills/:slug/signals/:ticker` | Signals the skill would consume | Public |
-| GET | `/api/html-incremental-skills/:slug/prompt/:ticker` | Assembled prompt | Public |
-| POST | `/api/html-incremental-skills/:slug/run` | Run and persist an output | Public |
-| GET | `/api/html-incremental-skills/:slug/outputs/:ticker` | Latest outputs for a ticker | Public |
-| GET | `/api/html-incremental-skills/:slug/outputs/:ticker/history` | Full output history | Public |
-| GET | `/api/html-incremental-skills/:slug/outputs/:ticker/:fiscal_year/:quarter` | Output for a specific period | Public |
+| GET | `/api/html-incremental-skills` | List skills | JWT |
+| POST | `/api/html-incremental-skills` | Create a skill | JWT |
+| GET | `/api/html-incremental-skills/:slug` | Get a skill | JWT |
+| PUT | `/api/html-incremental-skills/:slug` | Update a skill | JWT |
+| DELETE | `/api/html-incremental-skills/:slug` | Delete a skill | JWT |
+| GET | `/api/html-incremental-skills/:slug/configs` | List a skill's config bundles | JWT |
+| GET | `/api/html-incremental-skills/:slug/configs/:key` | Get one config bundle | JWT |
+| POST | `/api/html-incremental-skills/:slug/configs` | Create a config bundle | JWT |
+| PUT | `/api/html-incremental-skills/:slug/configs/:key` | Update a config bundle | JWT |
+| DELETE | `/api/html-incremental-skills/:slug/configs/:key` | Delete a config bundle | JWT |
+| GET | `/api/html-incremental-skills/signals/count/:ticker` | Available-signal counts | JWT |
+| GET | `/api/html-incremental-skills/:slug/signals/:ticker` | Signals the skill would consume | JWT |
+| GET | `/api/html-incremental-skills/:slug/prompt/:ticker` | Assembled prompt | JWT |
+| POST | `/api/html-incremental-skills/:slug/run` | Run and persist an output | JWT |
+| GET | `/api/html-incremental-skills/:slug/outputs/:ticker` | Latest outputs for a ticker | JWT |
+| GET | `/api/html-incremental-skills/:slug/outputs/:ticker/history` | Full output history | JWT |
+| GET | `/api/html-incremental-skills/:slug/outputs/:ticker/:fiscal_year/:quarter` | Output for a specific period | JWT |
 
 ## Screener, tickers, baskets, models
 
-Base: `/api/screener`, `/api/tickers`, `/api/baskets`, `/api/industry-baskets`, `/api/models` — all **Public**. See [`./frontend/FRONTEND_WYCKOFF_API.md`](./frontend/FRONTEND_WYCKOFF_API.md), [`./frontend/FRONTEND_TECHNICALS_API.md`](./frontend/FRONTEND_TECHNICALS_API.md).
+Base: `/api/screener`, `/api/tickers`, `/api/baskets`, `/api/industry-baskets`, `/api/models` — all **JWT**. See [`./frontend/FRONTEND_WYCKOFF_API.md`](./frontend/FRONTEND_WYCKOFF_API.md), [`./frontend/FRONTEND_TECHNICALS_API.md`](./frontend/FRONTEND_TECHNICALS_API.md).
 
 | Method | Path | Purpose | Auth |
 |---|---|---|---|
-| GET | `/api/screener/:symbol` | Ticker overview | Public |
-| GET | `/api/screener/:symbol/technicals` | Technical data (Google-Sheet watchlist) | Public |
-| GET | `/api/screener/:symbol/technicals/status` | Poll target for a pending AI technical insight | Public |
-| GET | `/api/screener/:symbol/financials` | P&L / balance sheet / cash flow / TTM / valuation | Public |
-| GET | `/api/screener/:symbol/prices?from=&to=` | Day-wise OHLCV | Public |
-| GET | `/api/screener/:symbol/wyckoff` | Server-side Wyckoff phase analysis | Public |
-| GET | `/api/screener/:symbol/charts` | Chart-ready data (Price, PE, Sales & Margin) | Public |
-| GET | `/api/screener/:symbol/shareholding` | Historical quarterly shareholding breakdown | Public |
-| GET | `/api/screener/:symbol/peers` | Peer comparison table | Public |
-| GET | `/api/tickers?tickers=TCS,INFY` | Batch metrics for a caller-supplied ticker list | Public |
-| POST | `/api/tickers` | Same, for lists too long for a query string | Public |
-| GET | `/api/baskets` | List stock-screen basket definitions | Public |
-| GET | `/api/baskets/:basketId/stocks?page=&size=&sort=&order=` | Run a screen, return matching stocks | Public |
-| GET | `/api/industry-baskets` | List baskets with latest IIT signal | Public |
-| GET | `/api/industry-baskets/:basketId/stocks` | Constituent stocks for an industry basket | Public |
-| GET | `/api/models` | List portfolio models | Public |
-| POST | `/api/models` | Create a portfolio model | Public |
+| GET | `/api/screener/:symbol` | Ticker overview | JWT |
+| GET | `/api/screener/:symbol/technicals` | Technical data (Google-Sheet watchlist) | JWT |
+| GET | `/api/screener/:symbol/technicals/status` | Poll target for a pending AI technical insight | JWT |
+| GET | `/api/screener/:symbol/financials` | P&L / balance sheet / cash flow / TTM / valuation | JWT |
+| GET | `/api/screener/:symbol/prices?from=&to=` | Day-wise OHLCV | JWT |
+| GET | `/api/screener/:symbol/wyckoff` | Server-side Wyckoff phase analysis | JWT |
+| GET | `/api/screener/:symbol/charts` | Chart-ready data (Price, PE, Sales & Margin) | JWT |
+| GET | `/api/screener/:symbol/shareholding` | Historical quarterly shareholding breakdown | JWT |
+| GET | `/api/screener/:symbol/peers` | Peer comparison table | JWT |
+| GET | `/api/tickers?tickers=TCS,INFY` | Batch metrics for a caller-supplied ticker list | JWT |
+| POST | `/api/tickers` | Same, for lists too long for a query string | JWT |
+| GET | `/api/baskets` | List stock-screen basket definitions | JWT |
+| GET | `/api/baskets/:basketId/stocks?page=&size=&sort=&order=` | Run a screen, return matching stocks | JWT |
+| GET | `/api/industry-baskets` | List baskets with latest IIT signal | JWT |
+| GET | `/api/industry-baskets/:basketId/stocks` | Constituent stocks for an industry basket | JWT |
+| GET | `/api/models` | List portfolio models | JWT |
+| POST | `/api/models` | Create a portfolio model | JWT |
 
 ## Portfolio, journal, investor dashboard
 
@@ -210,14 +220,14 @@ Base: `/api/portfolio`, `/api/journal` (both apply `authenticate` router-wide), 
 
 | Method | Path | Purpose | Auth |
 |---|---|---|---|
-| GET | `/api/mutual-funds?page=&size=&q=&category=&risk=&rating=&amc_slug=&plan_type=&sort=&order=` | List/search schemes | Public |
-| GET | `/api/mutual-funds/filter-options` | Distinct values for filter dropdowns | Public |
-| GET | `/api/mutual-funds/baskets` | List MF basket definitions | Public |
-| GET | `/api/mutual-funds/baskets/:basketId/schemes` | Run the screener for an MF basket | Public |
-| GET | `/api/mutual-funds/:amfi_code` | Scheme detail | Public |
-| POST | `/api/private-equity/drhp-analyser` | Analyse a DRHP (`multipart` field `document`, PDF/txt ≤ 50 MB) | Public |
-| GET | `/api/private-equity/drhp-analyses` | List prior DRHP analyses | Public |
-| GET | `/api/industry-intelligence?industry=&cluster=` | IIT deep-dive + stock-ranking payload | Public |
+| GET | `/api/mutual-funds?page=&size=&q=&category=&risk=&rating=&amc_slug=&plan_type=&sort=&order=` | List/search schemes | JWT |
+| GET | `/api/mutual-funds/filter-options` | Distinct values for filter dropdowns | JWT |
+| GET | `/api/mutual-funds/baskets` | List MF basket definitions | JWT |
+| GET | `/api/mutual-funds/baskets/:basketId/schemes` | Run the screener for an MF basket | JWT |
+| GET | `/api/mutual-funds/:amfi_code` | Scheme detail | JWT |
+| POST | `/api/private-equity/drhp-analyser` | Analyse a DRHP (`multipart` field `document`, PDF/txt ≤ 50 MB) | JWT |
+| GET | `/api/private-equity/drhp-analyses` | List prior DRHP analyses | JWT |
+| GET | `/api/industry-intelligence?industry=&cluster=` | IIT deep-dive + stock-ranking payload | JWT |
 | POST | `/api/error-reports` | Submit a "Report Error" form | JWT |
 
 ## Billing
@@ -250,34 +260,34 @@ Base: `/api/smallcase`. Broker connect + orders — see [`./subsystems/smallcase
 
 ## WealthOS
 
-Base: `/api/wealthos` — RM CRM. Currently mounted **without** `authenticate` (see caveat above). See [`./subsystems/wealthos.md`](./subsystems/wealthos.md), [`./frontend/wealthos-api.md`](./frontend/wealthos-api.md).
+Base: `/api/wealthos` — RM CRM. **JWT** via the global gate (previously mounted without `authenticate`). See [`./subsystems/wealthos.md`](./subsystems/wealthos.md), [`./frontend/wealthos-api.md`](./frontend/wealthos-api.md).
 
 | Method | Path | Purpose | Auth |
 |---|---|---|---|
-| GET | `/api/wealthos/dashboard/today?rm_id=` | RM's "today" dashboard | Public |
-| GET | `/api/wealthos/clients?page=&size=&segment=&rm_id=&search=` | List clients | Public |
-| POST | `/api/wealthos/clients` | Create a client | Public |
-| GET | `/api/wealthos/clients/:clientId` | Client detail | Public |
-| PUT | `/api/wealthos/clients/:clientId` | Update a client | Public |
-| GET | `/api/wealthos/clients/:clientId/portfolio` | Client portfolio | Public |
-| POST | `/api/wealthos/clients/:clientId/portfolio` | Upsert client portfolio | Public |
-| GET | `/api/wealthos/clients/:clientId/interactions` | List interactions | Public |
-| POST | `/api/wealthos/clients/:clientId/interactions` | Log an interaction | Public |
-| GET | `/api/wealthos/clients/:clientId/suggestions` | Client suggestions | Public |
-| GET | `/api/wealthos/clients/:clientId/actions` | Client actions | Public |
-| POST | `/api/wealthos/clients/:clientId/models/:modelId` | Assign an approved model | Public |
-| DELETE | `/api/wealthos/clients/:clientId/models/:modelId` | Remove a model mapping | Public |
-| POST | `/api/wealthos/clients/:clientId/message/generate` | Generate an outreach message (call/email/whatsapp) | Public |
-| POST | `/api/wealthos/suggestions/generate` | Generate suggestions for client_ids / an rm_id | Public |
-| PUT | `/api/wealthos/suggestions/:suggestionId/status` | Mark a suggestion used/ignored | Public |
-| POST | `/api/wealthos/actions` | Log an action | Public |
-| GET | `/api/wealthos/rm` | List RMs | Public |
-| POST | `/api/wealthos/rm` | Create an RM | Public |
-| GET | `/api/wealthos/rm/:rmId` | RM detail | Public |
-| GET | `/api/wealthos/models` | List approved models | Public |
-| POST | `/api/wealthos/models` | Create an approved model | Public |
-| GET | `/api/wealthos/analytics/rm/:rmId` | RM performance metrics | Public |
-| GET | `/api/wealthos/analytics/clients` | Client segmentation analytics | Public |
+| GET | `/api/wealthos/dashboard/today?rm_id=` | RM's "today" dashboard | JWT |
+| GET | `/api/wealthos/clients?page=&size=&segment=&rm_id=&search=` | List clients | JWT |
+| POST | `/api/wealthos/clients` | Create a client | JWT |
+| GET | `/api/wealthos/clients/:clientId` | Client detail | JWT |
+| PUT | `/api/wealthos/clients/:clientId` | Update a client | JWT |
+| GET | `/api/wealthos/clients/:clientId/portfolio` | Client portfolio | JWT |
+| POST | `/api/wealthos/clients/:clientId/portfolio` | Upsert client portfolio | JWT |
+| GET | `/api/wealthos/clients/:clientId/interactions` | List interactions | JWT |
+| POST | `/api/wealthos/clients/:clientId/interactions` | Log an interaction | JWT |
+| GET | `/api/wealthos/clients/:clientId/suggestions` | Client suggestions | JWT |
+| GET | `/api/wealthos/clients/:clientId/actions` | Client actions | JWT |
+| POST | `/api/wealthos/clients/:clientId/models/:modelId` | Assign an approved model | JWT |
+| DELETE | `/api/wealthos/clients/:clientId/models/:modelId` | Remove a model mapping | JWT |
+| POST | `/api/wealthos/clients/:clientId/message/generate` | Generate an outreach message (call/email/whatsapp) | JWT |
+| POST | `/api/wealthos/suggestions/generate` | Generate suggestions for client_ids / an rm_id | JWT |
+| PUT | `/api/wealthos/suggestions/:suggestionId/status` | Mark a suggestion used/ignored | JWT |
+| POST | `/api/wealthos/actions` | Log an action | JWT |
+| GET | `/api/wealthos/rm` | List RMs | JWT |
+| POST | `/api/wealthos/rm` | Create an RM | JWT |
+| GET | `/api/wealthos/rm/:rmId` | RM detail | JWT |
+| GET | `/api/wealthos/models` | List approved models | JWT |
+| POST | `/api/wealthos/models` | Create an approved model | JWT |
+| GET | `/api/wealthos/analytics/rm/:rmId` | RM performance metrics | JWT |
+| GET | `/api/wealthos/analytics/clients` | Client segmentation analytics | JWT |
 
 ---
 

@@ -51,8 +51,9 @@ flowchart LR
 
 ## Request → enqueue → worker flow
 
-1. **HTTP in.** [`server.js`](../server.js) wires `cors`, a JSON body parser, static `/uploads`, then mounts [`routes/index.js`](../routes/index.js), a `notFound` handler, and an `errorHandler`.
-   - **Raw-body carve-out:** requests to `WEBHOOK_PATHS = ['/api/billing/webhook', '/api/smallcase/webhook']` skip `express.json()` so the raw bytes survive for HMAC/checksum verification (those routes attach `express.raw()` themselves).
+1. **HTTP in.** [`server.js`](../server.js) wires `cors`, a JSON body parser, static `/uploads`, a **global auth gate**, then mounts [`routes/index.js`](../routes/index.js), a `notFound` handler, and an `errorHandler`.
+   - **Raw-body carve-out:** requests to `WEBHOOK_PATHS = ['/api/billing/webhook', '/api/smallcase/webhook']` skip `express.json()` so the raw bytes survive for HMAC/checksum verification (those routes attach `express.raw()` themselves). `WEBHOOK_PATHS` is sourced from [`middleware/publicRoutes.js`](../middleware/publicRoutes.js).
+   - **Global auth gate:** [`middleware/globalAuth.js`](../middleware/globalAuth.js) runs before the router and requires a valid Bearer JWT on **every** request except the public allowlist in [`middleware/publicRoutes.js`](../middleware/publicRoutes.js) (`/health`, the `/api/auth` entry points, invite validation, billing pricing reads, the two webhooks, `/uploads/*`). `/admin/*` layers `requireAdmin` on top.
    - On boot the server calls `prisma.$connect()` and `warmRegistryCache()` (pre-warms the screener's KPI-formula cache — non-fatal if it fails).
 2. **Controller → service.** A controller delegates to a service such as [`services/jobs.service.js`](../services/jobs.service.js) or the bulk [`services/pipelineDispatch/`](../services/pipelineDispatch) modules.
 3. **Enqueue.** The service calls `jobQueue.addJob(queueName, jobData, opts)` on the [`lib/jobQueue.js`](../lib/jobQueue.js) singleton. For document pipelines the service first **splits the source PDF into page-range chunks** and enqueues one job per chunk (see [pipeline.md](./pipeline.md)).

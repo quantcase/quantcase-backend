@@ -155,9 +155,12 @@ Full endpoint map (grouped by feature area, with auth requirements) is in
 - `POST /api/calls/:callId/summarize-v2-ppt` — Enqueue L1 PPT extraction
 - `GET /api/jobs/:jobId` — Get job status from BullMQ
 
-> Note: many `/api/*` data/pipeline routers are currently mounted **without** `authenticate`
-> (effectively public today). `docs/api-reference.md` marks auth per route — treat "Public"
-> there as "what the code does now," not necessarily intended policy.
+> Note: a **global auth gate** (`middleware/globalAuth.js`, mounted in `server.js` before the
+> router) now requires a valid Bearer JWT on **every** route except a small public allowlist
+> (`middleware/publicRoutes.js`): `GET /health`, `POST /api/auth/{register,google,signin}`,
+> `GET /api/invites/validate`, `GET /api/billing/{config,products}`, the two webhooks
+> (`/api/billing/webhook`, `/api/smallcase/webhook`), and `/uploads/*`. `/admin/*` additionally
+> requires `requireAdmin`. `docs/api-reference.md` marks auth per route.
 
 ## Important Configuration
 

@@ -9,6 +9,8 @@ const jobQueue     = require('./lib/jobQueue');
 const router       = require('./routes/index');
 const notFound     = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
+const globalAuth   = require('./middleware/globalAuth');
+const { WEBHOOK_PATHS } = require('./middleware/publicRoutes');
 const { warmRegistryCache } = require('./utils/formulaRegistry/registryCache');
 
 const app = express();
@@ -26,7 +28,7 @@ app.use(cors());
 
 // Webhook endpoints need the raw request body for signature/checksum verification,
 // so skip the global JSON parser for them (their routes attach express.raw() instead).
-const WEBHOOK_PATHS = ['/api/billing/webhook', '/api/smallcase/webhook'];
+// WEBHOOK_PATHS is sourced from middleware/publicRoutes.js (single source of truth).
 app.use((req, res, next) => {
   if (WEBHOOK_PATHS.includes(req.path)) return next();
   return express.json()(req, res, next);
@@ -45,6 +47,13 @@ prisma.$connect()
 // request isn't slow — non-fatal if it fails, resolveMetric lazily loads on
 // first use either way.
 warmRegistryCache().catch((err) => console.error('[server] formulaRegistry cache warm-up failed:', err));
+
+// Global user-token gate: every route requires a valid JWT except the
+// allowlist in middleware/publicRoutes.js (auth entry points, webhooks,
+// /health, invite validation, billing pricing reads, /uploads). Runs after
+// body parsing so downstream handlers still receive req.body, and before all
+// /api/* and /admin routes. /admin keeps its own requireAdmin layer on top.
+app.use(globalAuth);
 
 app.use(router);
 app.use(notFound);
