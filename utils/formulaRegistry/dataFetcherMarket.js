@@ -52,22 +52,6 @@ function aggregateBars(rows, interval) {
   return [...buckets.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// nse_index uses Decimal columns — convert before calling aggregateBars.
-function aggregateIndexBars(rows, interval) {
-  if (!rows || rows.length === 0) return [];
-  return aggregateBars(
-    rows.map(r => ({
-      datetime: r.datetime,
-      open:     r.open   != null ? parseFloat(r.open)   : null,
-      high:     r.high   != null ? parseFloat(r.high)   : null,
-      low:      r.low    != null ? parseFloat(r.low)    : null,
-      close:    r.close  != null ? parseFloat(r.close)  : null,
-      volume:   r.volume != null ? Number(r.volume)     : 0,
-    })),
-    interval,
-  );
-}
-
 // ── nse_equity_new fetchers ───────────────────────────────────────────────────
 
 /**
@@ -525,31 +509,8 @@ async function fetchMonthlyOhlcv(prisma, symbol, { since }) {
   return rows;
 }
 
-// ── nse_index fetchers ────────────────────────────────────────────────────────
-
-/**
- * Fetch OHLCV bars for an index sector from nse_index.
- *
- * @param {import('@prisma/client').PrismaClient} prisma
- * @param {string} sector
- * @param {{ since?: Date }} [opts]
- */
-async function fetchIndexBars(prisma, sector, { since } = {}) {
-  const cutoff = since ?? new Date(Date.now() - 3 * ONE_YEAR_MS);
-  const rows = await prisma.nse_index.findMany({
-    where:   { sector, datetime: { gte: cutoff } },
-    orderBy: { datetime: 'asc' },
-  });
-  return {
-    daily:   aggregateIndexBars(rows.filter(r => new Date(r.datetime) >= new Date(Date.now() - ONE_YEAR_MS)), '1d'),
-    weekly:  aggregateIndexBars(rows.filter(r => new Date(r.datetime) >= new Date(Date.now() - 2 * ONE_YEAR_MS)), '1wk'),
-    monthly: aggregateIndexBars(rows, '1mo'),
-  };
-}
-
 module.exports = {
   aggregateBars,
-  aggregateIndexBars,
   DAILY_RESAMPLE_MODE,
   resampleToFrequency,
   resampleToPeriods,
@@ -565,5 +526,4 @@ module.exports = {
   fetchMonthlyClose,
   fetchMonthlyCloseBatch,
   fetchMonthlyOhlcv,
-  fetchIndexBars,
 };

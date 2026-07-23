@@ -7,5 +7,5 @@ module.exports = {
   ...require('./expressionEvaluator'), // parse, validate, evaluate, collectReferences, ExpressionError
   ...require('./technical'),          // TECHNICAL_REGISTRY, resolveTechnicalIndicators, resolveIndicatorSeries
   ...require('./dataFetcher'),        // resolveProwessName, fetchKpiMap, fetchKpiMaps, fetchKpiMapsMulti, fetchTimeSeries, fetchTimeSeriesBatch, fetchProwessTimeSeries
-  ...require('./dataFetcherMarket'),  // aggregateBars, aggregateIndexBars, fetchOhlcvBars, fetchMarketSnapshot, fetchMarketSnapshots, fetchPeTimeSeries, fetchMonthlyClose, fetchMonthlyOhlcv, fetchIndexBars
+  ...require('./dataFetcherMarket'),  // aggregateBars, fetchOhlcvBars, fetchMarketSnapshot, fetchMarketSnapshots, fetchPeTimeSeries, fetchMonthlyClose, fetchMonthlyOhlcv
 };

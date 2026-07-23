@@ -259,6 +259,12 @@ working without edits.
 - **`stock_type` skews `Mixed`.** Only one ticker verified so far; the pre-fix baseline
   had it `Mixed` for 1478/1478 rows. Don't build UI that assumes a good Growth/Value split
   until a wider sample confirms it.
-- **Sector index data is stale** (`nse_index` spans Jan–Feb 2026 only), so `vsSector` /
-  `vsSectorNifty` CRS values lag. Some sectors (Pharma, Infra, Energy, Realty) have no
-  NSE index at all → those legs come back `null`.
+- **Sector selection now keys off `BASIC INDUSTRY`** (via `utils/sectorIndexMap.js`), so a
+  private bank compares to NIFTY Private Bank, a chemical to NIFTY Chemicals, a cement to
+  NIFTY Cement, etc. — not the coarse macro-sector bucket. `sectorTicker` reflects the
+  resolved index.
+- **CRS `vsSector` / `vsSectorNifty` values are `null` until index history is backfilled.**
+  All index legs are now read from `nse_equity_new`, where each NIFTY index currently holds
+  only a single snapshot row (no time series yet). The correct `sectorTicker` still shows;
+  the strength value fills in once daily index history is ingested. Basic industries with no
+  dedicated NIFTY index (telecom, diversified) resolve to `null` (no sector leg).

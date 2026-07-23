@@ -3,36 +3,6 @@
 // eslint-disable-next-line no-unused-vars
 const { Buckets, Indicators, IndicatorRules } = require('./taEnums');
 
-// ─── Sector Ticker Map ────────────────────────────────────────────────────────
-// Maps MACRO ECO SECTOR values from the watchlist sheet → Yahoo Finance sector tickers
-
-const SECTOR_TICKER_MAP = {
-  'IT':                     '^CNXIT',
-  'INFORMATION TECHNOLOGY': '^CNXIT',
-  'BANKS':                  '^NSEBANK',
-  'BANKING':                '^NSEBANK',
-  'AUTO':                   '^CNXAUTO',
-  'AUTOMOBILE':             '^CNXAUTO',
-  'FMCG':                   '^CNXFMCG',
-  'PHARMA':                 '^CNXPHARMA',
-  'PHARMACEUTICAL':         '^CNXPHARMA',
-  'METAL':                  '^CNXMETAL',
-  'METALS':                 '^CNXMETAL',
-  'ENERGY':                 '^CNXENERGY',
-  'REALTY':                 '^CNXREALTY',
-  'REAL ESTATE':            '^CNXREALTY',
-  'INFRA':                  '^CNXINFRA',
-  'INFRASTRUCTURE':         '^CNXINFRA',
-  'MEDIA':                  '^CNXMEDIA',
-  'FINANCE':                '^CNXFINANCE',
-  'FINANCIAL SERVICES':     '^CNXFINANCE',
-  'PSU BANK':               '^CNXPSUBANK',
-  'CONSUMPTION':            '^CNXCONSUMPTION',
-  'MNC':                    '^CNXMNC',
-  'MIDCAP':                 '^CNXMIDCAP',
-  'SMALLCAP':               '^CNXSC',
-};
-
 // ─── Indicator Rule Lookup Tables ────────────────────────────────────────────
 // All text sourced verbatim from "Technicals Framework - Quantcase - Rule Engine.csv"
 // Watchout sentences are split into individual array items.
@@ -1040,7 +1010,6 @@ function computeRuleEngine(d, row, crsData, fallbackPhase = null) {
 
 module.exports = {
   computeRuleEngine,
-  SECTOR_TICKER_MAP,
   // Exported for testing
   WYCKOFF_INDICATOR_RULES,
   RSI_INDICATOR_RULES,
