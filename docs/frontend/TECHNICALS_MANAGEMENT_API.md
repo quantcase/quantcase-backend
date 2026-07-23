@@ -238,7 +238,7 @@ just pre-generates what these return.
 - `GET /api/screener/:symbol/technicals/status` — cheap single-symbol poll.
 
 The full response contract for these is documented in
-[`docs/FRONTEND_TECHNICALS_API.md`](./FRONTEND_TECHNICALS_API.md).
+[`docs/frontend/FRONTEND_TECHNICALS_API.md`](./FRONTEND_TECHNICALS_API.md).
 
 ---
 

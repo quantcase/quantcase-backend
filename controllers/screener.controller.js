@@ -1071,7 +1071,7 @@ async function getPrices(req, res, next) {
  * GET /api/screener/:symbol/wyckoff
  *
  * Server-side Wyckoff phase analysis — the engine the frontend used to run in the
- * browser (see docs/FRONTEND_WYCKOFF_API.md).
+ * browser (see docs/frontend/FRONTEND_WYCKOFF_API.md).
  *
  * Query: chartYears (int, default 3), includeBars (bool, default true),
  *        minPct (float, overrides the adaptive zigzag threshold).

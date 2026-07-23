@@ -5,7 +5,7 @@
  * prowessOhlcvIngester.upsertBatch(). Two source formats share one 6-row
  * header layout, just represented differently:
  *
- *   CSV  (historic bulk-dump exports, e.g. docs/ohlcv/*.csv) — comma-separated
+ *   CSV  (historic bulk-dump exports, e.g. extras/ohlcv/*.csv) — comma-separated
  *        text lines, company name in column 0.
  *   JSON (live Batch API, format=json — confirmed against a real response) —
  *        { meta, head: string[6][], data: string[][] }, company code in

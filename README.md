@@ -1,117 +1,102 @@
 # QuantCase Backend
 
-## Three-Layer Pipeline
+QuantCase is a Node.js API that turns Indian-market earnings calls, investor presentations,
+and annual reports into structured intelligence. It runs a multi-layer LLM pipeline
+(signal extraction → lens scoring → narrative insights) and serves screener, portfolio,
+journal, billing, and broker-integration APIs.
 
-Earnings calls are processed through three progressive enrichment layers:
+**Stack:** Express · BullMQ + Redis · PostgreSQL via Prisma · LLMs via OpenRouter (default)
+and Google Vertex AI / Gemini (opt-in for L1).
 
-| Layer | Table | Description | Unique Companies |
-|-------|-------|-------------|-----------------|
-| Raw | `earnings_calls` | All ingested calls | **1,991** |
-| L1 | `extracted_signals` | Structured signal extraction (metrics, KPIs, flags per call) | **1,948** |
-| L2 | `lens_scores` | Aggregated lens z-scores per ticker | **550** |
-| L3 | `ai_insights` | AI narrative insights by type (management, opportunity, deal) | **743** |
+> 📚 **Full documentation lives in [`docs/`](./docs/).** Start with the
+> [documentation index](./docs/README.md), the [architecture overview](./docs/architecture.md),
+> or the [local setup guide](./docs/setup.md).
 
-- **L1** runs on every new call to extract granular signals (signal_type, metric, value, confidence, etc.)
-- **L2** aggregates L1 signals into lens-level z-scores for cross-company comparison
-- **L3** generates narrative insights from L2 scores; types include `management`, `opportunity`, `deal`, `technicals`, `fundamentals`
+## Architecture at a glance
 
-> Coverage as of 2026-05-28
+The system runs as **four long-running processes** (all defined in
+[`ecosystem.config.js`](./ecosystem.config.js)):
 
-## PRISMA
-npx prisma db pull
-npx prisma generate
-npx prisma db push
+| Process | Entry point | Role |
+|---------|-------------|------|
+| API server | [`server.js`](./server.js) | Express HTTP API (port 8000); enqueues jobs. |
+| Worker | [`worker.js`](./worker.js) | BullMQ workers that run the LLM pipeline. |
+| Scheduler | [`scheduler.js`](./scheduler.js) | DB-driven cron dispatch (internal, port 8001). |
+| Bull Board | [`lib/admin.js`](./lib/admin.js) | Queue-monitoring dashboard (port 9000). |
 
-## REDIS SETUP
-sudo apt update
-sudo apt install redis-tools # for redis-cli
-sudo snap install redis
-sudo snap set redis service.start=true
+See [docs/architecture.md](./docs/architecture.md) for the request/enqueue/worker flow.
 
-## PM2 SETUP
+## The three-layer pipeline
 
-All 4 processes are defined in `ecosystem.config.js` (autorestart, capped restarts,
-memory limit on the API server). Use it instead of starting each process by hand.
+Documents are enriched through progressive layers, each cached on a content hash so
+unchanged inputs skip repeat LLM calls:
+
+| Layer | Output table | What it produces |
+|-------|--------------|------------------|
+| Raw | `earnings_calls` | Ingested transcripts / PPTs / annual reports. |
+| **L1** | `transcript_signals_v2` | Structured signals (metric, impact, severity, statement) per document. |
+| **L2** | `lens_scores` | Aggregated per-lens z-scores per ticker for cross-company comparison. |
+| **L3** | `ai_insights` | Narrative insights by type (`management`, `opportunity`, `deal`, …). |
+
+Live coverage is available at `GET /api/monitoring/pipeline/coverage`. Full details,
+including the HTML-skills / post-HTML branch and admin bulk dispatch, are in
+[docs/pipeline.md](./docs/pipeline.md).
+
+## Quick start
+
+Prerequisites: Node.js (via nvm), PostgreSQL, and Redis. There is no `.env.example` yet —
+see [docs/configuration.md](./docs/configuration.md) for every variable.
 
 ```bash
-# First-time setup (or after pulling changes to ecosystem.config.js)
-pm2 start ecosystem.config.js
+npm install
+npm run db:generate        # generate the Prisma client
+npm run db:push            # sync schema to PostgreSQL
+# create a .env (DATABASE_URL, DIRECT_DATABASE_URL, REDIS_*, OPENROUTER_API_KEY, …)
 
-# Make PM2 itself survive a server reboot:
-pm2 startup        # run the sudo command it prints, once per machine
-pm2 save           # snapshot the current process list so it's restored on boot
-
-# Day to day
-pm2 restart ecosystem.config.js   # restart all 4 apps, picking up code changes
-pm2 status                        # check state / restart counts
-pm2 logs quantcase-worker         # tail logs for one app (also written to logs/*.log)
+# run the processes (separate terminals, or via PM2 in production)
+npm run dev                # API server  → http://localhost:8000  (health: GET /health)
+npm run worker             # BullMQ worker
+npm run scheduler          # cron scheduler (127.0.0.1:8001)
+npm run admin              # Bull Board   → http://localhost:9000
 ```
 
-**Why processes were "staying dead":**
-- The app code had no `uncaughtException`/`unhandledRejection` handlers, so a stray
-  rejected promise anywhere could crash the process in a way that was hard to trace.
-  All 4 entry points (`server.js`, `worker.js`, `scheduler.js`, `lib/admin.js`) now log
-  these and exit(1) cleanly so PM2's restart logic actually kicks in.
-- Without `pm2 save` + `pm2 startup`, PM2's process list does not survive a server
-  reboot — a crash that coincides with (or triggers) a reboot means nothing restarts
-  the app at all. Run `pm2 startup` and `pm2 save` once so this can't happen.
-- `ecosystem.config.js` sets `max_restarts: 10` + `min_uptime: 30s` so a genuine
-  crash-loop (e.g. bad `.env` after a deploy) stops retrying instead of hammering
-  forever — check `pm2 status` if an app shows `errored`.
+The full step-by-step is in [docs/setup.md](./docs/setup.md); production deployment
+(PM2 + nginx + Certbot on GCP) is in [docs/deployment.md](./docs/deployment.md).
 
-# API Endpoints
+## Documentation map
 
-### Health Check
-```bash
-curl -X GET http://localhost:8000/health
-```
+- **Core:** [architecture](./docs/architecture.md) ·
+  [pipeline](./docs/pipeline.md) ·
+  [LLM integration](./docs/llm-integration.md) ·
+  [data model](./docs/data-model.md) ·
+  [API reference](./docs/api-reference.md)
+- **Operate:** [setup](./docs/setup.md) ·
+  [configuration](./docs/configuration.md) ·
+  [deployment](./docs/deployment.md) ·
+  [runbooks](./docs/runbooks/)
+- **Subsystems:** [auth & invites](./docs/subsystems/auth-invites-google.md) ·
+  [smallcase](./docs/subsystems/smallcase-gateway.md) ·
+  [journal](./docs/subsystems/unified-journal.md) ·
+  [billing](./docs/subsystems/billing-razorpay.md) ·
+  [Prowess](./docs/subsystems/prowess-ingestion.md) ·
+  [BSE discovery](./docs/subsystems/bse-discovery.md) ·
+  [scheduler](./docs/subsystems/scheduler.md) ·
+  [WealthOS](./docs/subsystems/wealthos.md) ·
+  [screener & KPIs](./docs/subsystems/screener-kpi-registry.md)
+- **Frontend integration:** [docs/frontend/](./docs/frontend/)
 
-### Get All Calls
-```bash
-curl -X GET http://localhost:8000/api/calls
-```
+## Repository layout
 
-### Get Stocks List
-```bash
-curl -X GET http://localhost:8000/api/transcript-stocks
-```
-
-### Get Transcripts for a stock
-```bash
-curl -X GET http://localhost:8000/api/transcript-calls?symbol=ADANIPOWER
-```
-
-
-### Get Specific Call
-```bash
-curl -X GET http://localhost:8000/api/calls/CANFINHOME_FY2026_Q3
-```
-
-### Create Summarization Job
-```bash
-curl -X POST http://localhost:8000/api/calls/CANFINHOME_FY2026_Q3/summarize
-```
-
-### Get Job Status
-```bash
-curl -X GET http://localhost:8000/api/jobs/<JOB_ID>
-```
-
-### Sample Call IDs
-```
-CALLS = ["CANFINHOME_FY2026_Q3", "TCS_FY2026_Q3"]
-```
-
-
-
-### Fetch all concalls
-node scripts/fetch-concalls.js 2>&1 | tee scripts/fetch-concalls.log | awk '
-  /Fetching/      { pending--; processed++ }
-  /Skipping.*already/ { pending-- }
-  /Saved/         { printf "\r[%d/%d done] %s", processed, total, $0; fflush() }
-  /ERROR/         { errors++; print }
-  /Done\./        { print "\nFinished. Errors: " errors }
-  BEGIN           { total=2960; processed=0; pending=2960; errors=0 }
-'
-#### How many symbols done so far
-tail -f scripts/fetch-concalls.log | grep "Saved"
+| Path | Contents |
+|------|----------|
+| `server.js`, `worker.js`, `scheduler.js` | Process entry points. |
+| `routes/`, `controllers/`, `middleware/` | HTTP layer (routers, handlers, auth/validation). |
+| `services/` | Business logic (pipeline dispatch, journal, prowess, wealthos, dashboard, …). |
+| `workers/` | BullMQ processors — the L1/L2/L3 pipeline + HTML skills + WealthOS. |
+| `lib/`, `utils/` | Cross-cutting helpers (`jobQueue`, `mailer`, `smallcaseGateway`, `workerUtils`, …). |
+| `config/` | `env`, `prisma`, `redis`, `auth`, `llm`, `vertexLlm`. |
+| `prisma/` | `schema.prisma` (~90 models) + seed scripts. |
+| `prompts/`, `outputSchemas/` | LLM prompt builders and structured-output JSON schemas. |
+| `scripts/` | Seeders, backfills, ingestion, and one-off tooling. |
+| `docs/` | Project documentation (this map). |
+| `extras/` | Non-doc artifacts: data dumps, exports, bulk OHLCV CSVs, archived scripts. |

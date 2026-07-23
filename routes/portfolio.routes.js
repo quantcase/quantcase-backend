@@ -46,6 +46,6 @@ router.patch('/holdings/:holdingId',  ctrl.updateHolding);
 router.delete('/holdings/:holdingId', ctrl.deleteHolding);
 
 // Holding notes have moved to the unified journal (POST /api/journal/journals/
-// :journalId/tickers/:ticker/entries). See docs/JOURNAL_FRONTEND_INTEGRATION.md.
+// :journalId/tickers/:ticker/entries). See docs/frontend/JOURNAL_FRONTEND_INTEGRATION.md.
 
 module.exports = router;

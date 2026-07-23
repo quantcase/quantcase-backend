@@ -1,5 +1,5 @@
 /**
- * Ingest Prowess CSVs from docs/ohlcv/ into nse_equity.
+ * Ingest Prowess CSVs from extras/ohlcv/ into nse_equity.
  *
  * Two file formats are supported (auto-detected from row 6 field names):
  *
@@ -34,7 +34,7 @@ const fs   = require('fs');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 
-const OHLCV_DIR    = path.join(__dirname, '..', 'docs', 'ohlcv');
+const OHLCV_DIR    = path.join(__dirname, '..', 'extras', 'ohlcv');
 const IDENTITY_CSV = path.join(__dirname, '..', 'lib', 'osc_identity.csv');
 const BATCH_SIZE   = 500;
 

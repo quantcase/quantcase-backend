@@ -3,7 +3,7 @@
 > ⚠️ **SUPERSEDED (2026-07-15).** This describes the *old* single-thesis-per-holding
 > journal (`portfolioType`, `/api/journal/entries`), which has been replaced by the
 > unified multi-journal flow. Do **not** implement against this document.
-> See **[JOURNAL_FRONTEND_INTEGRATION.md](./JOURNAL_FRONTEND_INTEGRATION.md)** for the
+> See **[JOURNAL_FRONTEND_INTEGRATION.md](../frontend/JOURNAL_FRONTEND_INTEGRATION.md)** for the
 > current API. Kept only for historical reference.
 
 > **Audience:** Backend team  

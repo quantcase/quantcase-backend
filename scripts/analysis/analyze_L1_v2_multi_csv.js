@@ -14,7 +14,7 @@
  * Flags:
  *   --dispatch    Actually call the API (dry-run without this flag)
  *   --force       Invalidate existing signals and reprocess
- *   --csv <path>  Path to the report CSV (default: docs/QC - Wrong Quarter Fixes - FY25-26.csv)
+ *   --csv <path>  Path to the report CSV (default: extras/data-exports/QC - Wrong Quarter Fixes - Pre-FY25.csv)
  *
  * Env:
  *   API_URL       Base URL of the API server (default: http://localhost:8000)
@@ -26,7 +26,7 @@ const path = require('path');
 const { parse } = require('csv-parse/sync');
 const prisma = require('../../config/prisma');
 
-const DEFAULT_CSV = path.join(__dirname, '../../docs/QC - Wrong Quarter Fixes - Pre-FY25.csv');
+const DEFAULT_CSV = path.join(__dirname, '../../extras/data-exports/QC - Wrong Quarter Fixes - Pre-FY25.csv');
 
 const API_URL = process.env.API_URL || 'http://localhost:8000';
 
