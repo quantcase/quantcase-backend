@@ -9,11 +9,21 @@ const listQuerySchema = z.object({
   search: z.string().optional(),
 });
 
+const FREQUENCIES = ['annual', 'quarterly', 'daily'];
+
 const screenConfigFieldsSchema = z.object({
   label:          z.string().min(1),
   endpoint:       z.string().nullable().optional(),
   periods_shown:  z.coerce.number().int().positive().nullable().optional(),
   decimal_places: z.coerce.number().int().min(0).optional(),
+  // Which cadence every Kpi in this section resolves at — required for any
+  // config with a single section-wide frequency (kpi_group_slug-driven
+  // tables, and chart configs consumed by prowess.controller.js's
+  // _buildChartGroup). Left null/omitted for a config like "peers.columns"
+  // whose items each have their own fixed frequency elsewhere in code
+  // (services/tickerMetrics.service.js's PEER_COLUMN_MAP) — there's no
+  // single section-wide value to set there.
+  frequency:      z.enum(FREQUENCIES).nullable().optional(),
   // Which KpiGroup branch populates this section's rows (e.g.
   // "pnl-statement--annual") -- null/omitted for chart/peer configs, which
   // still use `items` below.

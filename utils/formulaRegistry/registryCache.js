@@ -13,6 +13,7 @@
 
 const prisma = require('../../config/prisma');
 const { parse, ExpressionError } = require('./expressionEvaluator');
+const { DAILY_SERIES_FIELDS } = require('./dataFetcherMarket');
 
 const TTL_MS = 60_000;
 
@@ -86,7 +87,7 @@ async function getDefinition(abbr) {
   return _cache.get(abbr) ?? null;
 }
 
-/** All raw-leaf abbrs sourced from prowess_values_new (frequency null/annual/quarterly). */
+/** Every registry-enabled abbr NOT backed by nse_equity_new (i.e. everything prowess_values_new might have a row for). */
 // Every abbr the resolver might need to check for a *stored* value in
 // prowess_values_new — not just declared-raw abbrs. Prowess itself directly
 // reports some ratios Kpi otherwise treats as formula-derived (e.g. ROCE, DE,
@@ -94,17 +95,27 @@ async function getDefinition(abbr) {
 // stored value for this abbr" before falling back to computing it, for every
 // abbr, matching the pre-migration REGISTRY's generic `kpiMap[entry.id] !=
 // null` stored-value-wins check. One bulk query covers both cases.
+//
+// Daily-native membership (DAILY_SERIES_FIELDS) is a data-topology fact —
+// which abbrs live in nse_equity_new — independent of Kpi.frequency, which
+// is unused dead metadata now (see financial.js's top docblock).
 async function getProwessRawAbbrs() {
   await _ensureLoaded();
   return [..._cache.values()]
-    .filter(e => e.frequency !== 'daily')
+    .filter(e => !DAILY_SERIES_FIELDS[e.abbr])
     .map(e => e.abbr);
 }
 
-/** All raw-leaf abbrs sourced from nse_equity_new (frequency === 'daily'). */
+/**
+ * All raw-leaf abbrs sourced from nse_equity_new. Gated on isRaw as well as
+ * DAILY_SERIES_FIELDS membership — an admin can give a daily-native abbr
+ * (e.g. PE_DAILY) its own formula_expression, at which point the raw
+ * nse_equity_new column must stop being treated as "the stored value" for
+ * it, or the formula could never take effect.
+ */
 async function getDailyRawAbbrs() {
   await _ensureLoaded();
-  return [..._cache.values()].filter(e => e.isRaw && e.frequency === 'daily').map(e => e.abbr);
+  return [..._cache.values()].filter(e => e.isRaw && DAILY_SERIES_FIELDS[e.abbr]).map(e => e.abbr);
 }
 
 /** Synchronous snapshot for callers that just want to list/dump the catalogue (may be empty/stale until first ensureLoaded() completes). */

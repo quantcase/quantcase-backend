@@ -271,7 +271,12 @@ async function fetchPeTimeSeries(prisma, symbol, { months, since } = {}) {
 // collision class as EV (Electric Vehicle, transcript) vs. ENTERPRISE_VALUE
 // -- a genuine collision, not safe to reuse, hence the _DAILY suffix
 // (mirrors PE_DAILY's own naming for the same reason).
-const DAILY_SERIES_FIELDS = { PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'market_cap_cr', VOLUME_DAILY: 'volume' };
+// EPS_DAILY: nse_equity_new.eps — Prowess's own per-day reported EPS. Added
+// so PE_DAILY (PRICE/EPS_DAILY) divides by a genuinely daily-native figure
+// instead of EPS_DILUTED (an annual/quarterly-only Prowess field) — that
+// mismatch used to silently resolve against the wrong Prowess batch (see
+// resolutionContext.js#getProwessSeriesMap).
+const DAILY_SERIES_FIELDS = { PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'market_cap_cr', VOLUME_DAILY: 'volume', EPS_DAILY: 'eps' };
 
 // How to collapse this daily abbr's native series into a coarser bucket
 // (calendar quarter/year) when something asks for it at 'quarterly' or
@@ -284,7 +289,7 @@ const DAILY_SERIES_FIELDS = { PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'ma
 // genuine per-day flow rather than a snapshot, so a coarser request means
 // "average daily volume over the bucket", not "one day's volume standing in
 // for the whole quarter/year".
-const DAILY_RESAMPLE_MODE = { PRICE: 'latest', PE_DAILY: 'latest', MCAP_SNAPSHOT: 'latest', VOLUME_DAILY: 'average' };
+const DAILY_RESAMPLE_MODE = { PRICE: 'latest', PE_DAILY: 'latest', MCAP_SNAPSHOT: 'latest', VOLUME_DAILY: 'average', EPS_DAILY: 'latest' };
 
 /**
  * Buckets an ascending {value, date}[] series into calendar quarters or
@@ -394,13 +399,13 @@ async function fetchDailySeries(prisma, symbol, abbr) {
  *
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string} symbol
- * @returns {Promise<{ PRICE: Array<{value,date}>, PE_DAILY: Array<{value,date}>, MCAP_SNAPSHOT: Array<{value,date}>, VOLUME_DAILY: Array<{value,date}> }>}
+ * @returns {Promise<{ PRICE: Array<{value,date}>, PE_DAILY: Array<{value,date}>, MCAP_SNAPSHOT: Array<{value,date}>, VOLUME_DAILY: Array<{value,date}>, EPS_DAILY: Array<{value,date}> }>}
  */
 async function fetchAllDailySeries(prisma, symbol) {
   const rows = await prisma.nse_equity_new.findMany({
     where:   { symbol },
     orderBy: { datetime: 'asc' },
-    select:  { datetime: true, close: true, pe: true, market_cap_cr: true, volume: true },
+    select:  { datetime: true, close: true, pe: true, market_cap_cr: true, volume: true, eps: true },
   });
 
   const toPoints = (field) => rows.map(r => ({
@@ -413,6 +418,7 @@ async function fetchAllDailySeries(prisma, symbol) {
     PE_DAILY:      toPoints('pe'),
     MCAP_SNAPSHOT: toPoints('market_cap_cr'),
     VOLUME_DAILY:  toPoints('volume'),
+    EPS_DAILY:     toPoints('eps'),
   };
 }
 

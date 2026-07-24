@@ -134,6 +134,12 @@ async function recomputeGroup(slug, { batchSize = 100 } = {}) {
         let ok = true;
         for (const att of attachments) {
           const f = att.kpi_filter;
+          // admin.kpiFilters.routes.js requires frequency on every newly
+          // created filter — a null here can only be a pre-existing filter
+          // from before that was enforced. resolveMetric has no fallback
+          // frequency to guess (see financial.js's top docblock), so it
+          // cleanly resolves to null rather than guessing a cadence, which
+          // just makes that filter never match instead of crashing.
           const opts = f.frequency ? { frequency: f.frequency } : {};
           const { value } = await resolveMetric(f.kpi_abbr, ctx, opts);
           if (!_passesFilter(value, f)) { ok = false; break; }

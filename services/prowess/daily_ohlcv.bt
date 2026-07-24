@@ -1,0 +1,2 @@
+QueryOnStockPricesAndRatios -ficexprlist{Date|BSE|||Date@Opening Price|BSE|||UC@High Price|BSE|||UC@Low Price|BSE|||UC@Closing Price|BSE|||UC@Market Capitalisation|BSE|||C@EPS|BSE|||UC@Adjusted EPS|BSE|||UC@P/E|BSE|||Times@Shares traded|BSE|||Nos.@Number of Transactions|BSE|||Nos.} -annualise{0} -currency{RSCRORE} -l{o} -ol{x} -source{NONE} -ot{COMPANY} -refyear{L} -outyear{AP} -reffreq{Daily} -outfreq{Daily} -refprox{Exact_Date} -outprox{Exact_Date} -repeatcompinaws{1} -trig{t41}
+

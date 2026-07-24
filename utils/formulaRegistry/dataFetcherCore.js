@@ -493,6 +493,47 @@ async function fetchQuarterlyBatchMulti(prisma, companyNames, abbrs) {
   return result;
 }
 
+/**
+ * Which source_type ('C' preferred, 'S' fallback for annual; always 'S' for
+ * quarterly) fetchAnnualBatch/fetchQuarterlyBatch actually used for `ticker`
+ * at `frequency` — a cheap existence check mirroring (not replacing) those
+ * fetchers' own internal C-preferred/S-fallback logic. Admin-preview display
+ * only, never used in computation — see admin.kpis.service.js#previewKpi.
+ *
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} ticker
+ * @param {'annual'|'quarterly'} frequency
+ * @returns {Promise<'C'|'S'|null>} null when the company has no prowess_values_new rows at all for that cadence
+ */
+async function resolveSourceType(prisma, ticker, frequency) {
+  const prowessName = await resolveProwessName(prisma, ticker);
+  if (!prowessName) return null;
+
+  const callIdPrefix = frequency === 'quarterly' ? 'prowess_qtr_' : 'prowess_new_';
+
+  if (frequency === 'quarterly') {
+    // fetchQuarterlyBatch only ever queries source_type='S' — Prowess has no
+    // consolidated quarterly filings — so existence is the only question.
+    const row = await prisma.prowessValueNew.findFirst({
+      where:  { company: prowessName, source_type: 'S', callId: { startsWith: callIdPrefix } },
+      select: { callId: true },
+    });
+    return row ? 'S' : null;
+  }
+
+  const rowC = await prisma.prowessValueNew.findFirst({
+    where:  { company: prowessName, source_type: 'C', callId: { startsWith: callIdPrefix } },
+    select: { callId: true },
+  });
+  if (rowC) return 'C';
+
+  const rowS = await prisma.prowessValueNew.findFirst({
+    where:  { company: prowessName, source_type: 'S', callId: { startsWith: callIdPrefix } },
+    select: { callId: true },
+  });
+  return rowS ? 'S' : null;
+}
+
 module.exports = {
   resolveProwessName,
   warmProwessNameCache,
@@ -503,4 +544,5 @@ module.exports = {
   fetchAnnualBatchMulti,
   fetchQuarterlyBatchMulti,
   fetchProwessTimeSeries,
+  resolveSourceType,
 };

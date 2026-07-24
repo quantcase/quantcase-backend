@@ -27,6 +27,19 @@ async function sendBatch(req, res, next) {
   }
 }
 
+// POST /admin/prowess/batch/daily/run — submits the fixed daily_ohlcv.bt template checked into
+// the repo (services/prowess/daily_ohlcv.bt) — no file upload needed. Resolves/ingests exactly
+// like any other 'daily' batch once polled (see orchestrator#pollAndResolve).
+async function runDaily(req, res, next) {
+  try {
+    const { row, rawSendResponse } = await orchestrator.triggerDailyBatch();
+    res.json({ success: true, data: { token: row.token, status: row.status, sendResponse: rawSendResponse } });
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ success: false, error: err.message });
+    next(err);
+  }
+}
+
 // POST /admin/prowess/batch/:token/check — on-demand GetBatch poll (same logic the scheduler uses)
 async function checkBatch(req, res, next) {
   try {
@@ -75,4 +88,4 @@ async function abortAll(req, res, next) {
   }
 }
 
-module.exports = { sendBatch, checkBatch, getBatchStatus, listBatches, abortAll };
+module.exports = { sendBatch, runDaily, checkBatch, getBatchStatus, listBatches, abortAll };

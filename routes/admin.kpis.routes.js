@@ -22,8 +22,8 @@ const listQuerySchema = z.object({
 });
 
 // Fields shared by create/update — computation (formula_expression,
-// frequency, fallback_abbrs) and display (unit_label, description) are what
-// the formulaRegistry migration added; the rest predate it (raw
+// fallback_abbrs) and display (unit_label, description) are what the
+// formulaRegistry migration added; the rest predate it (raw
 // Prowess-ingestion onboarding).
 //
 // Deliberately NOT exposed here (both flagged as confusing, cleaned up
@@ -34,7 +34,12 @@ const listQuerySchema = z.object({
 // the Prowess/transcript-ingestion pipelines (services/db/kpis.db.js,
 // prowess_mappers/ProwessUploader.js), not something an admin types when
 // defining a formula; showing it here implied it scoped the formula, which
-// it never did.
+// it never did. `frequency` — removed 2026-07-24: it used to silently pin a
+// formula's resolution cadence, overriding whatever the caller asked for
+// (produced real wrong numbers — see financial.js's top docblock). Frequency
+// is now always an explicit, required caller input (ScreenConfig.frequency
+// for the live screener, `?frequency=` here) — there's nothing left for a
+// Kpi-level field to do.
 const kpiFieldsSchema = z.object({
   full_form:          z.string().min(1),
   denomination:        z.enum(DENOMINATIONS).nullable().optional(),
@@ -44,7 +49,6 @@ const kpiFieldsSchema = z.object({
   // utils/formulaRegistry/expressionEvaluator.js. Validated (parsed, refs
   // checked, cycle-checked) server-side before it's ever saved.
   formula_expression:  z.string().nullable().optional(),
-  frequency:           z.enum(FREQUENCIES).nullable().optional(),
   fallback_abbrs:      z.array(z.string()).optional(),
   unit_label:          z.string().nullable().optional(),
   description:         z.string().nullable().optional(),
@@ -59,7 +63,10 @@ const updateKpiSchema = kpiFieldsSchema.partial();
 // GET /admin/kpis/:abbr/preview?symbol=&frequency=&resample_mode= — query params
 const previewQuerySchema = z.object({
   symbol:    z.string().min(1),
-  frequency: z.enum(FREQUENCIES).optional(),
+  // Required — the resolver no longer has any per-Kpi default/pin to fall
+  // back on (see financial.js's top docblock), so admin must always say
+  // which cadence to preview at.
+  frequency: z.enum(FREQUENCIES),
   // Debug-only override for daily-native abbrs (PRICE/PE_DAILY/MCAP_SNAPSHOT)
   // resolved at a coarser frequency -- lets admin compare 'average' vs
   // 'latest' without persisting anything. Every abbr has a fixed default
