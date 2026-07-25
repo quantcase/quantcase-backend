@@ -819,6 +819,14 @@ model nse_equity_new {
   close         Float?
   volume        Int?
   pe            Float?
+  // Two new Prowess-computed PE variants (2026-07-25), from a custom
+  // QueryOnStockPricesAndRatios expression: close / ((PAT * 1e7) / shares) —
+  // consolidated-financials-based and standalone-financials-based
+  // respectively. Deliberately separate from `pe` (Prowess's own plain P/E
+  // column, left untouched) -- admin wants these as additional columns, not
+  // a replacement.
+  pe_consolidated Float?
+  pe_standalone   Float?
   eps           Float?
   market_cap_cr Float?
   // Daily return as Prowess reports it, already in percentage points

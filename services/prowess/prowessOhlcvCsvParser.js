@@ -43,6 +43,19 @@ function parseDate(s) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// Prowess field labels that mean "there's PE-like data in this row/query" —
+// checked wherever the plain 'P/E' label used to be the only signal. Added
+// 2026-07-25 for a custom QueryOnStockPricesAndRatios expression producing
+// "Consolidated PE"/"Calculated PE Ratio" instead of the plain 'P/E' column
+// (see nse_equity_new.pe_consolidated/pe_standalone) — a query requesting
+// ONLY one of these (no 'P/E', no 'Opening Price') used to be misclassified
+// as an 'ohlcv'-type result (isValuation only checked for 'P/E'), which then
+// silently dropped every row (open/high/low/close all NaN -> skipped).
+const PE_LIKE_FIELDS = ['P/E', 'Consolidated PE', 'Calculated PE Ratio'];
+function hasAnyPeField(fields) {
+  return PE_LIKE_FIELDS.some((f) => fields.has(f));
+}
+
 const NSE_TICKER_RE = /^[A-Z0-9&-]{2,15}$/;
 
 function extractNseSymbol(cols, symIdx) {
@@ -86,7 +99,7 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
   const fieldRow = headerRows[5];
 
   const fields = new Set(fieldRow);
-  const isValuation = !fields.has('Opening Price') && fields.has('P/E');
+  const isValuation = !fields.has('Opening Price') && hasAnyPeField(fields);
 
   const dayMap = {};
   for (let col = 1; col < fieldRow.length; col++) {
@@ -104,13 +117,16 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
     // whichever column lands later in a day's block silently overwriting the
     // other in `vol` (this table's `volume` has always meant shares traded).
     else if (field === 'Shares traded')          dayMap[dateStr].vol       = col;
+    else if (field === 'Traded Quantity')        dayMap[dateStr].vol       = col;
     else if (field === 'P/E')                    dayMap[dateStr].pe        = col;
+    else if (field === 'Consolidated PE')        dayMap[dateStr].peConsolidated = col;
+    else if (field === 'Calculated PE Ratio')    dayMap[dateStr].peStandalone   = col;
     else if (field === 'Market Capitalisation')  dayMap[dateStr].marketCap = col;
     else if (field === 'Enterprise value')       dayMap[dateStr].marketCap = col;
   }
 
   const validDays = isValuation
-    ? Object.entries(dayMap).filter(([, idx]) => idx.pe != null || idx.marketCap != null)
+    ? Object.entries(dayMap).filter(([, idx]) => idx.pe != null || idx.marketCap != null || idx.peConsolidated != null || idx.peStandalone != null)
     : Object.entries(dayMap).filter(([, idx]) => idx.open != null && idx.high != null && idx.low != null && idx.close != null);
 
   const records = [];
@@ -127,16 +143,21 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
       const dt = parseDate(dateStr);
       if (!dt) continue;
 
-      const pe        = idx.pe        != null ? parseFloat(cols[idx.pe])        : null;
-      const marketCap = idx.marketCap != null ? parseFloat(cols[idx.marketCap]) : null;
-      const eps       = idx.eps       != null ? parseFloat(cols[idx.eps])       : null;
+      const pe             = idx.pe             != null ? parseFloat(cols[idx.pe])             : null;
+      const marketCap       = idx.marketCap       != null ? parseFloat(cols[idx.marketCap])       : null;
+      const eps             = idx.eps             != null ? parseFloat(cols[idx.eps])             : null;
+      const peConsolidated  = idx.peConsolidated  != null ? parseFloat(cols[idx.peConsolidated])  : null;
+      const peStandalone    = idx.peStandalone    != null ? parseFloat(cols[idx.peStandalone])    : null;
 
       if (isValuation) {
-        if ((pe == null || isNaN(pe)) && (marketCap == null || isNaN(marketCap))) continue;
+        if ((pe == null || isNaN(pe)) && (marketCap == null || isNaN(marketCap))
+          && (peConsolidated == null || isNaN(peConsolidated)) && (peStandalone == null || isNaN(peStandalone))) continue;
         records.push({
           symbol, company_name: companyName, datetime: dt,
-          pe:            !isNaN(pe)        ? pe        : null,
-          market_cap_cr: !isNaN(marketCap) ? marketCap : null,
+          pe:              !isNaN(pe)             ? pe             : null,
+          market_cap_cr:   !isNaN(marketCap)      ? marketCap      : null,
+          pe_consolidated: !isNaN(peConsolidated) ? peConsolidated : null,
+          pe_standalone:   !isNaN(peStandalone)   ? peStandalone   : null,
         });
       } else {
         const open  = parseFloat(cols[idx.open]);
@@ -147,10 +168,12 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
         if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) continue;
         records.push({
           symbol, company_name: companyName, datetime: dt, open, high, low, close,
-          volume:        vol != null && !isNaN(vol) ? vol : null,
-          pe:            !isNaN(pe)        ? pe        : null,
-          eps:           !isNaN(eps)       ? eps       : null,
-          market_cap_cr: !isNaN(marketCap) ? marketCap : null,
+          volume:          vol != null && !isNaN(vol) ? vol : null,
+          pe:              !isNaN(pe)             ? pe             : null,
+          eps:             !isNaN(eps)            ? eps            : null,
+          market_cap_cr:   !isNaN(marketCap)      ? marketCap      : null,
+          pe_consolidated: !isNaN(peConsolidated) ? peConsolidated : null,
+          pe_standalone:   !isNaN(peStandalone)   ? peStandalone   : null,
         });
       }
     }
@@ -200,13 +223,16 @@ function parseOhlcvFlatRows(head, data, nameToSymbol) {
     else if (field === 'Closing Price')          idx.close     = col;
     else if (field === 'EPS')                    idx.eps       = col;
     else if (field === 'Shares traded')          idx.vol       = col;
+    else if (field === 'Traded Quantity')        idx.vol       = col;
     else if (field === 'P/E')                    idx.pe        = col;
+    else if (field === 'Consolidated PE')        idx.peConsolidated = col;
+    else if (field === 'Calculated PE Ratio')    idx.peStandalone   = col;
     else if (field === 'Market Capitalisation')  idx.marketCap = col;
     else if (field === 'Enterprise value')       idx.marketCap = col;
   }
 
   const fields = new Set(fieldRow);
-  const isValuation = !fields.has('Opening Price') && fields.has('P/E');
+  const isValuation = !fields.has('Opening Price') && hasAnyPeField(fields);
 
   const records = [];
   let skippedName = 0;
@@ -222,16 +248,21 @@ function parseOhlcvFlatRows(head, data, nameToSymbol) {
     const dt = parseFlatDate(cols[idx.date]);
     if (!dt) continue;
 
-    const pe        = idx.pe        != null ? parseFloat(cols[idx.pe])        : null;
-    const marketCap = idx.marketCap != null ? parseFloat(cols[idx.marketCap]) : null;
-    const eps       = idx.eps       != null ? parseFloat(cols[idx.eps])       : null;
+    const pe             = idx.pe             != null ? parseFloat(cols[idx.pe])             : null;
+    const marketCap       = idx.marketCap       != null ? parseFloat(cols[idx.marketCap])       : null;
+    const eps             = idx.eps             != null ? parseFloat(cols[idx.eps])             : null;
+    const peConsolidated  = idx.peConsolidated  != null ? parseFloat(cols[idx.peConsolidated])  : null;
+    const peStandalone    = idx.peStandalone    != null ? parseFloat(cols[idx.peStandalone])    : null;
 
     if (isValuation) {
-      if ((pe == null || isNaN(pe)) && (marketCap == null || isNaN(marketCap))) continue;
+      if ((pe == null || isNaN(pe)) && (marketCap == null || isNaN(marketCap))
+        && (peConsolidated == null || isNaN(peConsolidated)) && (peStandalone == null || isNaN(peStandalone))) continue;
       records.push({
         symbol, company_name: companyName, datetime: dt,
-        pe:            !isNaN(pe)        ? pe        : null,
-        market_cap_cr: !isNaN(marketCap) ? marketCap : null,
+        pe:              !isNaN(pe)             ? pe             : null,
+        market_cap_cr:   !isNaN(marketCap)      ? marketCap      : null,
+        pe_consolidated: !isNaN(peConsolidated) ? peConsolidated : null,
+        pe_standalone:   !isNaN(peStandalone)   ? peStandalone   : null,
       });
     } else {
       const open  = idx.open  != null ? parseFloat(cols[idx.open])  : NaN;
@@ -242,10 +273,12 @@ function parseOhlcvFlatRows(head, data, nameToSymbol) {
       if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) continue;
       records.push({
         symbol, company_name: companyName, datetime: dt, open, high, low, close,
-        volume:        vol != null && !isNaN(vol) ? vol : null,
-        pe:            !isNaN(pe)        ? pe        : null,
-        eps:           !isNaN(eps)       ? eps       : null,
-        market_cap_cr: !isNaN(marketCap) ? marketCap : null,
+        volume:          vol != null && !isNaN(vol) ? vol : null,
+        pe:              !isNaN(pe)             ? pe             : null,
+        eps:             !isNaN(eps)            ? eps            : null,
+        market_cap_cr:   !isNaN(marketCap)      ? marketCap      : null,
+        pe_consolidated: !isNaN(peConsolidated) ? peConsolidated : null,
+        pe_standalone:   !isNaN(peStandalone)   ? peStandalone   : null,
       });
     }
   }
