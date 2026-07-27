@@ -9,10 +9,9 @@ const {
   applySignalLimits,
   buildDataBlock,
   stripMarkdownFences,
-  fetchNsePeTimeseries,
-  fetchNseCmpTimeseries,
   buildMarketDataBlock,
 } = require('./htmlSkill.service');
+const { createResolutionContext, resolveFormulaSeries } = require('../utils/formulaRegistry');
 
 // ── Meta resolution ───────────────────────────────────────────────────────────
 
@@ -203,6 +202,44 @@ function formatBaseContextBlock(outputs, strip_html) {
 
 // ── Shared prompt assembly ────────────────────────────────────────────────────
 
+/**
+ * Trailing daily {latest, series} timeseries for a daily-native Kpi abbr
+ * ('PRICE' for CMP, 'PE_DAILY' for PE), same shape htmlSkill.service.js's old
+ * ad-hoc fetchNsePeTimeseries/fetchNseCmpTimeseries returned (so
+ * buildMarketDataBlock needs no changes) — but resolved through the formula
+ * registry instead of a raw nse_equity_new.pe/close query. This is what makes
+ * PE automatically pick up PE_DAILY's own COALESCE(PE_CONSOLIDATED,
+ * PE_STANDALONE) fallback (and any future registry fix) instead of being
+ * stuck on the plain, less-authoritative `pe` column forever.
+ *
+ * resolveFormulaSeries walks the abbr's OWN definition (raw leaf or formula)
+ * at every historical daily index — correct for PE_DAILY specifically, since
+ * it's formula-derived, not a raw column itself. `dates` comes from the same
+ * memoized daily seriesMap resolveFormulaSeries reads internally (same
+ * resCtx instance -> same cached bulk fetch, no duplicate query), so the two
+ * arrays are guaranteed index-aligned.
+ */
+async function fetchRegistryTimeseries(abbr, ticker, months) {
+  const resCtx = createResolutionContext({ symbol: ticker, frequency: 'daily' });
+  const [values, seriesMap] = await Promise.all([
+    resolveFormulaSeries(abbr, resCtx, { frequency: 'daily' }),
+    resCtx.getSeriesMap('daily'),
+  ]);
+  const anyAbbr = Object.keys(seriesMap)[0];
+  const dates = anyAbbr ? seriesMap[anyAbbr].map((p) => p.date) : [];
+
+  const cutoff = new Date();
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const series = dates
+    .map((date, i) => ({ date, value: values[i] ?? null }))
+    .filter((p) => p.date >= cutoffStr);
+
+  if (!series.length) return null;
+  return { latest: series.at(-1), series };
+}
+
 async function assemblePrompt(skill, ticker, baseContextBlock, historic = false, targetFiscalYear = null, targetQuarter = null, baseOutputs = []) {
   const rawSignals = await querySignalsV2({ ticker });
   const signalTypeLimits = {
@@ -249,8 +286,8 @@ async function assemblePrompt(skill, ticker, baseContextBlock, historic = false,
   const mdTypes  = new Set(skill.market_data_signal_types ?? []);
   const mdMonths = historic ? (skill.historic_max_market_data_months ?? skill.max_market_data_months) : skill.max_market_data_months;
   const [peData, cmpData] = await Promise.all([
-    (mdTypes.has('pe')  && mdMonths != null) ? fetchNsePeTimeseries(ticker,  mdMonths) : null,
-    (mdTypes.has('cmp') && mdMonths != null) ? fetchNseCmpTimeseries(ticker, mdMonths) : null,
+    (mdTypes.has('pe')  && mdMonths != null) ? fetchRegistryTimeseries('PE_DAILY', ticker, mdMonths) : null,
+    (mdTypes.has('cmp') && mdMonths != null) ? fetchRegistryTimeseries('PRICE',    ticker, mdMonths) : null,
   ]);
   const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
