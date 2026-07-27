@@ -56,14 +56,42 @@ function hasAnyPeField(fields) {
   return PE_LIKE_FIELDS.some((f) => fields.has(f));
 }
 
-const NSE_TICKER_RE = /^[A-Z0-9&-]{2,15}$/;
-
-function extractNseSymbol(cols, symIdx) {
-  for (let offset = 0; offset <= 4; offset++) {
-    const val = (cols[symIdx + offset] || '').trim().toUpperCase();
-    if (NSE_TICKER_RE.test(val)) return val;
+// Quote-aware split, used only for osc_identity.csv (buildNameToSymbolMap
+// below) — that file's free-text fields (Business Description, addresses,
+// etc.) contain literal commas inside quoted values, which the naive
+// splitCsvLine() above breaks on (it doesn't respect quotes at all). That
+// misalignment shifts every later column by however many embedded commas
+// came before it in that specific row — confirmed to silently map "Godrej
+// Industries Ltd." -> "DIVERSIFIED" and "Godrej Properties Ltd." ->
+// "RESIDENTIAL" (an industry-label column landing on the NSE-symbol
+// position by coincidence) instead of their real tickers, corrupting
+// nse_equity_new for those symbols on every batch ingest. Completely
+// separate from the day-block price CSV/JSON parsing below (parseOhlcvCsv/
+// parseOhlcvRows), which never contains embedded commas — untouched here.
+function splitCsvLineQuoted(line) {
+  const out = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        cur += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      out.push(cur.trim());
+      cur = '';
+    } else {
+      cur += c;
+    }
   }
-  return null;
+  out.push(cur.trim());
+  return out;
 }
 
 function buildNameToSymbolMap(identityCsvPath) {
@@ -72,17 +100,17 @@ function buildNameToSymbolMap(identityCsvPath) {
     .split('\n')
     .filter(Boolean);
 
-  const header  = splitCsvLine(lines[0]);
+  const header  = splitCsvLineQuoted(lines[0]);
   const nameIdx = header.indexOf('Company Name');
   const symIdx  = header.indexOf('NSE symbol');
   if (nameIdx === -1 || symIdx === -1) throw new Error('osc_identity.csv missing expected columns');
 
   const map = {};
   for (let i = 1; i < lines.length; i++) {
-    const cols = splitCsvLine(lines[i]);
+    const cols = splitCsvLineQuoted(lines[i]);
     const name = cols[nameIdx];
-    const sym  = extractNseSymbol(cols, symIdx);
-    if (name && sym) map[name] = sym;
+    const sym  = cols[symIdx];
+    if (name && sym) map[name] = sym.toUpperCase();
   }
   return map;
 }
