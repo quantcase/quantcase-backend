@@ -164,15 +164,17 @@ async function fetchMarketSnapshot(prisma, symbol) {
   const row = await prisma.nse_equity_new.findFirst({
     where:   { symbol, close: { not: null } },
     orderBy: { datetime: 'desc' },
-    select:  { close: true, pe: true, eps: true, market_cap_cr: true, volume: true, datetime: true },
+    select:  { close: true, pe: true, eps: true, market_cap_cr: true, volume: true, datetime: true, pe_consolidated: true, pe_standalone: true },
   });
   if (!row) return null;
   return {
-    close:         row.close         != null ? parseFloat(row.close)         : null,
-    pe:            row.pe            != null ? parseFloat(row.pe)            : null,
-    eps:           row.eps           != null ? parseFloat(row.eps)           : null,
-    market_cap_cr: row.market_cap_cr != null ? parseFloat(row.market_cap_cr) : null,
-    volume:        row.volume        != null ? Number(row.volume)            : null,
+    close:           row.close           != null ? parseFloat(row.close)           : null,
+    pe:              row.pe              != null ? parseFloat(row.pe)              : null,
+    eps:             row.eps             != null ? parseFloat(row.eps)             : null,
+    market_cap_cr:   row.market_cap_cr   != null ? parseFloat(row.market_cap_cr)   : null,
+    volume:          row.volume          != null ? Number(row.volume)              : null,
+    pe_consolidated: row.pe_consolidated != null ? parseFloat(row.pe_consolidated) : null,
+    pe_standalone:   row.pe_standalone   != null ? parseFloat(row.pe_standalone)   : null,
     datetime:      row.datetime instanceof Date ? row.datetime.toISOString().slice(0, 10) : null,
   };
 }
@@ -187,9 +189,10 @@ async function fetchMarketSnapshot(prisma, symbol) {
 async function fetchMarketSnapshots(prisma, symbols) {
   if (!symbols.length) return {};
   const rows = await prisma.$queryRaw`
-    SELECT symbol, close::float, pe::float, eps::float, market_cap_cr::float, volume, datetime
+    SELECT symbol, close::float, pe::float, eps::float, market_cap_cr::float, volume, datetime,
+           pe_consolidated::float, pe_standalone::float
     FROM (
-      SELECT symbol, close, pe, eps, market_cap_cr, volume, datetime,
+      SELECT symbol, close, pe, eps, market_cap_cr, volume, datetime, pe_consolidated, pe_standalone,
              ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY datetime DESC) AS rn
       FROM nse_equity_new
       WHERE symbol = ANY(${symbols}) AND close IS NOT NULL
@@ -201,14 +204,16 @@ async function fetchMarketSnapshots(prisma, symbols) {
   const map = {};
   for (const row of rows) {
     const sym = row.symbol.toUpperCase();
-    if (!map[sym]) map[sym] = { close: null, prevClose: null, pe: null, eps: null, market_cap_cr: null, volume: null };
+    if (!map[sym]) map[sym] = { close: null, prevClose: null, pe: null, eps: null, market_cap_cr: null, volume: null, pe_consolidated: null, pe_standalone: null };
     const snap = map[sym];
     if (snap.close === null) {
-      snap.close         = row.close         != null ? parseFloat(row.close)         : null;
-      snap.pe            = row.pe            != null ? parseFloat(row.pe)            : null;
-      snap.eps           = row.eps           != null ? parseFloat(row.eps)           : null;
-      snap.market_cap_cr = row.market_cap_cr != null ? parseFloat(row.market_cap_cr) : null;
-      snap.volume        = row.volume        != null ? Number(row.volume)            : null;
+      snap.close           = row.close           != null ? parseFloat(row.close)           : null;
+      snap.pe              = row.pe              != null ? parseFloat(row.pe)              : null;
+      snap.eps             = row.eps             != null ? parseFloat(row.eps)             : null;
+      snap.market_cap_cr   = row.market_cap_cr   != null ? parseFloat(row.market_cap_cr)   : null;
+      snap.volume          = row.volume          != null ? Number(row.volume)              : null;
+      snap.pe_consolidated = row.pe_consolidated != null ? parseFloat(row.pe_consolidated) : null;
+      snap.pe_standalone   = row.pe_standalone   != null ? parseFloat(row.pe_standalone)   : null;
     } else {
       snap.prevClose = row.close != null ? parseFloat(row.close) : null;
     }
@@ -255,7 +260,24 @@ async function fetchPeTimeSeries(prisma, symbol, { months, since } = {}) {
 // collision class as EV (Electric Vehicle, transcript) vs. ENTERPRISE_VALUE
 // -- a genuine collision, not safe to reuse, hence the _DAILY suffix
 // (mirrors PE_DAILY's own naming for the same reason).
-const DAILY_SERIES_FIELDS = { PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'market_cap_cr', VOLUME_DAILY: 'volume' };
+// EPS_DAILY: nse_equity_new.eps — Prowess's own per-day reported EPS. Added
+// so PE_DAILY (PRICE/EPS_DAILY) divides by a genuinely daily-native figure
+// instead of EPS_DILUTED (an annual/quarterly-only Prowess field) — that
+// mismatch used to silently resolve against the wrong Prowess batch (see
+// resolutionContext.js#getProwessSeriesMap).
+//
+// PE_CONSOLIDATED/PE_STANDALONE: nse_equity_new.pe_consolidated/pe_standalone
+// (2026-07-25) — two Prowess-computed PE ratios (close / (PAT-based EPS),
+// consolidated- vs standalone-financials-based respectively) from a custom
+// batch query, replacing PE_DAILY's own PRICE/EPS_DAILY division with
+// Prowess's own more authoritative ratios (see financial.js's PE_DAILY
+// formula, which now COALESCEs between these two). `pe` (Prowess's plain P/E
+// column) is left untouched/unused by this — admin wanted these as
+// additional columns, not a replacement.
+const DAILY_SERIES_FIELDS = {
+  PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'market_cap_cr', VOLUME_DAILY: 'volume', EPS_DAILY: 'eps',
+  PE_CONSOLIDATED: 'pe_consolidated', PE_STANDALONE: 'pe_standalone',
+};
 
 // How to collapse this daily abbr's native series into a coarser bucket
 // (calendar quarter/year) when something asks for it at 'quarterly' or
@@ -268,7 +290,10 @@ const DAILY_SERIES_FIELDS = { PRICE: 'close', PE_DAILY: 'pe', MCAP_SNAPSHOT: 'ma
 // genuine per-day flow rather than a snapshot, so a coarser request means
 // "average daily volume over the bucket", not "one day's volume standing in
 // for the whole quarter/year".
-const DAILY_RESAMPLE_MODE = { PRICE: 'latest', PE_DAILY: 'latest', MCAP_SNAPSHOT: 'latest', VOLUME_DAILY: 'average' };
+const DAILY_RESAMPLE_MODE = {
+  PRICE: 'latest', PE_DAILY: 'latest', MCAP_SNAPSHOT: 'latest', VOLUME_DAILY: 'average', EPS_DAILY: 'latest',
+  PE_CONSOLIDATED: 'latest', PE_STANDALONE: 'latest',
+};
 
 /**
  * Buckets an ascending {value, date}[] series into calendar quarters or
@@ -378,13 +403,13 @@ async function fetchDailySeries(prisma, symbol, abbr) {
  *
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string} symbol
- * @returns {Promise<{ PRICE: Array<{value,date}>, PE_DAILY: Array<{value,date}>, MCAP_SNAPSHOT: Array<{value,date}>, VOLUME_DAILY: Array<{value,date}> }>}
+ * @returns {Promise<{ PRICE: Array<{value,date}>, PE_DAILY: Array<{value,date}>, MCAP_SNAPSHOT: Array<{value,date}>, VOLUME_DAILY: Array<{value,date}>, EPS_DAILY: Array<{value,date}>, PE_CONSOLIDATED: Array<{value,date}>, PE_STANDALONE: Array<{value,date}> }>}
  */
 async function fetchAllDailySeries(prisma, symbol) {
   const rows = await prisma.nse_equity_new.findMany({
     where:   { symbol },
     orderBy: { datetime: 'asc' },
-    select:  { datetime: true, close: true, pe: true, market_cap_cr: true, volume: true },
+    select:  { datetime: true, close: true, pe: true, market_cap_cr: true, volume: true, eps: true, pe_consolidated: true, pe_standalone: true },
   });
 
   const toPoints = (field) => rows.map(r => ({
@@ -393,10 +418,13 @@ async function fetchAllDailySeries(prisma, symbol) {
   }));
 
   return {
-    PRICE:         toPoints('close'),
-    PE_DAILY:      toPoints('pe'),
-    MCAP_SNAPSHOT: toPoints('market_cap_cr'),
-    VOLUME_DAILY:  toPoints('volume'),
+    PRICE:           toPoints('close'),
+    PE_DAILY:        toPoints('pe'),
+    MCAP_SNAPSHOT:   toPoints('market_cap_cr'),
+    VOLUME_DAILY:    toPoints('volume'),
+    EPS_DAILY:       toPoints('eps'),
+    PE_CONSOLIDATED: toPoints('pe_consolidated'),
+    PE_STANDALONE:   toPoints('pe_standalone'),
   };
 }
 

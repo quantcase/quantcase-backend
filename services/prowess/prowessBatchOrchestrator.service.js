@@ -44,6 +44,22 @@ function extractToken(sendResponse) {
   return sendResponse.json?.token ? String(sendResponse.json.token) : null;
 }
 
+// Fixed daily OHLCV query, checked into the repo so it ships with every
+// deploy instead of requiring an admin to re-upload the same .bt file each
+// time -- see the file itself for field list; only fields
+// prowessOhlcvCsvParser.js recognizes ever reach nse_equity_new, same as the
+// CSV-upload path.
+const DAILY_BATCH_FILE = path.join(__dirname, 'daily_ohlcv.bt');
+
+/** Submits the fixed daily template -- no upload needed, resolves/ingests exactly like any other 'daily' batch (see pollAndResolve). */
+async function triggerDailyBatch() {
+  return sendBatchAndTrack({
+    filePath: DAILY_BATCH_FILE,
+    mode: 'daily',
+    requestMeta: { source: 'daily-template', file: 'daily_ohlcv.bt' },
+  });
+}
+
 async function sendBatchAndTrack({ filePath, mode, requestMeta }) {
   // JSON output (meta/head/data) is far more reliably parseable than CMIE's default
   // pipe-delimited .txt — only honored for OSC/WS-type outputs, which is what the
@@ -155,4 +171,4 @@ async function pollAndResolve(token) {
   return batchRequests.markCompleted(token, { files, ingested: false, reason: 'auto-ingest not implemented for this mode yet', resolvedVia: 'getbatch' });
 }
 
-module.exports = { sendBatchAndTrack, pollAndResolve, ingestOhlcvZip, HttpError };
+module.exports = { sendBatchAndTrack, triggerDailyBatch, pollAndResolve, ingestOhlcvZip, HttpError };

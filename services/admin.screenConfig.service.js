@@ -69,7 +69,7 @@ async function getScreenConfig(key) {
   return config;
 }
 
-async function createScreenConfig({ key, label, endpoint, periods_shown, decimal_places, kpi_group_slug, variant_of_key, company_group_slug }) {
+async function createScreenConfig({ key, label, endpoint, periods_shown, decimal_places, frequency, kpi_group_slug, variant_of_key, company_group_slug }) {
   const existing = await prisma.screenConfig.findUnique({ where: { key } });
   if (existing) throw new HttpError(409, `ScreenConfig with key "${key}" already exists.`);
   await _assertKpiGroupExists(kpi_group_slug);
@@ -84,6 +84,7 @@ async function createScreenConfig({ key, label, endpoint, periods_shown, decimal
       endpoint: endpoint ?? null,
       periods_shown: periods_shown ?? null,
       decimal_places: decimal_places ?? 2,
+      frequency: frequency ?? null,
       kpi_group_slug: kpi_group_slug ?? null,
       variant_of_key: variant_of_key ?? null,
       company_group_slug: company_group_slug ?? null,
@@ -103,7 +104,7 @@ async function updateScreenConfig(key, patch) {
   if ('company_group_slug' in patch) await _assertCompanyGroupExists(patch.company_group_slug);
 
   const data = {};
-  for (const field of ['label', 'endpoint', 'periods_shown', 'decimal_places', 'kpi_group_slug', 'variant_of_key', 'company_group_slug']) {
+  for (const field of ['label', 'endpoint', 'periods_shown', 'decimal_places', 'frequency', 'kpi_group_slug', 'variant_of_key', 'company_group_slug']) {
     if (field in patch) data[field] = patch[field];
   }
   return prisma.screenConfig.update({ where: { key }, data });

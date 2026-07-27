@@ -216,8 +216,10 @@ model KpiFilter {
   operator   String // '>' | '<' | '>=' | '<=' | '=' | '!=' | 'between' — validated against this fixed set at write time (see admin.kpiFilters.service.js)
   value      Float
   value_max  Float? // only used when operator = 'between'
-  // Optional override of which cadence to resolve kpi_abbr at; defaults to
-  // the Kpi's own frequency (or 'annual' if that's also unset).
+  // Which cadence to resolve kpi_abbr at. Required at the validation layer
+  // (admin.kpiFilters.routes.js/.service.js) — the resolver never defaults or
+  // infers a frequency, so this can't be left unset; stays nullable here only
+  // because adding NOT NULL to a live column isn't worth its own migration.
   frequency  KpiFrequency?
   created_at DateTime      @default(now())
 
@@ -817,6 +819,14 @@ model nse_equity_new {
   close         Float?
   volume        Int?
   pe            Float?
+  // Two new Prowess-computed PE variants (2026-07-25), from a custom
+  // QueryOnStockPricesAndRatios expression: close / ((PAT * 1e7) / shares) —
+  // consolidated-financials-based and standalone-financials-based
+  // respectively. Deliberately separate from `pe` (Prowess's own plain P/E
+  // column, left untouched) -- admin wants these as additional columns, not
+  // a replacement.
+  pe_consolidated Float?
+  pe_standalone   Float?
   eps           Float?
   market_cap_cr Float?
   // Daily return as Prowess reports it, already in percentage points
@@ -2253,6 +2263,13 @@ model ScreenConfig {
   // no rows (or, for chart/peer configs, isn't row-based at all -- those
   // keep using `items` below, untouched).
   kpi_group_slug     String?
+  // Which cadence every Kpi in this section resolves at — the resolver no
+  // longer defaults or infers a frequency (a Kpi's own definition never pins
+  // one), so every screener section must declare it explicitly here instead
+  // of the frequency being a hardcoded literal in lib/financials.js/
+  // prowess.controller.js. Nullable only during the backfill migration —
+  // every row must have one before this is tightened to required.
+  frequency          KpiFrequency?
   // Company-group-scoped alternate of another ScreenConfig — e.g. a BFSI-only
   // version of "financials.pnl.quarterly" with its own kpi_group_slug tree.
   // When set, `company_group_slug` must be set too (and vice versa). Plain

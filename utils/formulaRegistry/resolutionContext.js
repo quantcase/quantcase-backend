@@ -15,7 +15,7 @@
  * automated instead of manually specified.
  */
 
-const { resolveProwessName, warmProwessNameCache, fetchAnnualBatch, fetchQuarterlyBatch, fetchAnnualBatchMulti, fetchQuarterlyBatchMulti } = require('./dataFetcherCore');
+const { resolveProwessName, warmProwessNameCache, fetchAnnualBatch, fetchQuarterlyBatch, fetchAnnualBatchMulti, fetchQuarterlyBatchMulti, resolveSourceType } = require('./dataFetcherCore');
 const { fetchMarketSnapshot, fetchMarketSnapshots, fetchAllDailySeries, DAILY_SERIES_FIELDS, DAILY_RESAMPLE_MODE, resampleToFrequency, resampleToPeriods } = require('./dataFetcherMarket');
 const { getProwessRawAbbrs, getDailyRawAbbrs } = require('./registryCache');
 const companyGroups = require('../../services/companyGroups/resolver');
@@ -65,6 +65,14 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
   function getProwessSeriesMap(freq) {
     if (!prowessSeriesPromises.has(freq)) {
       prowessSeriesPromises.set(freq, (async () => {
+        // prowess_values_new only has annual/quarterly cadences. Anything
+        // else here (notably 'daily', when a non-daily-native abbr like
+        // EPS_DILUTED gets swept into a daily-pinned formula's frequency)
+        // has no valid data to serve — used to silently fall through to the
+        // ANNUAL batch instead (this is what made PE_DAILY's old formula
+        // actually divide by annual EPS, not daily/quarterly). Empty map,
+        // not a guessed default.
+        if (freq !== 'annual' && freq !== 'quarterly') return {};
         const companyName = await getCompanyName();
         if (!companyName) return {};
         const abbrs = await getProwessRawAbbrs();
@@ -128,6 +136,16 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
     if (!DAILY_SERIES_FIELDS[abbr]) return false;
     if (!dailyRawAbbrsPromise) dailyRawAbbrsPromise = getDailyRawAbbrs();
     return (await dailyRawAbbrsPromise).includes(abbr);
+  }
+
+  // Map<'annual'|'quarterly', Promise<'C'|'S'|null>> — admin-preview display
+  // only (see dataFetcherCore.js#resolveSourceType); 'daily' abbrs are backed
+  // by nse_equity_new, not prowess_values_new, so C/S is not applicable there.
+  const sourceTypePromises = new Map();
+  function getSourceType(freq) {
+    if (freq === 'daily' || !freq) return Promise.resolve(null);
+    if (!sourceTypePromises.has(freq)) sourceTypePromises.set(freq, resolveSourceType(db, symbol, freq));
+    return sourceTypePromises.get(freq);
   }
 
   // Map<groupSlug, Promise<boolean>>
@@ -243,6 +261,7 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
     getCurrentAndPrevious,
     getCurrentPeriod,
     isCompanyInGroup,
+    getSourceType,
   };
 }
 
@@ -269,6 +288,7 @@ function createFlatContext({ kpiMap = {}, prevKpiMap = null, frequency = 'annual
     getSeriesMap: async () => ({}),
     getCurrentPeriod: async () => null,
     isCompanyInGroup: async () => false,
+    getSourceType: async () => null,
   };
 }
 
@@ -293,6 +313,7 @@ function createSeriesOnlyContext({ series = [], frequency = 'annual' } = {}) {
     getSeriesMap: async () => ({}),
     getCurrentPeriod: async () => null,
     isCompanyInGroup: async () => false,
+    getSourceType: async () => null,
   };
 }
 
@@ -334,6 +355,7 @@ function createSeriesMapContext({ seriesMap = {}, frequency = 'daily' } = {}) {
     getSeriesMap: async (freq) => (freq == null || freq === frequency) ? seriesMap : {},
     getCurrentPeriod: async () => null,
     isCompanyInGroup: async () => false,
+    getSourceType: async () => null,
   };
 }
 
@@ -493,6 +515,10 @@ async function createMultiCompanyResolutionContext({ prisma, symbols, frequency 
       getCurrentAndPrevious,
       getCurrentPeriod,
       isCompanyInGroup,
+      // Not wired to a real C/S lookup — no batched caller (Peer Comparison)
+      // needs it; admin preview (the only current consumer) uses the
+      // single-company createResolutionContext instead.
+      getSourceType: async () => null,
     });
   }
 

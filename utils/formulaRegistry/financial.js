@@ -17,12 +17,21 @@
  *      recursing back into resolveMetric for every referenced abbr.
  *   3. Fallback chain (Kpi.fallback_abbrs) — first non-null wins.
  *
- * A Kpi's own `frequency` (if set) is fixed and overrides the calling
- * context's frequency for that definition and everything it references —
- * this is what lets e.g. a TTM_* metric always resolve at quarterly
- * granularity regardless of whether the caller is building an annual or
- * quarterly view. Definitions with frequency == null inherit the caller's
- * requested frequency.
+ * Frequency is ALWAYS explicit and caller-supplied (opts.frequency, or
+ * resCtx.frequency for a context created with one) — there is no per-Kpi
+ * pin and no implicit default anywhere in this file. A Kpi's own
+ * `frequency` column (prisma/schema.prisma) is unused dead metadata as of
+ * 2026-07-24: it used to silently force a formula (and everything it
+ * referenced) onto a fixed cadence regardless of what the caller asked for
+ * — removed because that silent override produced real wrong numbers (e.g.
+ * TTM_EPS's `SUM(EPS_BASIC, 4)` summing 4 YEARS of annual EPS instead of 4
+ * quarters, whenever an unpinned parent formula defaulted to 'annual' and
+ * force-passed that down onto TTM_EPS's own pin-in-name-only). If neither
+ * opts.frequency nor resCtx.frequency is supplied, that's a caller bug —
+ * resolveMetric/resolveFormulaSeries return null rather than guessing.
+ * Every screener section now gets its frequency from ScreenConfig.frequency
+ * (see lib/financials.js/prowess.controller.js), and the admin preview
+ * endpoint requires an explicit `?frequency=` query param.
  *
  * No abbr is ever silently substituted for another based on company group —
  * a company-group-scoped variant (e.g. a BFSI-specific formula) is a
@@ -108,20 +117,18 @@ async function _resolveAtIndex(abbr, seriesMap, i, visiting) {
  * @param {string} abbr
  * @param {import('./resolutionContext').ResolutionContext} resCtx
  * @param {object} [opts]
- * @param {string} [opts.frequency] — which seriesMap to walk; defaults to resCtx.frequency
- * @returns {Promise<Array<number|null>>} one value per period, aligned to getSeriesMap's period list
+ * @param {string} [opts.frequency] — which seriesMap to walk; required (via this or resCtx.frequency)
+ * @returns {Promise<Array<number|null>>} one value per period, aligned to getSeriesMap's period list; [] if no frequency was supplied
  */
 async function resolveFormulaSeries(abbr, resCtx, opts = {}) {
   const def = await getDefinition(abbr);
   if (!def) return [];
 
-  // Caller intent (opts.frequency, then resCtx.frequency if the caller set
-  // one at context-creation time) outranks the Kpi's own pinned frequency —
-  // the pin is only a fallback DEFAULT for callers that don't say, not a
-  // silent override of an explicit request (this is what makes e.g. the
-  // admin preview's ?frequency= param actually take effect for a pinned
-  // abbr like PRICE, instead of being unconditionally ignored).
-  const freq = opts.frequency ?? resCtx.frequency ?? def.frequency ?? 'annual';
+  // Frequency is always caller-supplied — no Kpi-pin/'annual' default to
+  // fall back on (see this file's top docblock). A caller that supplies
+  // neither has a bug; return an empty series rather than guessing one.
+  const freq = opts.frequency ?? resCtx.frequency;
+  if (!freq) return [];
   const seriesMap = await resCtx.getSeriesMap(freq);
   const anyAbbr = Object.keys(seriesMap)[0];
   const length = anyAbbr ? seriesMap[anyAbbr].length : 0;
@@ -181,31 +188,21 @@ async function _evaluateFormula(def, freq, resCtx, visiting) {
       if (r.period) periods.push(r.period);
       return r.value;
     },
-    // refFreq: the formula being evaluated (`freq`, already resolved via
-    // resolveMetric/resolveFormulaSeries's own caller-outranks-pin logic)
-    // always wins over the referenced abbr's own pin here — deliberately the
-    // opposite emphasis from that top-level chain, but consistent with the
-    // same "explicit beats stored default" rule: `freq` at this point IS an
-    // explicit, already-decided value (never absent), so a referenced abbr's
-    // pin (e.g. PRICE's 'daily') never gets a chance to silently win. This is
+    // The formula being evaluated (`freq`, always an explicit, already-
+    // decided value — resolveMetric never reaches here otherwise) applies
+    // uniformly to every reference inside it, aggregate or not — there is no
+    // per-abbr pin to consult anymore (see this file's top docblock). This is
     // what lets e.g. CAGR(PRICE, 3) at 'annual' actually resample PRICE to
-    // annual instead of being stuck at its own daily pin. Safe today because
-    // no existing formula's CAGR/AVG/SUM/DELTA argument references an abbr
-    // that also carries its own pin (verified) — if one ever does, it now
-    // inherits the outer formula's frequency, not its own.
+    // annual instead of being stuck at some fixed cadence of its own.
     resolveAggregate: async (fnName, refAbbr, window) => {
-      const refDef = await getDefinition(refAbbr);
-      const refFreq = freq ?? refDef?.frequency;
-      const points = await _seriesForAggregate(refAbbr, refFreq, resCtx);
+      const points = await _seriesForAggregate(refAbbr, freq, resCtx);
       if (fnName === 'CAGR') return cagrFromSeries(points, window);
       if (fnName === 'AVG')  return averageFromSeries(points, window);
       if (fnName === 'SUM')  return sumFromSeries(points, window);
       return null;
     },
     resolveDelta: async (refAbbr) => {
-      const refDef = await getDefinition(refAbbr);
-      const refFreq = freq ?? refDef?.frequency;
-      const { curr, prev } = await resCtx.getCurrentAndPrevious(refAbbr, refFreq);
+      const { curr, prev } = await resCtx.getCurrentAndPrevious(refAbbr, freq);
       return curr != null && prev != null ? curr - prev : null;
     },
   });
@@ -216,7 +213,7 @@ async function _evaluateFormula(def, freq, resCtx, visiting) {
  * @param {string} abbr
  * @param {import('./resolutionContext').ResolutionContext} resCtx
  * @param {object} [opts]
- * @param {string} [opts.frequency] — overrides resCtx.frequency for this call (used internally for recursion)
+ * @param {string} [opts.frequency] — required (via this or resCtx.frequency); overrides resCtx.frequency for this call (used internally for recursion)
  * @param {Set<string>} [opts._visiting] — internal cycle guard
  * @returns {Promise<{ value: number|null, source: string, [fallbackAbbr]: string, period: ({frequency, fiscal_year, quarter}|{frequency: 'daily', date}|null) }>}
  */
@@ -224,11 +221,11 @@ async function resolveMetric(abbr, resCtx, opts = {}) {
   const def = await getDefinition(abbr);
   if (!def) return { value: null, source: 'no_data' };
 
-  // Explicit caller intent outranks the Kpi's own pinned frequency — the pin
-  // is a fallback default for callers that don't say, not a silent override
-  // of a request (see resolveFormulaSeries's identical chain for the full
-  // rationale).
-  const freq = opts.frequency ?? resCtx.frequency ?? def.frequency ?? 'annual';
+  // Frequency is always caller-supplied — no Kpi-pin/'annual' default (see
+  // this file's top docblock). A caller that supplies neither has a bug;
+  // null is the correct, non-glitchy answer rather than guessing one.
+  const freq = opts.frequency ?? resCtx.frequency;
+  if (!freq) return { value: null, source: 'frequency_required' };
 
   const visiting = opts._visiting ?? new Set();
   if (visiting.has(abbr)) return { value: null, source: 'cycle_detected' };
@@ -267,6 +264,13 @@ async function resolveMetric(abbr, resCtx, opts = {}) {
   return result;
 }
 
+/** 'C'/'S'/null (from resCtx.getSourceType) -> the human label an admin actually wants to see. */
+function _sourceTypeLabel(code) {
+  if (code === 'C') return 'consolidated';
+  if (code === 'S') return 'standalone';
+  return null;
+}
+
 /**
  * Admin-facing "verify this formula" helper — resolves `abbr` exactly like
  * resolveMetric (same function, no separate code path to drift from
@@ -276,20 +280,45 @@ async function resolveMetric(abbr, resCtx, opts = {}) {
  * level is enough to sanity-check a formula; a full recursive trace would
  * turn this into a debugger rather than a quick preview.
  *
+ * Also surfaces `source_type` ('consolidated'/'standalone'/null) — every raw
+ * Prowess-backed abbr for a given company+frequency comes from the SAME
+ * prowess_values_new source_type (fetchAnnualBatch/fetchQuarterlyBatch decide
+ * this once per company, not per abbr — see dataFetcherCore.js), so this is a
+ * single company/frequency-level fact, not a per-value one. It's null for
+ * daily-native abbrs (PRICE/PE_DAILY/MCAP_SNAPSHOT, backed by nse_equity_new,
+ * not prowess_values_new) and whenever the company has no data at all for
+ * that frequency. This is purely a "which one did I actually get" readout —
+ * admin still can't choose standalone vs consolidated; today's resolver
+ * always prefers consolidated, falling back to standalone only when a
+ * company has zero consolidated rows.
+ *
+ * `resCtx.frequency` is required (the caller — admin.kpis.service.js's
+ * previewKpi — must have been given an explicit `?frequency=`; there is no
+ * per-Kpi pin or 'annual' default to fall back on, see this file's top
+ * docblock). Every reference in the trace resolves at that SAME frequency,
+ * not each abbr's own — matching exactly how resolveMetric evaluates the
+ * real formula, so the trace never shows a different number than what the
+ * top-level value was actually built from.
+ *
  * @param {string} abbr
  * @param {import('./resolutionContext').ResolutionContext} resCtx
  */
 async function previewMetric(abbr, resCtx) {
   const def = await getDefinition(abbr);
-  if (!def) return { abbr, value: null, source: 'no_data', formula_expression: null, frequency: null, period: null, trace: [] };
+  if (!def) return { abbr, value: null, source: 'no_data', source_type: null, formula_expression: null, frequency: null, period: null, trace: [] };
+
+  const freq = resCtx.frequency;
+  if (!freq) return { abbr, value: null, source: 'frequency_required', source_type: null, formula_expression: def.formula_expression, frequency: null, period: null, trace: [] };
 
   const result = await resolveMetric(abbr, resCtx);
+  const sourceType = _sourceTypeLabel(await resCtx.getSourceType?.(freq) ?? null);
 
   const trace = [];
   if (def.ast) {
     for (const refAbbr of collectReferences(def.ast)) {
       const r = await resolveMetric(refAbbr, resCtx);
-      trace.push({ abbr: refAbbr, value: r.value, source: r.source, fallbackAbbr: r.fallbackAbbr ?? null, period: r.period ?? null });
+      const refSourceType = _sourceTypeLabel(await resCtx.getSourceType?.(freq) ?? null);
+      trace.push({ abbr: refAbbr, value: r.value, source: r.source, source_type: refSourceType, fallbackAbbr: r.fallbackAbbr ?? null, period: r.period ?? null });
     }
   }
 
@@ -297,13 +326,16 @@ async function previewMetric(abbr, resCtx) {
     abbr,
     value: result.value,
     source: result.source,
+    source_type: sourceType,
     fallbackAbbr: result.fallbackAbbr ?? null,
     // For 'computed' this is the most-recent period among the formula's
     // direct references (see _latestPeriod) — a reasonable "as of" for
     // display, not a guarantee every term landed on that same period.
     period: result.period ?? null,
     formula_expression: def.formula_expression,
-    frequency: def.frequency,
+    // The frequency this preview actually resolved at (caller-supplied) —
+    // not a Kpi-level pin, since there is no such thing anymore.
+    frequency: freq,
     trace,
   };
 }

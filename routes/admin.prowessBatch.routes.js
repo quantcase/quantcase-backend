@@ -40,6 +40,10 @@ const sendBodySchema = z.object({
 // POST /admin/prowess/batch/send — multipart/form-data: batchfile, mode, note?
 router.post('/send', upload.single('batchfile'), validate(sendBodySchema, 'body'), ctrl.sendBatch);
 
+// POST /admin/prowess/batch/daily/run — submits the fixed daily_ohlcv.bt template checked
+// into the repo (services/prowess/daily_ohlcv.bt), no upload needed.
+router.post('/daily/run', ctrl.runDaily);
+
 // POST /admin/prowess/batch/:token/check — on-demand poll (no waiting for the scheduler tick)
 router.post('/:token/check', ctrl.checkBatch);
 

@@ -30,28 +30,28 @@ function median(values) {
 // comes from the Kpi catalogue via resCtx, the same resolveMetric path
 // GET /admin/kpis/:abbr/preview uses.
 //
-// One shared frequency for the whole group ('quarterly', same as
-// lib/financials.js#_buildTableFromKpiGroup's single `freq` param for a
-// whole table) — NOT each item's own Kpi.frequency pin. Bar and line series
-// share one x-axis, so they need one seriesMap/period list; a per-item pin
-// (e.g. PRICE/MCAP_SNAPSHOT/PE_DAILY are all pinned 'daily', for single-
-// value preview purposes) would desync a group's bar from its line, and for
-// a mixed-frequency formula (PE_DAILY = PRICE/EPS_DILUTED) walking at
-// 'daily' can't even resolve — EPS_DILUTED has no per-day value, only
-// per-quarter. At 'quarterly' every item resolves cleanly instead: a daily-
-// native raw abbr resamples onto the real fiscal-quarter boundaries via
-// resolutionContext.js's daily-abbr merge (resampleToPeriods, 'latest' —
-// that quarter's own most recent trading day), landing index-for-index next
-// to genuine quarterly abbrs like EPS_DILUTED — no look-ahead risk, since
-// nothing is forward-filled across quarters.
+// One shared frequency for the whole group (config.frequency — 'quarterly'
+// for every charts.* config today, same as lib/financials.js
+// #_buildTableFromKpiGroup's single ScreenConfig.frequency for a whole
+// table), not a per-item pin — Bar and line series share one x-axis, so they
+// need one seriesMap/period list; letting each item pick its own frequency
+// would desync a group's bar from its line, and daily-native raw abbrs
+// (PRICE/MCAP_SNAPSHOT/PE_DAILY) resample onto whatever period list this
+// group resolves at anyway (resolutionContext.js's daily-abbr merge,
+// resampleToPeriods 'latest' — that period's own most recent trading day),
+// so there's no reason to treat them differently from the quarterly-native
+// items they share a chart with.
 async function _buildChartGroup(configKey, resCtx) {
   const config = await prisma.screenConfig.findUnique({
     where:   { key: configKey },
     include: { items: { orderBy: { display_order: 'asc' } } },
   });
   if (!config || !config.items.length) return null;
+  // Required — see ScreenConfig.frequency's docblock; there's no more
+  // per-Kpi default to silently fall back on.
+  const freq = config.frequency;
+  if (!freq) return null;
 
-  const freq = 'quarterly';
   const seriesMap  = await resCtx.getSeriesMap(freq);
   const anyAbbr    = Object.keys(seriesMap)[0];
   const periods    = anyAbbr ? seriesMap[anyAbbr] : [];

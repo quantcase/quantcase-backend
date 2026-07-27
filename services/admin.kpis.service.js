@@ -156,7 +156,7 @@ async function getKpi(abbr) {
 
 async function createKpi({
   abbr, full_form, denomination, kpi_type, prowess_name,
-  formula_expression, frequency, fallback_abbrs, unit_label, description,
+  formula_expression, fallback_abbrs, unit_label, description,
 }) {
   const existing = await prisma.kpi.findFirst({ where: { abbr } });
   if (existing) throw new HttpError(409, `Kpi with abbr "${abbr}" already exists.`);
@@ -180,7 +180,6 @@ async function createKpi({
       prowess_name: effectiveProwessName,
       registry_enabled: true,
       formula_expression: formula_expression ?? null,
-      frequency: frequency ?? null,
       fallback_abbrs: fallback_abbrs ?? [],
       unit_label: unit_label ?? null,
       description: description ?? null,
@@ -205,7 +204,7 @@ async function updateKpi(abbr, patch) {
   const data = { registry_enabled: true };
   for (const field of [
     'full_form', 'denomination', 'kpi_type', 'prowess_name',
-    'formula_expression', 'frequency', 'fallback_abbrs', 'unit_label', 'description',
+    'formula_expression', 'fallback_abbrs', 'unit_label', 'description',
   ]) {
     if (field in patch) data[field] = patch[field];
   }
@@ -228,12 +227,16 @@ async function updateKpi(abbr, patch) {
  */
 async function previewKpi(abbr, { symbol, frequency, resample_mode } = {}) {
   if (!symbol) throw new HttpError(422, 'symbol query param is required, e.g. ?symbol=RELIANCE');
+  // The resolver has no per-Kpi default/pin to fall back on anymore (see
+  // financial.js's top docblock) — the route's Zod schema already enforces
+  // this, but guard here too since this service is the actual contract.
+  if (!frequency) throw new HttpError(422, 'frequency query param is required, e.g. ?frequency=quarterly');
   const kpi = await prisma.kpi.findUnique({ where: { abbr } });
   if (!kpi) throw new HttpError(404, `No Kpi with abbr "${abbr}".`);
 
   const ctx = createResolutionContext({
     symbol,
-    ...(frequency ? { frequency } : {}),
+    frequency,
     ...(resample_mode ? { resampleMode: resample_mode } : {}),
   });
   return previewMetric(abbr, ctx);
