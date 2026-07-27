@@ -37,7 +37,7 @@
  * a company-group-scoped variant (e.g. a BFSI-specific formula) is a
  * different admin-authored Kpi entirely, referenced explicitly by its own
  * ScreenConfig/KpiGroup (see ScreenConfig.variant_of_key in
- * prisma/schema.prisma, resolved by lib/financials.js#_resolveScreenConfig).
+ * prisma/schema.prisma, resolved by lib/screenConfigResolver.js#resolveScreenConfig).
  */
 
 const { evaluate, collectReferences } = require('./expressionEvaluator');

@@ -7,6 +7,7 @@ const { fetchMonthlyOhlcv } = require('../utils/formulaRegistry/dataFetcherMarke
 const {
   resolveProwessName, createResolutionContext, resolveFormulaSeries, getDefinition,
 } = require('../utils/formulaRegistry');
+const { resolveScreenConfig } = require('../lib/screenConfigResolver');
 
 function roundTo(v, decimals) {
   if (v == null || isNaN(v)) return null;
@@ -30,6 +31,14 @@ function median(values) {
 // comes from the Kpi catalogue via resCtx, the same resolveMetric path
 // GET /admin/kpis/:abbr/preview uses.
 //
+// Company-group routing, same two mechanisms lib/financials.js's tables and
+// services/tickerMetrics.service.js's peers columns already use:
+//   - Whole-group variant swap via resolveScreenConfig (ScreenConfig.
+//     variant_of_key/company_group_slug) — e.g. an entirely different
+//     BFSI-only EV/EBITDA chart with its own items.
+//   - Per-item hiding via item.company_group_slug — e.g. drop a single
+//     series from an otherwise-shared chart for one company group.
+//
 // One shared frequency for the whole group (config.frequency — 'quarterly'
 // for every charts.* config today, same as lib/financials.js
 // #_buildTableFromKpiGroup's single ScreenConfig.frequency for a whole
@@ -42,8 +51,7 @@ function median(values) {
 // so there's no reason to treat them differently from the quarterly-native
 // items they share a chart with.
 async function _buildChartGroup(configKey, resCtx) {
-  const config = await prisma.screenConfig.findUnique({
-    where:   { key: configKey },
+  const config = await resolveScreenConfig(configKey, resCtx, {
     include: { items: { orderBy: { display_order: 'asc' } } },
   });
   if (!config || !config.items.length) return null;
@@ -60,6 +68,8 @@ async function _buildChartGroup(configKey, resCtx) {
   const lineSeries = [];
 
   for (const item of config.items) {
+    if (item.company_group_slug && !(await resCtx.isCompanyInGroup(item.company_group_slug))) continue;
+
     const def      = await getDefinition(item.kpi_abbr);
     const decimals = item.decimal_places ?? config.decimal_places;
 
