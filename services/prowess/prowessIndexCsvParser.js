@@ -1,19 +1,25 @@
 'use strict';
 
 /**
- * Parses a Prowess index-export CSV (e.g. "QueryOnIndex..." output) into rows
+ * Parses a Prowess index-export (e.g. "QueryOnIndex..." output) into rows
  * shaped for nse_equity_new — nse_index is deprecated, indices go in the same
  * table as stocks now, keyed the same way (symbol+datetime PK; here `symbol`
  * is the index name itself, e.g. "Bse 100", since indices have no NSE ticker).
  *
- * Same 6-row Prowess header convention as the stock OHLCV export, but
- * distinct in two ways verified against a real sample (osc_sheet_136.csv,
- * 742 index rows, BSE/NSE indices mixed):
- *   - column 0 is "Index Name", not a company.
- *   - each data row carries its own explicit "Index Date" column (col 1) —
- *     used directly instead of reconstructing the date from the header row,
- *     since it's authoritative and the header date-row is only one value
- *     (single-day snapshot query, same as the stock OHLCV live-batch query).
+ * Every data row carries its own explicit "Index Date" column — used
+ * directly instead of reconstructing the date from a header row, since it's
+ * authoritative per-row (unlike the stock OHLCV day-block export).
+ *
+ * Two export templates seen from Prowess so far, both handled here:
+ *   - comma-delimited, quoted fields, exactly 6 metadata rows before the
+ *     field-name row (verified against osc_sheet_136.csv, 742 index rows).
+ *   - pipe-delimited, unquoted, with a stray "Output source file name: ..."
+ *     line plus only 3 metadata rows before the field-name row (verified
+ *     against a "T1"-query bulk export, 124 indices x ~1yr of daily rows).
+ * Row *count* before the data isn't hardcoded for this reason — the
+ * delimiter is auto-detected, and the field-name row (and hence where data
+ * starts) is located by scanning for the row containing "Index Name" /
+ * "Index Date", not by a fixed offset.
  *
  * The source data also includes PB, yield, beta, alpha, and constituent
  * count, which nse_equity_new has no columns for and which are dropped.
@@ -27,8 +33,30 @@ function stripQuotes(s) {
   return (s || '').replace(/^"|"$/g, '').trim();
 }
 
-function splitCsvLine(line) {
-  return line.split(',').map(stripQuotes);
+// Sniffed from the first few lines rather than assumed, since Prowess export
+// templates for the same query type differ: comma+quotes (osc_sheet_136.csv)
+// vs. pipe+unquoted ("T1"-query bulk export). Whichever separator appears
+// more often across the sample wins.
+function detectDelimiter(lines) {
+  const sample = lines.slice(0, 10).join('\n');
+  const pipeCount = (sample.match(/\|/g) || []).length;
+  const commaCount = (sample.match(/,/g) || []).length;
+  return pipeCount > commaCount ? '|' : ',';
+}
+
+function splitLine(line, delimiter) {
+  return line.split(delimiter).map(stripQuotes);
+}
+
+// Located by content, not a fixed row offset — export templates differ in
+// how many metadata rows precede it (6 for the comma template, 3 plus a
+// stray "Output source file name: ..." line for the pipe template).
+function findFieldRowIndex(lines, delimiter) {
+  for (let i = 0; i < lines.length; i++) {
+    const cols = splitLine(lines[i], delimiter);
+    if (cols.includes('Index Name') && cols.includes('Index Date')) return i;
+  }
+  return -1;
 }
 
 /** "13-07-2026" → Date (Prowess index date format is DD-MM-YYYY, distinct from the stock CSV's "13 Jul 2026" style) */
@@ -44,9 +72,13 @@ function parseIndexDate(s) {
 function parseIndexCsv(csvText) {
   const raw = csvText.replace(/^﻿/, '');
   const lines = raw.split('\n').filter(Boolean);
-  if (lines.length < 7) return { records: [], skippedRows: 0 };
+  if (lines.length < 2) return { records: [], skippedRows: 0 };
 
-  const fieldRow = splitCsvLine(lines[5]);
+  const delimiter = detectDelimiter(lines);
+  const fieldRowIdx = findFieldRowIndex(lines, delimiter);
+  if (fieldRowIdx === -1) throw new Error('Index CSV missing expected column "Index Name"');
+
+  const fieldRow = splitLine(lines[fieldRowIdx], delimiter);
   const colIdx = {};
   fieldRow.forEach((name, i) => { colIdx[name] = i; });
 
@@ -58,8 +90,8 @@ function parseIndexCsv(csvText) {
   const records = [];
   let skippedRows = 0;
 
-  for (let r = 6; r < lines.length; r++) {
-    const cols = splitCsvLine(lines[r]);
+  for (let r = fieldRowIdx + 1; r < lines.length; r++) {
+    const cols = splitLine(lines[r], delimiter);
     const indexName = cols[colIdx['Index Name']];
     const datetime = parseIndexDate(cols[colIdx['Index Date']]);
     if (!indexName || !datetime) { skippedRows++; continue; }
