@@ -92,6 +92,16 @@ const ANNUAL_OPTIONAL_COL_MAP = {
   'Borrowings: Total':       'BORR_TOTAL',
   'Loan advances: Total':    'LOAN_ADV_TOTAL',
   'Investment at BV: Total': 'INV_BV_TOTAL',
+  // osc_sheet_199.csv-style rolled-up balance sheet template's name for the
+  // same thing -- verified against real data (Axis Bank/A U Small Finance
+  // Bank, FY2023-25): matches DEP_TOTAL to within ~0.01, pure rounding noise
+  // across CMIE query vintages. NOT the same treatment as "Total Borrowings"/
+  // "BFSI Loan & Advances" in that same file -- those were checked too and
+  // turned out to be genuinely different-scoped metrics (opposite BFSI/non-
+  // BFSI coverage for Borrowings; ~0.4-0.5% systematic value gap plus much
+  // sparser coverage for Loan & Advances) -- left unmapped for admin to
+  // create as their own Kpis, not aliased here.
+  'Deposits (accepted by commercial banks)': 'DEP_TOTAL',
   // Ratios
   'Return (cash) on capital employed':                          'ROCE',
   'Return on net worth (Return on Equity)':                     'ROE',
@@ -115,8 +125,10 @@ const ANNUAL_OPTIONAL_COL_MAP = {
 };
 
 // REV_OP: first non-empty of these two mutually-exclusive columns wins
-const ANNUAL_REV_OP_NON_FIN = 'Operating income for non-financial Cos.';
-const ANNUAL_REV_OP_FIN     = 'Operating income for financial Cos.';
+const ANNUAL_REV_OP_COLS = [
+  'Operating income for non-financial Cos.',
+  'Operating income for financial Cos.',
+];
 
 // DEP_AMORT priority chain — first non-empty wins (handles column renames across CSV vintages)
 const ANNUAL_DEP_AMORT_COLS = [
@@ -124,6 +136,9 @@ const ANNUAL_DEP_AMORT_COLS = [
   'Amortisation',
   'Non-cash charges',
 ];
+
+// See pushRow's docblock for why this one column gets special-cased.
+const CASA_RATIO_COL = 'BFSI CASA Ratio';
 
 const ANNUAL_SNAPSHOT_ABBRS = new Set([
   // Assets
@@ -423,13 +438,19 @@ class ProwessUploader {
 
   // ─── Annual mode ──────────────────────────────────────────────────────────────
 
-  /** "Mar 2026" → { endDate: '2026-03-31', fiscalYear: 'FY2026' } */
+  /** "Mar 2026" or "Mar-26" → { endDate: '2026-03-31', fiscalYear: 'FY2026' } */
   parseYearLabel(label) {
     const MON = { Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',
                   Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12' };
-    const [mon, yr] = (label || '').trim().split(' ');
+    const trimmed = (label || '').trim();
+    const spaced = /^([A-Za-z]{3})\s+(\d{4})$/.exec(trimmed);   // e.g. "Mar 2026" (annual_2025.csv, osc_sheet_193.csv)
+    const dashed = /^([A-Za-z]{3})-(\d{2})$/.exec(trimmed);     // e.g. "Mar-26"   (osc_sheet_192.csv)
+    let mon, yr;
+    if (spaced)      { [, mon, yr] = spaced; }
+    else if (dashed) { const [, m, yy] = dashed; mon = m; yr = String(2000 + parseInt(yy, 10)); }
+    else return null;
     const mm = MON[mon];
-    if (!mm || !yr) return null;
+    if (!mm) return null;
     const lastDay = new Date(parseInt(yr), parseInt(mm), 0).getDate();
     return {
       endDate:    `${yr}-${mm}-${String(lastDay).padStart(2, '0')}`,
@@ -438,22 +459,44 @@ class ProwessUploader {
   }
 
   /**
-   * Split the header row into consolidated and standalone section maps.
-   * Searches for "Standalone" in sectionRow (row 2) to find the split point.
+   * Which single section (Consolidated or Standalone) this file is. The
+   * day-block bulk-historical template (osc_sheet_192/193.csv) ships one
+   * section per file -- row 3 carries that one label in every populated
+   * cell. The older single-year template instead put both sections
+   * side-by-side in one file/row; if both labels turn up here, that's this
+   * older shape, which the block-based parsing below can't handle -- fail
+   * loudly rather than silently mislabeling one section's columns as the
+   * other.
    */
-  buildSectionColMaps(headers, sectionRow) {
-    let stanStart = null;
-    for (let i = 1; i < sectionRow.length; i++) {
-      if ((sectionRow[i] || '').includes('Standalone')) { stanStart = i; break; }
+  detectSectionType(sectionRow) {
+    const labels = new Set();
+    for (const cell of sectionRow) {
+      const c = (cell || '').trim();
+      if (!c) continue;
+      if (/standalone/i.test(c))        labels.add('S');
+      else if (/consolidated/i.test(c)) labels.add('C');
     }
-    const consMap = {}, stanMap = {};
-    for (let i = 1; i < headers.length; i++) {
-      const h = (headers[i] || '').trim();
-      if (!h) continue;
-      if (stanStart && i >= stanStart) { if (!(h in stanMap)) stanMap[h] = i; }
-      else                             { if (!(h in consMap)) consMap[h] = i; }
+    if (labels.size > 1) {
+      throw new Error(
+        'Row 3 contains both "Consolidated" and "Standalone" labels -- the annual ' +
+        'importer expects one section per file. Split into two separate CSVs ' +
+        '(one per section) and upload each separately.'
+      );
     }
-    return { consMap, stanMap, stanStart };
+    return labels.size === 1 ? [...labels][0] : null;
+  }
+
+  /** Detect repeated label blocks (fiscal-year or quarter columns) from a header/label row by label-change boundaries. */
+  detectLabelBlocks(labelRow) {
+    const blocks = [];
+    let cur = null;
+    for (let i = 1; i < labelRow.length; i++) {
+      const lbl = (labelRow[i] || '').trim();
+      if (!lbl) continue;
+      if (!cur || cur.label !== lbl) { cur = { label: lbl, start: i, end: i }; blocks.push(cur); }
+      else cur.end = i;
+    }
+    return blocks;
   }
 
   /** Extract KPI rows from one section (C or S) and push into allRows. */
@@ -470,7 +513,23 @@ class ProwessUploader {
       const num = parseFloat(raw);
       if (isNaN(num)) return;
 
-      const unit   = colUnitByIdx[idx] ?? 'Cr';
+      // "BFSI CASA Ratio" (osc_sheet_198.csv-style BFSI day-block template) is
+      // mistagged "Rs. Crore" in row 4 -- verified against real bank data
+      // (HDFC/Axis raw values 0.44/0.45 match their actual CASA ratios, not
+      // crore-scale rupee amounts; Fino Payments Bank's steady 1.0 also lines
+      // up, since payments banks can't hold term deposits). Always treat as a
+      // percentage regardless of the CSV's own tag, and normalize a 0-1
+      // fraction to percent-points to match how this same file's genuine
+      // "(per cent)"-tagged NPA columns already store their values (e.g. 0.93
+      // for 0.93%, not 93).
+      let unit, effectiveNum;
+      if (colName === CASA_RATIO_COL) {
+        unit = '%';
+        effectiveNum = Math.abs(num) <= 1 ? num * 100 : num;
+      } else {
+        unit = colUnitByIdx[idx] ?? 'Cr';
+        effectiveNum = num;
+      }
       const mult   = UNIT_MULTIPLIER[unit] ?? 1;
       const isSnap = ANNUAL_SNAPSHOT_ABBRS.has(abbr);
 
@@ -478,7 +537,7 @@ class ProwessUploader {
         callId, company, source_type: sourceType,
         fiscal_year: fiscalYear, quarter: 'Q4', call_date: endDate,
         kpi_abbr:    abbr,
-        value:       parseFloat((num * mult).toFixed(4)),
+        value:       parseFloat((effectiveNum * mult).toFixed(4)),
         raw_value:   raw, unit, multiplier: mult,
         start_date:  isSnap ? null : startDate,
         end_date:    endDate,
@@ -489,10 +548,11 @@ class ProwessUploader {
       });
     };
 
-    // REV_OP: first non-empty of two mutually-exclusive operating income columns
-    const nonFinRaw = (dataRow[sectionColMap[ANNUAL_REV_OP_NON_FIN]] || '').trim();
-    const finRaw    = (dataRow[sectionColMap[ANNUAL_REV_OP_FIN]]     || '').trim();
-    if (nonFinRaw || finRaw) pushRow(nonFinRaw ? ANNUAL_REV_OP_NON_FIN : ANNUAL_REV_OP_FIN, 'REV_OP');
+    // REV_OP: first non-empty column in priority chain wins
+    for (const colName of ANNUAL_REV_OP_COLS) {
+      const idx = sectionColMap[colName];
+      if (idx != null && (dataRow[idx] || '').trim()) { pushRow(colName, 'REV_OP'); break; }
+    }
 
     for (const [colName, abbr] of Object.entries(ANNUAL_BASE_COL_MAP))     pushRow(colName, abbr);
     for (const [colName, abbr] of Object.entries(ANNUAL_OPTIONAL_COL_MAP)) {
@@ -541,38 +601,37 @@ class ProwessUploader {
     console.log(`  Companies : ${dataRows.length}${this.rowLimit < Infinity ? ` (limited to ${this.rowLimit})` : ''}`);
     console.log(`  Columns   : ${headers.length}`);
 
-    // 2. Build per-section column maps
-    const { consMap, stanMap, stanStart } = this.buildSectionColMaps(headers, sectionRow);
-    console.log(`  Consolidated cols : ${Object.keys(consMap).length}  (cols 1–${stanStart - 1})`);
-    console.log(`  Standalone cols   : ${Object.keys(stanMap).length}  (cols ${stanStart}–${headers.length - 1})`);
+    // 2. One file = one section (Consolidated or Standalone) -- see
+    // detectSectionType's docblock for why this fails loudly instead of
+    // guessing when both labels are present.
+    const sourceType = this.detectSectionType(sectionRow);
+    if (!sourceType) throw new Error('Could not determine section type ("Consolidated"/"Standalone") from row 3.');
+    console.log(`  Section : ${sourceType === 'C' ? 'Consolidated' : 'Standalone'}`);
 
-    // 3. Parse year label for each section
-    const consFirstIdx = Object.values(consMap)[0];
-    const consYearInfo = this.parseYearLabel((yearRow[consFirstIdx] || '').trim());
-    const stanYearInfo = stanStart ? this.parseYearLabel((yearRow[stanStart] || '').trim()) : null;
-
-    if (!consYearInfo) throw new Error(`Could not parse consolidated year label: "${yearRow[consFirstIdx]}"`);
-    console.log(`  Consolidated year : ${consYearInfo.fiscalYear} (end ${consYearInfo.endDate})`);
-    if (stanYearInfo) console.log(`  Standalone year   : ${stanYearInfo.fiscalYear} (end ${stanYearInfo.endDate})`);
-
-    // 4. Validate all required columns exist in consolidated section
-    const requiredCols = [...Object.keys(ANNUAL_BASE_COL_MAP), ANNUAL_REV_OP_NON_FIN, ANNUAL_REV_OP_FIN];
-    const consMissing  = requiredCols.filter(n => !(n in consMap));
-    if (consMissing.length) {
-      throw new Error(
-        `Consolidated section missing ${consMissing.length} column(s):\n` +
-        consMissing.map(c => `  ✗ "${c}"`).join('\n')
-      );
+    // 3. Detect fiscal-year blocks (day-block convention -- the same ~20
+    // metric columns repeat once per fiscal year) and parse each block's label.
+    const blocks = this.detectLabelBlocks(yearRow);
+    if (!blocks.length) throw new Error('No fiscal-year blocks found in row 5.');
+    for (const b of blocks) {
+      b.info = this.parseYearLabel(b.label);
+      if (!b.info) throw new Error(`Cannot parse fiscal-year label: "${b.label}"`);
+      b.colMap = this.buildColMap(headers, b.start, b.end);
     }
-    console.log(`\n✓ All ${requiredCols.length} expected columns found in consolidated section.\n`);
+    console.log(`  Fiscal years : ${blocks.length} (${blocks.map(b => b.info.fiscalYear).join(', ')})`);
 
-    // 4b. Resolve any remaining columns dynamically against kpis.abbr/prowess_name
-    // (covers new indicators the admin has onboarded via the Kpi admin endpoint).
+    // 4. Resolve columns dynamically against kpis.abbr/prowess_name (covers
+    // both this template's "Non BFSI ..." columns not already in
+    // ANNUAL_BASE_COL_MAP and any new indicator the admin has onboarded via
+    // the Kpi admin endpoint). No hard "required columns" gate any more --
+    // pushRow already no-ops per-entry when a mapped column is absent, so a
+    // file simply carrying fewer columns than another vintage just yields
+    // fewer KPI rows, not a thrown error; check the "unmatched" list below
+    // and the per-KPI row counts in the report to see what actually landed.
     const knownNames = new Set([
       ...Object.keys(ANNUAL_BASE_COL_MAP), ...Object.keys(ANNUAL_OPTIONAL_COL_MAP),
-      ANNUAL_REV_OP_NON_FIN, ANNUAL_REV_OP_FIN, ...ANNUAL_DEP_AMORT_COLS,
+      ...ANNUAL_REV_OP_COLS, ...ANNUAL_DEP_AMORT_COLS,
     ]);
-    const { dynamicMap, unmatched } = await this.resolveDynamicIndicators(headers.slice(1), knownNames);
+    const { dynamicMap, unmatched } = await this.resolveDynamicIndicators(Object.keys(blocks[0].colMap), knownNames);
     if (Object.keys(dynamicMap).length) {
       console.log(`✓ Dynamically matched ${Object.keys(dynamicMap).length} extra column(s) via kpis table:`);
       for (const [colName, abbr] of Object.entries(dynamicMap)) console.log(`  "${colName}" → ${abbr}`);
@@ -589,15 +648,14 @@ class ProwessUploader {
       colUnitByIdx[i] = CSV_UNIT_MAP[raw] ?? null;
     }
 
-    // 6. Build all rows
+    // 6. Build all rows -- one company x one fiscal-year block per iteration
     console.log('Building rows…');
     const allRows = [];
     for (const dataRow of dataRows) {
       const company = (dataRow[0] || '').trim();
       if (!company) continue;
-      this.processAnnualSection(dataRow, company, consMap, consYearInfo, 'C', colUnitByIdx, allRows, dynamicMap);
-      if (stanYearInfo && stanStart) {
-        this.processAnnualSection(dataRow, company, stanMap, stanYearInfo, 'S', colUnitByIdx, allRows, dynamicMap);
+      for (const block of blocks) {
+        this.processAnnualSection(dataRow, company, block.colMap, block.info, sourceType, colUnitByIdx, allRows, dynamicMap);
       }
     }
     const finalRows = this.deduplicateRows(allRows);
@@ -606,9 +664,7 @@ class ProwessUploader {
     console.log(`\n${'─'.repeat(60)}`);
     console.log('VERIFICATION');
     console.log('─'.repeat(60));
-    const cRows = finalRows.filter(r => r.source_type === 'C');
-    const sRows = finalRows.filter(r => r.source_type === 'S');
-    console.log(`Total rows : ${finalRows.length}  (C=${cRows.length}, S=${sRows.length})`);
+    console.log(`Total rows : ${finalRows.length}  (source_type=${sourceType})`);
 
     const countByAbbr = {};
     for (const r of finalRows) countByAbbr[r.kpi_abbr] = (countByAbbr[r.kpi_abbr] || 0) + 1;
@@ -618,19 +674,20 @@ class ProwessUploader {
     }
 
     // 8. Spot-check a known company
-    const targets = ['A B B India Ltd.', 'Varun Beverages Ltd.', 'Schaeffler India Ltd.', 'Reliance Industries Ltd.', 'Infosys Ltd.'];
+    const targets = ['A B B India Ltd.', 'Varun Beverages Ltd.', 'Schaeffler India Ltd.', 'Reliance Industries Ltd.', 'Infosys Ltd.', '20 Microns Ltd.'];
     for (const target of targets) {
-      const rows = finalRows.filter(r => r.company === target && r.source_type === 'C');
+      const rows = finalRows.filter(r => r.company === target);
       if (!rows.length) continue;
       console.log(`\n${'─'.repeat(60)}`);
-      console.log(`Spot-check (C): ${target}  (${rows.length} KPI rows)`);
+      console.log(`Spot-check (${sourceType}): ${target}  (${rows.length} KPI rows across ${blocks.length} years)`);
       console.log('─'.repeat(60));
-      for (const abbr of ['REV_OP','PAT','EPS_BASIC','ASSET_PPE','DEBT_LT','CURR_LIAB','NET_WORTH','RES_SURPLUS','EMP_EXP','CFO','DEP_AMORT','ROE','CR','IC']) {
-        const r = rows.find(x => x.kpi_abbr === abbr);
+      const latestFy = blocks[blocks.length - 1].info.fiscalYear;
+      for (const abbr of ['TOTAL_INCOME','REV_OP','TOTAL_COGS','TOTAL_OPEX','OTH_EXP','FIN_COST','DEP_AMORT','PBT','TAX_EXP','PAT','EPS_BASIC','ASSET_PPE','DEBT_LT','CURR_LIAB','NET_WORTH','RES_SURPLUS','CFO']) {
+        const r = rows.find(x => x.kpi_abbr === abbr && x.fiscal_year === latestFy);
         if (r) {
           console.log(`  ${abbr.padEnd(14)} raw=${String(r.raw_value).padStart(14)} ${r.unit.padEnd(3)}  display=${(r.value / r.multiplier).toFixed(2)}`);
         } else {
-          console.log(`  ${abbr.padEnd(14)} — not found`);
+          console.log(`  ${abbr.padEnd(14)} — not found (${latestFy})`);
         }
       }
       break;
@@ -638,7 +695,7 @@ class ProwessUploader {
 
     // 9. EPS sanity check
     console.log('\n─── EPS sanity check (unit=Rs, mult=1 expected) ───');
-    const epsSample = finalRows.filter(r => r.kpi_abbr === 'EPS_BASIC' && r.value > 0 && r.source_type === 'C').slice(0, 5);
+    const epsSample = finalRows.filter(r => r.kpi_abbr === 'EPS_BASIC' && r.value > 0).slice(0, 5);
     if (epsSample.length) {
       for (const r of epsSample) {
         const ok = r.multiplier === 1 && r.unit === 'Rs';
@@ -651,10 +708,9 @@ class ProwessUploader {
     const report = {
       mode: 'annual', table, inserted: false,
       companiesInCsv: dataRows.length, columnsInCsv: headers.length,
-      consolidatedYear: consYearInfo.fiscalYear, standaloneYear: stanYearInfo?.fiscalYear ?? null,
+      sourceType, fiscalYears: blocks.map(b => b.info.fiscalYear),
       dynamicIndicatorsMatched: dynamicMap, unmatchedColumns: unmatched,
-      totalRows: finalRows.length, rowsBySourceType: { C: cRows.length, S: sRows.length },
-      rowsByKpi: countByAbbr,
+      totalRows: finalRows.length, rowsByKpi: countByAbbr,
     };
 
     if (!doInsert) {
@@ -712,19 +768,6 @@ class ProwessUploader {
     };
   }
 
-  /** Detect quarter blocks from row 4 by label-change boundaries. */
-  detectQuarterBlocks(yearRow) {
-    const blocks = [];
-    let cur = null;
-    for (let i = 1; i < yearRow.length; i++) {
-      const lbl = (yearRow[i] || '').trim();
-      if (!lbl) continue;
-      if (!cur || cur.label !== lbl) { cur = { label: lbl, start: i, end: i }; blocks.push(cur); }
-      else cur.end = i;
-    }
-    return blocks;
-  }
-
   async runQuarterly() {
     const { table, csvPath, doInsert, doClear } = this;
     console.log(`=== ProwessUploader (quarterly) → ${table} ===`);
@@ -747,7 +790,7 @@ class ProwessUploader {
     }
 
     // 2. Detect quarter blocks and parse their labels
-    const blocks = this.detectQuarterBlocks(yearRow);
+    const blocks = this.detectLabelBlocks(yearRow);
     if (!blocks.length) throw new Error('No quarter blocks found in row 4.');
     for (const b of blocks) {
       b.info = this.parseQuarterLabel(b.label);
