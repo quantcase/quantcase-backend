@@ -234,16 +234,20 @@ async function resolveMetric(abbr, resCtx, opts = {}) {
 
   let result;
 
-  const storedValue = await resCtx.getCurrentValue(abbr, freq);
-
-  if (storedValue != null) {
-    // Stored-value-wins, for raw AND formula-type abbrs alike — Prowess
-    // itself directly reports some ratios (ROCE, DE, CR, IC, ...) that Kpi
-    // otherwise treats as formula-derived; a stored value always pre-empts
-    // computing one, matching the pre-migration REGISTRY's behavior.
-    result = { value: storedValue, source: 'stored', period: await resCtx.getCurrentPeriod(abbr, freq) };
-  } else if (def.isRaw) {
-    result = { value: null, source: 'no_data' };
+  if (def.isRaw) {
+    // No formula_expression at all -- the only possible source is whatever
+    // Prowess directly reported for this abbr. Formula-having abbrs never
+    // fall into this branch, even if Prowess ALSO reports a raw value for
+    // the same abbr (e.g. DE, alongside its BORR_TOTAL/NET_WORTH formula) --
+    // admin's formula is an explicit, deliberate choice and always wins once
+    // set; it's never silently overridden by a stored value. Matches
+    // _resolveAtIndex's isRaw-gated logic exactly, so a series (screener
+    // tables) and a single current-value lookup (admin preview) can never
+    // disagree about which one an abbr resolves through.
+    const storedValue = await resCtx.getCurrentValue(abbr, freq);
+    result = storedValue != null
+      ? { value: storedValue, source: 'stored', period: await resCtx.getCurrentPeriod(abbr, freq) }
+      : { value: null, source: 'no_data' };
   } else if (!def.ast) {
     // formula_expression set but failed to parse at cache-load time, or a
     // purely organizational "header" Kpi (no formula, no raw data — e.g. a
