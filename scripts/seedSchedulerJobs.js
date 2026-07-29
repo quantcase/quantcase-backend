@@ -45,7 +45,7 @@ const JOBS = [
     name:            'BSE Document Discovery',
     description:     'Scrapes BSE API for new earnings transcripts, investor presentations, and annual reports, upserts URLs into bse_discovered_urls for admin review. Manual only — admin-triggered via POST /admin/bse-discovery/run, never cron-fires.',
     job_type:        'bse_discovery',
-    cron_expression: '0 9,18 * * 1-5',  // kept for reference; inactive since discovery now requires admin approval before URLs reach earnings_calls/annual_reports
+    cron_expression: '0 9 * * 1-5',     // 9am IST weekdays; kept for reference; inactive since discovery now requires admin approval before URLs reach earnings_calls/annual_reports
     is_active:       false,
     config:          { lookback_days: 1 },
   },
