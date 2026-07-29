@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const { parse } = require('csv-parse/sync');
 const prisma = require('../../config/prisma');
+const { internalAuthHeaders } = require('../../lib/internalAuth');
 
 const DEFAULT_CSV = path.join(__dirname, '../../extras/data-exports/QC - Wrong Quarter Fixes - Pre-FY25.csv');
 
@@ -64,7 +65,7 @@ async function invalidateV2Signals(callId) {
 }
 
 async function dispatchV2(callId) {
-  const res  = await fetch(`${API_URL}/api/calls/${callId}/summarize-v2`, { method: 'POST' });
+  const res  = await fetch(`${API_URL}/api/calls/${callId}/summarize-v2`, { method: 'POST', headers: internalAuthHeaders() });
   const body = await res.json();
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
   return body;
@@ -81,7 +82,7 @@ async function invalidatePptSignals(callId) {
 }
 
 async function dispatchPpt(callId) {
-  const res  = await fetch(`${API_URL}/api/calls/${callId}/summarize-v2-ppt`, { method: 'POST' });
+  const res  = await fetch(`${API_URL}/api/calls/${callId}/summarize-v2-ppt`, { method: 'POST', headers: internalAuthHeaders() });
   const body = await res.json();
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
   return body;

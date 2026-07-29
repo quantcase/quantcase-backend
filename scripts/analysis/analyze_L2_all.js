@@ -28,6 +28,7 @@
 
 require('dotenv').config();
 const prisma = require('../../config/prisma');
+const { internalAuthHeaders } = require('../../lib/internalAuth');
 
 const DEAL_SLUGS        = new Set(['earnings-forecast', 'target-price-matrix', 'pe-rerating-potential', 'earning-quality']);
 const MANAGEMENT_SLUGS  = new Set(['guidance-credibility', 'disclosure-honesty', 'capital-allocation', 'promoter-activity']);
@@ -57,7 +58,7 @@ async function computeLenses(callId, lenses) {
     const payload = lenses ? { callId, lenses } : { callId };
     const res = await fetch(url, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...internalAuthHeaders(), 'Content-Type': 'application/json' },
       body:    JSON.stringify(payload),
     });
     const body = await res.json().catch(() => ({}));

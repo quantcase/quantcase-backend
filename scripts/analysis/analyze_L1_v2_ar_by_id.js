@@ -17,6 +17,7 @@
 
 require('dotenv').config();
 const prisma = require('../../config/prisma');
+const { internalAuthHeaders } = require('../../lib/internalAuth');
 
 const TARGET_IDS = [
   57698, 57697, 57696, 57695, 57694, 57693, 57692, 57691, 57690, 57689,
@@ -58,7 +59,7 @@ async function invalidateArSignals(reportId) {
 }
 
 async function dispatchAr(reportId) {
-  const res  = await fetch(`${API_URL}/api/annual-reports/${reportId}/summarize-v2`, { method: 'POST' });
+  const res  = await fetch(`${API_URL}/api/annual-reports/${reportId}/summarize-v2`, { method: 'POST', headers: internalAuthHeaders() });
   const body = await res.json();
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
   return body;

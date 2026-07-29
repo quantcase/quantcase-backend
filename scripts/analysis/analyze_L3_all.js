@@ -20,6 +20,7 @@
 
 require('dotenv').config();
 const prisma = require('../../config/prisma');
+const { internalAuthHeaders } = require('../../lib/internalAuth');
 
 const args         = process.argv.slice(2);
 const dispatch     = args.includes('--dispatch');
@@ -37,7 +38,7 @@ async function enqueueAnalysis(callId, types) {
   try {
     const res = await fetch(url, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...internalAuthHeaders(), 'Content-Type': 'application/json' },
       body:    JSON.stringify({ callId, types, forceRefresh }),
     });
     const body = await res.json().catch(() => ({}));

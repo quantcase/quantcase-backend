@@ -16,6 +16,7 @@
 
 require('dotenv').config();
 const prisma = require('../../config/prisma');
+const { internalAuthHeaders } = require('../../lib/internalAuth');
 
 // const TARGET_TICKERS = [
 //   'NMDC', 'MOIL', 'GRAVITA',
@@ -72,7 +73,7 @@ async function computeLenses(callId, lenses) {
   try {
     const res  = await fetch(url, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...internalAuthHeaders(), 'Content-Type': 'application/json' },
       body:    JSON.stringify({ callId, lenses }),
     });
     const body = await res.json().catch(() => ({}));

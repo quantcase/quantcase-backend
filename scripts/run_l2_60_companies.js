@@ -1,5 +1,8 @@
 'use strict';
 
+require('dotenv').config();
+const { internalAuthHeaders } = require('../lib/internalAuth');
+
 const BASE_URL = process.env.API_URL || 'http://localhost:8000';
 
 const TARGET_TICKERS = [
@@ -49,7 +52,7 @@ async function sleep(ms) {
 async function enqueue(slug, ticker) {
   const res = await fetch(`${BASE_URL}/api/html-skills/${slug}/run`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...internalAuthHeaders(), 'Content-Type': 'application/json' },
     body:    JSON.stringify({ ticker }),
   });
   const body = await res.json();

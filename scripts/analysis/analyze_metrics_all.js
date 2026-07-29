@@ -27,6 +27,7 @@
 
 require('dotenv').config();
 const prisma = require('../../config/prisma');
+const { internalAuthHeaders } = require('../../lib/internalAuth');
 
 const args         = process.argv.slice(2);
 const dispatch     = args.includes('--dispatch');
@@ -50,7 +51,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function fetchOne(symbol, apiType) {
   const url = `${baseUrl}/api/screener/${symbol}/${apiType}${forceRefresh ? '?refresh=1' : ''}`;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: internalAuthHeaders() });
     if (res.ok) {
       return { symbol, apiType, status: 'ok', code: res.status };
     }

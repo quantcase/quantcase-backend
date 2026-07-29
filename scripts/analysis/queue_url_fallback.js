@@ -19,6 +19,7 @@
 
 require('dotenv').config();
 const prisma = require('../../config/prisma');
+const { internalAuthHeaders } = require('../../lib/internalAuth');
 
 const args     = process.argv.slice(2);
 const dispatch = args.includes('--dispatch');
@@ -32,7 +33,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function postJob(callId) {
   const url = `${baseUrl}/api/calls/${callId}/summarize`;
   try {
-    const res  = await fetch(url, { method: 'POST' });
+    const res  = await fetch(url, { method: 'POST', headers: internalAuthHeaders() });
     const body = await res.json().catch(() => ({}));
     if (res.ok) {
       console.log(`  [OK]  ${callId}  jobId=${body.job?.id ?? 'n/a'}`);

@@ -10,6 +10,7 @@
  */
 
 const prisma  = require('../../config/prisma');
+const { internalAuthHeaders } = require('../../lib/internalAuth');
 
 const API_URL = process.env.API_URL || 'http://localhost:8000';
 
@@ -21,7 +22,11 @@ async function hasSignals(callId, docType) {
 }
 
 async function dispatchEndpoint(url) {
-  const res  = await fetch(url, { method: 'POST', signal: AbortSignal.timeout(30_000) });
+  const res  = await fetch(url, {
+    method:  'POST',
+    headers: internalAuthHeaders(),  // global auth gate rejects unauthenticated self-calls
+    signal:  AbortSignal.timeout(30_000),
+  });
   const body = await res.json();
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
   return body;
