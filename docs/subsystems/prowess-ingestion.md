@@ -129,11 +129,12 @@ Registered in [`scheduler/executor.js`](../../scheduler/executor.js):
 
 | `job_type` | Handler | Seeded? | State |
 |------------|---------|---------|-------|
-| `prowess_batch_poll` | `prowessBatchPoll` | **No** (not in `seedSchedulerJobs.js`) | The working live path — needs a `SchedulerJob` row created manually |
+| `prowess_batch_poll` | `prowessBatchPoll` | **No** (not in `seedSchedulerJobs.js`) | The working live path — needs a `SchedulerJob` row created manually. In practice the admin frontend's per-batch refresh (`POST /:token/check`) covers resolution today, so this hasn't needed a cron row |
+| `prowess_daily_batch` | `prowessDailyBatch` | Yes (`prowess-daily-batch`) | `is_active: false` — submits `daily_ohlcv.bt` via SendBatch (submission only). Admin flips `is_active`/edits `cron_expression` via `/admin/scheduler-jobs/prowess-daily-batch` to switch manual↔auto or change run time |
 | `prowess_ohlcv` | `prowessOhlcv` | Yes | `is_active: false` — calls the **stub** REST client |
 | `prowess_quarterly` / `prowess_annual` | `prowessFilings` | Yes | `is_active: false` — calls the **stub** REST client |
 
-The three cron jobs seeded by [`scripts/seedSchedulerJobs.js`](../../scripts/seedSchedulerJobs.js) target the not-yet-implemented REST `prowessApiClient` and are inactive by design. See [scheduler](./scheduler.md) for the register/fire model.
+`prowess_ohlcv`/`prowess_quarterly`/`prowess_annual` target the not-yet-implemented REST `prowessApiClient` and are inactive by design. `prowess_daily_batch` is the real, working submission path for the checked-in `.bt` template — also inactive by default, but admin-controllable via the generic scheduler-jobs API (manual trigger works regardless of `is_active`). See [scheduler](./scheduler.md) for the register/fire model.
 
 ## Gotchas
 
