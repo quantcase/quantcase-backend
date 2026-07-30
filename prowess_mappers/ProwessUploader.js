@@ -18,140 +18,27 @@ const CSV_UNIT_MAP = {
 const UNIT_MULTIPLIER = { Cr: 10_000_000, '%': 1, x: 1, Rs: 1 };
 
 // ─── Annual — column maps ─────────────────────────────────────────────────────
-
-const ANNUAL_BASE_COL_MAP = {
-  // P&L — Revenue
-  'Total income':                                                                             'TOTAL_INCOME',
-  'Other miscellaneous and irregular income':                                                 'OTH_INC',
-  // P&L — COGS
-  'Cost of goods sold':                                                                       'TOTAL_COGS',
-  'Raw materials, stores & spares':                                                           'COST_MAT',
-  'Purchase of finished goods':                                                               'PURCH_STOCK',
-  'Change in stock':                                                                          'INV_CHG',
-  // P&L — Operating Expenses
-  'Total expenses':                                                                           'TOTAL_OPEX',
-  'Compensation to employees':                                                                'EMP_EXP',
-  'Financial services expenses':                                                              'FIN_COST',
-  'Expenses other than Depreciation, Interest, Taxes, Provisions and Amortizations':         'OTH_EXP',
-  'Depreciation / Amortisation (net of transfer from revaluation reserves)':                  'DEP_AMORT',
-  // P&L — Profit lines
-  'Net profit before tax and extra ordinary items':                                           'PBT_PRE_EXC',
-  'Extra-ordinary expenses':                                                                  'EXC_ITEMS',
-  'PBT':                                                                                      'PBT',
-  'Provision for direct tax':                                                                 'TAX_EXP',
-  'Profit after tax (PAT)':                                                                   'PAT',
-  'Eps basic, AS 20':                                                                         'EPS_BASIC',
-  'Eps diluted, AS 20':                                                                       'EPS_DILUTED',
-  // P&L — BFSI
-  'Provisions for NPAs':                                                                      'PROV_CONT',
-  'Net Interest Margin (NIM) (%)':                                                            'NIM_PCT',
-  // Balance Sheet — Assets
-  'Total assets':                                                                             'TOTAL_ASSETS',
-  'Non-current assets':                                                                       'NONCURR_ASSETS',
-  'Net goodwill':                                                                             'ASSET_GW',
-  'Net other intangible assets':                                                              'ASSET_INTANG',
-  'Net property, plant and equipment':                                                        'ASSET_PPE',
-  'CWIP & Intangible assets under development (net of impairment)':                          'ASSET_CWIP',
-  'Long term investments':                                                                    'INV_NONCURR',
-  'Total long term loans & advances':                                                         'LOANS_NONCURR',
-  'Other long term assets':                                                                   'OTH_ASSET_NC',
-  'Long term bank balance':                                                                   'BANK_BAL_OTHER',
-  'Current assets (incl. short term investments, loans & advances)':                         'CURR_ASSETS',
-  'Short term investments':                                                                   'INV_CURR',
-  'Short term inventories':                                                                   'INVENTORY',
-  'Short term trade receivables & bills receivable':                                          'TRADE_RECV',
-  'Cash & Bank balance (short term)':                                                         'CASH_EQUIV',
-  'Total short term loans & advances':                                                        'LOANS_CURR',
-  // Balance Sheet — Liabilities
-  'Total liabilities excluding Capital & Reserves':                                           'TOTAL_LIAB',
-  'Non-current liabilities':                                                                  'NONCURR_LIAB',
-  'Long term borrowings excl current portion':                                                'DEBT_LT',
-  'Deferred tax liability':                                                                   'DTL',
-  'Long term provisions':                                                                     'PROV_LT',
-  'Current liabilities':                                                                      'CURR_LIAB',
-  'Short-term borrowings':                                                                    'DEBT_ST',
-  'Short term trade payables and acceptances':                                                'TRADE_PAY',
-  'Other current liabilities':                                                                'OTH_LIAB_CURR',
-  'Provisions outstanding (short term)':                                                     'PROV_ST',
-  // Balance Sheet — Equity
-  'Paid up equity capital (net of forfeited equity capital)':                                 'EQ_SHARE_CAP',
-  'Net worth':                                                                                'NET_WORTH',
-  'Reserves and funds':                                                                       'RES_SURPLUS',
-  // Cashflow
-  'Net cash flow from operating activities':                                                  'CFO',
-  'Net cash inflow or (outflow) from investing activities':                                   'CFI',
-  'Net cash inflow or (outflow) from financing activities':                                   'CFF',
-  // BFSI balance sheet
-  'Working funds':                                                                            'WORKING_FUNDS',
-};
-
-const ANNUAL_OPTIONAL_COL_MAP = {
-  // Cashflow — removed from 2026 consolidated; keep as fallback
-  'Net cash inflow or (outflow) due to net increase or (decrease) in cash and cash equivalents': 'NET_CASH_CHANGE',
-  // BFSI balance sheet — standalone-only in 2026 CSV
-  'Deposits: Total':         'DEP_TOTAL',
-  'Borrowings: Total':       'BORR_TOTAL',
-  'Loan advances: Total':    'LOAN_ADV_TOTAL',
-  'Investment at BV: Total': 'INV_BV_TOTAL',
-  // 'Deposits (accepted by commercial banks)' (osc_sheet_199.csv-style
-  // template) used to be aliased here too -- deliberately dropped, since a
-  // plain second dict entry meant deduplicateRows silently picked whichever
-  // of the two columns happened to be pushed first if both were ever
-  // non-empty in the same row, with no log if they disagreed. Left unmapped;
-  // admin can add it as its own Kpi (with this exact string as prowess_name)
-  // if the column needs tracking again.
-  // Ratios
-  'Return (cash) on capital employed':                          'ROCE',
-  'Return on net worth (Return on Equity)':                     'ROE',
-  'Current ratio (times)':                                      'CR',
-  'Interest cover (times)':                                     'IC',
-  'Capital employed':                                           'CAP_EMP',
-  'Debt to equity ratio (times)':                               'DE',
-  // PPE breakdown — Mar2025_annual.csv onwards
-  'Net land and buildings, including bearer plants':            'ASSET_LAND_NET',
-  'Net mining / oil & gas properties':                          'ASSET_MINING_NET',
-  'Net biological assets - bearer plants':                      'ASSET_BIO_NET',
-  'Net leasehold improvements':                                 'ASSET_LEASE_IMP_NET',
-  'Net buildings':                                              'ASSET_BLDG_NET',
-  'Gross land and buildings, including bearer plants':          'ASSET_LAND_GRS',
-  'Net plant & machinery, computers and electrical installations': 'ASSET_PM_NET',
-  'Net computers and IT systems':                               'ASSET_IT_NET',
-  'Net electrical installations & fittings':                    'ASSET_ELEC_NET',
-  'Gross plant & machinery, computers and electrical installations': 'ASSET_PM_GRS',
-  'Net transport & communication equipment and infrastructure': 'ASSET_TRANS_NET',
-  'Net furniture and other fixed assets':                       'ASSET_FURN_NET',
-};
-
-// REV_OP is intentionally NOT populated from the annual CSV any more --
-// 'Operating income for non-financial Cos.' / 'Operating income for
-// financial Cos.' used to both feed REV_OP via a first-non-empty-wins
-// priority chain, silently merging two distinct segment-scoped columns into
-// one abbr. Left unmapped; admin can create REV_OP_NONFIN/REV_OP_FIN (or
-// similar) as their own Kpis, matched dynamically via prowess_name. The
-// quarterly CSV's REV_OP mapping ('Net sales', below in QTR_COL_MAP) is
-// unaffected -- that one was always a plain 1:1 mapping.
+//
+// There used to be a hardcoded CSV-header -> abbr map here (ANNUAL_BASE_COL_MAP
+// / ANNUAL_OPTIONAL_COL_MAP). It's gone -- every annual column now resolves
+// purely dynamically against kpis.abbr/kpis.prowess_name (see runAnnual's
+// resolveDynamicIndicators call, knownNames now always empty for annual).
+// Admin owns the full mapping via the Kpi table (prowess_name = exact CSV
+// header text), can see/edit it directly, and nothing here needs a code
+// deploy to change a mapping or add a new one.
+//
+// The snapshot/flow start_date distinction (ANNUAL_SNAPSHOT_ABBRS) is gone
+// too -- every annual row now gets a real start_date and period_type:
+// 'annual', no more null-start_date "snapshot" rows. That distinction used to
+// cause a real bug: dataFetcherCore.js's _fetchPeriodBoundaries needed a
+// DISTINCT ON + ORDER BY start_date (NULLS LAST) workaround because a plain
+// Prisma distinct() could land on a null-start_date snapshot row first for a
+// given period, silently nulling PB_TTM/MCAP_SALES/PE_DAILY on some quarters.
+// With every row carrying a real start_date, that workaround is now simply
+// redundant (harmless), not required.
 
 // See pushRow's docblock for why this one column gets special-cased.
 const CASA_RATIO_COL = 'BFSI CASA Ratio';
-
-const ANNUAL_SNAPSHOT_ABBRS = new Set([
-  // Assets
-  'TOTAL_ASSETS', 'NONCURR_ASSETS', 'ASSET_PPE',    'ASSET_CWIP',   'INV_NONCURR',
-  'LOANS_NONCURR','OTH_ASSET_NC',   'BANK_BAL_OTHER','CURR_ASSETS',  'INVENTORY',
-  'INV_CURR',     'TRADE_RECV',     'CASH_EQUIV',    'LOANS_CURR',
-  // PPE breakdown
-  'ASSET_LAND_NET','ASSET_MINING_NET','ASSET_BIO_NET','ASSET_LEASE_IMP_NET','ASSET_BLDG_NET',
-  'ASSET_LAND_GRS','ASSET_PM_NET',   'ASSET_IT_NET', 'ASSET_ELEC_NET','ASSET_PM_GRS',
-  'ASSET_TRANS_NET','ASSET_FURN_NET',
-  // Liabilities
-  'TOTAL_LIAB',   'NONCURR_LIAB',   'DEBT_LT',       'DTL',          'PROV_LT',
-  'CURR_LIAB',    'DEBT_ST',        'TRADE_PAY',      'OTH_LIAB_CURR','PROV_ST',
-  // Equity
-  'EQ_SHARE_CAP', 'NET_WORTH',      'RES_SURPLUS',
-  // BFSI
-  'ASSET_GW',     'ASSET_INTANG',
-  'DEP_TOTAL',    'BORR_TOTAL',     'LOAN_ADV_TOTAL', 'INV_BV_TOTAL', 'WORKING_FUNDS',
-]);
 
 const ANNUAL_STATEMENT_MAP = {
   TOTAL_INCOME: 'pnl', OTH_INC: 'pnl', TOTAL_COGS: 'pnl', COST_MAT: 'pnl',
@@ -494,7 +381,7 @@ class ProwessUploader {
   }
 
   /** Extract KPI rows from one section (C or S) and push into allRows. */
-  processAnnualSection(dataRow, company, sectionColMap, yearInfo, sourceType, colUnitByIdx, allRows, extraMap = {}) {
+  processAnnualSection(dataRow, company, sectionColMap, yearInfo, sourceType, colUnitByIdx, allRows, columnMap = {}) {
     const { endDate, fiscalYear } = yearInfo;
     const startDate = this.startOfPeriod(endDate);
     const callId    = `prowess_new_${this.normalizeName(company)}_${fiscalYear}_${sourceType}`;
@@ -524,8 +411,7 @@ class ProwessUploader {
         unit = colUnitByIdx[idx] ?? 'Cr';
         effectiveNum = num;
       }
-      const mult   = UNIT_MULTIPLIER[unit] ?? 1;
-      const isSnap = ANNUAL_SNAPSHOT_ABBRS.has(abbr);
+      const mult = UNIT_MULTIPLIER[unit] ?? 1;
 
       allRows.push({
         callId, company, source_type: sourceType,
@@ -533,21 +419,18 @@ class ProwessUploader {
         kpi_abbr:    abbr,
         value:       parseFloat((effectiveNum * mult).toFixed(4)),
         raw_value:   raw, unit, multiplier: mult,
-        start_date:  isSnap ? null : startDate,
+        start_date:  startDate,
         end_date:    endDate,
-        period_type: isSnap ? 'snapshot' : 'annual',
+        period_type: 'annual',
         source:      'QE',
         source_path: `prowess/${path.basename(this.csvPath)}`,
         statement:   ANNUAL_STATEMENT_MAP[abbr] ?? null,
       });
     };
 
-    for (const [colName, abbr] of Object.entries(ANNUAL_BASE_COL_MAP))     pushRow(colName, abbr);
-    for (const [colName, abbr] of Object.entries(ANNUAL_OPTIONAL_COL_MAP)) {
-      if (colName in sectionColMap) pushRow(colName, abbr);
-    }
-    // Indicators resolved dynamically against kpis.abbr/prowess_name (admin-added).
-    for (const [colName, abbr] of Object.entries(extraMap)) {
+    // Every column resolves dynamically against kpis.abbr/prowess_name --
+    // there's no hardcoded map left to check first.
+    for (const [colName, abbr] of Object.entries(columnMap)) {
       if (colName in sectionColMap) pushRow(colName, abbr);
     }
   }
@@ -601,18 +484,15 @@ class ProwessUploader {
     }
     console.log(`  Fiscal years : ${blocks.length} (${blocks.map(b => b.info.fiscalYear).join(', ')})`);
 
-    // 4. Resolve columns dynamically against kpis.abbr/prowess_name (covers
-    // both this template's "Non BFSI ..." columns not already in
-    // ANNUAL_BASE_COL_MAP and any new indicator the admin has onboarded via
-    // the Kpi admin endpoint). No hard "required columns" gate any more --
-    // pushRow already no-ops per-entry when a mapped column is absent, so a
-    // file simply carrying fewer columns than another vintage just yields
-    // fewer KPI rows, not a thrown error; check the "unmatched" list below
-    // and the per-KPI row counts in the report to see what actually landed.
-    const knownNames = new Set([
-      ...Object.keys(ANNUAL_BASE_COL_MAP), ...Object.keys(ANNUAL_OPTIONAL_COL_MAP),
-    ]);
-    const { dynamicMap, unmatched } = await this.resolveDynamicIndicators(Object.keys(blocks[0].colMap), knownNames);
+    // 4. Resolve every column against kpis.abbr/prowess_name -- there's no
+    // hardcoded map to check first any more, so knownNames is always empty
+    // and every CSV header goes through the admin-owned Kpi table. No hard
+    // "required columns" gate either -- pushRow already no-ops per-entry when
+    // a mapped column is absent, so a file simply carrying fewer columns than
+    // another vintage just yields fewer KPI rows, not a thrown error; check
+    // the "unmatched" list below and the per-KPI row counts in the report to
+    // see what actually landed.
+    const { dynamicMap, unmatched } = await this.resolveDynamicIndicators(Object.keys(blocks[0].colMap), new Set());
     if (Object.keys(dynamicMap).length) {
       console.log(`✓ Dynamically matched ${Object.keys(dynamicMap).length} extra column(s) via kpis table:`);
       for (const [colName, abbr] of Object.entries(dynamicMap)) console.log(`  "${colName}" → ${abbr}`);
@@ -705,8 +585,14 @@ class ProwessUploader {
     console.log('done.\n');
 
     if (doClear) {
-      const deleted = await this.prisma.$executeRawUnsafe(`DELETE FROM ${table}`);
-      console.log(`✓ Cleared ${deleted} rows from ${table}.\n`);
+      // Scoped to annual-ingested rows only (call_id prefix 'prowess_new_') --
+      // an unscoped `DELETE FROM ${table}` here would also wipe the
+      // separately-ingested quarterly rows, which this mode has no business
+      // touching.
+      const deleted = await this.prisma.$executeRawUnsafe(
+        `DELETE FROM ${table} WHERE call_id LIKE 'prowess_new_%'`
+      );
+      console.log(`✓ Cleared ${deleted} annual rows from ${table}.\n`);
     }
 
     console.log('Seeding PPE breakdown KPIs…');
