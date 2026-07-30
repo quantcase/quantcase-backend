@@ -1,5 +1,7 @@
 'use strict';
 
+const peerIdentity = require('../lib/peerIdentity');
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function na(val) {
@@ -27,32 +29,79 @@ function buildDataBlock(symbol, finResult) {
   const cf  = s.cashFlow  ?? {};
   const ann = s.annual    ?? {};
 
+  // financials.analyze() labels statement rows with KPI codes (REV_OP, CFO,
+  // BORR_TOTAL, …), not camelCase names. Lookups take a candidate list because
+  // the annual P&L row set varies by screen config — a plain P&L company
+  // returns REV_OP/OP_PROFIT/PAT while others return GROSS_PROFIT/
+  // FINANCING_PROFIT — and a missing concept must degrade to N/A, not to a
+  // wrong row.
+  const ROW_KEYS = {
+    revenue:         ['REV_OP'],
+    operatingProfit: ['OP_PROFIT', 'GROSS_PROFIT'],
+    opm:             ['OPM'],
+    netProfit:       ['PAT'],
+    equityCapital:   ['EQ_SHARE_CAP'],
+    reserves:        ['RES_SURPLUS'],
+    borrowings:      ['BORR_TOTAL'],
+    totalAssets:     ['TOTAL_ASSETS'],
+    fixedAssets:     ['ASSET_PPE'],
+    investments:     ['INV_NONCURR'],
+    operatingCF:     ['CFO'],
+    investingCF:     ['CFI'],
+    financingCF:     ['CFF'],
+  };
+
+  function findRow(rows, concept) {
+    const candidates = ROW_KEYS[concept] ?? [concept];
+    return rows.find((r) => candidates.includes(r.key)) ?? null;
+  }
+
+  /**
+   * Index of the latest period that actually carries data. The period list can
+   * run ahead of what has been reported (a bank showing FY26 with every row
+   * null, or with 0 placeholders in the total rows), and reading the trailing
+   * index blindly renders a whole statement as N/A. Resolved once per statement
+   * rather than per row so all figures in a block come from the same year —
+   * otherwise D/E could mix FY25 equity with FY24 borrowings.
+   *
+   * Zero counts as unreported: no statement here has a legitimately all-zero
+   * period, so an all-zero column is a placeholder, not a filing.
+   */
+  function lastReportedIdx(rows, periods) {
+    for (let i = (periods ?? []).length - 1; i >= 0; i -= 1) {
+      if (rows.some((r) => r.values?.[i] != null && r.values[i] !== 0)) return i;
+    }
+    return -1;
+  }
+
+  function valueAt(rows, concept, idx) {
+    const row = findRow(rows, concept);
+    if (!row || idx < 0) return null;
+    return row.values[idx] ?? null;
+  }
+
   const annPeriods = ann.periods ?? [];
   const annRows    = ann.rows    ?? [];
-  const lastIdx    = annPeriods.length - 1;
+  const lastIdx    = lastReportedIdx(annRows, annPeriods);
 
-  function annVal(key) {
-    const row = annRows.find((r) => r.key === key);
-    if (!row || lastIdx < 0) return null;
-    return row.values[lastIdx] ?? null;
+  function annVal(concept) {
+    return valueAt(annRows, concept, lastIdx);
   }
 
   const bsAnnRows  = bs.rows    ?? [];
-  const bsLastIdx  = (bs.periods ?? []).length - 1;
+  const bsPeriods  = bs.periods ?? [];
+  const bsLastIdx  = lastReportedIdx(bsAnnRows, bsPeriods);
 
-  function bsVal(key) {
-    const row = bsAnnRows.find((r) => r.key === key);
-    if (!row || bsLastIdx < 0) return null;
-    return row.values[bsLastIdx] ?? null;
+  function bsVal(concept) {
+    return valueAt(bsAnnRows, concept, bsLastIdx);
   }
 
-  const cfRows    = cf.rows    ?? [];
-  const cfLastIdx = (cf.periods ?? []).length - 1;
+  const cfRows     = cf.rows    ?? [];
+  const cfPeriods  = cf.periods ?? [];
+  const cfLastIdx  = lastReportedIdx(cfRows, cfPeriods);
 
-  function cfVal(key) {
-    const row = cfRows.find((r) => r.key === key);
-    if (!row || cfLastIdx < 0) return null;
-    return row.values[cfLastIdx] ?? null;
+  function cfVal(concept) {
+    return valueAt(cfRows, concept, cfLastIdx);
   }
 
   const borrowings = bsVal('borrowings');
@@ -64,14 +113,16 @@ function buildDataBlock(symbol, finResult) {
     : null;
 
   // Compute YoY growth from annual data as fallback when CAGR is unavailable
-  const revRow    = annRows.find((r) => r.key === 'revenue');
-  const profRow   = annRows.find((r) => r.key === 'netProfit');
+  const revRow    = findRow(annRows, 'revenue');
+  const profRow   = findRow(annRows, 'netProfit');
   const n         = annPeriods.length;
 
+  // Anchored on lastIdx, not the raw tail, for the same unreported-period
+  // reason as lastReportedIdx.
   function yoy(seriesValues) {
-    if (!seriesValues || seriesValues.length < 2) return null;
-    const prev = seriesValues[seriesValues.length - 2];
-    const curr = seriesValues[seriesValues.length - 1];
+    if (!seriesValues || lastIdx < 1) return null;
+    const prev = seriesValues[lastIdx - 1];
+    const curr = seriesValues[lastIdx];
     if (!prev || !curr || prev === 0) return null;
     return Math.round(((curr - prev) / Math.abs(prev)) * 100);
   }
@@ -87,7 +138,7 @@ function buildDataBlock(symbol, finResult) {
       : met.salesGrowth?.['10y'] != null
         ? `10Y CAGR: ${pct(met.salesGrowth['10y'])}`
         : revYoY != null
-          ? `YoY (${annPeriods[n - 2]}→${annPeriods[n - 1]}): ${pct(revYoY)}`
+          ? `YoY (${annPeriods[lastIdx - 1]}→${annPeriods[lastIdx]}): ${pct(revYoY)}`
           : 'N/A';
 
   const profGrowthLabel = met.profitGrowth?.['3y'] != null
@@ -95,7 +146,7 @@ function buildDataBlock(symbol, finResult) {
     : met.profitGrowth?.['10y'] != null
       ? `10Y CAGR: ${pct(met.profitGrowth['10y'])}`
       : profYoY != null
-        ? `YoY (${annPeriods[n - 2]}→${annPeriods[n - 1]}): ${pct(profYoY)}`
+        ? `YoY (${annPeriods[lastIdx - 1]}→${annPeriods[lastIdx]}): ${pct(profYoY)}`
         : 'N/A';
 
   const roeLabel = met.roe?.['3y'] != null
@@ -106,11 +157,23 @@ function buildDataBlock(symbol, finResult) {
         ? `Latest: ${pct(met.roe.last)}`
         : 'N/A';
 
+  // Sector context for the `industry` signal — financials.analyze() carries no
+  // identity fields, so this comes from osc_identity.csv (cached in-process by
+  // lib/peerIdentity). Missing symbols degrade to N/A, which the prompt maps to
+  // "Insufficient Data" rather than letting the model guess a sector.
+  const ident = peerIdentity.getIdentity(symbol) ?? {};
+
   return `SYMBOL: ${symbol}
 LATEST ANNUAL PERIOD: ${annPeriods[lastIdx] ?? 'N/A'}
 ANNUAL PERIODS AVAILABLE: ${n}
 
-=== INCOME STATEMENT (TTM / Latest Annual) ===
+=== COMPANY IDENTITY ===
+Company Name:   ${na(ident.companyName)}
+Industry Group: ${na(ident.industryGroup)}
+Basic Industry: ${na(ident.basicIndustry)}
+Main Product:   ${na(ident.mainProduct)}
+
+=== INCOME STATEMENT (TTM / Latest Reported Annual: ${annPeriods[lastIdx] ?? 'N/A'}) ===
 Revenue (TTM):        ${cr(ttm.revenue)}   | Latest Annual: ${cr(annVal('revenue'))}
 EBITDA (TTM):         ${cr(ttm.ebitda)}
 Operating Profit:     ${cr(annVal('operatingProfit'))}   | OPM: ${pct(annVal('opm'))}
@@ -138,7 +201,7 @@ P/B Ratio:      ${na(val.pbRatio)}
 Book Value:     ${cr(val.bookValue)}
 EPS (Latest):   ${na(val.eps)}
 
-=== BALANCE SHEET (Latest Annual) ===
+=== BALANCE SHEET (Latest Reported Annual: ${bsPeriods[bsLastIdx] ?? 'N/A'}) ===
 Equity Capital:   ${cr(equity)}
 Reserves:         ${cr(reserves)}
 Borrowings:       ${cr(borrowings)}
@@ -147,7 +210,7 @@ Fixed Assets:     ${cr(bsVal('fixedAssets'))}
 Investments:      ${cr(bsVal('investments'))}
 Debt-to-Equity:   ${na(de)}
 
-=== CASH FLOW (Latest Annual) ===
+=== CASH FLOW (Latest Reported Annual: ${cfPeriods[cfLastIdx] ?? 'N/A'}) ===
 Cash from Operations: ${cr(cfVal('operatingCF'))}
 Cash from Investing:  ${cr(cfVal('investingCF'))}
 Cash from Financing:  ${cr(cfVal('financingCF'))}`;
