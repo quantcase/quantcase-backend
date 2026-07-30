@@ -35,6 +35,7 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
     "profitability": "<Expanding | Stable | Compressing | Loss-Making | Insufficient Data>",
     "balanceSheet": "<Strong | Adequate | Leveraged | Stressed | Insufficient Data>",
     "cashConversion": "<Excellent | Good | Moderate | Poor | Insufficient Data>",
+    "industry": "<Growing | Stable | Declining | Insufficient Data>",
     "valuation": "<Cheap | Fair | Expensive | Overvalued | Insufficient Data>"
   },
   "swot": {
@@ -63,6 +64,7 @@ Rules:
 - actionBias: max 25 words, direct imperative tone, must reference at least one key metric
 - actionableInsight.action: "Accumulate" for strong quality at fair price; "Buy" for clear value; "Hold" for steady; "Reduce" for deteriorating; "Avoid" for stressed
 - signals: each field must be one of the listed enum values — derive from the data provided
+- signals.industry: the trajectory of the sector the company operates in, NOT the company itself — use the COMPANY IDENTITY block's industry group / basic industry / main product as the subject. "Growing" for structural sector tailwinds and expanding end-demand; "Stable" for mature, cyclical or flat demand; "Declining" for structural headwinds, shrinking demand or disruption risk; "Insufficient Data" only when the COMPANY IDENTITY block gives no industry
 - swot.strengths: 2-4 bullets each max 15 words; focus on durable competitive advantages observable in the numbers
 - swot.weaknesses: 2-4 bullets; operational or financial vulnerabilities visible in the data
 - swot.opportunities: 2-4 bullets; sector tailwinds, market expansion, margin improvement scope
@@ -93,11 +95,16 @@ const OUTPUT_SCHEMA = {
     },
     signals: {
       type: 'object',
+      // getFinancials reads these keys to decide whether a cached ai_insights
+      // row still matches the promised shape — keep them in sync with the
+      // prompt's signals block above.
+      required: ['growth', 'profitability', 'balanceSheet', 'cashConversion', 'industry', 'valuation'],
       properties: {
         growth:         { type: 'string' },
         profitability:  { type: 'string' },
         balanceSheet:   { type: 'string' },
         cashConversion: { type: 'string' },
+        industry:       { type: 'string', enum: ['Growing', 'Stable', 'Declining', 'Insufficient Data'] },
         valuation:      { type: 'string' },
       },
     },

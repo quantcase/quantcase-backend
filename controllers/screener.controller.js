@@ -945,6 +945,44 @@ async function generateFundamentalsIntelligence(symbol, finResult) {
   }
 }
 
+/**
+ * Decide whether a cached fundamentals insight still matches the shape the
+ * skill currently promises. The signal keys are read from the skill's
+ * outputSchema in the DB, so adding a signal stays a DB-only change.
+ *
+ * A row is regenerated only when it is BOTH missing a promised signal AND
+ * older than the skill itself. The `updated_at < skill.updatedAt` half is what
+ * makes this loop-free: once a row is regenerated its timestamp is newer than
+ * the skill's, so a model that ignores a new signal key costs one extra LLM
+ * call for that ticker, not one per request. The missing-key half keeps an
+ * unrelated future prompt tweak from invalidating every cached row.
+ */
+async function isFundamentalsInsightStale(dbInsight) {
+  if (!dbInsight?.insight) return true;
+
+  let outputSchema, updatedAt;
+  try {
+    ({ outputSchema, updatedAt } = await loadSkillConfig('fundamentals-intelligence'));
+  } catch (err) {
+    // Skill config unreadable — serve what we have rather than regenerating blind.
+    console.error('[fundamentalsIntelligence] skill config unreadable:', err.message);
+    return false;
+  }
+
+  const expectedKeys = Object.keys(outputSchema?.properties?.signals?.properties ?? {});
+  if (expectedKeys.length === 0) return false;
+
+  const signals = dbInsight.insight.signals ?? {};
+  const missing = expectedKeys.filter((k) => signals[k] == null || signals[k] === '');
+  if (missing.length === 0) return false;
+
+  const rowUpdatedAt = dbInsight.updated_at ?? dbInsight.created_at;
+  if (updatedAt && rowUpdatedAt && rowUpdatedAt >= updatedAt) return false;
+
+  console.log(`[fundamentalsIntelligence] regenerating ${dbInsight.ticker} — missing signals: ${missing.join(', ')}`);
+  return true;
+}
+
 async function getFinancials(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
@@ -954,11 +992,13 @@ async function getFinancials(req, res, next) {
       where: { ticker_type: { ticker: symbol, type: 'fundamentals' } },
     });
 
-    if (dbInsight?.insight) {
+    if (dbInsight?.insight && !(await isFundamentalsInsightStale(dbInsight))) {
       result.fundamentalsIntelligence = dbInsight.insight;
     } else {
       const insight = await generateFundamentalsIntelligence(symbol, result);
-      result.fundamentalsIntelligence = insight;
+      // On LLM failure keep serving the stale insight instead of dropping the
+      // whole block to null.
+      result.fundamentalsIntelligence = insight ?? dbInsight?.insight ?? null;
       if (insight) {
         await prisma.aiInsight.upsert({
           where:  { ticker_type: { ticker: symbol, type: 'fundamentals' } },
