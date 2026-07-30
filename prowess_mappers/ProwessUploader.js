@@ -33,6 +33,7 @@ const ANNUAL_BASE_COL_MAP = {
   'Compensation to employees':                                                                'EMP_EXP',
   'Financial services expenses':                                                              'FIN_COST',
   'Expenses other than Depreciation, Interest, Taxes, Provisions and Amortizations':         'OTH_EXP',
+  'Depreciation / Amortisation (net of transfer from revaluation reserves)':                  'DEP_AMORT',
   // P&L — Profit lines
   'Net profit before tax and extra ordinary items':                                           'PBT_PRE_EXC',
   'Extra-ordinary expenses':                                                                  'EXC_ITEMS',
@@ -92,16 +93,13 @@ const ANNUAL_OPTIONAL_COL_MAP = {
   'Borrowings: Total':       'BORR_TOTAL',
   'Loan advances: Total':    'LOAN_ADV_TOTAL',
   'Investment at BV: Total': 'INV_BV_TOTAL',
-  // osc_sheet_199.csv-style rolled-up balance sheet template's name for the
-  // same thing -- verified against real data (Axis Bank/A U Small Finance
-  // Bank, FY2023-25): matches DEP_TOTAL to within ~0.01, pure rounding noise
-  // across CMIE query vintages. NOT the same treatment as "Total Borrowings"/
-  // "BFSI Loan & Advances" in that same file -- those were checked too and
-  // turned out to be genuinely different-scoped metrics (opposite BFSI/non-
-  // BFSI coverage for Borrowings; ~0.4-0.5% systematic value gap plus much
-  // sparser coverage for Loan & Advances) -- left unmapped for admin to
-  // create as their own Kpis, not aliased here.
-  'Deposits (accepted by commercial banks)': 'DEP_TOTAL',
+  // 'Deposits (accepted by commercial banks)' (osc_sheet_199.csv-style
+  // template) used to be aliased here too -- deliberately dropped, since a
+  // plain second dict entry meant deduplicateRows silently picked whichever
+  // of the two columns happened to be pushed first if both were ever
+  // non-empty in the same row, with no log if they disagreed. Left unmapped;
+  // admin can add it as its own Kpi (with this exact string as prowess_name)
+  // if the column needs tracking again.
   // Ratios
   'Return (cash) on capital employed':                          'ROCE',
   'Return on net worth (Return on Equity)':                     'ROE',
@@ -124,18 +122,14 @@ const ANNUAL_OPTIONAL_COL_MAP = {
   'Net furniture and other fixed assets':                       'ASSET_FURN_NET',
 };
 
-// REV_OP: first non-empty of these two mutually-exclusive columns wins
-const ANNUAL_REV_OP_COLS = [
-  'Operating income for non-financial Cos.',
-  'Operating income for financial Cos.',
-];
-
-// DEP_AMORT priority chain — first non-empty wins (handles column renames across CSV vintages)
-const ANNUAL_DEP_AMORT_COLS = [
-  'Depreciation / Amortisation (net of transfer from revaluation reserves)',
-  'Amortisation',
-  'Non-cash charges',
-];
+// REV_OP is intentionally NOT populated from the annual CSV any more --
+// 'Operating income for non-financial Cos.' / 'Operating income for
+// financial Cos.' used to both feed REV_OP via a first-non-empty-wins
+// priority chain, silently merging two distinct segment-scoped columns into
+// one abbr. Left unmapped; admin can create REV_OP_NONFIN/REV_OP_FIN (or
+// similar) as their own Kpis, matched dynamically via prowess_name. The
+// quarterly CSV's REV_OP mapping ('Net sales', below in QTR_COL_MAP) is
+// unaffected -- that one was always a plain 1:1 mapping.
 
 // See pushRow's docblock for why this one column gets special-cased.
 const CASA_RATIO_COL = 'BFSI CASA Ratio';
@@ -548,12 +542,6 @@ class ProwessUploader {
       });
     };
 
-    // REV_OP: first non-empty column in priority chain wins
-    for (const colName of ANNUAL_REV_OP_COLS) {
-      const idx = sectionColMap[colName];
-      if (idx != null && (dataRow[idx] || '').trim()) { pushRow(colName, 'REV_OP'); break; }
-    }
-
     for (const [colName, abbr] of Object.entries(ANNUAL_BASE_COL_MAP))     pushRow(colName, abbr);
     for (const [colName, abbr] of Object.entries(ANNUAL_OPTIONAL_COL_MAP)) {
       if (colName in sectionColMap) pushRow(colName, abbr);
@@ -561,12 +549,6 @@ class ProwessUploader {
     // Indicators resolved dynamically against kpis.abbr/prowess_name (admin-added).
     for (const [colName, abbr] of Object.entries(extraMap)) {
       if (colName in sectionColMap) pushRow(colName, abbr);
-    }
-
-    // DEP_AMORT: first non-empty column in priority chain wins
-    for (const colName of ANNUAL_DEP_AMORT_COLS) {
-      const idx = sectionColMap[colName];
-      if (idx != null && (dataRow[idx] || '').trim()) { pushRow(colName, 'DEP_AMORT'); break; }
     }
   }
 
@@ -629,7 +611,6 @@ class ProwessUploader {
     // and the per-KPI row counts in the report to see what actually landed.
     const knownNames = new Set([
       ...Object.keys(ANNUAL_BASE_COL_MAP), ...Object.keys(ANNUAL_OPTIONAL_COL_MAP),
-      ...ANNUAL_REV_OP_COLS, ...ANNUAL_DEP_AMORT_COLS,
     ]);
     const { dynamicMap, unmatched } = await this.resolveDynamicIndicators(Object.keys(blocks[0].colMap), knownNames);
     if (Object.keys(dynamicMap).length) {
