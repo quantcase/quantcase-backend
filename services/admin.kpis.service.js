@@ -128,19 +128,22 @@ async function listKpis({ search, limit, includeAllSources }) {
   // regardless of source, since a handful of abbrs (EBITDA, ROE, ...)
   // intentionally keep source:'transcript' (owned by the unrelated dedup
   // pipeline) while also carrying a formulaRegistry definition — pass
-  // includeAllSources to see the full registry-enabled catalogue.
-  const where = {
-    ...(includeAllSources ? { registry_enabled: true } : { source: 'QE' }),
-    ...(search
-      ? {
-          OR: [
-            { abbr:         { contains: search, mode: 'insensitive' } },
-            { full_form:    { contains: search, mode: 'insensitive' } },
-            { prowess_name: { contains: search, mode: 'insensitive' } },
-          ],
-        }
-      : {}),
-  };
+  // includeAllSources to union the QE rows with the registry-enabled ones
+  // (must be additive, not a replacement, or QE rows with
+  // registry_enabled: false silently disappear from the results).
+  const sourceFilter = includeAllSources
+    ? { OR: [{ source: 'QE' }, { registry_enabled: true }] }
+    : { source: 'QE' };
+  const searchFilter = search
+    ? {
+        OR: [
+          { abbr:         { contains: search, mode: 'insensitive' } },
+          { full_form:    { contains: search, mode: 'insensitive' } },
+          { prowess_name: { contains: search, mode: 'insensitive' } },
+        ],
+      }
+    : {};
+  const where = { AND: [sourceFilter, searchFilter] };
   return prisma.kpi.findMany({
     where,
     orderBy: { abbr: 'asc' },
