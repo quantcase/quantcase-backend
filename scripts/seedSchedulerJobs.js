@@ -14,6 +14,15 @@ const JOBS = [
     config:          { lookback_days: 1 },
   },
   {
+    slug:            'prowess-daily-batch',
+    name:            'Prowess Daily Batch (SendBatch)',
+    description:     'Submits the checked-in daily_ohlcv.bt template via the CMIE Batch API (SendBatch). Submission only -- resolve/ingest the token via the admin frontend\'s per-batch refresh, or by enabling prowess-batch-poll.',
+    job_type:        'prowess_daily_batch',
+    cron_expression: '0 16 * * 1-5',   // 4pm IST weekdays (after NSE market close) -- editable by admin
+    is_active:       false,             // manual-only until admin opts into auto via PUT /admin/scheduler-jobs/prowess-daily-batch
+    config:          {},
+  },
+  {
     slug:            'prowess-quarterly-filings',
     name:            'Prowess Quarterly Filings',
     description:     'Fetches quarterly financial data (P&L, balance sheet, cashflow) from Prowess API',
@@ -36,7 +45,7 @@ const JOBS = [
     name:            'BSE Document Discovery',
     description:     'Scrapes BSE API for new earnings transcripts, investor presentations, and annual reports, upserts URLs into bse_discovered_urls for admin review. Manual only — admin-triggered via POST /admin/bse-discovery/run, never cron-fires.',
     job_type:        'bse_discovery',
-    cron_expression: '0 9,18 * * 1-5',  // kept for reference; inactive since discovery now requires admin approval before URLs reach earnings_calls/annual_reports
+    cron_expression: '0 9 * * 1-5',     // 9am IST weekdays; kept for reference; inactive since discovery now requires admin approval before URLs reach earnings_calls/annual_reports
     is_active:       false,
     config:          { lookback_days: 1 },
   },
