@@ -156,7 +156,7 @@ below are run on demand.
 | `pipeline_dispatch_l2_multi` | [`pipelineDispatchL2Multi.js`](../../scheduler/handlers/pipelineDispatchL2Multi.js) | `runL2MultiDispatch` — html-incremental-skill dispatch, one run per ticker |
 | `pipeline_dispatch_l3_multi` | [`pipelineDispatchL3Multi.js`](../../scheduler/handlers/pipelineDispatchL3Multi.js) | `runL3MultiDispatch` — post-html L3/L4 narrative dispatch per ticker |
 | `prowess_batch_poll` | [`prowessBatchPoll.js`](../../scheduler/handlers/prowessBatchPoll.js) | Polls `GetBatch` for every pending `ProwessBatchRequest` |
-| `prowess_daily_batch` | [`prowessDailyBatch.js`](../../scheduler/handlers/prowessDailyBatch.js) | Submits the checked-in `daily_ohlcv.bt` template via SendBatch (same call as `POST /admin/prowess/batch/daily/run`) — submission only, resolving the token happens via the admin frontend's per-batch refresh or `prowess_batch_poll` |
+| `prowess_daily_batch` | [`prowessDailyBatch.js`](../../scheduler/handlers/prowessDailyBatch.js) | Submits the checked-in `daily_ohlcv.bt` template via SendBatch (same call as `POST /admin/prowess/batch/daily/run`), then polls `GetBatch` in-process (15s interval, up to 8 min) and ingests once ready — all within this one job run. No separate poll cron; the admin frontend's per-batch refresh is the fallback if CMIE is slower than 8 min |
 | `prowess_quarterly` / `prowess_annual` | [`prowessFilings.js`](../../scheduler/handlers/prowessFilings.js) | Fetches + upserts Prowess quarterly/annual filings (branches on `jobType`) |
 | `prowess_ohlcv` | [`prowessOhlcv.js`](../../scheduler/handlers/prowessOhlcv.js) | Fetches + upserts daily OHLCV |
 
@@ -173,7 +173,7 @@ handlers wrap [`services/prowess/`](../../services/prowess/) — see
 |------|-------------|-----------|-------|
 | `pipeline-dispatch` | **true** | `30 9,18 * * 1-5` | 30 min after discovery; the one live cron job |
 | `bse-discovery` | false | `0 9,18 * * 1-5` | Now admin-triggered (needs approval before URLs reach `earnings_calls`) |
-| `prowess-daily-batch` | false | `0 16 * * 1-5` | **Manual-only by default** — submits `daily_ohlcv.bt` via SendBatch; admin toggles `is_active`/`cron_expression` via `/admin/scheduler-jobs/prowess-daily-batch` to go auto |
+| `prowess-daily-batch` | false | `0 16 * * 1-5` | Submits + resolves + ingests `daily_ohlcv.bt` in one run (see job type table above); admin toggles `is_active`/`cron_expression` via `/admin/scheduler-jobs/prowess-daily-batch` for manual↔auto and run time |
 | `prowess-ohlcv-daily` | false | `0 16 * * 1-5` | Off until Prowess API wired |
 | `prowess-quarterly-filings` | false | `0 6 * * *` | Off |
 | `prowess-annual-filings` | false | `0 7 * * 0` | Off |

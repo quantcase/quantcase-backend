@@ -130,7 +130,7 @@ Registered in [`scheduler/executor.js`](../../scheduler/executor.js):
 | `job_type` | Handler | Seeded? | State |
 |------------|---------|---------|-------|
 | `prowess_batch_poll` | `prowessBatchPoll` | **No** (not in `seedSchedulerJobs.js`) | The working live path — needs a `SchedulerJob` row created manually. In practice the admin frontend's per-batch refresh (`POST /:token/check`) covers resolution today, so this hasn't needed a cron row |
-| `prowess_daily_batch` | `prowessDailyBatch` | Yes (`prowess-daily-batch`) | `is_active: false` — submits `daily_ohlcv.bt` via SendBatch (submission only). Admin flips `is_active`/edits `cron_expression` via `/admin/scheduler-jobs/prowess-daily-batch` to switch manual↔auto or change run time |
+| `prowess_daily_batch` | `prowessDailyBatch` | Yes (`prowess-daily-batch`) | `is_active: true` — submits `daily_ohlcv.bt` via SendBatch, then polls+ingests in-process (bounded to 8 min) before the run completes, so `records_processed` on the `SchedulerRun` reflects real rows ingested, not just "submitted". Admin edits `is_active`/`cron_expression` via `/admin/scheduler-jobs/prowess-daily-batch` to switch manual↔auto or change run time |
 | `prowess_ohlcv` | `prowessOhlcv` | Yes | `is_active: false` — calls the **stub** REST client |
 | `prowess_quarterly` / `prowess_annual` | `prowessFilings` | Yes | `is_active: false` — calls the **stub** REST client |
 

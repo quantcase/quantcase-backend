@@ -94,10 +94,19 @@ model Kpi {
   industry      String[]          @default([])
   source        KpiSource
   kpi_type      KpiTypeCategory?
-  // Raw indicator name as it appears in Prowess CSV/API responses, used to
-  // resolve new quarterly/annual columns to this KPI without a code deploy.
-  // Defaults to the same value as `abbr` when the two coincide.
+  // Raw indicator name as it appears in the annual Prowess CSV, used to
+  // resolve annual columns to this KPI without a code deploy. Defaults to the
+  // same value as `abbr` when the two coincide. ProwessUploader's annual path
+  // (runAnnual) matches on this field exclusively.
   prowess_name  String?
+  // Same idea as prowess_name, but for the quarterly CSV's own header text --
+  // kept separate because ~2/3 of abbrs that appear in both templates use
+  // different wording per template (e.g. TOTAL_INCOME: 'Total income'
+  // annually vs 'Total income from continuing operations' quarterly), so one
+  // string field can't hold both. Not yet wired into runQuarterly() (which
+  // still resolves via the hardcoded QTR_COL_MAP) -- seeded here for
+  // reference/future use, no ingestion code depends on it yet.
+  quarterly_prowess_name String?
   prowessValues ProwessValueNew[]
 
   // ── Generic, admin-defined computation (see utils/formulaRegistry) ──────────
