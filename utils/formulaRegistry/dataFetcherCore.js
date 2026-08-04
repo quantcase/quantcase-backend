@@ -296,7 +296,15 @@ async function _fetchPeriodBoundaries(prisma, company, sourceType, callIdPrefix)
 /**
  * Annual-only batch from prowess_values_new (callId prefix: prowess_new_*).
  * Q4 rows represent full fiscal-year audited figures.
- * Prefers consolidated (source_type='C'); falls back to standalone.
+ * Prefers consolidated (source_type='C'); falls back to standalone -- per
+ * ABBR, not per company. Different annual templates get uploaded with
+ * different C/S coverage (e.g. a P&L-only "Non-BFSI" file uploaded as both
+ * C+S, a balance-sheet "rolled-up" file uploaded as S-only for the same
+ * company) -- gating the whole batch on "does this company have ANY C row"
+ * meant a company with C data for unrelated abbrs would get null for every
+ * requested abbr that only exists under S, even though the S data was right
+ * there. Each abbr now independently uses its own C rows if it has any, S
+ * otherwise.
  *
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string}   ticker
@@ -308,23 +316,22 @@ async function fetchAnnualBatch(prisma, ticker, abbrs) {
   const result      = Object.fromEntries(abbrs.map(a => [a, []]));
   if (!prowessName) return result;
 
-  let [allPeriods, kpiRows] = await Promise.all([
+  const [periodsC, periodsS, rowsC, rowsS] = await Promise.all([
     _fetchPeriodBoundaries(prisma, prowessName, 'C', 'prowess_new_'),
+    _fetchPeriodBoundaries(prisma, prowessName, 'S', 'prowess_new_'),
     prisma.prowessValueNew.findMany({
       where:   { company: prowessName, kpi_abbr: { in: abbrs }, source_type: 'C', callId: { startsWith: 'prowess_new_' } },
       select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
     }),
+    prisma.prowessValueNew.findMany({
+      where:   { company: prowessName, kpi_abbr: { in: abbrs }, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
+      select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
+    }),
   ]);
 
-  if (!allPeriods.length) {
-    [allPeriods, kpiRows] = await Promise.all([
-      _fetchPeriodBoundaries(prisma, prowessName, 'S', 'prowess_new_'),
-      prisma.prowessValueNew.findMany({
-        where:   { company: prowessName, kpi_abbr: { in: abbrs }, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
-        select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
-      }),
-    ]);
-  }
+  const allPeriods    = periodsC.length ? periodsC : periodsS;
+  const abbrsWithC     = new Set(rowsC.map(r => r.kpi_abbr));
+  const kpiRows        = [...rowsC, ...rowsS.filter(r => !abbrsWithC.has(r.kpi_abbr))];
 
   return _buildResult(abbrs, allPeriods, kpiRows);
 }
@@ -400,10 +407,10 @@ function _groupByCompany(rows) {
 }
 
 /**
- * Bulk version of fetchAnnualBatch. Preserves the per-company C-preferred/
- * S-fallback logic (a company with any consolidated periods uses only those;
- * a company with none falls back to its own standalone rows) — not a
- * blanket "if nobody has C data, everybody uses S" shortcut.
+ * Bulk version of fetchAnnualBatch. Same per-ABBR C-preferred/S-fallback
+ * logic (see fetchAnnualBatch's docblock for why per-company gating was
+ * wrong) — for each company, each requested abbr independently uses its own
+ * C rows if it has any, S otherwise.
  *
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string[]} companyNames — already-resolved prowess company names
@@ -413,9 +420,15 @@ function _groupByCompany(rows) {
 async function fetchAnnualBatchMulti(prisma, companyNames, abbrs) {
   if (!companyNames.length) return {};
 
-  const [periodRowsC, kpiRowsC] = await Promise.all([
+  const [periodRowsC, periodRowsS, kpiRowsC, kpiRowsS] = await Promise.all([
     prisma.prowessValueNew.findMany({
       where:   { company: { in: companyNames }, source_type: 'C', callId: { startsWith: 'prowess_new_' } },
+      select:  { company: true, fiscal_year: true, quarter: true },
+      distinct: ['company', 'fiscal_year', 'quarter'],
+      orderBy: [{ company: 'asc' }, { fiscal_year: 'asc' }, { quarter: 'asc' }],
+    }),
+    prisma.prowessValueNew.findMany({
+      where:   { company: { in: companyNames }, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
       select:  { company: true, fiscal_year: true, quarter: true },
       distinct: ['company', 'fiscal_year', 'quarter'],
       orderBy: [{ company: 'asc' }, { fiscal_year: 'asc' }, { quarter: 'asc' }],
@@ -424,36 +437,26 @@ async function fetchAnnualBatchMulti(prisma, companyNames, abbrs) {
       where:  { company: { in: companyNames }, kpi_abbr: { in: abbrs }, source_type: 'C', callId: { startsWith: 'prowess_new_' } },
       select: { company: true, fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
     }),
+    prisma.prowessValueNew.findMany({
+      where:  { company: { in: companyNames }, kpi_abbr: { in: abbrs }, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
+      select: { company: true, fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
+    }),
   ]);
 
   const periodsByCoC = _groupByCompany(periodRowsC);
-  const kpisByCoC     = _groupByCompany(kpiRowsC);
-  const companiesNeedingS = companyNames.filter(c => !periodsByCoC.has(c));
-
-  let periodsByCoS = new Map(), kpisByCoS = new Map();
-  if (companiesNeedingS.length) {
-    const [periodRowsS, kpiRowsS] = await Promise.all([
-      prisma.prowessValueNew.findMany({
-        where:   { company: { in: companiesNeedingS }, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
-        select:  { company: true, fiscal_year: true, quarter: true },
-        distinct: ['company', 'fiscal_year', 'quarter'],
-        orderBy: [{ company: 'asc' }, { fiscal_year: 'asc' }, { quarter: 'asc' }],
-      }),
-      prisma.prowessValueNew.findMany({
-        where:  { company: { in: companiesNeedingS }, kpi_abbr: { in: abbrs }, source_type: 'S', callId: { startsWith: 'prowess_new_' } },
-        select: { company: true, fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
-      }),
-    ]);
-    periodsByCoS = _groupByCompany(periodRowsS);
-    kpisByCoS    = _groupByCompany(kpiRowsS);
-  }
+  const periodsByCoS = _groupByCompany(periodRowsS);
+  const kpisByCoC    = _groupByCompany(kpiRowsC);
+  const kpisByCoS    = _groupByCompany(kpiRowsS);
 
   const result = {};
   for (const company of companyNames) {
-    const periods = periodsByCoC.get(company);
-    result[company] = periods
-      ? _buildResult(abbrs, periods, kpisByCoC.get(company) ?? [])
-      : _buildResult(abbrs, periodsByCoS.get(company) ?? [], kpisByCoS.get(company) ?? []);
+    const periodsC = periodsByCoC.get(company) ?? [];
+    const periods  = periodsC.length ? periodsC : (periodsByCoS.get(company) ?? []);
+    const rowsC    = kpisByCoC.get(company) ?? [];
+    const rowsS    = kpisByCoS.get(company) ?? [];
+    const abbrsWithC = new Set(rowsC.map(r => r.kpi_abbr));
+    const kpiRows  = [...rowsC, ...rowsS.filter(r => !abbrsWithC.has(r.kpi_abbr))];
+    result[company] = _buildResult(abbrs, periods, kpiRows);
   }
   return result;
 }
