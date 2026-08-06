@@ -4,6 +4,7 @@ const prisma             = require('../../config/prisma');
 const { enrichHoldings } = require('../portfolio/market-data.service');
 const {
   VALID_SUB_FACTORS,
+  resolveSubFactorSlug,
   fetchLensScoreMap,
   buildSnapshot,
   evaluateHealth,
@@ -472,6 +473,7 @@ module.exports = {
   deleteEntry,
   triggerEvaluate,
   VALID_SUB_FACTORS,
+  resolveSubFactorSlug,
   // exported for tests / reuse
   notFound,
   badRequest,

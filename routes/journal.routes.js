@@ -5,12 +5,13 @@ const { z }        = require('zod');
 const authenticate = require('../middleware/authenticate');
 const validate     = require('../middleware/validate');
 const ctrl         = require('../controllers/journal.controller');
-const { VALID_SUB_FACTORS } = require('../services/journal/journal.service');
+const { VALID_SUB_FACTORS, resolveSubFactorSlug } = require('../services/journal/journal.service');
 
-const ALL_SUB_FACTORS = new Set(Object.values(VALID_SUB_FACTORS).flat());
+const ALL_SUB_FACTORS = Object.values(VALID_SUB_FACTORS).flat();
 
-const subFactorItem = z.string().refine(v => ALL_SUB_FACTORS.has(v), {
-  message: `Invalid sub-factor. Valid values: ${[...ALL_SUB_FACTORS].join(', ')}`,
+// Accepts the display label (case-insensitive), a legacy label, or a lens slug.
+const subFactorItem = z.string().refine(v => resolveSubFactorSlug(v) != null, {
+  message: `Invalid sub-factor. Valid values: ${ALL_SUB_FACTORS.join(', ')}`,
 });
 
 // ─── Schemas (camelCase request bodies) ───────────────────────────────────────

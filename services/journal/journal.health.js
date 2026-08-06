@@ -2,30 +2,75 @@
 
 const prisma            = require('../../config/prisma');
 const { generateNudge } = require('./journal.nudge');
+const { INSIGHT_LENSES } = require('../../lib/insightLenses');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const VALID_SUB_FACTORS = {
-  M: ['Guidance Accuracy', 'Capital Allocation', 'Disclosure Honesty'],
-  O: ['Industry Tailwind', 'Distribution Strength', 'Competitive Edge', 'TAM Expansion'],
-  D: ['Valuation', 'Earnings Growth/Quality', 'P/E Re-rating Potential', 'Risk-Reward'],
-};
-
-const SUB_FACTOR_LENS = {
-  'Guidance Accuracy':        'guidance-credibility',
-  'Capital Allocation':       'capital-allocation',
-  'Disclosure Honesty':       'disclosure-honesty',
-  'Industry Tailwind':        'industry-analysis',
-  'Distribution Strength':    'customer-distribution',
-  'Competitive Edge':         'competition',
-  'TAM Expansion':            'industry-analysis',
-  'Valuation':                'target-price-matrix',
-  'Earnings Growth/Quality':  'earnings-forecast',
-  'P/E Re-rating Potential':  'pe-rerating-potential',
-  'Risk-Reward':              'earning-quality',
-};
-
 const TYPE_TO_MOD = { management: 'M', opportunity: 'O', deal: 'D' };
+
+// Display names for the canonical lens slugs — these are the exact labels the
+// MOD sub-factor picker shows, so a sub-factor IS a lens (1:1), not a bespoke
+// journal-only vocabulary. Keep in sync with prisma/seedHtmlSkills.js.
+const LENS_DISPLAY_NAME = {
+  'guidance-credibility':   'Guidance Credibility',
+  'disclosure-honesty':     'Disclosure Honesty',
+  'capital-allocation':     'Capital Allocation',
+  'promoter-activity':      'Promoter Activity',
+  'industry-analysis':      'Industry Analysis',
+  'competition':            'Competition',
+  'financial-strength':     'Financial Strength',
+  'customer-distribution':  'Customer Distribution',
+  'earnings-forecast':      'Earnings Forecast',
+  'earning-quality':        'Earning Quality',
+  'pe-rerating-potential':  'PE Rerating Potential',
+  'target-price-matrix':    'Target Price Matrix',
+};
+
+// M/O/D → valid sub-factor labels, derived from the lens registry so the two
+// can never drift apart again.
+const VALID_SUB_FACTORS = Object.fromEntries(
+  Object.entries(INSIGHT_LENSES).map(([type, slugs]) => [
+    TYPE_TO_MOD[type],
+    slugs.map(slug => LENS_DISPLAY_NAME[slug]).filter(Boolean),
+  ]),
+);
+
+const SUB_FACTOR_LENS = Object.fromEntries(
+  Object.entries(LENS_DISPLAY_NAME).map(([slug, name]) => [name, slug]),
+);
+
+// Labels used by earlier journal entries (and alternate lens-config spellings),
+// kept so existing rows still resolve to a lens when their health is evaluated.
+// Not offered as valid input — see ALL_SUB_FACTORS in routes/journal.routes.js.
+const LEGACY_SUB_FACTOR_LENS = {
+  'Guidance Accuracy':          'guidance-credibility',
+  'Industry Tailwind':          'industry-analysis',
+  'Distribution Strength':      'customer-distribution',
+  'Competitive Edge':           'competition',
+  'TAM Expansion':              'industry-analysis',
+  'Valuation':                  'target-price-matrix',
+  'Earnings Growth/Quality':    'earnings-forecast',
+  'P/E Re-rating Potential':    'pe-rerating-potential',
+  'P/E Re-Rating Potential':    'pe-rerating-potential',
+  'Risk-Reward':                'earning-quality',
+  'Capital Allocation Quality': 'capital-allocation',
+  'Customer & Distribution':    'customer-distribution',
+};
+
+// Accepts a display name (case-insensitive), a legacy label, or a raw lens slug.
+const SUB_FACTOR_LOOKUP = new Map(
+  [
+    ...Object.entries(SUB_FACTOR_LENS),
+    ...Object.entries(LEGACY_SUB_FACTOR_LENS),
+    ...Object.keys(LENS_DISPLAY_NAME).map(slug => [slug, slug]),
+  ].map(([label, slug]) => [label.toLowerCase(), slug]),
+);
+
+function resolveSubFactorSlug(value) {
+  return typeof value === 'string'
+    ? (SUB_FACTOR_LOOKUP.get(value.trim().toLowerCase()) ?? null)
+    : null;
+}
 
 // ─── Lens-score snapshotting ──────────────────────────────────────────────────
 
@@ -53,7 +98,7 @@ async function fetchLensScoreMap(ticker) {
 function buildSnapshot(subFactors, lensMap) {
   const snap = {};
   for (const sf of subFactors) {
-    const slug = SUB_FACTOR_LENS[sf];
+    const slug = resolveSubFactorSlug(sf);
     snap[sf] = slug ? (lensMap[slug] ?? null) : null;
   }
   return snap;
@@ -68,9 +113,12 @@ function extractModScores(insightRows) {
   return result;
 }
 
+const SLUG_PILLAR = { management: 'mgmt', opportunity: 'opp', deal: 'deal' };
+
 function pillarForSlug(slug) {
-  if (slug.includes('guidance') || slug.includes('capital') || slug.includes('disclosure')) return 'mgmt';
-  if (slug.includes('industry') || slug.includes('competition') || slug.includes('distribution') || slug.includes('customer')) return 'opp';
+  for (const [type, slugs] of Object.entries(INSIGHT_LENSES)) {
+    if (slugs.includes(slug)) return SLUG_PILLAR[type];
+  }
   return 'deal';
 }
 
@@ -152,6 +200,8 @@ async function evaluateHealth(entryId) {
 module.exports = {
   VALID_SUB_FACTORS,
   SUB_FACTOR_LENS,
+  LENS_DISPLAY_NAME,
+  resolveSubFactorSlug,
   TYPE_TO_MOD,
   latestCallIdForTicker,
   fetchLensScoreMap,
