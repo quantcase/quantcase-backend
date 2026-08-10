@@ -91,6 +91,21 @@ async function _assertProwessNameNotTaken(abbr, prowessName) {
   }
 }
 
+/** Same collision guard as _assertProwessNameNotTaken, for the quarterly-template field runQuarterly() resolves against. */
+async function _assertQuarterlyProwessNameNotTaken(abbr, quarterlyProwessName) {
+  if (!quarterlyProwessName) return;
+  const existing = await prisma.kpi.findFirst({
+    where: { quarterly_prowess_name: quarterlyProwessName, abbr: { not: abbr } },
+    select: { abbr: true },
+  });
+  if (existing) {
+    throw new HttpError(
+      409,
+      `quarterly_prowess_name "${quarterlyProwessName}" is already used by Kpi "${existing.abbr}" — use that KPI instead of creating a duplicate mapping.`
+    );
+  }
+}
+
 /** DFS over formula_expression refs + fallback_abbrs, starting from a candidate abbr's own edges. */
 async function _wouldCreateCycle(abbr, formulaExpression, fallbackAbbrs) {
   const startRefs = new Set(fallbackAbbrs ?? []);
@@ -137,9 +152,10 @@ async function listKpis({ search, limit, includeAllSources }) {
   const searchFilter = search
     ? {
         OR: [
-          { abbr:         { contains: search, mode: 'insensitive' } },
-          { full_form:    { contains: search, mode: 'insensitive' } },
-          { prowess_name: { contains: search, mode: 'insensitive' } },
+          { abbr:                    { contains: search, mode: 'insensitive' } },
+          { full_form:               { contains: search, mode: 'insensitive' } },
+          { prowess_name:            { contains: search, mode: 'insensitive' } },
+          { quarterly_prowess_name:  { contains: search, mode: 'insensitive' } },
         ],
       }
     : {};
@@ -158,7 +174,7 @@ async function getKpi(abbr) {
 }
 
 async function createKpi({
-  abbr, full_form, denomination, kpi_type, prowess_name,
+  abbr, full_form, denomination, kpi_type, prowess_name, quarterly_prowess_name,
   formula_expression, fallback_abbrs, unit_label, description,
 }) {
   const existing = await prisma.kpi.findFirst({ where: { abbr } });
@@ -169,6 +185,10 @@ async function createKpi({
   // becomes `abbr` itself, which can collide with another Kpi's prowess_name.
   const effectiveProwessName = prowess_name?.trim() || abbr;
   await _assertProwessNameNotTaken(abbr, effectiveProwessName);
+  // quarterly_prowess_name has no abbr-default fallback -- unlike annual, a
+  // KPI with no quarterly template presence should just stay unresolvable
+  // there, not silently alias onto its own abbr.
+  await _assertQuarterlyProwessNameNotTaken(abbr, quarterly_prowess_name?.trim() || null);
   await _validateExpression(abbr, formula_expression ?? null);
   await _validateFallbackAbbrs(abbr, fallback_abbrs ?? []);
   await _validateNoCycle(abbr, formula_expression ?? null, fallback_abbrs ?? []);
@@ -181,6 +201,7 @@ async function createKpi({
       kpi_type: kpi_type ?? null,
       source: 'QE',
       prowess_name: effectiveProwessName,
+      quarterly_prowess_name: quarterly_prowess_name?.trim() || null,
       registry_enabled: true,
       formula_expression: formula_expression ?? null,
       fallback_abbrs: fallback_abbrs ?? [],
@@ -200,13 +221,14 @@ async function updateKpi(abbr, patch) {
   const fallbackAbbrs     = 'fallback_abbrs'     in patch ? patch.fallback_abbrs     : existing.fallback_abbrs;
 
   if ('prowess_name' in patch) await _assertProwessNameNotTaken(abbr, patch.prowess_name?.trim() || null);
+  if ('quarterly_prowess_name' in patch) await _assertQuarterlyProwessNameNotTaken(abbr, patch.quarterly_prowess_name?.trim() || null);
   await _validateExpression(abbr, formulaExpression ?? null);
   await _validateFallbackAbbrs(abbr, fallbackAbbrs ?? []);
   await _validateNoCycle(abbr, formulaExpression ?? null, fallbackAbbrs ?? []);
 
   const data = { registry_enabled: true };
   for (const field of [
-    'full_form', 'denomination', 'kpi_type', 'prowess_name',
+    'full_form', 'denomination', 'kpi_type', 'prowess_name', 'quarterly_prowess_name',
     'formula_expression', 'fallback_abbrs', 'unit_label', 'description',
   ]) {
     if (field in patch) data[field] = patch[field];
