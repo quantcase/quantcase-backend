@@ -82,50 +82,20 @@ const ANNUAL_PPE_KPIS = [
 ];
 
 // ─── Quarterly — column maps ──────────────────────────────────────────────────
-
-const QTR_COL_MAP = {
-  'Total income from continuing operations':                                                          'TOTAL_INCOME',
-  'Net sales':                                                                                        'REV_OP',
-  'Change in stock':                                                                                  'INV_CHG',
-  'Raw materials, stocks, spares, purchase of finished goods':                                        'COST_MAT',
-  'Salaries and wages':                                                                               'EMP_EXP',
-  'Total other expenses':                                                                             'OTH_EXP',
-  'Interest expenses':                                                                                'FIN_COST',
-  'Depreciation':                                                                                     'DEP_AMORT',
-  'Provisions and contingencies':                                                                     'PROV_CONT',
-  'Net Profit/(Loss) for the period from continuing operations (after tax)':                          'PAT',
-  'Paid up capital':                                                                                  'EQ_SHARE_CAP',
-  'Reserves':                                                                                         'RES_SURPLUS',
-  'Earnings per share before extraordinary item':                                                     'EPS_BASIC',
-  'Diluted earnings per share before extraordinary item':                                             'EPS_DILUTED',
-  'Borrowings':                                                                                       'BORR_TOTAL',
-  'Current liabilities':                                                                              'CURR_LIAB',
-  'Long term provisions':                                                                             'PROV_LT',
-  'Short term provisions':                                                                            'PROV_ST',
-  'Deferred tax liability':                                                                           'DTL',
-  'Net fixed assets':                                                                                 'ASSET_PPE',
-  'Capital work in progress':                                                                         'ASSET_CWIP',
-  'Long term investments':                                                                            'INV_NONCURR',
-  'Short term investments':                                                                           'INV_CURR',
-  'Other non-current assets':                                                                         'OTH_ASSET_NC',
-  'Current assets & loans and advances':                                                              'CURR_ASSETS',
-  // Insurance CFO (direct method) — empty for non-insurance companies
-  'Net cash inflow or (outflow) from operating activities - Direct method (For insurance cos.)':      'CFO',
-  'Net cash inflow or (outflow) from investing activities':                                           'CFI',
-  'Net cash inflow or (outflow) from financing activities':                                           'CFF',
-  'Cash and cash equivalents as at the end of the period':                                           'CASH_EQUIV',
-  'Net Interest Margin':                                                                              'NIM_PCT',
-  'Total outstanding AUM':                                                                            'AUM_TOTAL',
-  'Total expenses':                                                                                   'TOTAL_OPEX',
-  'Other income':                                                                                     'OTH_INC',
-};
-
-const QTR_SNAPSHOT_ABBRS = new Set([
-  'EQ_SHARE_CAP', 'RES_SURPLUS',
-  'BORR_TOTAL', 'CURR_LIAB', 'PROV_LT', 'PROV_ST', 'DTL',
-  'ASSET_PPE', 'ASSET_CWIP', 'INV_NONCURR', 'INV_CURR', 'OTH_ASSET_NC', 'CURR_ASSETS',
-  'CASH_EQUIV', 'AUM_TOTAL',
-]);
+//
+// Like annual (see the comment above ANNUAL_STATEMENT_MAP), there used to be
+// a hardcoded CSV-header -> abbr map here (QTR_COL_MAP) with a hard gate that
+// threw if any of its ~30 entries were missing from the sheet. Dropped for
+// the same reason: it's brittle against template changes (a new quarterly
+// sheet with a different column vocabulary just throws) and every mapping
+// change needed a code deploy. Every quarterly column now resolves purely
+// dynamically against kpis.abbr/kpis.quarterly_prowess_name (see runQuarterly's
+// resolveDynamicIndicators call, knownNames always empty for quarterly).
+//
+// The snapshot/flow start_date distinction (QTR_SNAPSHOT_ABBRS) is gone too,
+// for the same reason it was dropped from annual: every quarterly row now
+// gets a real start_date and period_type: 'quarterly', no more null-start_date
+// "snapshot" rows.
 
 const QTR_STATEMENT_MAP = {
   TOTAL_INCOME: 'pnl', REV_OP: 'pnl', OTH_INC: 'pnl',
@@ -218,27 +188,34 @@ class ProwessUploader {
 
   /**
    * Resolve CSV header names not covered by the hardcoded column maps against
-   * the `kpis` table (exact match on `abbr` or `prowess_name`), so new
+   * the `kpis` table (exact match on `abbr` or the given name field), so new
    * quarterly/annual indicators can be onboarded via the admin flow (create a
-   * Kpi row + prowess_name) without a code deploy. Returns the extra
-   * { headerName → kpi_abbr } entries to merge into the normal column map,
-   * plus the headers that still have no home (candidates for a new Kpi).
+   * Kpi row + prowess_name/quarterly_prowess_name) without a code deploy.
+   * Returns the extra { headerName → kpi_abbr } entries to merge into the
+   * normal column map, plus the headers that still have no home (candidates
+   * for a new Kpi).
+   *
+   * @param {string} nameField - 'prowess_name' (annual) or
+   *   'quarterly_prowess_name' (quarterly) — the two templates word the same
+   *   concept differently often enough that one field can't hold both (see
+   *   Kpi.quarterly_prowess_name's schema docblock).
    */
-  async resolveDynamicIndicators(headers, knownNames) {
+  async resolveDynamicIndicators(headers, knownNames, nameField = 'prowess_name') {
     const candidates = [...new Set(
       headers.map(h => (h || '').trim()).filter(h => h && !knownNames.has(h))
     )];
     if (!candidates.length) return { dynamicMap: {}, unmatched: [] };
 
     const matches = await this.prisma.kpi.findMany({
-      where: { OR: [{ abbr: { in: candidates } }, { prowess_name: { in: candidates } }] },
-      select: { abbr: true, prowess_name: true },
+      where: { OR: [{ abbr: { in: candidates } }, { [nameField]: { in: candidates } }] },
+      select: { abbr: true, [nameField]: true },
     });
 
     const dynamicMap = {};
     for (const kpi of matches) {
       if (candidates.includes(kpi.abbr))         dynamicMap[kpi.abbr] = kpi.abbr;
-      if (kpi.prowess_name && candidates.includes(kpi.prowess_name)) dynamicMap[kpi.prowess_name] = kpi.abbr;
+      const name = kpi[nameField];
+      if (name && candidates.includes(name)) dynamicMap[name] = kpi.abbr;
     }
     const unmatched = candidates.filter(c => !(c in dynamicMap));
     return { dynamicMap, unmatched };
@@ -672,30 +649,22 @@ class ProwessUploader {
     }
     for (const b of blocks) b.colMap = this.buildColMap(headers, b.start, b.end);
 
-    // 4. Validate all mapped columns exist in first block
-    const missing = Object.keys(QTR_COL_MAP).filter(n => !(n in blocks[0].colMap));
-    if (missing.length) {
-      throw new Error(
-        `First quarter block missing ${missing.length} mapped column(s):\n` +
-        missing.map(c => `  ✗ "${c}"`).join('\n')
-      );
-    }
-    console.log(`\n✓ All ${Object.keys(QTR_COL_MAP).length} mapped columns found in first block.\n`);
-
-    // 4b. Resolve any remaining columns (first block) dynamically against
-    // kpis.abbr/prowess_name (covers indicators onboarded via the admin flow).
-    const knownNames = new Set(Object.keys(QTR_COL_MAP));
+    // 4. Resolve columns (first block) dynamically against
+    // kpis.abbr/quarterly_prowess_name -- no hardcoded map or required-column
+    // gate any more (see the comment above QTR_STATEMENT_MAP).
     const firstBlockHeaders = Object.keys(blocks[0].colMap);
-    const { dynamicMap, unmatched } = await this.resolveDynamicIndicators(firstBlockHeaders, knownNames);
+    const { dynamicMap, unmatched } = await this.resolveDynamicIndicators(
+      firstBlockHeaders, new Set(), 'quarterly_prowess_name'
+    );
     if (Object.keys(dynamicMap).length) {
-      console.log(`✓ Dynamically matched ${Object.keys(dynamicMap).length} extra column(s) via kpis table:`);
+      console.log(`✓ Dynamically matched ${Object.keys(dynamicMap).length} column(s) via kpis table:`);
       for (const [colName, abbr] of Object.entries(dynamicMap)) console.log(`  "${colName}" → ${abbr}`);
     }
     if (unmatched.length) {
-      console.log(`⚠ ${unmatched.length} column(s) have no KPI mapping (create a Kpi with matching prowess_name to include them):`);
+      console.log(`⚠ ${unmatched.length} column(s) have no KPI mapping (create a Kpi with matching quarterly_prowess_name to include them):`);
       for (const c of unmatched) console.log(`  ✗ "${c}"`);
     }
-    const effectiveColMap = { ...QTR_COL_MAP, ...dynamicMap };
+    const effectiveColMap = dynamicMap;
 
     // 5. Build all rows
     console.log('Building rows…');
@@ -721,9 +690,8 @@ class ProwessUploader {
           const num = parseFloat(raw);
           if (isNaN(num)) continue;
 
-          const unit   = colUnitByIdx[idx] ?? 'Cr';
-          const mult   = UNIT_MULTIPLIER[unit] ?? 1;
-          const isSnap = QTR_SNAPSHOT_ABBRS.has(abbr);
+          const unit = colUnitByIdx[idx] ?? 'Cr';
+          const mult = UNIT_MULTIPLIER[unit] ?? 1;
 
           allRows.push({
             callId, company, source_type: 'S',
@@ -731,9 +699,9 @@ class ProwessUploader {
             kpi_abbr:    abbr,
             value:       parseFloat((num * mult).toFixed(4)),
             raw_value:   raw, unit, multiplier: mult,
-            start_date:  isSnap ? null : startDate,
+            start_date:  startDate,
             end_date:    endDate,
-            period_type: isSnap ? 'snapshot' : 'quarterly',
+            period_type: 'quarterly',
             source:      'QE',
             source_path: `prowess/${path.basename(csvPath)}`,
             statement:   QTR_STATEMENT_MAP[abbr] ?? null,
@@ -815,9 +783,9 @@ class ProwessUploader {
 
     if (doClear) {
       const deleted = await this.prisma.$executeRawUnsafe(
-        `DELETE FROM ${table} WHERE period_type = 'quarterly'`
+        `DELETE FROM ${table} WHERE call_id LIKE 'prowess_qtr_%'`
       );
-      console.log(`✓ Cleared ${deleted} quarterly rows from ${table}.\n`);
+      console.log(`✓ Cleared ${deleted} quarterly rows (including snapshot) from ${table}.\n`);
     }
 
     console.log(`Inserting ${finalRows.length} rows…`);
@@ -827,7 +795,7 @@ class ProwessUploader {
     console.log('\nPost-insert quarterly row counts by quarter:');
     const dbCounts = await this.prisma.$queryRawUnsafe(
       `SELECT fiscal_year, quarter, COUNT(*)::int AS cnt
-       FROM ${table} WHERE period_type = 'quarterly'
+       FROM ${table} WHERE call_id LIKE 'prowess_qtr_%'
        GROUP BY fiscal_year, quarter ORDER BY fiscal_year, quarter`
     );
     let total = 0;

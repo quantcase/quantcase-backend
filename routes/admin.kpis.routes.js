@@ -45,6 +45,10 @@ const kpiFieldsSchema = z.object({
   denomination:        z.enum(DENOMINATIONS).nullable().optional(),
   kpi_type:            z.enum(KPI_TYPES).nullable().optional(),
   prowess_name:        z.string().nullable().optional(),
+  // Same idea as prowess_name, but for the quarterly CSV's own header text --
+  // kept separate since a KPI's wording can differ between the annual and
+  // quarterly templates. Resolved by ProwessUploader's runQuarterly().
+  quarterly_prowess_name: z.string().nullable().optional(),
   // Null = raw leaf. Arithmetic + CAGR/AVG/SUM/DELTA/MAX/MIN/COALESCE — see
   // utils/formulaRegistry/expressionEvaluator.js. Validated (parsed, refs
   // checked, cycle-checked) server-side before it's ever saved.
