@@ -64,7 +64,14 @@ async function llmStream(params, opts = {}) {
   const useVertex = Boolean(opts.vertex) && isGeminiModel(params.model) && vertexEnabled();
 
   if (!useVertex) {
-    return runChatStream(openRouter, { ...params, stream: true }, {}, 'OpenRouter');
+    const openRouterParams = { ...params, stream: true };
+    if (params.model && params.model.includes('deepseek')) {
+      openRouterParams.extra_body = {
+        ...(openRouterParams.extra_body || {}),
+        reasoning: { effort: "high" }
+      };
+    }
+    return runChatStream(openRouter, openRouterParams, {}, 'OpenRouter');
   }
 
   // Vertex path: reuse one access token across the fallback attempts, and rewrite
