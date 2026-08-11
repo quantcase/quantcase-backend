@@ -51,7 +51,7 @@ function parseDate(s) {
 // ONLY one of these (no 'P/E', no 'Opening Price') used to be misclassified
 // as an 'ohlcv'-type result (isValuation only checked for 'P/E'), which then
 // silently dropped every row (open/high/low/close all NaN -> skipped).
-const PE_LIKE_FIELDS = ['P/E', 'Consolidated PE', 'Calculated PE Ratio'];
+const PE_LIKE_FIELDS = ['P/E', 'Consolidated PE', 'Calculated PE Ratio', 'screenr pe'];
 function hasAnyPeField(fields) {
   return PE_LIKE_FIELDS.some((f) => fields.has(f));
 }
@@ -149,6 +149,11 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
     else if (field === 'P/E')                    dayMap[dateStr].pe        = col;
     else if (field === 'Consolidated PE')        dayMap[dateStr].peConsolidated = col;
     else if (field === 'Calculated PE Ratio')    dayMap[dateStr].peStandalone   = col;
+    else if (field === 'screenr pe') {
+      const finType = headerRows[2] && headerRows[2][col] ? headerRows[2][col] : '';
+      if (finType.includes('Finance C')) dayMap[dateStr].peConsolidated = col;
+      else dayMap[dateStr].peStandalone = col;
+    }
     else if (field === 'Market Capitalisation')  dayMap[dateStr].marketCap = col;
     else if (field === 'Enterprise value')       dayMap[dateStr].marketCap = col;
   }
@@ -255,6 +260,11 @@ function parseOhlcvFlatRows(head, data, nameToSymbol) {
     else if (field === 'P/E')                    idx.pe        = col;
     else if (field === 'Consolidated PE')        idx.peConsolidated = col;
     else if (field === 'Calculated PE Ratio')    idx.peStandalone   = col;
+    else if (field === 'screenr pe') {
+      const finType = head[2] && head[2][col] ? head[2][col] : '';
+      if (finType.includes('Finance C')) idx.peConsolidated = col;
+      else idx.peStandalone = col;
+    }
     else if (field === 'Market Capitalisation')  idx.marketCap = col;
     else if (field === 'Enterprise value')       idx.marketCap = col;
   }
