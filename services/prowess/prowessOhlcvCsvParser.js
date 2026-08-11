@@ -156,6 +156,7 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
     }
     else if (field === 'Market Capitalisation')  dayMap[dateStr].marketCap = col;
     else if (field === 'Enterprise value')       dayMap[dateStr].marketCap = col;
+    else if (field === 'Total Returns (%)')      dayMap[dateStr].pctChange = col;
   }
 
   const validDays = isValuation
@@ -181,6 +182,7 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
       const eps             = idx.eps             != null ? parseFloat(cols[idx.eps])             : null;
       const peConsolidated  = idx.peConsolidated  != null ? parseFloat(cols[idx.peConsolidated])  : null;
       const peStandalone    = idx.peStandalone    != null ? parseFloat(cols[idx.peStandalone])    : null;
+      const pctChange       = idx.pctChange       != null ? parseFloat(cols[idx.pctChange])       : null;
 
       if (isValuation) {
         if ((pe == null || isNaN(pe)) && (marketCap == null || isNaN(marketCap))
@@ -207,6 +209,7 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
           market_cap_cr:   !isNaN(marketCap)      ? marketCap      : null,
           pe_consolidated: !isNaN(peConsolidated) ? peConsolidated : null,
           pe_standalone:   !isNaN(peStandalone)   ? peStandalone   : null,
+          pct_change:      !isNaN(pctChange)      ? pctChange      : null,
         });
       }
     }
@@ -267,6 +270,7 @@ function parseOhlcvFlatRows(head, data, nameToSymbol) {
     }
     else if (field === 'Market Capitalisation')  idx.marketCap = col;
     else if (field === 'Enterprise value')       idx.marketCap = col;
+    else if (field === 'Total Returns (%)')      idx.pctChange = col;
   }
 
   const fields = new Set(fieldRow);
@@ -291,6 +295,7 @@ function parseOhlcvFlatRows(head, data, nameToSymbol) {
     const eps             = idx.eps             != null ? parseFloat(cols[idx.eps])             : null;
     const peConsolidated  = idx.peConsolidated  != null ? parseFloat(cols[idx.peConsolidated])  : null;
     const peStandalone    = idx.peStandalone    != null ? parseFloat(cols[idx.peStandalone])    : null;
+    const pctChange       = idx.pctChange       != null ? parseFloat(cols[idx.pctChange])       : null;
 
     if (isValuation) {
       if ((pe == null || isNaN(pe)) && (marketCap == null || isNaN(marketCap))
@@ -317,6 +322,7 @@ function parseOhlcvFlatRows(head, data, nameToSymbol) {
         market_cap_cr:   !isNaN(marketCap)      ? marketCap      : null,
         pe_consolidated: !isNaN(peConsolidated) ? peConsolidated : null,
         pe_standalone:   !isNaN(peStandalone)   ? peStandalone   : null,
+        pct_change:      !isNaN(pctChange)      ? pctChange      : null,
       });
     }
   }
