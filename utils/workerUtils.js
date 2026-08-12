@@ -65,11 +65,15 @@ async function llmStream(params, opts = {}) {
 
   if (!useVertex) {
     const openRouterParams = { ...params, stream: true };
-    if (params.model && params.model.includes('deepseek')) {
-      openRouterParams.extra_body = {
-        ...(openRouterParams.extra_body || {}),
-        reasoning: { effort: "high" }
-      };
+    if (openRouterParams.model && openRouterParams.model.includes('deepseek')) {
+      const match = openRouterParams.model.match(/^(.*):(high|low)$/);
+      if (match) {
+        openRouterParams.model = match[1];
+        openRouterParams.extra_body = {
+          ...(openRouterParams.extra_body || {}),
+          reasoning: { effort: match[2] }
+        };
+      }
     }
     return runChatStream(openRouter, openRouterParams, {}, 'OpenRouter');
   }
