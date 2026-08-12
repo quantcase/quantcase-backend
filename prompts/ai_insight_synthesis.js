@@ -21,11 +21,9 @@ The headline must be a business quality verdict (e.g. "High-Quality Compounder",
 
   deal: `
 SYNTHESIS FOCUS — DEAL (Investment Verdict):
-You are assessing whether to buy/hold/avoid this stock now. Synthesise across three dimensions:
+You are assessing whether to buy/hold/avoid this stock now. Synthesise across two dimensions:
 1. Earnings Forecast: Extract EPS/revenue CAGR (bear/base/bull scenarios if available), key swing factor.
-2. Earning Quality: Extract quality verdict (high/mixed/low), cash conversion, accrual risks, red flags.
-3. P/E Re-rating Potential: Extract re-rating direction (expanding/neutral/contracting), target P/E vs current, rationale.
-4. Target Price Matrix: Extract upside %, price target, horizon.
+2. Earnings Quality: Extract quality verdict (high/mixed/low), cash conversion, accrual risks, red flags, AND re-rating direction (expanding/neutral/contracting) with rationale.
 
 Scoring guide for verdict:
 - STRONG (≥80): High quality + Strong CAGR (>18%) + Expanding re-rating
@@ -33,7 +31,7 @@ Scoring guide for verdict:
 - CAUTIOUS (40–59): Mixed quality + Moderate CAGR; no clear catalyst
 - WEAK (<40): Low quality + any red flag → override to Avoid regardless of CAGR
 
-The headline must be a buy/hold/avoid call (e.g. "Accumulate — Earnings Inflection Visible", "Avoid Until Quality Improves"). The key_signals must cover: earnings growth rate, quality signal, re-rating direction, and upside %. Use quantified metrics from the lens data wherever available. If bear/base/bull EPS scenarios exist in the data, surface them in the thesis.`,
+The headline must be a buy/hold/avoid call (e.g. "Accumulate — Earnings Inflection Visible", "Avoid Until Quality Improves"). The key_signals must cover: earnings growth rate, quality signal, and re-rating direction. Use quantified metrics from the lens data wherever available. If bear/base/bull EPS scenarios exist in the data, surface them in the thesis.`,
 
   management: `
 SYNTHESIS FOCUS — MANAGEMENT (Trustworthiness & Competence Verdict):

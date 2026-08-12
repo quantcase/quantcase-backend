@@ -51,7 +51,7 @@ const aiInsightOutputSchema = {
         },
         lenses: {
           type:        'array',
-          description: 'One entry per input lens, same order as input. max_score values must sum to 100; each lens gets between 15 and 45.',
+          description: 'One entry per input lens, same order as input. max_score values must sum to 100; each lens gets between 15 and 85.',
           items: {
             type:     'object',
             required: ['slug', 'name', 'score', 'max_score', 'status', 'subtitle', 'description'],
@@ -64,7 +64,7 @@ const aiInsightOutputSchema = {
               },
               max_score: {
                 type:        'integer',
-                description: 'Allocate total 100 pts across lenses proportional to their weight; each lens gets between 15 and 45.',
+                description: 'Allocate total 100 pts across lenses proportional to their weight; each lens gets between 15 and 85.',
               },
               status:   { type: 'string', enum: ['STRONG', 'MODERATE', 'NEUTRAL', 'MIXED', 'WEAK', 'REACTIVE', 'DISCIPLINED', 'STABLE'] },
               subtitle: {
