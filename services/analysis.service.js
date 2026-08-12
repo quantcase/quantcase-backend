@@ -108,6 +108,7 @@ async function getAnalysis(ticker, types) {
         ins?.lenses?.length > 0
           ? ins.lenses.map(l => ({
               ...l,
+              name: lensNameMap.get(l.slug) ?? l.name,
               score: (l.score != null && l.max_score != null)
                 ? Math.round((l.score / 100) * l.max_score)
                 : l.score,
