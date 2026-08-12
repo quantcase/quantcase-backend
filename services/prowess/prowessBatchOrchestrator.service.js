@@ -24,6 +24,7 @@ const AdmZip = require('adm-zip');
 const apiClient = require('./prowessBatchApiClient');
 const batchRequests = require('./prowessBatchRequests.service');
 const { parseOhlcvCsv, parseOhlcvJson, buildNameToSymbolMap } = require('./prowessOhlcvCsvParser');
+const { parseIndexCsv, parseIndexJson } = require('./prowessIndexCsvParser');
 const { upsertBatch } = require('./prowessOhlcvIngester');
 
 class HttpError extends Error {
@@ -49,14 +50,14 @@ function extractToken(sendResponse) {
 // time -- see the file itself for field list; only fields
 // prowessOhlcvCsvParser.js recognizes ever reach nse_equity_new, same as the
 // CSV-upload path.
-const DAILY_BATCH_FILE = path.join(__dirname, 'daily_ohlcv.bt');
+const DAILY_BATCH_FILE = path.join(__dirname, 'combined_ohlcv_new.bt');
 
 /** Submits the fixed daily template -- no upload needed, resolves/ingests exactly like any other 'daily' batch (see pollAndResolve). */
 async function triggerDailyBatch() {
   return sendBatchAndTrack({
     filePath: DAILY_BATCH_FILE,
     mode: 'daily',
-    requestMeta: { source: 'daily-template', file: 'daily_ohlcv.bt' },
+    requestMeta: { source: 'daily-template', file: 'combined_ohlcv_new.bt' },
   });
 }
 
@@ -112,10 +113,18 @@ async function ingestOhlcvZip(buffer) {
         fileSummaries.push({ file: entry.entryName, parsed: false, reason: `invalid JSON: ${e.message}` });
         continue;
       }
-      const { type, records, skippedName } = parseOhlcvJson(parsedJson, nameToSymbol);
-      if (records.length) await upsertBatch(records, type);
-      totalRows += records.length;
-      fileSummaries.push({ file: entry.entryName, type, recordsParsed: records.length, skippedName, nrowExpected: parsedJson.meta?.nrow });
+      // Index data vs OHLCV data
+      if (parsedJson.head && parsedJson.head[5] && parsedJson.head[5].includes('Index Name')) {
+        const { records, skippedRows } = parseIndexJson(parsedJson);
+        if (records.length) await upsertBatch(records, 'ohlcv');
+        totalRows += records.length;
+        fileSummaries.push({ file: entry.entryName, type: 'index', recordsParsed: records.length, skippedName: skippedRows, nrowExpected: parsedJson.meta?.nrow });
+      } else {
+        const { type, records, skippedName } = parseOhlcvJson(parsedJson, nameToSymbol);
+        if (records.length) await upsertBatch(records, type);
+        totalRows += records.length;
+        fileSummaries.push({ file: entry.entryName, type, recordsParsed: records.length, skippedName, nrowExpected: parsedJson.meta?.nrow });
+      }
     } else if (entry.entryName.endsWith('.csv')) {
       const { type, records, skippedName } = parseOhlcvCsv(entry.getData().toString('utf8'), nameToSymbol);
       if (records.length) await upsertBatch(records, type);

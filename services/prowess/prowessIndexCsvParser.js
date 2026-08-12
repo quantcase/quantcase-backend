@@ -123,4 +123,58 @@ function parseIndexCsv(csvText) {
   return { records, skippedRows };
 }
 
-module.exports = { parseIndexCsv };
+/** 
+ * Parsed JSON batch result ({ meta, head, data }, format=json) 
+ * Returns the same shape as parseIndexCsv.
+ */
+function parseIndexJson(jsonResult) {
+  const { head, data } = jsonResult;
+  if (!Array.isArray(head) || !Array.isArray(data) || head.length < 6) {
+    return { records: [], skippedRows: 0 };
+  }
+
+  const fieldRow = head[5];
+  const colIdx = {};
+  fieldRow.forEach((name, i) => { colIdx[name] = i; });
+
+  const required = ['Index Name', 'Index Date', 'Index Opening', 'Index High', 'Index Low', 'Index Closing'];
+  for (const col of required) {
+    if (colIdx[col] === undefined) throw new Error(`Index JSON missing expected column "${col}"`);
+  }
+
+  const records = [];
+  let skippedRows = 0;
+
+  for (const cols of data) {
+    const indexName = cols[colIdx['Index Name']];
+    const datetime = parseIndexDate(cols[colIdx['Index Date']]);
+    if (!indexName || !datetime) { skippedRows++; continue; }
+
+    const open  = parseFloat(cols[colIdx['Index Opening']]);
+    const high  = parseFloat(cols[colIdx['Index High']]);
+    const low   = parseFloat(cols[colIdx['Index Low']]);
+    const close = parseFloat(cols[colIdx['Index Closing']]);
+    if (isNaN(open) && isNaN(high) && isNaN(low) && isNaN(close)) { skippedRows++; continue; }
+
+    const pe        = colIdx['Index PE']              !== undefined ? parseFloat(cols[colIdx['Index PE']])              : NaN;
+    const marketCap = colIdx['Index Marketcap']       !== undefined ? parseFloat(cols[colIdx['Index Marketcap']])       : NaN;
+    const pctChange = colIdx['Daily Index Returns']   !== undefined ? parseFloat(cols[colIdx['Daily Index Returns']])   : NaN;
+
+    records.push({
+      symbol: indexName, company_name: indexName, datetime,
+      open:  !isNaN(open)  ? open  : null,
+      high:  !isNaN(high)  ? high  : null,
+      low:   !isNaN(low)   ? low   : null,
+      close: !isNaN(close) ? close : null,
+      volume: null,
+      eps: null,
+      pe:            !isNaN(pe)        ? pe        : null,
+      market_cap_cr: !isNaN(marketCap) ? marketCap : null,
+      pct_change:    !isNaN(pctChange) ? pctChange : null,
+    });
+  }
+
+  return { records, skippedRows };
+}
+
+module.exports = { parseIndexCsv, parseIndexJson };
