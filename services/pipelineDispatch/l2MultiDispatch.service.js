@@ -77,7 +77,10 @@ async function resolveTickers(options) {
   if (options.groupSlug) {
     tickers = await resolveGroupBySlug(options.groupSlug);
   } else if (options.all) {
-    tickers = (await prisma.earnings_calls.findMany({ select: { company: true }, distinct: ['company'] }))
+    tickers = (await prisma.tierClassification.findMany({ 
+      where: { tier: { notIn: ['Tier 0', 'Tier 0.5'] } },
+      select: { company: true }, distinct: ['company'] 
+    }))
       .map(r => r.company).filter(Boolean).sort();
   } else {
     tickers = options.tickers?.length ? options.tickers : [];
@@ -92,6 +95,27 @@ async function resolveTickers(options) {
 
 // One job per ticker — its latest reporting period, by (fiscal_year, quarter).
 async function resolveLatestCall(ticker) {
+  const tierRecord = await prisma.tierClassification.findUnique({
+    where: { company: ticker }
+  });
+
+  const tier = tierRecord ? tierRecord.tier : 'Tier 0';
+
+  if (tier === 'Tier 0' || tier === 'Tier 0.5') {
+    return null;
+  }
+
+  if (tier === 'Tier 3') {
+    const report = await prisma.annual_reports.findFirst({
+      where: { company: ticker },
+      orderBy: { fiscal_year: 'desc' },
+    });
+    if (report) {
+      return { id: report.id.toString(), fiscal_year: report.fiscal_year, quarter: null };
+    }
+    return null;
+  }
+
   return prisma.earnings_calls.findFirst({
     where:   { company: ticker },
     orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],

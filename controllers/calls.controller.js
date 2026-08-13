@@ -24,8 +24,8 @@ const getTranscriptStocks = asyncHandler(async (_, res) => {
 
 const getTranscriptCalls = asyncHandler(async (req, res) => {
   const { symbol } = req.query;
-  const calls = await callsService.getTranscriptCalls(symbol);
-  res.json({ success: true, data: calls });
+  const { calls, tier } = await callsService.getTranscriptCalls(symbol);
+  res.json({ success: true, data: calls, tier });
 });
 
 module.exports = { getCalls, getCallById, getTranscriptStocks, getTranscriptCalls };
