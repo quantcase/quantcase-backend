@@ -24,6 +24,15 @@ async function resolveCallMeta(callId) {
   });
   if (call) return { fiscal_year: call.fiscal_year ?? null, quarter: call.quarter ?? null };
 
+  // Explicit fallback for annual_reports (where callId is a stringified BigInt)
+  if (!isNaN(callId)) {
+    const report = await prisma.annual_reports.findUnique({
+      where: { id: BigInt(callId) },
+      select: { fiscal_year: true }
+    });
+    if (report) return { fiscal_year: report.fiscal_year ?? null, quarter: null };
+  }
+
   // Fallback for annual_reports or any other call_id source
   const sig = await prisma.transcriptSignalV2.findFirst({
     where:  { call_id: callId },

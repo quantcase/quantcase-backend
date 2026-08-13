@@ -2331,3 +2331,11 @@ model ScreenConfigItem {
   @@index([screen_config_id])
   @@map("screen_config_items")
 }
+
+model TierClassification {
+  id      String @id @default(uuid())
+  company String @unique
+  tier    String // e.g. 'Tier 1', 'Tier 2', 'Tier 3'
+
+  @@map("tier_classification")
+}

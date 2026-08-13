@@ -71,35 +71,55 @@ async function getTranscriptStocks() {
 }
 
 async function getTranscriptCalls(symbol) {
-  const calls = await prisma.earnings_calls.findMany({
-    where: {
-      company: symbol,
-      // URL presence, not text presence — a call can be ingested and even
-      // L1-extracted via its PDF without ever backfilling transcript_text/
-      // ppt_text on this row (e.g. HDFCBANK FY2026 Q4: has ppt_url and an
-      // extracted signal, but ppt_text is still null).
-      OR: [
-        { transcript_url: { not: null } },
-        { ppt_url:        { not: null } },
-      ],
-    },
-    select: {
-      id:            true,
-      company:       true,
-      company_name:  true,
-      basic_industry: true,
-      fiscal_year:   true,
-      call_date:     true,
-      quarter:       true,
-      ppt_url:       true,
-      transcript_text: false,
-      ppt_text:        false,
-    },
+  const tierRecord = await prisma.tierClassification.findUnique({
+    where: { company: symbol }
   });
-  return calls.sort((a, b) => {
-    if (b.fiscal_year !== a.fiscal_year) return b.fiscal_year.localeCompare(a.fiscal_year);
-    return b.quarter.localeCompare(a.quarter);
-  });
+  const tier = tierRecord ? tierRecord.tier : 'Tier 0';
+
+  let calls = [];
+  if (tier === 'Tier 0' || tier === 'Tier 0.5') {
+    calls = [];
+  } else if (tier === 'Tier 3') {
+    const reports = await prisma.annual_reports.findMany({
+      where: { company: symbol, annual_report_url: { not: null } },
+      select: { id: true, company: true, fiscal_year: true, call_date: true },
+      orderBy: { fiscal_year: 'desc' }
+    });
+    calls = reports.map(r => ({
+      ...r,
+      id: r.id.toString(),
+      quarter: null,
+      source: 'annual_report'
+    }));
+  } else {
+    calls = await prisma.earnings_calls.findMany({
+      where: {
+        company: symbol,
+        OR: [
+          { transcript_url: { not: null } },
+          { ppt_url:        { not: null } },
+        ],
+      },
+      select: {
+        id:            true,
+        company:       true,
+        company_name:  true,
+        basic_industry: true,
+        fiscal_year:   true,
+        call_date:     true,
+        quarter:       true,
+        ppt_url:       true,
+        transcript_text: false,
+        ppt_text:        false,
+      },
+    });
+    calls.sort((a, b) => {
+      if (b.fiscal_year !== a.fiscal_year) return b.fiscal_year.localeCompare(a.fiscal_year);
+      return b.quarter.localeCompare(a.quarter);
+    });
+  }
+
+  return { calls, tier };
 }
 
 module.exports = { listCalls, getCallById, getTranscriptStocks, getTranscriptCalls };

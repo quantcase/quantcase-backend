@@ -39,8 +39,9 @@ async function processPostHtmlAnalysisJob(job) {
     let inputHash;
     if (layerId === 'l3') {
       const lensOutputs = await fetchLensHtmlOutputs(type, ticker, { fiscal_year, quarter });
-      if (lensOutputs.every(l => !l.output)) {
-        throw new Error(`No HTML outputs found for ${ticker}/${type} — run the HTML incremental skills first.`);
+      const missingLenses = lensOutputs.filter(l => !l.output).map(l => l.slug);
+      if (missingLenses.length > 0) {
+        throw new Error(`Missing required L2 HTML outputs for ${ticker}/${type}: ${missingLenses.join(', ')} — run the HTML incremental skills first.`);
       }
       dataBlock = buildL3DataBlock(lensOutputs);
       inputHash = computeSourceHash(...lensOutputs.map(l => l.output?.raw_html ?? ''));
