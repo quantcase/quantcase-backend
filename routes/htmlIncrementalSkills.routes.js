@@ -46,7 +46,7 @@ router.get('/:slug', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const {
-      slug, name, skill_prompt, category,
+      slug, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, enable_html_validation, category,
       model, max_tokens,
       transcript_signal_types, ppt_signal_types, annual_report_signal_types,
       max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
@@ -63,7 +63,7 @@ router.post('/', async (req, res, next) => {
 
     const skill = await prisma.htmlIncrementalSkill.create({
       data: {
-        slug, name, skill_prompt, category,
+        slug, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, enable_html_validation, category,
         transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
         ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
         annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],

@@ -453,6 +453,7 @@ async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_templa
 }
 
 module.exports = {
+  runAgenticPipeline,
   runHtmlSkill,
   runHtmlSkillPreview,
   buildHtmlSkillPrompt,

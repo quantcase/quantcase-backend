@@ -27,7 +27,7 @@ async function processHtmlIncrementalSkillJob(job) {
 
   try {
     await job.updateProgress(10);
-    const result = await runIncrementalHtmlSkill({ slug, ticker, callId, force, historic, configKey });
+    const result = await runIncrementalHtmlSkill({ slug, ticker, callId, force, historic, configKey }, job);
     await job.updateProgress(100);
 
     console.log(`[htmlIncrementalSkill] Job ${job.id} done — cached: ${result.cached}`);

@@ -651,9 +651,16 @@ model HtmlIncrementalSkill {
   id                               String                       @id @default(uuid())
   slug                             String                       @unique
   name                             String
-  skill_prompt                     String
   category                         PluginCategory
-  model                            String                       @default("~anthropic/claude-haiku-latest")
+  data_extraction_prompt           String @default("")
+  html_template_prompt             String @default("")
+  extraction_model                 String                       @default("~anthropic/claude-haiku-latest")
+  fact_validation_model            String                       @default("~anthropic/claude-haiku-latest")
+  html_template_model              String                       @default("~anthropic/claude-haiku-latest")
+  visual_qa_model                  String                       @default("~anthropic/claude-haiku-latest")
+  enable_data_validation           Boolean                      @default(true)
+  data_validation_loops            Int                          @default(1)
+  enable_html_validation           Boolean                      @default(false)
   max_tokens                       Int                          @default(16000)
   transcript_signal_types          String[]
   ppt_signal_types                 String[]
@@ -706,7 +713,15 @@ model HtmlIncrementalSkillConfig {
   skill_id                         String
   key                              String // machine identifier, unique per skill, e.g. "transcript_only"
   name                             String // human label, e.g. "Transcript Only"
-  skill_prompt                     String
+  data_extraction_prompt           String @default("")
+  html_template_prompt             String @default("")
+  extraction_model                 String                       @default("~anthropic/claude-haiku-latest")
+  fact_validation_model            String                       @default("~anthropic/claude-haiku-latest")
+  html_template_model              String                       @default("~anthropic/claude-haiku-latest")
+  visual_qa_model                  String                       @default("~anthropic/claude-haiku-latest")
+  enable_data_validation           Boolean                      @default(true)
+  data_validation_loops            Int                          @default(1)
+  enable_html_validation           Boolean                      @default(false)
   transcript_signal_types          String[]
   ppt_signal_types                 String[]
   annual_report_signal_types       String[]
@@ -742,6 +757,8 @@ model HtmlIncrementalSkillOutput {
   fiscal_year    String?
   quarter        String?
   raw_html       String
+  extracted_json Json?
+  audit_logs     Json?
   text_summary   String?
   prompt_v       String
   model          String

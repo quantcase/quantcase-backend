@@ -3,6 +3,7 @@
 const prisma = require('../config/prisma');
 const { querySignalsV2 } = require('./db/signals.db');
 const { llmStream, logUsage } = require('../utils/workerUtils');
+const { runAgenticPipeline } = require('./htmlSkill.service.js');
 const { stripHtmlToText } = require('../utils/stripHtml');
 const { resolveConfigKeyForTicker } = require('./companyGroups');
 const {
@@ -438,7 +439,7 @@ async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic 
 
 // ── Public: full run ──────────────────────────────────────────────────────────
 
-async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, historic = false, configKey = null }) {
+async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, historic = false, configKey = null }, job) {
   const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug } });
   if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
   if (!skill.is_active) throw Object.assign(new Error(`HtmlIncrementalSkill is inactive: ${slug}`), { status: 400 });
