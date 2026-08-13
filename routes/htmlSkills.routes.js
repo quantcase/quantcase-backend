@@ -76,25 +76,31 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /api/html-skills/run-preview — enqueue a one-off skill run using unsaved config
-// Body: { ticker, skill_prompt, transcript_signal_types?, ppt_signal_types?, annual_report_signal_types?,
-//         model, max_tokens, max_transcript_qtrs?, max_ppt_qtrs?, max_annual_report_years?, force? }
+// Body: { ticker, data_extraction_prompt, html_template_prompt, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types?, ppt_signal_types?, annual_report_signal_types?,
+//         extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs?, max_ppt_qtrs?, max_annual_report_years?, force? }
 router.post('/run-preview', async (req, res, next) => {
   try {
     const {
-      ticker, skill_prompt,
+      ticker, data_extraction_prompt, html_template_prompt,
+      enable_data_validation, data_validation_loops, enable_html_validation,
       transcript_signal_types, ppt_signal_types, annual_report_signal_types,
       model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
       market_data_signal_types, max_market_data_months, force,
     } = req.body;
 
     if (!ticker)       return res.status(400).json({ error: 'ticker is required' });
-    if (!skill_prompt) return res.status(400).json({ error: 'skill_prompt is required' });
-    if (!model)        return res.status(400).json({ error: 'model is required' });
+    if (!html_template_prompt) return res.status(400).json({ error: 'html_template_prompt is required' });
+    if (!data_extraction_prompt) return res.status(400).json({ error: 'data_extraction_prompt is required' });
+    if (!extraction_model) return res.status(400).json({ error: 'extraction_model is required' });
     if (!max_tokens)   return res.status(400).json({ error: 'max_tokens is required' });
 
     const job = await addHtmlSkillPreviewJob({
       ticker,
-      skill_prompt,
+      data_extraction_prompt,
+      html_template_prompt,
+      enable_data_validation,
+      data_validation_loops,
+      enable_html_validation,
       transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
       ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
       annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],
@@ -128,13 +134,16 @@ router.get('/:slug', async (req, res, next) => {
 // POST /api/html-skills — create a skill
 router.post('/', async (req, res, next) => {
   try {
-    const { slug, name, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, category, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months, is_active } = req.body;
-    if (!slug || !name || !skill_prompt || !category) {
-      return res.status(400).json({ error: 'slug, name, skill_prompt, and category are required' });
+    const { slug, name, data_extraction_prompt, html_template_prompt, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types, ppt_signal_types, annual_report_signal_types, category, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months, is_active } = req.body;
+    if (!slug || !name || !html_template_prompt || !category) {
+      return res.status(400).json({ error: 'slug, name, html_template_prompt, and category are required' });
     }
     const skill = await prisma.htmlSkill.create({
       data: {
-        slug, name, skill_prompt, category,
+        slug, name, data_extraction_prompt, html_template_prompt, category,
+        enable_data_validation: enable_data_validation ?? true,
+        data_validation_loops: data_validation_loops ?? 1,
+        enable_html_validation: enable_html_validation ?? false,
         transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
         ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
         annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],
@@ -158,7 +167,7 @@ router.post('/', async (req, res, next) => {
 // PUT /api/html-skills/:slug — update a skill
 router.put('/:slug', async (req, res, next) => {
   try {
-    const allowed = ['name', 'skill_prompt', 'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types', 'category', 'model', 'max_tokens', 'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'market_data_signal_types', 'max_market_data_months', 'is_active'];
+    const allowed = ['name', 'data_extraction_prompt', 'html_template_prompt', 'enable_data_validation', 'data_validation_loops', 'enable_html_validation', 'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types', 'category', 'extraction_model', 'fact_validation_model', 'html_template_model', 'visual_qa_model', 'max_tokens', 'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'market_data_signal_types', 'max_market_data_months', 'is_active'];
     const data = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) data[key] = req.body[key];

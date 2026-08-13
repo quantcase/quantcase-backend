@@ -32,13 +32,13 @@ async function processHtmlSkillJob(job) {
   console.log(`[htmlSkill] Processing job ${job.id} (skill: ${slug}, ticker: ${ticker})`);
 
   try {
-    await job.updateProgress(10);
+    await job.updateProgress({ percent: 10, stage: 'starting' });
     const result = await runHtmlSkill({
       slug, ticker, fiscal_year, quarter, force,
       transcript_signal_types, ppt_signal_types, annual_report_signal_types,
       max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
-    });
-    await job.updateProgress(100);
+    }, job);
+    await job.updateProgress({ percent: 100, stage: 'complete' });
 
     console.log(`[htmlSkill] Job ${job.id} done — cached: ${result.cached}`);
     return { slug, ticker, cached: result.cached, outputId: result.output?.id ?? null };
@@ -59,13 +59,13 @@ worker.on('failed',    (job, err) => console.error(`[htmlSkill] Job ${job.id} fa
 worker.on('error',     (err)      => console.error('[htmlSkill] Worker error:', err));
 
 async function processHtmlSkillPreviewJob(job) {
-  const { ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months, force } = job.data;
+  const { ticker, data_extraction_prompt, html_template_prompt, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types, ppt_signal_types, annual_report_signal_types, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months, force } = job.data;
   console.log(`[htmlSkillPreview] Processing job ${job.id} (ticker: ${ticker})`);
 
   try {
-    await job.updateProgress(10);
-    const result = await runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months, force });
-    await job.updateProgress(100);
+    await job.updateProgress({ percent: 10, stage: 'starting' });
+    const result = await runHtmlSkillPreview({ ticker, data_extraction_prompt, html_template_prompt, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types, ppt_signal_types, annual_report_signal_types, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months, force }, job);
+    await job.updateProgress({ percent: 100, stage: 'complete' });
 
     console.log(`[htmlSkillPreview] Job ${job.id} done — cached: ${result.cached}`);
     return { ticker, cached: result.cached, outputId: result.output?.id ?? null };
