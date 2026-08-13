@@ -143,7 +143,7 @@ async function buildAvailabilityReport(layerId, types, tickers) {
       const required = INSIGHT_LENSES[type];
       const available = required.filter(s => availSlugs.has(s));
       const missing = required.filter(s => !availSlugs.has(s));
-      return { type, available, missing, ready: available.length > 0 };
+      return { type, available, missing, ready: missing.length === 0 };
     });
     return { ticker, types: typeReports };
   });
