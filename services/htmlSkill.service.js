@@ -5,6 +5,116 @@ const prisma = require('../config/prisma');
 const { querySignalsV2 } = require('./db/signals.db');
 const { llmStream, logUsage } = require('../utils/workerUtils');
 const { FACT_VALIDATION_PROMPT, VISUAL_QA_PROMPT } = require('../prompts/validationPrompts');
+const Handlebars = require('handlebars');
+
+Handlebars.registerHelper('lowercase', function (str) {
+  return typeof str === 'string' ? str.toLowerCase() : '';
+});
+Handlebars.registerHelper('eq', function (a, b) {
+  return a === b;
+});
+Handlebars.registerHelper('pct', function (credible, total) {
+  if (!total || total === 0) return 0;
+  return Math.round((credible / total) * 100);
+});
+Handlebars.registerHelper('dashOffset', function (score) {
+  score = Number(score) || 0;
+  const radius = 30;
+  const circumference = 2 * Math.PI * radius; // 188.5
+  return circumference - (score / 100) * circumference;
+});
+Handlebars.registerHelper('scatterX', function (index, totalItems) {
+  const chartWidth = 960; 
+  const startX = 120;
+  if (totalItems <= 1) return startX + (chartWidth / 2);
+  const step = chartWidth / (totalItems - 1);
+  return Math.round(startX + (index * step));
+});
+Handlebars.registerHelper('scatterY', function (credibility) {
+  if (!credibility) return 115;
+  const cred = credibility.toLowerCase();
+  if (cred.includes('high')) return 70;
+  if (cred.includes('mixed') || cred.includes('insufficient')) return 115;
+  if (cred.includes('lower') || cred.includes('low')) return 155;
+  return 115;
+});
+Handlebars.registerHelper('scatterR', function (confidence) {
+  if (!confidence) return 4;
+  const conf = confidence.toLowerCase();
+  if (conf.includes('high')) return 10;
+  if (conf.includes('moderate') || conf.includes('medium')) return 7;
+  if (conf.includes('low')) return 4;
+  return 7;
+});
+Handlebars.registerHelper('scatterColor', function (credibility) {
+  if (!credibility) return 'var(--amber)';
+  const cred = credibility.toLowerCase();
+  if (cred.includes('high')) return 'var(--green)';
+  if (cred.includes('mixed')) return 'var(--amber)';
+  if (cred.includes('lower') || cred.includes('low')) return 'var(--red)';
+  return 'var(--bg)'; // Insufficient
+});
+Handlebars.registerHelper('scatterLabelY', function (credibility) {
+  if (!credibility) return 130;
+  const cred = credibility.toLowerCase();
+  if (cred.includes('high')) return 90;
+  if (cred.includes('mixed') || cred.includes('insufficient')) return 135;
+  if (cred.includes('lower') || cred.includes('low')) return 175;
+  return 135;
+});
+Handlebars.registerHelper('credibilityLinePoints', function (timeline) {
+  if (!timeline || !timeline.length) return '';
+  const chartWidth = 960;
+  const startX = 120;
+  let step = 0;
+  if (timeline.length > 1) step = chartWidth / (timeline.length - 1);
+  
+  return timeline.map((pt, i) => {
+    let x = timeline.length <= 1 ? startX + (chartWidth / 2) : startX + (i * step);
+    x = Math.round(x);
+    let y = 115;
+    if (pt.credibility) {
+      const cred = pt.credibility.toLowerCase();
+      if (cred.includes('high')) y = 70;
+      else if (cred.includes('lower') || cred.includes('low')) y = 155;
+    }
+    return `${x},${y}`;
+  }).join(' ');
+});
+Handlebars.registerHelper('sparkPoints', function(sparkArray, trend) {
+  if (!sparkArray || !sparkArray.length) {
+    if (trend === 'rising') return "0,35 20,25 40,30 60,15 80,20 100,5";
+    if (trend === 'falling') return "0,5 20,15 40,10 60,25 80,20 100,35";
+    return "0,23 20,25 40,20 60,28 80,15 100,23";
+  }
+  const min = Math.min(...sparkArray);
+  const max = Math.max(...sparkArray);
+  const range = max - min || 1;
+  const stepX = 100 / (sparkArray.length - 1 || 1);
+  return sparkArray.map((v, i) => {
+    const x = Math.round(i * stepX);
+    const y = Math.round(40 - ((v - min) / range) * 34); // Fit within 6-40
+    return `${x},${y}`;
+  }).join(' ');
+});
+Handlebars.registerHelper('sparkColor', function(trend) {
+  if (trend === 'rising') return 'var(--qci-rising)';
+  if (trend === 'falling') return 'var(--red-d)';
+  if (trend === 'steady') return 'var(--qci-steady)';
+  return 'var(--amber-d)';
+});
+Handlebars.registerHelper('sparkTerminalY', function(sparkArray, trend) {
+  if (!sparkArray || !sparkArray.length) {
+    if (trend === 'rising') return 5;
+    if (trend === 'falling') return 35;
+    return 23;
+  }
+  const min = Math.min(...sparkArray);
+  const max = Math.max(...sparkArray);
+  const range = max - min || 1;
+  const lastVal = sparkArray[sparkArray.length - 1];
+  return Math.round(40 - ((lastVal - min) / range) * 34);
+});
 
 const PREVIEW_SKILL_SLUG = '__preview__';
 
@@ -308,6 +418,7 @@ async function runHtmlSkill({
     ticker, extraction_model: skill.extraction_model, fact_validation_model: skill.fact_validation_model, html_template_model: skill.html_template_model, visual_qa_model: skill.visual_qa_model, max_tokens: skill.max_tokens,
     data_extraction_prompt: skill.data_extraction_prompt,
     html_template_prompt: skill.html_template_prompt,
+    use_template_engine: skill.use_template_engine,
     enable_data_validation: skill.enable_data_validation,
     data_validation_loops: skill.data_validation_loops,
     enable_html_validation: skill.enable_html_validation,
@@ -426,7 +537,7 @@ async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_templa
   const { raw_html, extracted_json, audit_logs, usage } = await runAgenticPipeline({
     ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens,
     data_extraction_prompt, html_template_prompt,
-    enable_data_validation, data_validation_loops, enable_html_validation,
+    use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
     dataBlock, marketDataBlock, job
   });
 
@@ -468,7 +579,7 @@ module.exports = {
 
 async function runAgenticPipeline({
   ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, data_extraction_prompt, html_template_prompt,
-  enable_data_validation, data_validation_loops, enable_html_validation,
+  use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
   dataBlock, marketDataBlock, job
 }) {
   const audit_logs = { fact_validation: [], visual_qa: [] };
@@ -584,38 +695,49 @@ async function runAgenticPipeline({
   await notifyProgress(60, 'rendering_html');
   await logJob(`[Phase 2] Rendering HTML template...`);
   
-  let htmlRenderSuccess = false;
-  let htmlAttempts = 0;
-  let currentHtmlPrompt = [
-    html_template_prompt,
-    '',
-    '--- VALIDATED JSON DATA ---',
-    JSON.stringify(extracted_json, null, 2),
-    '--- END JSON DATA ---',
-  ].join('\n');
-
-  while (!htmlRenderSuccess && htmlAttempts < 3) {
-    const { text, usage } = await llmStream({
-      model: html_template_model, max_tokens,
-        messages: [
-        { role: 'system', content: 'Return ONLY a complete, standalone HTML file. No markdown. No explanation.' },
-        { role: 'user', content: currentHtmlPrompt }
-      ]
-    });
-    mergeUsage(usage);
-    raw_html = stripMarkdownFences(text);
-    
-    if (raw_html.toLowerCase().includes('<html') || raw_html.toLowerCase().includes('<div') || raw_html.toLowerCase().includes('<style')) {
-      htmlRenderSuccess = true;
-      await logJob(`[Phase 2] HTML rendering successful.`);
-    } else {
-      htmlAttempts++;
-      await logJob(`[Phase 2] Missing HTML structure. Retrying (${htmlAttempts}/3)...`);
-      currentHtmlPrompt = `You did not output valid HTML code. Return ONLY raw HTML.\n\nInvalid Output:\n${raw_html}`;
+  if (use_template_engine) {
+    try {
+      const template = Handlebars.compile(html_template_prompt);
+      raw_html = template(extracted_json);
+      await logJob(`[Phase 2] HTML rendering successful via Handlebars.`);
+    } catch (err) {
+      await logJob(`[Phase 2] Handlebars rendering failed: ${err.message}`);
+      throw new Error(`Failed to render HTML template using Handlebars: ${err.message}`);
     }
+  } else {
+    let htmlRenderSuccess = false;
+    let htmlAttempts = 0;
+    let currentHtmlPrompt = [
+      html_template_prompt,
+      '',
+      '--- VALIDATED JSON DATA ---',
+      JSON.stringify(extracted_json, null, 2),
+      '--- END JSON DATA ---',
+    ].join('\n');
+
+    while (!htmlRenderSuccess && htmlAttempts < 3) {
+      const { text, usage } = await llmStream({
+        model: html_template_model, max_tokens,
+          messages: [
+          { role: 'system', content: 'Return ONLY a complete, standalone HTML file. No markdown. No explanation.' },
+          { role: 'user', content: currentHtmlPrompt }
+        ]
+      });
+      mergeUsage(usage);
+      raw_html = stripMarkdownFences(text);
+      
+      if (raw_html.toLowerCase().includes('<html') || raw_html.toLowerCase().includes('<div') || raw_html.toLowerCase().includes('<style')) {
+        htmlRenderSuccess = true;
+        await logJob(`[Phase 2] HTML rendering successful.`);
+      } else {
+        htmlAttempts++;
+        await logJob(`[Phase 2] Missing HTML structure. Retrying (${htmlAttempts}/3)...`);
+        currentHtmlPrompt = `You did not output valid HTML code. Return ONLY raw HTML.\n\nInvalid Output:\n${raw_html}`;
+      }
+    }
+    
+    if (!htmlRenderSuccess) throw new Error("Failed to generate valid HTML structure after 3 attempts.");
   }
-  
-  if (!htmlRenderSuccess) throw new Error("Failed to generate valid HTML structure after 3 attempts.");
 
   // Feedback Loop 2: Visual QA
   if (enable_html_validation) {

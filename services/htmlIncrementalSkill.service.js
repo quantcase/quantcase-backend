@@ -484,6 +484,7 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
     max_tokens: effectiveSkill.max_tokens,
     data_extraction_prompt: enhancedExtractionPrompt,
     html_template_prompt: effectiveSkill.html_template_prompt,
+    use_template_engine: effectiveSkill.use_template_engine,
     enable_data_validation: effectiveSkill.enable_data_validation,
     data_validation_loops: effectiveSkill.data_validation_loops,
     enable_html_validation: effectiveSkill.enable_html_validation,

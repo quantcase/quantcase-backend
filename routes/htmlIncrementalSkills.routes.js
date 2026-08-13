@@ -46,7 +46,7 @@ router.get('/:slug', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const {
-      slug, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, enable_html_validation, category,
+      slug, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, use_template_engine, enable_html_validation, category,
       max_tokens,
       transcript_signal_types, ppt_signal_types, annual_report_signal_types,
       max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
@@ -63,7 +63,7 @@ router.post('/', async (req, res, next) => {
 
     const skill = await prisma.htmlIncrementalSkill.create({
       data: {
-        slug, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, enable_html_validation, category,
+        slug, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, use_template_engine, enable_html_validation, category,
         transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
         ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
         annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],
@@ -96,7 +96,7 @@ router.post('/', async (req, res, next) => {
 router.put('/:slug', async (req, res, next) => {
   try {
     const allowed = [
-      'name', 'data_extraction_prompt', 'html_template_prompt', 'extraction_model', 'fact_validation_model', 'html_template_model', 'visual_qa_model', 'enable_data_validation', 'data_validation_loops', 'enable_html_validation', 'category', 'max_tokens',
+      'name', 'data_extraction_prompt', 'html_template_prompt', 'extraction_model', 'fact_validation_model', 'html_template_model', 'visual_qa_model', 'enable_data_validation', 'data_validation_loops', 'use_template_engine', 'enable_html_validation', 'category', 'max_tokens',
       'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types',
       'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years',
       'market_data_signal_types', 'max_market_data_months',
@@ -151,7 +151,7 @@ router.delete('/:slug', async (req, res, next) => {
 // system, and the admin selects a config only once they've confirmed it fits.
 
 const CONFIG_FIELDS = [
-  'name', 'data_extraction_prompt', 'html_template_prompt', 'extraction_model', 'fact_validation_model', 'html_template_model', 'visual_qa_model', 'enable_data_validation', 'data_validation_loops', 'enable_html_validation',
+  'name', 'data_extraction_prompt', 'html_template_prompt', 'extraction_model', 'fact_validation_model', 'html_template_model', 'visual_qa_model', 'enable_data_validation', 'data_validation_loops', 'use_template_engine', 'enable_html_validation',
   'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types',
   'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years',
   'market_data_signal_types', 'max_market_data_months',
@@ -204,7 +204,7 @@ router.post('/:slug/configs', async (req, res, next) => {
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
     let {
-      key, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, enable_html_validation,
+      key, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, use_template_engine, enable_html_validation,
       transcript_signal_types, ppt_signal_types, annual_report_signal_types,
       max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
       market_data_signal_types, max_market_data_months,
@@ -227,7 +227,7 @@ router.post('/:slug/configs', async (req, res, next) => {
     const config = await prisma.htmlIncrementalSkillConfig.create({
       data: {
         skill_id: skill.id,
-        key, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, enable_html_validation,
+        key, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, use_template_engine, enable_html_validation,
         transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
         ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
         annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],
