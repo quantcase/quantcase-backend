@@ -10,6 +10,12 @@ const Handlebars = require('handlebars');
 Handlebars.registerHelper('lowercase', function (str) {
   return typeof str === 'string' ? str.toLowerCase() : '';
 });
+Handlebars.registerHelper('verified', function (val, options) {
+  if (options && typeof options.fn === 'function') {
+    return val ? options.fn(this) : options.inverse(this);
+  }
+  return val ? '✓' : '';
+});
 Handlebars.registerHelper('eq', function (a, b) {
   return a === b;
 });
