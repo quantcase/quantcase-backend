@@ -109,6 +109,15 @@ router.put('/:slug', async (req, res, next) => {
     for (const key of allowed) {
       if (req.body[key] !== undefined) data[key] = req.body[key];
     }
+    
+    // BACKWARDS COMPATIBILITY
+    if (req.body.model !== undefined) {
+      data.extraction_model = req.body.model;
+      data.fact_validation_model = req.body.model;
+      data.html_template_model = req.body.model;
+      data.visual_qa_model = req.body.model;
+    }
+
     if (Object.keys(data).length === 0) return res.status(400).json({ error: 'No updatable fields provided' });
 
     const skill = await prisma.htmlIncrementalSkill.update({ where: { slug: req.params.slug }, data });
@@ -194,14 +203,22 @@ router.post('/:slug/configs', async (req, res, next) => {
     const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug: req.params.slug }, select: { id: true } });
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
-    const {
+    let {
       key, name, data_extraction_prompt, html_template_prompt, extraction_model, fact_validation_model, html_template_model, visual_qa_model, enable_data_validation, data_validation_loops, enable_html_validation,
       transcript_signal_types, ppt_signal_types, annual_report_signal_types,
       max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
       market_data_signal_types, max_market_data_months,
       historic_max_transcript_qtrs, historic_max_ppt_qtrs, historic_max_annual_report_years, historic_max_market_data_months,
-      max_tokens, strip_html,
+      max_tokens, strip_html, model
     } = req.body;
+    
+    // BACKWARDS COMPATIBILITY
+    if (model !== undefined) {
+      extraction_model = model;
+      fact_validation_model = model;
+      html_template_model = model;
+      visual_qa_model = model;
+    }
 
     if (!key || !name || !data_extraction_prompt || !html_template_prompt) {
       return res.status(400).json({ error: 'key, name, data_extraction_prompt, and html_template_prompt are required' });
@@ -277,6 +294,15 @@ router.put('/:slug/configs/:key', async (req, res, next) => {
     for (const field of CONFIG_FIELDS) {
       if (req.body[field] !== undefined) data[field] = req.body[field];
     }
+    
+    // BACKWARDS COMPATIBILITY: Map old 'model' field from UI to all 4 new model fields
+    if (req.body.model !== undefined) {
+      data.extraction_model = req.body.model;
+      data.fact_validation_model = req.body.model;
+      data.html_template_model = req.body.model;
+      data.visual_qa_model = req.body.model;
+    }
+
     if (Object.keys(data).length === 0) return res.status(400).json({ error: 'No updatable fields provided' });
 
     const config = await prisma.htmlIncrementalSkillConfig.update({
