@@ -265,13 +265,14 @@ async function runHtmlSkill({
   slug, ticker, fiscal_year, quarter, force = false,
   transcript_signal_types, ppt_signal_types, annual_report_signal_types,
   max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
-}, job) {
+}) {
   const skill = await prisma.htmlSkill.findUnique({ where: { slug } });
   if (!skill) throw Object.assign(new Error(`HtmlSkill not found: ${slug}`), { status: 404 });
   if (!skill.is_active) throw Object.assign(new Error(`HtmlSkill is inactive: ${slug}`), { status: 400 });
 
   const prompt_v = `${slug}@${skill.updated_at.toISOString()}`;
 
+  // Cache check — skip if force=true
   if (!force) {
     const cached = await prisma.htmlSkillOutput.findFirst({
       where: {
@@ -284,6 +285,7 @@ async function runHtmlSkill({
     if (cached && cached.prompt_v === prompt_v) return { cached: true, output: cached };
   }
 
+  // Fetch all V2 signals for ticker, then apply per-source type filters and window limits
   const rawSignals = await querySignalsV2({ ticker });
   const signals    = applySignalLimits(rawSignals, {
     max_transcript_qtrs:        max_transcript_qtrs        ?? skill.max_transcript_qtrs,
@@ -304,15 +306,29 @@ async function runHtmlSkill({
   ]);
   const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
-  const { raw_html, extracted_json, audit_logs, usage } = await runAgenticPipeline({
-    ticker, extraction_model: skill.extraction_model, fact_validation_model: skill.fact_validation_model, html_template_model: skill.html_template_model, visual_qa_model: skill.visual_qa_model, max_tokens: skill.max_tokens,
-    data_extraction_prompt: skill.data_extraction_prompt,
-    html_template_prompt: skill.html_template_prompt,
-    enable_data_validation: skill.enable_data_validation,
-    data_validation_loops: skill.data_validation_loops,
-    enable_html_validation: skill.enable_html_validation,
-    dataBlock, marketDataBlock, job
+  const systemPrompt = [
+    'Return ONLY a complete, standalone HTML file. No markdown. No explanation. No backticks.',
+    'The HTML must be self-contained with inline CSS and be renderable in an iframe.',
+  ].join('\n');
+
+  const userPrompt = [
+    skill.skill_prompt,
+    '',
+    '--- DATA BLOCK ---',
+    dataBlock,
+    '--- END DATA BLOCK ---',
+    marketDataBlock,
+  ].join('\n');
+
+  const { text: raw_html_raw, usage } = await llmStream({
+    model:      skill.model,
+    max_tokens: skill.max_tokens,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt },
+    ],
   });
+  const raw_html = stripMarkdownFences(raw_html_raw);
 
   logUsage(`html-skill:${slug}:${ticker}`, usage);
 
@@ -327,10 +343,10 @@ async function runHtmlSkill({
   const output = existing
     ? await prisma.htmlSkillOutput.update({
         where: { id: existing.id },
-        data: { raw_html, extracted_json, audit_logs, prompt_v, model: skill.extraction_model, input_tokens, output_tokens, cost_usd },
+        data: { raw_html, prompt_v, model: skill.model, input_tokens, output_tokens, cost_usd },
       })
     : await prisma.htmlSkillOutput.create({
-        data: { skill_id: skill.id, ticker, fiscal_year: fiscal_year ?? null, quarter: quarter ?? null, raw_html, extracted_json, audit_logs, prompt_v, model: skill.extraction_model, input_tokens, output_tokens, cost_usd },
+        data: { skill_id: skill.id, ticker, fiscal_year: fiscal_year ?? null, quarter: quarter ?? null, raw_html, prompt_v, model: skill.model, input_tokens, output_tokens, cost_usd },
       });
 
   return { cached: false, output };
@@ -359,7 +375,7 @@ async function getPreviewSkill() {
 /**
  * Compute a stable cache key for a preview run from its config inputs.
  */
-function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months }) {
+function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months }) {
   const payload = [
     ticker,
     model,
@@ -398,11 +414,16 @@ function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_si
  * @param {number|null} [opts.market_cmp_months]       Months of CMP history (requires "cmp" in signal types)
  * @param {boolean}  [opts.force]  Skip cache
  */
-async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_template_prompt, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types = [], max_market_data_months = null, force = false }, job) {
+async function runHtmlSkillPreview({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types = [], max_market_data_months = null, force = false }) {
   const previewSkill = await getPreviewSkill();
-  
-  // NOTE: previewCacheKey should ideally use all these fields but it's preview so we can just generate a random v for force or include them.
-  const prompt_v = Date.now().toString();
+  const prompt_v     = previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types, max_market_data_months });
+
+  if (!force) {
+    const cached = await prisma.htmlSkillOutput.findFirst({
+      where: { skill_id: previewSkill.id, ticker, fiscal_year: null, quarter: null },
+    });
+    if (cached && cached.prompt_v === prompt_v) return { cached: true, output: cached };
+  }
 
   const rawSignals = await querySignalsV2({ ticker });
   const signals    = applySignalLimits(rawSignals, {
@@ -423,12 +444,29 @@ async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_templa
   ]);
   const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
-  const { raw_html, extracted_json, audit_logs, usage } = await runAgenticPipeline({
-    ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens,
-    data_extraction_prompt, html_template_prompt,
-    enable_data_validation, data_validation_loops, enable_html_validation,
-    dataBlock, marketDataBlock, job
+  const systemPrompt = [
+    'Return ONLY a complete, standalone HTML file. No markdown. No explanation. No backticks.',
+    'The HTML must be self-contained with inline CSS and be renderable in an iframe.',
+  ].join('\n');
+
+  const userPrompt = [
+    skill_prompt,
+    '',
+    '--- DATA BLOCK ---',
+    dataBlock,
+    '--- END DATA BLOCK ---',
+    marketDataBlock,
+  ].join('\n');
+
+  const { text: raw_html_raw, usage } = await llmStream({
+    model,
+    max_tokens,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt },
+    ],
   });
+  const raw_html = stripMarkdownFences(raw_html_raw);
 
   logUsage(`html-skill-preview:${ticker}`, usage);
 
@@ -443,10 +481,10 @@ async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_templa
   const output = existing
     ? await prisma.htmlSkillOutput.update({
         where: { id: existing.id },
-        data:  { raw_html, extracted_json, audit_logs, prompt_v, model: extraction_model, input_tokens, output_tokens, cost_usd },
+        data:  { raw_html, prompt_v, model, input_tokens, output_tokens, cost_usd },
       })
     : await prisma.htmlSkillOutput.create({
-        data: { skill_id: previewSkill.id, ticker, fiscal_year: null, quarter: null, raw_html, extracted_json, audit_logs, prompt_v, model: extraction_model, input_tokens, output_tokens, cost_usd },
+        data: { skill_id: previewSkill.id, ticker, fiscal_year: null, quarter: null, raw_html, prompt_v, model, input_tokens, output_tokens, cost_usd },
       });
 
   return { cached: false, output };
@@ -466,7 +504,7 @@ module.exports = {
 
 
 async function runAgenticPipeline({
-  ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, data_extraction_prompt, html_template_prompt,
+  ticker, model, max_tokens, data_extraction_prompt, html_template_prompt,
   enable_data_validation, data_validation_loops, enable_html_validation,
   dataBlock, marketDataBlock, job
 }) {
@@ -510,8 +548,8 @@ async function runAgenticPipeline({
 
   while (!jsonParseSuccess && parseAttempts < 3) {
     const { text, usage } = await llmStream({
-      max_tokens,
-        messages: [
+      model, max_tokens,
+      messages: [
         { role: 'system', content: 'You are an expert data extraction agent. Output ONLY raw JSON.' },
         { role: 'user', content: currentExtractionPrompt }
       ],
@@ -539,7 +577,7 @@ async function runAgenticPipeline({
     for (let i = 0; i < validationLoops; i++) {
       await logJob(`[Loop 1] Running fact validation (Pass ${i+1}/${validationLoops})...`);
       const { text, usage } = await llmStream({
-        model: fact_validation_model, max_tokens,
+        model, max_tokens,
         messages: [
           { role: 'system', content: FACT_VALIDATION_PROMPT },
           { role: 'user', content: `--- ORIGINAL DATA ---\n${dataBlock}\n\n--- EXTRACTED JSON ---\n${JSON.stringify(extracted_json, null, 2)}` }
@@ -563,7 +601,7 @@ async function runAgenticPipeline({
       
       // Correction Pass
       const { text: correctedText, usage: cUsage } = await llmStream({
-        model: fact_validation_model, max_tokens,
+        model, max_tokens,
         messages: [
           { role: 'system', content: 'You are a data correction agent. Update the JSON based on the critique and return ONLY valid JSON.' },
           { role: 'user', content: `--- CRITIQUE ---\n${JSON.stringify(critique)}\n\n--- CURRENT JSON ---\n${JSON.stringify(extracted_json, null, 2)}` }
@@ -595,8 +633,8 @@ async function runAgenticPipeline({
 
   while (!htmlRenderSuccess && htmlAttempts < 3) {
     const { text, usage } = await llmStream({
-      max_tokens,
-        messages: [
+      model, max_tokens,
+      messages: [
         { role: 'system', content: 'Return ONLY a complete, standalone HTML file. No markdown. No explanation.' },
         { role: 'user', content: currentHtmlPrompt }
       ]
@@ -621,8 +659,8 @@ async function runAgenticPipeline({
     await notifyProgress(80, 'visual_qa');
     await logJob(`[Loop 2] Running visual QA...`);
     const { text, usage } = await llmStream({
-      max_tokens,
-        messages: [
+      model, max_tokens,
+      messages: [
         { role: 'system', content: VISUAL_QA_PROMPT },
         { role: 'user', content: raw_html }
       ]
@@ -638,7 +676,7 @@ async function runAgenticPipeline({
     if (bugs.length > 0) {
       await logJob(`[Loop 2] Found visual bugs: ${JSON.stringify(bugs)}. Correcting HTML...`);
       const { text: fixedHtml, usage: fUsage } = await llmStream({
-        model: visual_qa_model, max_tokens,
+        model, max_tokens,
         messages: [
           { role: 'system', content: 'You are a UI developer. Fix the formatting bugs in the HTML and return ONLY the corrected HTML.' },
           { role: 'user', content: `--- BUGS ---\n${JSON.stringify(bugs)}\n\n--- CURRENT HTML ---\n${raw_html}` }

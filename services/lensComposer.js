@@ -10,7 +10,7 @@ const { fetchPeerMetrics, formatPeerMetricsBlock, fetchEquityMetrics, formatEqui
 const prowess = require('../lib/prowess');
 const { JSON_OUTPUT_CONTRACT } = require('../prompts/jsonOutputContract');
 
-const PEER_LENS_SLUGS = new Set(['competition']);
+const PEER_LENS_SLUGS = new Set(['competition', 'industry-analysis']);
 
 // ─── Shareholding block for promoter-activity lens ───────────────────────────
 
@@ -436,7 +436,7 @@ async function buildPeerSignalsBlock(callId, subjectTicker) {
 //   3. If any peer already has a fresh score with the same hash, copy it and return.
 //   4. Otherwise call the LLM once, then fan-out to every peer call_id.
 
-const INDUSTRY_LENS_SLUGS = new Set(['industry-analysis']);
+const INDUSTRY_LENS_SLUGS = new Set();
 
 async function composeIndustryLens(callId, lensSlug, lensConfig) {
   const {
