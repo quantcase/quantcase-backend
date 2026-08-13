@@ -485,7 +485,7 @@ async function runAgenticPipeline({
   };
 
   const notifyProgress = async (percent, stage) => {
-    if (job) await job.updateProgress({ percent, stage });
+    if (job) await job.updateProgress(percent);
   };
   const logJob = async (msg) => {
     if (job) await job.log(msg);
@@ -493,7 +493,7 @@ async function runAgenticPipeline({
 
   // Phase 1: Data Extraction
   await notifyProgress(20, 'extracting_data');
-  await logJob(`[Phase 1] Extracting data with reasoning ON...`);
+  await logJob(`[Phase 1] Extracting data...`);
   
   let jsonString = '';
   let jsonParseSuccess = false;
