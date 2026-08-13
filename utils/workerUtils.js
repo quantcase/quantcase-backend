@@ -74,10 +74,7 @@ async function llmStream(params, opts = {}) {
           reasoning: { effort: match[2] }
         };
       } else {
-        openRouterParams.extra_body = {
-          ...(openRouterParams.extra_body || {}),
-          thinking: { type: "disabled" }
-        };
+        openRouterParams.thinking = { type: "disabled" };
       }
     }
     return runChatStream(openRouter, openRouterParams, {}, 'OpenRouter');
@@ -132,13 +129,29 @@ async function runChatStream(client, requestBody, reqOpts, label) {
     throw enriched;
   }
   let text = '';
+  let reasoningChars = 0;
   let finishReason;
   let usage = null;
   try {
     for await (const chunk of stream) {
-      text += chunk.choices[0]?.delta?.content ?? '';
-      if (chunk.choices[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
-      if (chunk.usage) usage = chunk.usage;
+      const choice = chunk.choices?.[0];
+      const delta = choice?.delta;
+
+      if (typeof delta?.content === 'string') {
+        text += delta.content;
+      }
+      
+      if (typeof delta?.reasoning_content === 'string') {
+        reasoningChars += delta.reasoning_content.length;
+      }
+
+      if (choice?.finish_reason) {
+        finishReason = choice.finish_reason;
+      }
+
+      if (chunk.usage) {
+        usage = chunk.usage;
+      }
     }
   } catch (err) {
     const body   = err?.error ?? err?.response?.data ?? err?.message;
@@ -149,8 +162,19 @@ async function runChatStream(client, requestBody, reqOpts, label) {
     enriched.original = err;
     throw enriched;
   }
+  
   if (finishReason === 'length') {
-    throw new Error(`[llmStream] Response truncated at token limit (finish_reason=length, ${text.length} chars). Increase maxTokens or reduce input.`);
+    if (text.trim().length === 0) {
+      throw new Error(
+        `[llmStream] Output budget exhausted before visible content. ` +
+        `Verify thinking={"type":"disabled"} and increase max_tokens. ` +
+        `reasoningChars=${reasoningChars}`
+      );
+    }
+    throw new Error(
+      `[llmStream] Visible response truncated after ${text.length} chars. ` +
+      `Increase max_tokens or continue generation from the partial response.`
+    );
   }
   return { text, usage };
 }
