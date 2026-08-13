@@ -301,7 +301,6 @@ async function assemblePrompt(skill, ticker, baseContextBlock, historic = false,
   ]);
   const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
-  const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
   return { dataBlock, marketDataBlock, signals, rawSignals };
 }
