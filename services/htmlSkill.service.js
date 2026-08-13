@@ -16,6 +16,32 @@ Handlebars.registerHelper('verified', function (val, options) {
   }
   return val ? '✓' : '';
 });
+Handlebars.registerHelper('parseBold', function (text) {
+  if (typeof text !== 'string') return text;
+  const parsed = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  return new Handlebars.SafeString(parsed);
+});
+Handlebars.registerHelper('formatType', function (type) {
+  if (typeof type !== 'string') return type;
+  return type.replace(/_/g, '-');
+});
+Handlebars.registerHelper('effectColor', function (effect) {
+  if (!effect) return 'var(--faint)';
+  const e = effect.toLowerCase();
+  if (e === 'positive') return 'var(--green)';
+  if (e === 'negative') return 'var(--red)';
+  if (e === 'neutral') return 'var(--amber)';
+  return 'var(--faint)';
+});
+Handlebars.registerHelper('statusColor', function (status) {
+  if (!status) return 'var(--faint)';
+  const s = status.toLowerCase();
+  if (s === 'achieved' || s === 'reaffirmed') return 'var(--green)';
+  if (s === 'tracking' || s === 'unresolved') return 'var(--amber)';
+  if (s === 'missed') return 'var(--red)';
+  if (s === 'revised') return 'var(--qci-accent)';
+  return 'var(--faint)';
+});
 Handlebars.registerHelper('eq', function (a, b) {
   return a === b;
 });
@@ -651,9 +677,9 @@ async function runAgenticPipeline({
   if (!jsonParseSuccess) throw new Error("Failed to generate valid JSON after 3 attempts.");
 
   // Feedback Loop 1: Fact Validation
-  if (enable_data_validation) {
+  if (enable_data_validation && String(enable_data_validation) !== 'false') {
     await notifyProgress(40, 'validating_facts');
-    let validationLoops = data_validation_loops || 1;
+    let validationLoops = data_validation_loops ?? 1;
     for (let i = 0; i < validationLoops; i++) {
       await logJob(`[Loop 1] Running fact validation (Pass ${i+1}/${validationLoops})...`);
       const { text, usage } = await llmStream({
@@ -746,7 +772,7 @@ async function runAgenticPipeline({
   }
 
   // Feedback Loop 2: Visual QA
-  if (enable_html_validation) {
+  if (enable_html_validation && String(enable_html_validation) !== 'false') {
     await notifyProgress(80, 'visual_qa');
     await logJob(`[Loop 2] Running visual QA...`);
     const { text, usage } = await llmStream({
