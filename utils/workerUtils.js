@@ -73,6 +73,11 @@ async function llmStream(params, opts = {}) {
           ...(openRouterParams.extra_body || {}),
           reasoning: { effort: match[2] }
         };
+      } else {
+        openRouterParams.extra_body = {
+          ...(openRouterParams.extra_body || {}),
+          thinking: { type: "disabled" }
+        };
       }
     }
     return runChatStream(openRouter, openRouterParams, {}, 'OpenRouter');
