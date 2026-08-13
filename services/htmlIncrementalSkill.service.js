@@ -301,21 +301,9 @@ async function assemblePrompt(skill, ticker, baseContextBlock, historic = false,
   ]);
   const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
-  const systemPrompt = [
-    'Return ONLY a complete, standalone HTML file. No markdown. No explanation. No backticks.',
-    'The HTML must be self-contained with inline CSS and be renderable in an iframe.',
-  ].join('\n');
+  const marketDataBlock = buildMarketDataBlock(peData, cmpData);
 
-  const userPrompt = [
-    skill.skill_prompt,
-    baseContextBlock,
-    '--- SIGNALS ---',
-    dataBlock,
-    '--- END SIGNALS ---',
-    marketDataBlock,
-  ].join('\n');
-
-  return { systemPrompt, userPrompt, signals, rawSignals };
+  return { dataBlock, marketDataBlock, signals, rawSignals };
 }
 
 // A config's key is just a string tag with no schema-level guarantee it
@@ -328,7 +316,8 @@ async function assemblePrompt(skill, ticker, baseContextBlock, historic = false,
 // t1/t2/t3 seeding, now reused there instead of duplicated.
 function defaultConfigFieldsFromSkill(skill) {
   return {
-    skill_prompt:                     skill.skill_prompt,
+    data_extraction_prompt:           skill.data_extraction_prompt,
+    html_template_prompt:             skill.html_template_prompt,
     transcript_signal_types:          skill.transcript_signal_types,
     ppt_signal_types:                 skill.ppt_signal_types,
     annual_report_signal_types:       skill.annual_report_signal_types,
@@ -341,7 +330,13 @@ function defaultConfigFieldsFromSkill(skill) {
     historic_max_ppt_qtrs:            skill.historic_max_ppt_qtrs,
     historic_max_annual_report_years: skill.historic_max_annual_report_years,
     historic_max_market_data_months:  skill.historic_max_market_data_months,
-    model:      skill.model,
+    extraction_model:                 skill.extraction_model,
+    fact_validation_model:            skill.fact_validation_model,
+    html_template_model:              skill.html_template_model,
+    visual_qa_model:                  skill.visual_qa_model,
+    enable_data_validation:           skill.enable_data_validation,
+    data_validation_loops:            skill.data_validation_loops,
+    enable_html_validation:           skill.enable_html_validation,
     max_tokens: skill.max_tokens,
     strip_html: skill.strip_html,
   };
@@ -381,7 +376,8 @@ async function resolveEffectiveSkill(skill, configKey) {
 
   const effectiveSkill = {
     ...skill,
-    skill_prompt:                     config.skill_prompt,
+    data_extraction_prompt:           config.data_extraction_prompt,
+    html_template_prompt:             config.html_template_prompt,
     transcript_signal_types:          config.transcript_signal_types,
     ppt_signal_types:                 config.ppt_signal_types,
     annual_report_signal_types:       config.annual_report_signal_types,
@@ -394,7 +390,15 @@ async function resolveEffectiveSkill(skill, configKey) {
     historic_max_ppt_qtrs:            config.historic_max_ppt_qtrs,
     historic_max_annual_report_years: config.historic_max_annual_report_years,
     historic_max_market_data_months:  config.historic_max_market_data_months,
-    model:      config.model      ?? skill.model,
+    
+    extraction_model:                 config.extraction_model ?? skill.extraction_model,
+    fact_validation_model:            config.fact_validation_model ?? skill.fact_validation_model,
+    html_template_model:              config.html_template_model ?? skill.html_template_model,
+    visual_qa_model:                  config.visual_qa_model ?? skill.visual_qa_model,
+    enable_data_validation:           config.enable_data_validation ?? skill.enable_data_validation,
+    data_validation_loops:            config.data_validation_loops ?? skill.data_validation_loops,
+    enable_html_validation:           config.enable_html_validation ?? skill.enable_html_validation,
+
     max_tokens: config.max_tokens ?? skill.max_tokens,
     strip_html: config.strip_html ?? skill.strip_html,
   };
@@ -421,12 +425,12 @@ async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic 
   }
   const baseContextBlock         = formatBaseContextBlock(baseOutputs, effectiveSkill.strip_html);
 
-  const { systemPrompt, userPrompt, signals, rawSignals } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
+  const { dataBlock, marketDataBlock, signals, rawSignals } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
 
   return {
     skill: effectiveSkill,
-    systemPrompt,
-    userPrompt,
+    userPrompt: "Preview not fully available for multi-stage skills.",
+    systemPrompt: "Preview not fully available for multi-stage skills.",
     signal_count:        signals.length,
     raw_signal_count:    rawSignals.length,
     base_context_count:  baseOutputs.length,
@@ -465,17 +469,31 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
   }
   const baseContextBlock = formatBaseContextBlock(baseOutputs, effectiveSkill.strip_html);
 
-  const { systemPrompt, userPrompt } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
+  const { dataBlock, marketDataBlock } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
 
-  const { text: raw_html_raw, usage } = await llmStream({
-    model:      effectiveSkill.model,
+  const enhancedExtractionPrompt = [
+    effectiveSkill.data_extraction_prompt,
+    baseContextBlock,
+  ].filter(Boolean).join('\n\n');
+
+  const { raw_html: raw_html_unstripped, extracted_json, audit_logs, usage } = await runAgenticPipeline({
+    ticker,
+    extraction_model: effectiveSkill.extraction_model,
+    fact_validation_model: effectiveSkill.fact_validation_model,
+    html_template_model: effectiveSkill.html_template_model,
+    visual_qa_model: effectiveSkill.visual_qa_model,
     max_tokens: effectiveSkill.max_tokens,
-    messages:   [
-      { role: 'system', content: systemPrompt },
-      { role: 'user',   content: userPrompt },
-    ],
+    data_extraction_prompt: enhancedExtractionPrompt,
+    html_template_prompt: effectiveSkill.html_template_prompt,
+    enable_data_validation: effectiveSkill.enable_data_validation,
+    data_validation_loops: effectiveSkill.data_validation_loops,
+    enable_html_validation: effectiveSkill.enable_html_validation,
+    dataBlock,
+    marketDataBlock,
+    job,
   });
-  const raw_html     = stripMarkdownFences(raw_html_raw);
+
+  const raw_html     = stripMarkdownFences(raw_html_unstripped);
   const text_summary = effectiveSkill.strip_html ? stripHtmlToText(raw_html) : null;
 
   logUsage(`html-incremental-skill:${slug}:${ticker}`, usage);
@@ -491,7 +509,7 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
   const output = existing
     ? await prisma.htmlIncrementalSkillOutput.update({
         where: { id: existing.id },
-        data:  { raw_html, text_summary, prompt_v, call_id: callId ?? 'unknown', model: effectiveSkill.model, input_tokens, output_tokens, cost_usd, is_historic: historic, config_key: resolvedConfigKey },
+        data:  { raw_html, text_summary, prompt_v, call_id: callId ?? 'unknown', model: effectiveSkill.extraction_model, input_tokens, output_tokens, cost_usd, is_historic: historic, config_key: resolvedConfigKey, extracted_json, audit_logs },
       })
     : await prisma.htmlIncrementalSkillOutput.create({
         data: {
@@ -503,12 +521,14 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
           raw_html,
           text_summary,
           prompt_v,
-          model:        effectiveSkill.model,
+          model:        effectiveSkill.extraction_model,
           input_tokens,
           output_tokens,
           cost_usd,
           is_historic: historic,
           config_key:  resolvedConfigKey,
+          extracted_json,
+          audit_logs,
         },
       });
 
