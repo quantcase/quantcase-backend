@@ -511,7 +511,7 @@ async function runAgenticPipeline({
 
   while (!jsonParseSuccess && parseAttempts < 3) {
     const { text, usage } = await llmStream({
-      max_tokens,
+      model: extraction_model, max_tokens,
         messages: [
         { role: 'system', content: 'You are an expert data extraction agent. Output ONLY raw JSON.' },
         { role: 'user', content: currentExtractionPrompt }
@@ -596,7 +596,7 @@ async function runAgenticPipeline({
 
   while (!htmlRenderSuccess && htmlAttempts < 3) {
     const { text, usage } = await llmStream({
-      max_tokens,
+      model: html_template_model, max_tokens,
         messages: [
         { role: 'system', content: 'Return ONLY a complete, standalone HTML file. No markdown. No explanation.' },
         { role: 'user', content: currentHtmlPrompt }
@@ -622,7 +622,7 @@ async function runAgenticPipeline({
     await notifyProgress(80, 'visual_qa');
     await logJob(`[Loop 2] Running visual QA...`);
     const { text, usage } = await llmStream({
-      max_tokens,
+      model: visual_qa_model, max_tokens,
         messages: [
         { role: 'system', content: VISUAL_QA_PROMPT },
         { role: 'user', content: raw_html }
