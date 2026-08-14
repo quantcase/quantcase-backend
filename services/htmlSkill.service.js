@@ -6,6 +6,11 @@ const { querySignalsV2 } = require('./db/signals.db');
 const { llmStream, logUsage } = require('../utils/workerUtils');
 const { FACT_VALIDATION_PROMPT, VISUAL_QA_PROMPT } = require('../prompts/validationPrompts');
 const Handlebars = require('handlebars');
+const fs = require('fs');
+const path = require('path');
+const registerDashboardHelpers = require('../utils/handlebars-helpers');
+
+registerDashboardHelpers(Handlebars);
 
 Handlebars.registerHelper('lowercase', function (str) {
   return typeof str === 'string' ? str.toLowerCase() : '';
@@ -461,6 +466,7 @@ async function runHtmlSkill({
     ticker, extraction_model: skill.extraction_model, fact_validation_model: skill.fact_validation_model, html_template_model: skill.html_template_model, visual_qa_model: skill.visual_qa_model, max_tokens: skill.max_tokens,
     data_extraction_prompt: skill.data_extraction_prompt,
     html_template_prompt: skill.html_template_prompt,
+    html_template_filename: skill.html_template_filename,
     use_template_engine: skill.use_template_engine,
     enable_data_validation: skill.enable_data_validation,
     data_validation_loops: skill.data_validation_loops,
@@ -552,7 +558,7 @@ function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_si
  * @param {number|null} [opts.market_cmp_months]       Months of CMP history (requires "cmp" in signal types)
  * @param {boolean}  [opts.force]  Skip cache
  */
-async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_template_prompt, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types, ppt_signal_types, annual_report_signal_types, model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types = [], max_market_data_months = null, force = false }, job) {
+async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_template_prompt, use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types, ppt_signal_types, annual_report_signal_types, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types = [], max_market_data_months = null, force = false }, job) {
   const previewSkill = await getPreviewSkill();
   
   // NOTE: previewCacheKey should ideally use all these fields but it's preview so we can just generate a random v for force or include them.
@@ -579,7 +585,7 @@ async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_templa
 
   const { raw_html, extracted_json, audit_logs, usage } = await runAgenticPipeline({
     ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens,
-    data_extraction_prompt, html_template_prompt,
+    data_extraction_prompt, html_template_prompt, html_template_filename,
     use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
     dataBlock, marketDataBlock, job
   });
@@ -621,7 +627,7 @@ module.exports = {
 
 
 async function runAgenticPipeline({
-  ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, data_extraction_prompt, html_template_prompt,
+  ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, data_extraction_prompt, html_template_prompt, html_template_filename,
   use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
   dataBlock, marketDataBlock, job
 }) {
@@ -688,7 +694,8 @@ async function runAgenticPipeline({
   if (!jsonParseSuccess) throw new Error("Failed to generate valid JSON after 3 attempts.");
 
   // Feedback Loop 1: Fact Validation
-  if (enable_data_validation && String(enable_data_validation) !== 'false') {
+  const shouldValidateData = enable_data_validation === true || enable_data_validation === 'true' || enable_data_validation === 1 || enable_data_validation === '1';
+  if (shouldValidateData) {
     await notifyProgress(40, 'validating_facts');
     let validationLoops = data_validation_loops ?? 1;
     for (let i = 0; i < validationLoops; i++) {
@@ -740,7 +747,16 @@ async function runAgenticPipeline({
   
   if (use_template_engine) {
     try {
-      const template = Handlebars.compile(html_template_prompt);
+      let templateStr = html_template_prompt;
+      if (html_template_filename) {
+        const tplPath = path.join(__dirname, '..', 'templates', html_template_filename);
+        if (fs.existsSync(tplPath)) {
+          templateStr = fs.readFileSync(tplPath, 'utf8');
+        } else {
+          await logJob(`[Phase 2] Template file not found: ${html_template_filename}. Falling back to prompt box.`);
+        }
+      }
+      const template = Handlebars.compile(templateStr);
       raw_html = template(extracted_json);
       await logJob(`[Phase 2] HTML rendering successful via Handlebars.`);
     } catch (err) {
@@ -782,8 +798,9 @@ async function runAgenticPipeline({
     if (!htmlRenderSuccess) throw new Error("Failed to generate valid HTML structure after 3 attempts.");
   }
 
-  // Feedback Loop 2: Visual QA
-  if (enable_html_validation && String(enable_html_validation) !== 'false') {
+  // Feedback Loop 2: HTML Validation
+  const shouldValidateHtml = enable_html_validation === true || enable_html_validation === 'true' || enable_html_validation === 1 || enable_html_validation === '1';
+  if (shouldValidateHtml) {
     await notifyProgress(80, 'visual_qa');
     await logJob(`[Loop 2] Running visual QA...`);
     const { text, usage } = await llmStream({

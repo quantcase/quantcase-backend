@@ -661,6 +661,7 @@ model HtmlIncrementalSkill {
   enable_data_validation           Boolean                      @default(true)
   data_validation_loops            Int                          @default(1)
   use_template_engine              Boolean                      @default(true)
+  html_template_filename           String?
   enable_html_validation           Boolean                      @default(false)
   max_tokens                       Int                          @default(16000)
   transcript_signal_types          String[]
@@ -723,6 +724,7 @@ model HtmlIncrementalSkillConfig {
   enable_data_validation           Boolean                      @default(true)
   data_validation_loops            Int                          @default(1)
   use_template_engine              Boolean                      @default(true)
+  html_template_filename           String?
   enable_html_validation           Boolean                      @default(false)
   transcript_signal_types          String[]
   ppt_signal_types                 String[]

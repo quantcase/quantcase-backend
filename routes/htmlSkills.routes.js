@@ -82,9 +82,9 @@ router.post('/run-preview', async (req, res, next) => {
   try {
     const {
       ticker, data_extraction_prompt, html_template_prompt,
-      enable_data_validation, data_validation_loops, enable_html_validation,
+      enable_data_validation, data_validation_loops, enable_html_validation, use_template_engine, html_template_filename,
       transcript_signal_types, ppt_signal_types, annual_report_signal_types,
-      model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
+      model, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years,
       market_data_signal_types, max_market_data_months, force,
     } = req.body;
 
@@ -101,10 +101,16 @@ router.post('/run-preview', async (req, res, next) => {
       enable_data_validation,
       data_validation_loops,
       enable_html_validation,
+      use_template_engine,
+      html_template_filename,
       transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
       ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
       annual_report_signal_types: Array.isArray(annual_report_signal_types) ? annual_report_signal_types : [],
       model,
+      extraction_model,
+      fact_validation_model,
+      html_template_model,
+      visual_qa_model,
       max_tokens,
       max_transcript_qtrs:      max_transcript_qtrs     ?? null,
       max_ppt_qtrs:             max_ppt_qtrs            ?? null,
@@ -140,9 +146,11 @@ router.post('/', async (req, res, next) => {
     }
     const skill = await prisma.htmlSkill.create({
       data: {
-        slug, name, data_extraction_prompt, html_template_prompt, category,
-        enable_data_validation: enable_data_validation ?? true,
-        data_validation_loops: data_validation_loops ?? 1,
+        slug, name, data_extraction_prompt, html_template_prompt: req.body.html_template_prompt, category,
+        enable_data_validation: req.body.enable_data_validation ?? true,
+        use_template_engine: req.body.use_template_engine ?? false,
+        html_template_filename: req.body.html_template_filename || null,
+        data_validation_loops: req.body.data_validation_loops ?? 1,
         enable_html_validation: enable_html_validation ?? false,
         transcript_signal_types:    Array.isArray(transcript_signal_types)    ? transcript_signal_types    : [],
         ppt_signal_types:           Array.isArray(ppt_signal_types)           ? ppt_signal_types           : [],
@@ -167,7 +175,7 @@ router.post('/', async (req, res, next) => {
 // PUT /api/html-skills/:slug — update a skill
 router.put('/:slug', async (req, res, next) => {
   try {
-    const allowed = ['name', 'data_extraction_prompt', 'html_template_prompt', 'enable_data_validation', 'data_validation_loops', 'enable_html_validation', 'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types', 'category', 'extraction_model', 'fact_validation_model', 'html_template_model', 'visual_qa_model', 'max_tokens', 'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'market_data_signal_types', 'max_market_data_months', 'is_active'];
+    const allowed = ['name', 'data_extraction_prompt', 'html_template_prompt', 'enable_data_validation', 'data_validation_loops', 'enable_html_validation', 'use_template_engine', 'html_template_filename', 'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types', 'category', 'extraction_model', 'fact_validation_model', 'html_template_model', 'visual_qa_model', 'max_tokens', 'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'market_data_signal_types', 'max_market_data_months', 'is_active'];
     const data = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) data[key] = req.body[key];
