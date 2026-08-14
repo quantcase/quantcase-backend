@@ -36,7 +36,7 @@ const getL1MultiOptions = async (req, res, next) => {
 // POST /admin/pipeline-dispatch/l1-multi/preview — dry run, no side effects, not logged as a run
 const previewL1Multi = async (req, res, next) => {
   try {
-    const result = await previewL1MultiDispatch(req.body);
+    const result = await previewL1MultiDispatch({ ...req.body, fromUI: true });
     res.json(result);
   } catch (err) {
     next(err);
@@ -66,7 +66,7 @@ const previewL1MultiCsv = async (req, res, next) => {
 // POST /admin/pipeline-dispatch/l1-multi/run — fire-and-forget, logged to scheduler_runs
 const runL1Multi = async (req, res, next) => {
   try {
-    const result = await triggerJobBySlug(L1_MULTI_SLUG, req.body);
+    const result = await triggerJobBySlug(L1_MULTI_SLUG, { ...req.body, fromUI: true });
     res.json({ success: true, message: 'L1 multi-dispatch triggered', run_id: result.run_id });
   } catch (err) {
     if (err.statusCode === 404) return res.status(404).json({ error: err.message });

@@ -194,7 +194,7 @@ async function previewL1MultiDispatchUncached(options) {
       select:  { id: true, company: true, fiscal_year: true, quarter: true, transcript_url: true, ppt_url: true },
       orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
     }),
-    prisma.annual_reports.findMany({
+    (options.noAr && options.fromUI)? Promise.resolve([]) : prisma.annual_reports.findMany({
       where:   { company: { in: tickers } },
       select:  { id: true, company: true, fiscal_year: true, annual_report_url: true },
       orderBy: { fiscal_year: 'desc' },
@@ -373,11 +373,11 @@ async function runL1MultiDispatch(options = {}) {
   let scopeReportIds = null;
   if (!options.all) {
     const [scopeCallRows, scopeReportRows] = await Promise.all([
-      prisma.earnings_calls.findMany({
+      (options.noAr && options.fromUI)? Promise.resolve([]) : prisma.earnings_calls.findMany({
         where:  { company: { in: tickers } },
         select: { id: true },
       }),
-      prisma.annual_reports.findMany({
+      (options.noAr && options.fromUI)? Promise.resolve([]) : prisma.annual_reports.findMany({
         where:  { company: { in: tickers } },
         select: { id: true },
       }),
