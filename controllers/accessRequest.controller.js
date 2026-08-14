@@ -1,5 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { sendMail } = require('../lib/mailer');
+const { requestAccessEmail } = require('../utils/emailTemplates/requestAccess');
 
 const createAccessRequest = async (req, res) => {
   try {
@@ -18,6 +20,14 @@ const createAccessRequest = async (req, res) => {
         incomeLevel,
       },
     });
+
+    try {
+      const { subject, html, text } = requestAccessEmail({ name, email });
+      await sendMail({ to: email, subject, html, text });
+    } catch (mailError) {
+      console.error('Error sending access request email:', mailError);
+      // We don't fail the request if the email fails to send, but log it
+    }
 
     res.status(201).json({ message: 'Request recorded successfully', data: accessRequest });
   } catch (error) {
