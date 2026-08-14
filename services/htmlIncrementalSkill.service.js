@@ -335,6 +335,7 @@ function defaultConfigFieldsFromSkill(skill) {
     visual_qa_model:                  skill.visual_qa_model,
     enable_data_validation:           skill.enable_data_validation,
     data_validation_loops:            skill.data_validation_loops,
+    use_template_engine:              skill.use_template_engine,
     enable_html_validation:           skill.enable_html_validation,
     max_tokens: skill.max_tokens,
     strip_html: skill.strip_html,
@@ -396,6 +397,7 @@ async function resolveEffectiveSkill(skill, configKey) {
     visual_qa_model:                  config.visual_qa_model ?? skill.visual_qa_model,
     enable_data_validation:           config.enable_data_validation ?? skill.enable_data_validation,
     data_validation_loops:            config.data_validation_loops ?? skill.data_validation_loops,
+    use_template_engine:              config.use_template_engine ?? skill.use_template_engine,
     enable_html_validation:           config.enable_html_validation ?? skill.enable_html_validation,
 
     max_tokens: config.max_tokens ?? skill.max_tokens,

@@ -219,7 +219,18 @@ function buildMarketDataBlock(peData, cmpData) {
 }
 
 function stripMarkdownFences(text) {
-  return text.replace(/^```(?:html)?\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+  if (!text) return '';
+  let clean = text;
+  const match = clean.match(/```[a-zA-Z]*\s*([\s\S]*?)```/);
+  if (match) {
+    clean = match[1];
+  } else {
+    clean = clean.replace(/^```[a-zA-Z]*\s*/i, '').replace(/\s*```$/i, '');
+  }
+  
+  clean = clean.trim().replace(/^(json|html)\s*(?=[<{\[])/i, '');
+  
+  return clean.trim();
 }
 
 /**
