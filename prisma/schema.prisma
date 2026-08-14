@@ -2366,3 +2366,15 @@ model TierClassification {
 
   @@map("tier_classification")
 }
+
+model AccessRequest {
+  id           String   @id @default(uuid())
+  name         String
+  profession   String
+  email        String
+  mobileNumber String?
+  incomeLevel  String
+  createdAt    DateTime @default(now())
+
+  @@map("access_requests")
+}
