@@ -39,7 +39,7 @@ function requestAccessEmail({ name, email }) {
                 </p>
 
                 <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#374151;">
-                  Thanks for your interest in QuantCase. We've received your request for access to our beta.
+                  Thanks for your interest in quantcase. We've received your request for access to our beta.
                 </p>
 
                 <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#374151;">
