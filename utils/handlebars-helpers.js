@@ -218,4 +218,30 @@ module.exports = function registerDashboardHelpers(Handlebars) {
       .pop();
     return lastPoint ? lastPoint.split(',')[1] : 0;
   });
+
+  Handlebars.registerHelper('trendSparkPoints', function (trend) {
+    const points = {
+      rising: '6,36 22,30 38,26 54,22 70,19 86,15 104,11',
+      steady: '6,23 22,23 38,25 54,22 70,24 86,22 104,22',
+      mixed:  '6,25 22,20 38,28 54,18 70,27 86,21 104,24',
+      watch:  '6,15 22,17 38,21 54,27 70,31 86,34 104,36',
+      falling:'6,12 22,15 38,19 54,24 70,30 86,34 104,37',
+      new:    '6,36 22,32 38,28 54,24 70,20 86,16 104,13'
+    };
+
+    return points[String(trend || '').toLowerCase()] || points.steady;
+  });
+
+  Handlebars.registerHelper('trendSparkEndY', function (trend) {
+    const endY = {
+      rising: 11,
+      steady: 22,
+      mixed: 24,
+      watch: 36,
+      falling: 37,
+      new: 13
+    };
+
+    return endY[String(trend || '').toLowerCase()] ?? 22;
+  });
 };
