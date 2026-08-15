@@ -15,6 +15,56 @@ function esc(value) {
 }
 
 module.exports = function registerDashboardHelpers(Handlebars) {
+
+  Handlebars.registerHelper('trendSparkline', function (ctx) {
+    if (!ctx) return '';
+    const trendStr = String(ctx.status || ctx.trend || ctx.pill || ctx.badge_color || ctx.case || ctx.credibility || ctx.type || 'steady').toLowerCase();
+    
+    let trendKey = 'steady';
+    if (trendStr.includes('rising') || trendStr.includes('improving') || trendStr.includes('positive') || trendStr.includes('strong') || trendStr.includes('achieved')) trendKey = 'rising';
+    else if (trendStr.includes('falling') || trendStr.includes('deteriorating') || trendStr.includes('negative') || trendStr.includes('low') || trendStr.includes('miss')) trendKey = 'falling';
+    else if (trendStr.includes('watch') || trendStr.includes('concern') || trendStr.includes('risk') || trendStr.includes('warning') || trendStr.includes('moderate')) trendKey = 'watch';
+    else if (trendStr.includes('mixed') || trendStr.includes('developing')) trendKey = 'mixed';
+    else if (trendStr.includes('new')) trendKey = 'new';
+    
+    // We duplicate the points mapping inside the helper to be safe
+    const points = {
+      rising: '6,36 22,30 38,26 54,22 70,19 86,15 104,11',
+      steady: '6,23 22,23 38,25 54,22 70,24 86,22 104,22',
+      mixed:  '6,25 22,20 38,28 54,18 70,27 86,21 104,24',
+      watch:  '6,15 22,17 38,21 54,27 70,31 86,34 104,36',
+      falling:'6,12 22,15 38,19 54,24 70,30 86,34 104,37',
+      new:    '6,36 22,32 38,28 54,24 70,20 86,16 104,13'
+    };
+    
+    const endYMap = {
+      rising: 11,
+      steady: 22,
+      mixed: 24,
+      watch: 36,
+      falling: 37,
+      new: 13
+    };
+
+    const colorMap = {
+      rising: 'var(--green-d)',
+      steady: 'var(--amber-d)',
+      mixed: 'var(--amber-d)',
+      watch: 'var(--amber-d)',
+      falling: 'var(--red-d)',
+      new: 'var(--green-d)'
+    };
+    
+    const p = points[trendKey] || points.steady;
+    const y = endYMap[trendKey] || endYMap.steady;
+    const hex = colorMap[trendKey] || colorMap.steady;
+
+    return '<svg class="spark" viewBox="0 0 110 46" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style="width:110px;height:46px;display:block">' +
+      '<polyline points="' + p + '" fill="none" stroke="' + hex + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>' +
+      '<circle cx="104" cy="' + y + '" r="3.5" fill="' + hex + '"/>' +
+    '</svg>';
+  });
+
   const lower = value =>
     String(value ?? '')
       .trim()
