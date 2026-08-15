@@ -65,17 +65,26 @@ async function llmStream(params, opts = {}) {
 
   if (!useVertex) {
     const openRouterParams = { ...params, stream: true };
-    if (openRouterParams.model && openRouterParams.model.includes('deepseek')) {
-      const match = openRouterParams.model.match(/^(.*):(high|low)$/);
-      if (match) {
-        openRouterParams.model = match[1];
-        openRouterParams.extra_body = {
-          ...(openRouterParams.extra_body || {}),
-          reasoning: { effort: match[2] }
-        };
-      } else {
-        openRouterParams.thinking = { type: "disabled" };
-      }
+    // Handle reasoning/thinking suppression for all OpenRouter models.
+    // If the model string ends with :high or :low, strip the suffix and pass
+    // it as an explicit effort level. Otherwise, disable reasoning entirely
+    // using OpenRouter's native `reasoning` parameter (correct for all
+    // providers — DeepSeek, Qwen, Mimo, etc). The old `thinking: {type:"disabled"}`
+    // was Anthropic-specific and silently ignored by most other providers,
+    // causing the entire token budget to be consumed by hidden reasoning tokens.
+    const effortMatch = openRouterParams.model?.match(/^(.*):(high|low)$/);
+    if (effortMatch) {
+      openRouterParams.model = effortMatch[1];
+      openRouterParams.extra_body = {
+        ...(openRouterParams.extra_body || {}),
+        reasoning: { effort: effortMatch[2] }
+      };
+    } else {
+      // Disable reasoning by default for all models on OpenRouter path.
+      openRouterParams.extra_body = {
+        ...(openRouterParams.extra_body || {}),
+        reasoning: { enabled: false }
+      };
     }
     return runChatStream(openRouter, openRouterParams, {}, 'OpenRouter');
   }
