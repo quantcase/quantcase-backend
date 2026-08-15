@@ -63,6 +63,16 @@ module.exports = function registerDashboardHelpers(Handlebars) {
 
   Handlebars.registerHelper('eq', (a, b) => a === b);
 
+  Handlebars.registerHelper("json", function json(value) {
+    const serialized = JSON.stringify(value == null ? null : value, null, 2);
+    return serialized
+      .replace(/</g, "\\u003c")
+      .replace(/>/g, "\\u003e")
+      .replace(/&/g, "\\u0026")
+      .replace(/\u2028/g, "\\u2028")
+      .replace(/\u2029/g, "\\u2029");
+  });
+
   Handlebars.registerHelper('ratingClass', value => {
     return (
       {

@@ -14,7 +14,9 @@ function rethrowIfUnrecoverable(err) {
     (status === 400 && msg.toLowerCase().includes('context length')) ||
     code === 'context_length_exceeded';
 
-  if (isContextLength) {
+  const isStructuralError = status === 400 || status === 404;
+
+  if (isContextLength || isStructuralError) {
     const ure = new UnrecoverableError(msg);
     ure.cause = err;
     throw ure;
