@@ -669,12 +669,10 @@
           <div><h3 class="pattern-name">{{name}}</h3><p class="pattern-meaning">{{meaning}}</p></div>
           <div class="spark-wrap">
             <span class="trend {{trend}}">{{trend}}</span>
-            {{#if spark}}
             <svg class="spark {{trend}}" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
               <line class="base" x1="0" y1="27" x2="100" y2="27"></line>
-              <polyline class="path" points="{{sparkPoints spark}}"></polyline>
+              <polyline class="path" points="{{sparkPoints spark trend}}"></polyline>
             </svg>
-            {{/if}}
           </div>
         </article>
         {{/each}}

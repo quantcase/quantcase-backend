@@ -844,10 +844,11 @@ model HtmlCompressedSkillOutput {
   call_id       String
   fiscal_year   String?
   quarter       String?
-  raw_html      String
-  text_summary  String?
-  prompt_v      String
-  model         String
+  raw_html       String
+  text_summary   String?
+  extracted_json Json?
+  prompt_v       String
+  model          String
   input_tokens  Int?
   output_tokens Int?
   cost_usd      Float?

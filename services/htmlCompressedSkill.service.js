@@ -184,7 +184,7 @@ async function runCompressedHtmlSkill({ slug, ticker, callId, force = false, his
   const output = existing
     ? await prisma.htmlCompressedSkillOutput.update({
         where: { id: existing.id },
-        data:  { raw_html, text_summary, prompt_v, call_id: callId ?? 'unknown', model: effectiveSkill.html_template_model, input_tokens, output_tokens, cost_usd, is_historic: historic, config_key: resolvedConfigKey },
+        data:  { raw_html, text_summary, extracted_json, prompt_v, call_id: callId ?? 'unknown', model: effectiveSkill.html_template_model, input_tokens, output_tokens, cost_usd, is_historic: historic, config_key: resolvedConfigKey },
       })
     : await prisma.htmlCompressedSkillOutput.create({
         data: {
@@ -195,6 +195,7 @@ async function runCompressedHtmlSkill({ slug, ticker, callId, force = false, his
           quarter:     quarter     ?? null,
           raw_html,
           text_summary,
+          extracted_json,
           prompt_v,
           model:        effectiveSkill.html_template_model,
           input_tokens,
