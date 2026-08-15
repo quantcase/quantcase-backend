@@ -65,17 +65,23 @@ async function llmStream(params, opts = {}) {
 
   if (!useVertex) {
     const openRouterParams = { ...params, stream: true };
-    if (openRouterParams.model && openRouterParams.model.includes('deepseek')) {
-      const match = openRouterParams.model.match(/^(.*):(high|low)$/);
-      if (match) {
-        openRouterParams.model = match[1];
-        openRouterParams.extra_body = {
-          ...(openRouterParams.extra_body || {}),
-          reasoning: { effort: match[2] }
-        };
-      } else {
-        openRouterParams.thinking = { type: "disabled" };
-      }
+    // Handle reasoning/thinking suppression for all OpenRouter models.
+    // If the model string ends with :high or :low, strip the suffix and pass
+    // it as an explicit effort level. Otherwise, disable reasoning entirely.
+    //
+    // IMPORTANT: `reasoning` must be a TOP-LEVEL key in openRouterParams, NOT
+    // nested inside `extra_body`. The OpenAI Node SDK silently drops `extra_body`
+    // in streaming mode for many SDK versions, meaning reasoning was never actually
+    // disabled — DeepSeek was silently consuming the full token budget with thinking
+    // tokens (which appear as `delta.thinking`, not `delta.reasoning_content`),
+    // producing finish_reason='length' with 0 visible chars.
+    const effortMatch = openRouterParams.model?.match(/^(.*):(high|low)$/);
+    if (effortMatch) {
+      openRouterParams.model = effortMatch[1];
+      openRouterParams.reasoning = { effort: effortMatch[2] };
+    } else {
+      // Disable reasoning by default for all models on OpenRouter path.
+      openRouterParams.reasoning = { enabled: false };
     }
     return runChatStream(openRouter, openRouterParams, {}, 'OpenRouter');
   }
@@ -141,8 +147,14 @@ async function runChatStream(client, requestBody, reqOpts, label) {
         text += delta.content;
       }
       
+      // Track reasoning/thinking tokens from both field names:
+      // - `reasoning_content` is the OpenRouter standard field
+      // - `thinking` is DeepSeek's native streaming field (different providers use different names)
       if (typeof delta?.reasoning_content === 'string') {
         reasoningChars += delta.reasoning_content.length;
+      }
+      if (typeof delta?.thinking === 'string') {
+        reasoningChars += delta.thinking.length;
       }
 
       if (choice?.finish_reason) {

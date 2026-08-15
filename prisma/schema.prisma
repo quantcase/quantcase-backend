@@ -85,20 +85,20 @@ model PipelineJobFailure {
 // ─── KPI & Prowess ────────────────────────────────────────────────────────────
 
 model Kpi {
-  id            String            @id @default(uuid())
-  abbr          String            @unique
-  full_form     String
-  denomination  DenominationType?
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
-  industry      String[]          @default([])
-  source        KpiSource
-  kpi_type      KpiTypeCategory?
+  id                     String            @id @default(uuid())
+  abbr                   String            @unique
+  full_form              String
+  denomination           DenominationType?
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
+  industry               String[]          @default([])
+  source                 KpiSource
+  kpi_type               KpiTypeCategory?
   // Raw indicator name as it appears in the annual Prowess CSV, used to
   // resolve annual columns to this KPI without a code deploy. Defaults to the
   // same value as `abbr` when the two coincide. ProwessUploader's annual path
   // (runAnnual) matches on this field exclusively.
-  prowess_name  String?
+  prowess_name           String?
   // Same idea as prowess_name, but for the quarterly CSV's own header text --
   // kept separate because ~2/3 of abbrs that appear in both templates use
   // different wording per template (e.g. TOTAL_INCOME: 'Total income'
@@ -107,7 +107,7 @@ model Kpi {
   // still resolves via the hardcoded QTR_COL_MAP) -- seeded here for
   // reference/future use, no ingestion code depends on it yet.
   quarterly_prowess_name String?
-  prowessValues ProwessValueNew[]
+  prowessValues          ProwessValueNew[]
 
   // ── Generic, admin-defined computation (see utils/formulaRegistry) ──────────
   // True for every Kpi row formulaRegistry's registry cache should load.
@@ -622,23 +622,23 @@ model HtmlSkill {
 }
 
 model HtmlSkillOutput {
-  id            String    @id @default(uuid())
-  skill_id      String    @map("skill_id")
-  ticker        String
-  call_id       String?   @map("call_id")
-  fiscal_year   String?   @map("fiscal_year")
-  quarter       String?
-  raw_html      String
+  id             String    @id @default(uuid())
+  skill_id       String    @map("skill_id")
+  ticker         String
+  call_id        String?   @map("call_id")
+  fiscal_year    String?   @map("fiscal_year")
+  quarter        String?
+  raw_html       String
   extracted_json Json?
-  audit_logs    Json?
-  prompt_v      String    @map("prompt_v")
-  model         String
-  input_tokens  Int?      @map("input_tokens")
-  output_tokens Int?      @map("output_tokens")
-  cost_usd      Float?    @map("cost_usd")
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
-  skill         HtmlSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+  audit_logs     Json?
+  prompt_v       String    @map("prompt_v")
+  model          String
+  input_tokens   Int?      @map("input_tokens")
+  output_tokens  Int?      @map("output_tokens")
+  cost_usd       Float?    @map("cost_usd")
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  skill          HtmlSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
 
   @@unique([skill_id, ticker, fiscal_year, quarter])
   @@index([ticker])
@@ -652,8 +652,8 @@ model HtmlIncrementalSkill {
   slug                             String                       @unique
   name                             String
   category                         PluginCategory
-  data_extraction_prompt           String @default("")
-  html_template_prompt             String @default("")
+  data_extraction_prompt           String                       @default("")
+  html_template_prompt             String                       @default("")
   extraction_model                 String                       @default("~anthropic/claude-haiku-latest")
   fact_validation_model            String                       @default("~anthropic/claude-haiku-latest")
   html_template_model              String                       @default("~anthropic/claude-haiku-latest")
@@ -697,6 +697,7 @@ model HtmlIncrementalSkill {
   updated_at                       DateTime                     @updatedAt
   outputs                          HtmlIncrementalSkillOutput[]
   configs                          HtmlIncrementalSkillConfig[]
+  compressed_skills                HtmlCompressedSkill[]
 
   @@index([slug])
   @@index([category])
@@ -715,17 +716,17 @@ model HtmlIncrementalSkillConfig {
   skill_id                         String
   key                              String // machine identifier, unique per skill, e.g. "transcript_only"
   name                             String // human label, e.g. "Transcript Only"
-  data_extraction_prompt           String @default("")
-  html_template_prompt             String @default("")
-  extraction_model                 String                       @default("~anthropic/claude-haiku-latest")
-  fact_validation_model            String                       @default("~anthropic/claude-haiku-latest")
-  html_template_model              String                       @default("~anthropic/claude-haiku-latest")
-  visual_qa_model                  String                       @default("~anthropic/claude-haiku-latest")
-  enable_data_validation           Boolean                      @default(true)
-  data_validation_loops            Int                          @default(1)
-  use_template_engine              Boolean                      @default(true)
+  data_extraction_prompt           String               @default("")
+  html_template_prompt             String               @default("")
+  extraction_model                 String               @default("~anthropic/claude-haiku-latest")
+  fact_validation_model            String               @default("~anthropic/claude-haiku-latest")
+  html_template_model              String               @default("~anthropic/claude-haiku-latest")
+  visual_qa_model                  String               @default("~anthropic/claude-haiku-latest")
+  enable_data_validation           Boolean              @default(true)
+  data_validation_loops            Int                  @default(1)
+  use_template_engine              Boolean              @default(true)
   html_template_filename           String?
-  enable_html_validation           Boolean                      @default(false)
+  enable_html_validation           Boolean              @default(false)
   transcript_signal_types          String[]
   ppt_signal_types                 String[]
   annual_report_signal_types       String[]
@@ -793,6 +794,77 @@ model HtmlIncrementalSkillOutput {
   @@map("html_incremental_skill_outputs")
 }
 
+model HtmlCompressedSkill {
+  id                     String                      @id @default(uuid())
+  slug                   String                      @unique
+  name                   String
+  category               PluginCategory
+  base_l2_skill_id       String
+  html_template_prompt   String                      @default("")
+  html_template_filename String?
+  html_template_model    String                      @default("~anthropic/claude-haiku-latest")
+  max_tokens             Int                         @default(16000)
+  use_template_engine    Boolean                     @default(true)
+  is_active              Boolean                     @default(true)
+  created_at             DateTime                    @default(now())
+  updated_at             DateTime                    @updatedAt
+  outputs                HtmlCompressedSkillOutput[]
+  configs                HtmlCompressedSkillConfig[]
+
+  base_l2_skill HtmlIncrementalSkill @relation(fields: [base_l2_skill_id], references: [id])
+
+  @@index([slug])
+  @@index([category])
+  @@index([base_l2_skill_id])
+  @@map("html_compressed_skills")
+}
+
+model HtmlCompressedSkillConfig {
+  id                     String              @id @default(uuid())
+  skill_id               String
+  key                    String
+  name                   String
+  html_template_prompt   String              @default("")
+  html_template_filename String?
+  html_template_model    String              @default("~anthropic/claude-haiku-latest")
+  is_active              Boolean             @default(true)
+  created_at             DateTime            @default(now())
+  updated_at             DateTime            @updatedAt
+  skill                  HtmlCompressedSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  @@unique([skill_id, key])
+  @@index([skill_id])
+  @@map("html_compressed_skill_configs")
+}
+
+model HtmlCompressedSkillOutput {
+  id            String              @id @default(uuid())
+  skill_id      String
+  ticker        String
+  call_id       String
+  fiscal_year   String?
+  quarter       String?
+  raw_html       String
+  text_summary   String?
+  extracted_json Json?
+  prompt_v       String
+  model          String
+  input_tokens  Int?
+  output_tokens Int?
+  cost_usd      Float?
+  is_historic   Boolean             @default(false)
+  config_key    String?
+  created_at    DateTime            @default(now())
+  updated_at    DateTime            @updatedAt
+  skill         HtmlCompressedSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  @@unique([skill_id, ticker, fiscal_year, quarter, is_historic], name: "compressed_skill_ticker_period_mode")
+  @@index([skill_id, ticker])
+  @@index([ticker])
+  @@index([call_id])
+  @@map("html_compressed_skill_outputs")
+}
+
 model Skill {
   id                  String        @id @default(uuid())
   name                String        @unique
@@ -846,15 +918,15 @@ model PluginSkill {
 // ─── Market Data ──────────────────────────────────────────────────────────────
 
 model nse_equity_new {
-  symbol        String    @db.VarChar
-  company_name  String    @db.VarChar
-  datetime      DateTime  @db.Date
-  open          Float?
-  high          Float?
-  low           Float?
-  close         Float?
-  volume        Int?
-  pe            Float?
+  symbol          String    @db.VarChar
+  company_name    String    @db.VarChar
+  datetime        DateTime  @db.Date
+  open            Float?
+  high            Float?
+  low             Float?
+  close           Float?
+  volume          Int?
+  pe              Float?
   // Two new Prowess-computed PE variants (2026-07-25), from a custom
   // QueryOnStockPricesAndRatios expression: close / ((PAT * 1e7) / shares) —
   // consolidated-financials-based and standalone-financials-based
@@ -863,17 +935,17 @@ model nse_equity_new {
   // a replacement.
   pe_consolidated Float?
   pe_standalone   Float?
-  eps           Float?
-  market_cap_cr Float?
+  eps             Float?
+  market_cap_cr   Float?
   // Daily return as Prowess reports it, already in percentage points
   // (e.g. 0.060604 = 0.06%, verified against real Sensex close on 2026-07-13 —
   // do not multiply by 100) — populated for index rows today ("Daily Index
   // Returns"), null for stocks (no equivalent source column).
-  pct_change    Float?
+  pct_change      Float?
   // Nullable, no @default/@updatedAt-driven NOT NULL — this table has ~1.2M
   // pre-existing rows and neither column should force a backfill to add.
-  createdAt     DateTime? @map("created_at")
-  updatedAt     DateTime? @map("updated_at")
+  createdAt       DateTime? @map("created_at")
+  updatedAt       DateTime? @map("updated_at")
 
   @@id([symbol, datetime])
   @@map("nse_equity_new")

@@ -10,6 +10,7 @@ const handlers = {
   pipeline_dispatch:  () => require('./handlers/pipelineDispatch'),
   pipeline_dispatch_l1_multi: () => require('./handlers/pipelineDispatchL1Multi'),
   pipeline_dispatch_l2_multi: () => require('./handlers/pipelineDispatchL2Multi'),
+  pipeline_dispatch_l2_compressed_multi: () => require('./handlers/pipelineDispatchL2CompressedMulti'),
   pipeline_dispatch_l3_multi: () => require('./handlers/pipelineDispatchL3Multi'),
 };
 

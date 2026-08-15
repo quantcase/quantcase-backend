@@ -23,6 +23,7 @@ require('./workers/overviewSynthesis');
 require('./workers/lensComputation');
 require('./workers/htmlSkill');
 require('./workers/htmlIncrementalSkill');
+require('./workers/htmlCompressedSkill');
 require('./workers/postHtmlAnalysis');
 
 console.log('All workers started');

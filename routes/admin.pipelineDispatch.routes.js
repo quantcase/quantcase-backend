@@ -82,4 +82,13 @@ router.post( '/l3-multi/preview/csv', validate(l3MultiOptionsSchema, 'body'), pi
 router.post( '/l3-multi/run',         validate(l3MultiOptionsSchema, 'body'), pipelineDispatchController.runL3Multi);
 router.get(  '/l3-multi/runs',        pipelineDispatchController.getL3MultiRuns);
 
+// ─── L2 Compressed Multi-Dispatch (html-compressed-skill runs) ────────────────
+// Identical to L2 multi, but dispatches to /api/html-compressed-skills/:slug/run.
+
+router.get(  '/l2-compressed-multi/options',     pipelineDispatchController.getL2CompressedMultiOptions);
+router.post( '/l2-compressed-multi/preview',     validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.previewL2CompressedMulti);
+router.post( '/l2-compressed-multi/preview/csv', validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.previewL2CompressedMultiCsv);
+router.post( '/l2-compressed-multi/run',         validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.runL2CompressedMulti);
+router.get(  '/l2-compressed-multi/runs',        pipelineDispatchController.getL2CompressedMultiRuns);
+
 module.exports = router;

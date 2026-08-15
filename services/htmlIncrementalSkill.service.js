@@ -544,6 +544,7 @@ module.exports = {
   runIncrementalHtmlSkill,
   fetchBaseContextOutputs,
   resolveBaseAnchorPeriod,
+  resolveCallMeta,
   transcriptPeriodRank,
   parseFiscalYear,
   defaultConfigFieldsFromSkill,

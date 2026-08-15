@@ -124,6 +124,24 @@ Handlebars.registerHelper('sparkPoints', function(sparkArray, trend) {
     if (trend === 'falling') return "0,5 20,15 40,10 60,25 80,20 100,35";
     return "0,23 20,25 40,20 60,28 80,15 100,23";
   }
+
+  // New logic for array of arrays or objects
+  if (Array.isArray(sparkArray[0]) || (sparkArray[0] && typeof sparkArray[0] === 'object')) {
+    const safePoints = sparkArray
+      .map((point) => {
+        const x = Array.isArray(point) ? point[0] : point && point.x;
+        const y = Array.isArray(point) ? point[1] : point && point.y;
+        const safeX = Number(x);
+        const safeY = Number(y);
+        if (!Number.isFinite(safeX) || !Number.isFinite(safeY)) return null;
+        return `${Math.max(0, Math.min(100, safeX))},${Math.max(0, Math.min(30, safeY))}`;
+      })
+      .filter(Boolean)
+      .join(' ');
+    return new Handlebars.SafeString(safePoints);
+  }
+
+  // Old logic for 1D arrays
   const min = Math.min(...sparkArray);
   const max = Math.max(...sparkArray);
   const range = max - min || 1;
@@ -629,10 +647,10 @@ module.exports = {
 async function runAgenticPipeline({
   ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, data_extraction_prompt, html_template_prompt, html_template_filename,
   use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
-  dataBlock, marketDataBlock, job
+  dataBlock, marketDataBlock, job, pre_extracted_json
 }) {
   const audit_logs = { fact_validation: [], visual_qa: [] };
-  let extracted_json = null;
+  let extracted_json = pre_extracted_json || null;
   let raw_html = null;
   let usageAcc = { prompt_tokens: 0, completion_tokens: 0, cost: 0 };
 
@@ -651,9 +669,10 @@ async function runAgenticPipeline({
     if (job) await job.log(msg);
   };
 
-  // Phase 1: Data Extraction
-  await notifyProgress(20, 'extracting_data');
-  await logJob(`[Phase 1] Extracting data...`);
+  if (!extracted_json) {
+    // Phase 1: Data Extraction
+    await notifyProgress(20, 'extracting_data');
+    await logJob(`[Phase 1] Extracting data...`);
   
   let jsonString = '';
   let jsonParseSuccess = false;
@@ -739,6 +758,7 @@ async function runAgenticPipeline({
         await logJob(`[Loop 1] Failed to parse corrected JSON, sticking with previous version.`);
       }
     }
+  }
   }
 
   // Phase 2: HTML Generation
