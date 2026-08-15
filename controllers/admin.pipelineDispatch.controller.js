@@ -1,7 +1,7 @@
 'use strict';
 
 const prisma = require('../config/prisma');
-const { DEFAULT_TARGET_TICKERS, previewL1MultiDispatch, previewL1MultiDispatchCsv, previewL2MultiDispatch, previewL2MultiDispatchCsv, previewL3MultiDispatch, previewL3MultiDispatchCsv } = require('../services/pipelineDispatch');
+const { DEFAULT_TARGET_TICKERS, previewL1MultiDispatch, previewL1MultiDispatchCsv, previewL2MultiDispatch, previewL2MultiDispatchCsv, previewL3MultiDispatch, previewL3MultiDispatchCsv, previewL2CompressedMultiDispatch, previewL2CompressedMultiDispatchCsv } = require('../services/pipelineDispatch');
 const { L3_TYPES, L4_TYPE } = require('../services/postHtmlAnalysis.service');
 const { listGroups } = require('../services/companyGroups');
 const { triggerJobBySlug } = require('./admin.scheduler.controller');
@@ -9,6 +9,7 @@ const { triggerJobBySlug } = require('./admin.scheduler.controller');
 const L1_MULTI_SLUG = 'pipeline-dispatch-l1-multi';
 const L2_MULTI_SLUG = 'pipeline-dispatch-l2-multi';
 const L3_MULTI_SLUG = 'pipeline-dispatch-l3-multi';
+const L2_COMPRESSED_MULTI_SLUG = 'pipeline-dispatch-l2-compressed-multi';
 
 // GET /admin/pipeline-dispatch/l1-multi/options
 // companies mirrors getTranscriptStocks' earnings_calls + annual_reports merge
@@ -254,8 +255,81 @@ const getL3MultiRuns = async (req, res, next) => {
   }
 };
 
+// ─── L2 Compressed Multi-Dispatch ──────────────────────────────────────────────
+
+const getL2CompressedMultiOptions = async (req, res, next) => {
+  try {
+    const [callRows, reportRows, groups, skills, configs] = await Promise.all([
+      prisma.earnings_calls.findMany({ select: { company: true }, distinct: ['company'] }),
+      prisma.annual_reports.findMany({ select: { company: true }, distinct: ['company'] }),
+      listGroups(),
+      prisma.htmlCompressedSkill.findMany({ where: { is_active: true }, select: { slug: true, name: true }, orderBy: { slug: 'asc' } }),
+      prisma.htmlCompressedSkillConfig.findMany({ where: { is_active: true }, select: { key: true, name: true }, distinct: ['key'] }),
+    ]);
+    const companies = [...new Set([
+      ...callRows.map(r => r.company),
+      ...reportRows.map(r => r.company),
+    ])].filter(Boolean).sort();
+    const companyGroups = groups.map(g => ({ slug: g.slug, name: g.name, filter_type: g.filter_type, config_key: g.config_key }));
+    const configKeys = [...new Map(configs.map(c => [c.key, c])).values()].sort((a, b) => a.key.localeCompare(b.key));
+    res.json({ skills, companies, companyGroups, configKeys });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const previewL2CompressedMulti = async (req, res, next) => {
+  try {
+    const { slug, ...options } = req.body;
+    const result = await previewL2CompressedMultiDispatch(slug, options);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const previewL2CompressedMultiCsv = async (req, res, next) => {
+  try {
+    const { slug, ...options } = req.body;
+    res.set('Content-Type', 'text/csv');
+    res.set('Content-Disposition', `attachment; filename="l2-compressed-report-${slug}.csv"`);
+    await previewL2CompressedMultiDispatchCsv(slug, options, res);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+};
+
+const runL2CompressedMulti = async (req, res, next) => {
+  try {
+    const result = await triggerJobBySlug(L2_COMPRESSED_MULTI_SLUG, req.body);
+    res.json({ success: true, message: 'L2 Compressed multi-dispatch triggered', run_id: result.run_id });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+};
+
+const getL2CompressedMultiRuns = async (req, res, next) => {
+  try {
+    const job = await prisma.schedulerJob.findUnique({ where: { slug: L2_COMPRESSED_MULTI_SLUG }, select: { id: true } });
+    if (!job) return res.status(404).json({ error: 'Scheduler job not found' });
+
+    const limit = Math.min(parseInt(req.query.limit ?? '20', 10), 100);
+    const runs = await prisma.schedulerRun.findMany({
+      where:   { job_id: job.id },
+      orderBy: { started_at: 'desc' },
+      take:    limit,
+    });
+    res.json({ count: runs.length, runs });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getL1MultiOptions, previewL1Multi, previewL1MultiCsv, runL1Multi, getL1MultiRuns,
   getL2MultiOptions, previewL2Multi, previewL2MultiCsv, runL2Multi, getL2MultiRuns,
   getL3MultiOptions, previewL3Multi, previewL3MultiCsv, runL3Multi, getL3MultiRuns,
+  getL2CompressedMultiOptions, previewL2CompressedMulti, previewL2CompressedMultiCsv, runL2CompressedMulti, getL2CompressedMultiRuns,
 };

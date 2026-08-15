@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{asset_name}} · {{lens}}</title>
+  <style>
+    :root {
+      --paper: #f4f2ec;
+      --surface: #fffefa;
+      --surface-soft: #eeece4;
+      --ink: #18201d;
+      --muted: #6d746f;
+      --line: #d8d6ce;
+      --line-dark: #b7bab4;
+      --teal: #0e8d7b;
+      --teal-dark: #096d60;
+      --teal-soft: #ddefe9;
+      --amber: #c88417;
+      --amber-soft: #f6ead1;
+      --red: #c34e48;
+      --red-soft: #f5dedb;
+      --blue: #3d5afe;
+      --radius: 18px;
+      --shadow: 0 12px 34px rgba(25, 35, 31, .06);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 10% 0%, rgba(14, 141, 123, .07), transparent 26rem),
+        var(--paper);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .report {
+      width: min(1180px, calc(100% - 40px));
+      margin: 32px auto 56px;
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid rgba(24, 32, 29, .12);
+      border-radius: 26px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 44px 48px 42px;
+      color: #f8fffc;
+      background:
+        linear-gradient(130deg, rgba(255,255,255,.05), transparent 45%),
+        #143d36;
+    }
+
+    .hero-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 36px;
+      align-items: start;
+    }
+
+    .asset-line {
+      margin: 0 0 8px;
+      color: rgba(248, 255, 252, .72);
+      font-size: 13px;
+      font-weight: 750;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .asset-line strong { color: #fff; }
+
+    .period {
+      margin: 0;
+      color: rgba(248, 255, 252, .63);
+      font-size: 14px;
+    }
+
+    .eyebrow {
+      margin: 31px 0 10px;
+      color: #8dd8c9;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .action-title {
+      max-width: 870px;
+      margin: 0;
+      color: #fff;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(34px, 5vw, 60px);
+      font-weight: 500;
+      letter-spacing: -.035em;
+      line-height: 1.04;
+    }
+
+    .verdict {
+      max-width: 820px;
+      margin: 18px 0 0;
+      color: rgba(248, 255, 252, .76);
+      font-size: clamp(16px, 2vw, 19px);
+    }
+
+    .score-ring {
+      --score: {{score_badge.score}};
+      --score-color: var(--teal);
+      position: relative;
+      display: grid;
+      width: 154px;
+      aspect-ratio: 1;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: conic-gradient(var(--score-color) calc(var(--score) * 1%), rgba(255,255,255,.14) 0);
+    }
+
+    .score-ring.amber { --score-color: #efb552; }
+    .score-ring.red { --score-color: #ed8078; }
+
+    .score-ring::before {
+      position: absolute;
+      width: calc(100% - 18px);
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: #143d36;
+      content: "";
+    }
+
+    .score-copy { position: relative; text-align: center; }
+
+    .score-value {
+      display: block;
+      color: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 44px;
+      font-weight: 700;
+      letter-spacing: -.06em;
+      line-height: 1;
+    }
+
+    .score-scale {
+      display: block;
+      margin-top: 5px;
+      color: rgba(248, 255, 252, .58);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .reasons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin-top: 30px;
+    }
+
+    .reason {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 11px;
+      color: rgba(248, 255, 252, .83);
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .reason-mark {
+      display: inline-grid;
+      width: 18px;
+      height: 18px;
+      place-items: center;
+      border-radius: 50%;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .reason-mark.ok { color: #9de1d3; background: rgba(14,141,123,.22); }
+    .reason-mark.ok::before { content: "✓"; }
+    .reason-mark.no { color: #ffaaa4; background: rgba(195,78,72,.22); }
+    .reason-mark.no::before { content: "×"; }
+
+    section { padding: 48px; border-top: 1px solid var(--line); }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    .section-tag {
+      margin: 0 0 6px;
+      color: var(--teal-dark);
+      font-size: 11px;
+      font-weight: 850;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .section-title {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 500;
+      letter-spacing: -.025em;
+      line-height: 1.1;
+    }
+
+    .headline-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .headline-card {
+      min-width: 0;
+      padding: 22px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .metric-label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-dark); }
+    .dot.g { background: var(--teal); }
+    .dot.a { background: var(--amber); }
+    .dot.r { background: var(--red); }
+
+    .metric-value {
+      min-height: 62px;
+      margin: 17px 0 10px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 30px;
+      letter-spacing: -.03em;
+      line-height: 1.02;
+    }
+
+    .metric-value.mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 26px;
+      font-weight: 650;
+    }
+
+    .metric-value.g { color: var(--teal-dark); }
+    .metric-value.a { color: #9c6714; }
+    .metric-value.r { color: var(--red); }
+    .value-line { display: block; }
+    .metric-sub { margin: 0; color: var(--muted); font-size: 14px; }
+
+    .edge-panel {
+      position: relative;
+      overflow: hidden;
+      padding: 30px;
+      color: #f8fffc;
+      background: #183f38;
+      border-radius: 22px;
+    }
+
+    .edge-panel::after {
+      position: absolute;
+      right: -90px;
+      top: -100px;
+      width: 300px;
+      height: 300px;
+      border: 70px solid rgba(127, 218, 200, .07);
+      border-radius: 50%;
+      content: "";
+    }
+
+    .edge-top {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      padding-bottom: 19px;
+      border-bottom: 1px solid rgba(255,255,255,.14);
+    }
+
+    .edge-badge { color: #97e0d2; font-size: 12px; font-weight: 800; letter-spacing: .03em; }
+    .signals { color: rgba(248,255,252,.66); font-family: ui-monospace, monospace; font-size: 12px; }
+
+    .edge-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 30px;
+      margin-top: 24px;
+    }
+
+    .edge-label {
+      margin: 0 0 8px;
+      color: rgba(248,255,252,.52);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .edge-copy { margin: 0; color: rgba(248,255,252,.86); font-size: 16px; }
+
+    .focus-row {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      gap: 13px;
+      align-items: center;
+      margin-top: 26px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,.14);
+    }
+
+    .focus-chip {
+      flex: 0 0 auto;
+      padding: 7px 10px;
+      color: #143d36;
+      background: #9de1d3;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .focus-tail { color: rgba(248,255,252,.7); font-size: 13px; }
+
+    .pattern-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .pattern-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 110px;
+      min-height: 150px;
+      gap: 24px;
+      padding: 22px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .pattern-card.full { grid-column: 1 / -1; }
+    .pattern-name { margin: 0 0 9px; font-size: 17px; font-weight: 760; }
+    .pattern-meaning { margin: 0; color: var(--muted); font-size: 14px; }
+
+    .spark-wrap { display: flex; flex-direction: column; align-items: end; justify-content: space-between; }
+    .trend { font-size: 11px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+    .trend::before { margin-right: 5px; }
+    .trend.steady { color: #747a76; }
+    .trend.steady::before { content: "—"; }
+    .trend.rising { color: var(--teal); }
+    .trend.rising::before { content: "▲"; }
+    .trend.new { color: var(--blue); }
+    .trend.new::before { content: "●"; }
+    .trend.mixed { color: var(--amber); }
+    .trend.mixed::before { content: "◆"; }
+
+    .spark { width: 110px; height: 42px; overflow: visible; }
+    .spark .base { stroke: #e5e3dc; stroke-width: 1; }
+    .spark .path { fill: none; stroke: #9a9a96; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+    .spark.rising .path { stroke: var(--teal); }
+    .spark.new .path { stroke: var(--blue); }
+    .spark.mixed .path { stroke: var(--amber); }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+      gap: 0;
+      margin-top: 35px;
+    }
+
+    .timeline-point {
+      position: relative;
+      min-width: 0;
+      padding: 24px 13px 0 0;
+      border-top: 1px solid var(--line-dark);
+    }
+
+    .timeline-point::before {
+      position: absolute;
+      top: -6px;
+      left: 0;
+      width: 11px;
+      height: 11px;
+      background: var(--teal);
+      border: 3px solid var(--surface);
+      border-radius: 50%;
+      box-shadow: 0 0 0 1px var(--teal);
+      content: "";
+    }
+
+    .timeline-point.amber::before { background: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
+    .timeline-point.red::before { background: var(--red); box-shadow: 0 0 0 1px var(--red); }
+    .timeline-label { min-height: 42px; margin: 0 0 7px; font-size: 13px; font-weight: 720; line-height: 1.35; }
+    .timeline-period { margin: 0; color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
+
+    .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+
+    .guidance-card {
+      min-width: 0;
+      padding: 25px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .guidance-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .guidance-title { margin: 0 0 4px; font-size: 18px; }
+    .guidance-sub { margin: 0; color: var(--muted); font-size: 12px; }
+    .ratio { font-family: ui-monospace, monospace; font-size: 20px; font-weight: 750; white-space: nowrap; }
+
+    progress {
+      display: block;
+      width: 100%;
+      height: 7px;
+      margin: 20px 0 22px;
+      overflow: hidden;
+      appearance: none;
+      border: 0;
+      border-radius: 99px;
+      background: #e7e4dc;
+    }
+
+    progress::-webkit-progress-bar { background: #e7e4dc; border-radius: 99px; }
+    progress::-webkit-progress-value { background: var(--teal); border-radius: 99px; }
+    progress::-moz-progress-bar { background: var(--teal); border-radius: 99px; }
+    .guidance-card.amber progress::-webkit-progress-value { background: var(--amber); }
+    .guidance-card.amber progress::-moz-progress-bar { background: var(--amber); }
+
+    .guidance-items { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+    .guidance-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: start;
+      padding: 11px 0;
+      border-top: 1px solid #ebe8e1;
+      font-size: 13px;
+    }
+
+    .item-status {
+      padding: 3px 7px;
+      border-radius: 99px;
+      font-size: 9px;
+      font-weight: 850;
+      letter-spacing: .06em;
+      line-height: 1.4;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .item-status.credible { color: var(--teal-dark); background: var(--teal-soft); }
+    .item-status.pending { color: #8d5c0d; background: var(--amber-soft); }
+    .item-status.missed { color: #9b3733; background: var(--red-soft); }
+
+    .takeaway {
+      margin: 16px 0 0;
+      padding: 18px 20px;
+      color: #315049;
+      background: var(--teal-soft);
+      border-left: 4px solid var(--teal);
+      border-radius: 0 12px 12px 0;
+      font-size: 15px;
+      font-weight: 650;
+    }
+
+    .watch-heading { margin: 36px 0 15px; font-size: 20px; }
+    .watchlist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .watchpoint { min-width: 0; padding: 19px; background: #f8f6f0; border: 1px solid var(--line); border-radius: 14px; }
+    .watch-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+    .watch-name { margin: 0; font-size: 15px; font-weight: 760; }
+    .pill { padding: 4px 8px; border-radius: 99px; font-size: 9px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+    .pill.tracking { color: #8d5c0d; background: var(--amber-soft); }
+    .pill.resolved { color: var(--teal-dark); background: var(--teal-soft); }
+    .pill.breached { color: #9b3733; background: var(--red-soft); }
+    .pill.achieved { color: var(--teal-dark); background: var(--teal-soft); }
+    .pill.revised, .pill.pending { color: #8d5c0d; background: var(--amber-soft); }
+    .pill.missed, .pill.discontinued { color: #9b3733; background: var(--red-soft); }
+    .pill.unclear { color: #5e6561; background: #e6e5e0; }
+    .watch-desc { margin: 8px 0 17px; color: var(--muted); font-size: 13px; }
+    .watch-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; color: var(--muted); font-size: 11px; }
+    .watch-meta b { color: var(--ink); }
+
+    .evidence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .evidence-tile { min-width: 0; padding: 22px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line-dark); border-radius: 14px; }
+    .evidence-tile.positive { border-left-color: var(--teal); }
+    .evidence-tile.neutral { border-left-color: var(--amber); }
+    .evidence-tile.negative { border-left-color: var(--red); }
+    .evidence-top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .evidence-period { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
+    .evidence-name { margin: 14px 0 6px; font-size: 16px; }
+    .evidence-phrase { margin: 0; color: var(--muted); font-size: 13px; }
+    blockquote { margin: 17px 0 0; padding: 14px 0 0 16px; color: #48504c; border-top: 1px solid var(--line); border-left: 2px solid var(--line-dark); font-family: Georgia, serif; font-size: 13px; }
+    blockquote p { margin: 0; }
+    blockquote cite { display: block; margin-top: 8px; color: var(--muted); font-family: Inter, sans-serif; font-size: 10px; font-style: normal; }
+
+    .footnote { padding: 24px 48px; color: var(--muted); background: #edebe4; border-top: 1px solid var(--line); font-size: 12px; }
+    .footnote strong { color: var(--ink); }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: center;
+      padding: 22px 48px;
+      color: rgba(248,255,252,.63);
+      background: #143d36;
+      font-size: 11px;
+    }
+
+    .source-list { display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: end; }
+    .source-list strong { color: #fff; font-family: ui-monospace, monospace; }
+
+    @media (max-width: 820px) {
+      .report { width: min(100% - 20px, 1180px); margin: 10px auto 30px; border-radius: 18px; }
+      .hero, section { padding: 34px 26px; }
+      .hero-top { grid-template-columns: 1fr; }
+      .score-ring { width: 130px; grid-row: 1; justify-self: end; position: absolute; top: 28px; right: 26px; opacity: .33; }
+      .score-value { font-size: 36px; }
+      .eyebrow { margin-top: 28px; }
+      .headline-grid, .split-grid, .evidence-grid { grid-template-columns: 1fr; }
+      .edge-grid { grid-template-columns: 1fr; gap: 21px; }
+      .pattern-grid { grid-template-columns: 1fr; }
+      .pattern-card.full { grid-column: auto; }
+      .watchlist { grid-template-columns: 1fr; }
+      .footnote { padding: 22px 26px; }
+      footer { padding: 22px 26px; align-items: start; flex-direction: column; }
+      .source-list { justify-content: start; }
+    }
+
+    @media (max-width: 560px) {
+      .report { width: 100%; margin: 0; border: 0; border-radius: 0; }
+      .hero, section { padding: 30px 20px; }
+      .action-title { font-size: 36px; }
+      .score-ring { display: none; }
+      .section-head { align-items: start; flex-direction: column; }
+      .pattern-card { grid-template-columns: 1fr; }
+      .spark-wrap { flex-direction: row; align-items: center; }
+      .timeline { display: block; margin: 6px 0 0 6px; }
+      .timeline-point { min-height: 78px; padding: 0 0 22px 29px; border-top: 0; border-left: 1px solid var(--line-dark); }
+      .timeline-point::before { top: 4px; left: -6px; }
+      .timeline-label { min-height: auto; }
+      .focus-row { align-items: start; flex-direction: column; }
+      .edge-top { align-items: start; flex-direction: column; }
+      .guidance-head { gap: 12px; }
+      .footnote, footer { padding: 22px 20px; }
+    }
+
+    @media print {
+      @page { size: A4; margin: 12mm; }
+      body { background: #fff; }
+      .report { width: 100%; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+      section, .headline-card, .pattern-card, .guidance-card, .watchpoint, .evidence-tile { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="report">
+    <header class="hero">
+      <div class="hero-top">
+        <div>
+          <p class="asset-line">Guidance Credibility · <strong>{{asset_name}}</strong></p>
+          <p class="period">{{period_start}} → {{period_end}}</p>
+          <p class="eyebrow">{{hero.eyebrow}}</p>
+          <h1 class="action-title">{{hero.action_title}}</h1>
+          <p class="verdict">{{hero.verdict}}</p>
+        </div>
+        <div class="score-ring {{score_badge.status_color}}" role="img" aria-label="Score {{score_badge.score}} out of {{score_badge.scale}}">
+          <div class="score-copy">
+            <span class="score-value">{{score_badge.score}}</span>
+            <span class="score-scale">out of {{score_badge.scale}}</span>
+          </div>
+        </div>
+      </div>
+      {{#if hero.reasons}}
+      <div class="reasons">
+        {{#each hero.reasons}}
+        <div class="reason"><span class="reason-mark {{mark}}" aria-hidden="true"></span><span>{{text}}</span></div>
+        {{/each}}
+      </div>
+      {{/if}}
+    </header>
+
+    {{#if headline.cards}}
+    <section>
+      <div class="section-head">
+        <div>
+          <p class="section-tag">{{headline.section_tag}}</p>
+          <h2 class="section-title">{{headline.section_title}}</h2>
+        </div>
+      </div>
+      <div class="headline-grid">
+        {{#each headline.cards}}
+        <article class="headline-card">
+          <p class="metric-label"><span class="dot {{dot}}"></span>{{label}}</p>
+          <div class="metric-value {{value_color}}{{#if value_mono}} mono{{/if}}">
+            {{#each value_lines}}<span class="value-line">{{this}}</span>{{/each}}
+          </div>
+          <p class="metric-sub">{{sub}}</p>
+        </article>
+        {{/each}}
+      </div>
+    </section>
+    {{/if}}
+
+    {{#if edge}}
+    <section>
+      <div class="section-head">
+        <div>
+          <p class="section-tag">{{edge.section_tag}}</p>
+          <h2 class="section-title">{{edge.section_title}}</h2>
+        </div>
+      </div>
+      <div class="edge-panel">
+        <div class="edge-top"><span class="edge-badge">{{edge.badge}}</span><span class="signals">{{edge.signals_parsed}} signals parsed</span></div>
+        <div class="edge-grid">
+          <div><p class="edge-label">Behaviour</p><p class="edge-copy">{{edge.behaviour}}</p></div>
+          <div><p class="edge-label">Implication</p><p class="edge-copy">{{edge.implication}}</p></div>
+        </div>
+        {{#if edge.investor_focus}}
+        <div class="focus-row"><span class="focus-chip">{{edge.investor_focus.chip}}</span><span class="focus-tail">{{edge.investor_focus.tail}}</span></div>
+        {{/if}}
+      </div>
+    </section>
+    {{/if}}
+
+    {{#if patterns.cards}}
+    <section>
+      <div class="section-head">
+        <div>
+          <p class="section-tag">{{patterns.section_tag}}</p>
+          <h2 class="section-title">{{patterns.section_title}}</h2>
+        </div>
+      </div>
+      <div class="pattern-grid">
+        {{#each patterns.cards}}
+        <article class="pattern-card{{#if full_width}} full{{/if}}">
+          <div><h3 class="pattern-name">{{name}}</h3><p class="pattern-meaning">{{meaning}}</p></div>
+          <div class="spark-wrap">
+            <span class="trend {{trend}}">{{trend}}</span>
+            {{#if spark}}
+            <svg class="spark {{trend}}" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+              <line class="base" x1="0" y1="27" x2="100" y2="27"></line>
+              <polyline class="path" points="{{sparkPoints spark}}"></polyline>
+            </svg>
+            {{/if}}
+          </div>
+        </article>
+        {{/each}}
+      </div>
+    </section>
+    {{/if}}
+
+    {{#if credibility_timeline.points}}
+    <section>
+      <div class="section-head">
+        <div>
+          <p class="section-tag">{{credibility_timeline.section_tag}}</p>
+          <h2 class="section-title">{{credibility_timeline.section_title}}</h2>
+        </div>
+      </div>
+      <div class="timeline">
+        {{#each credibility_timeline.points}}
+        <article class="timeline-point {{tone}}"><p class="timeline-label">{{label}}</p><p class="timeline-period">{{period}}</p></article>
+        {{/each}}
+      </div>
+    </section>
+    {{/if}}
+
+    {{#if split}}
+    <section>
+      <div class="section-head">
+        <div>
+          <p class="section-tag">{{split.section_tag}}</p>
+          <h2 class="section-title">{{split.section_title}}</h2>
+        </div>
+      </div>
+      <div class="split-grid">
+        {{#if split.controllable}}
+        <article class="guidance-card {{split.controllable.color}}">
+          <div class="guidance-head"><div><h3 class="guidance-title">{{split.controllable.title}}</h3><p class="guidance-sub">{{split.controllable.sub}}</p></div><div class="ratio">{{split.controllable.credible}} / {{split.controllable.total}}</div></div>
+          <progress value="{{split.controllable.credible}}" max="{{split.controllable.total}}" aria-label="{{split.controllable.credible}} of {{split.controllable.total}} credible"></progress>
+          <ul class="guidance-items">
+            {{#each split.controllable.items}}<li class="guidance-item"><span>{{text}}</span><span class="item-status {{status}}">{{status}}</span></li>{{/each}}
+          </ul>
+        </article>
+        {{/if}}
+        {{#if split.demand_led}}
+        <article class="guidance-card {{split.demand_led.color}}">
+          <div class="guidance-head"><div><h3 class="guidance-title">{{split.demand_led.title}}</h3><p class="guidance-sub">{{split.demand_led.sub}}</p></div><div class="ratio">{{split.demand_led.credible}} / {{split.demand_led.total}}</div></div>
+          <progress value="{{split.demand_led.credible}}" max="{{split.demand_led.total}}" aria-label="{{split.demand_led.credible}} of {{split.demand_led.total}} credible"></progress>
+          <ul class="guidance-items">
+            {{#each split.demand_led.items}}<li class="guidance-item"><span>{{text}}</span><span class="item-status {{status}}">{{status}}</span></li>{{/each}}
+          </ul>
+        </article>
+        {{/if}}
+      </div>
+      {{#if split.takeaway}}<p class="takeaway">{{split.takeaway}}</p>{{/if}}
+
+      {{#if watchpoints}}
+      <h3 class="watch-heading">Outstanding commitments</h3>
+      <div class="watchlist">
+        {{#each watchpoints}}
+        <article class="watchpoint">
+          <div class="watch-top"><h4 class="watch-name">{{name}}</h4><span class="pill {{status}}">{{status}}</span></div>
+          <p class="watch-desc">{{desc}}</p>
+          <div class="watch-meta"><span><b>Resolves</b> {{resolves}}</span><span><b>Type</b> {{type}}</span></div>
+        </article>
+        {{/each}}
+      </div>
+      {{/if}}
+    </section>
+    {{/if}}
+
+    {{#if evidence.tiles}}
+    <section>
+      <div class="section-head">
+        <div>
+          <p class="section-tag">{{evidence.section_tag}}</p>
+          <h2 class="section-title">{{evidence.section_title}}</h2>
+        </div>
+      </div>
+      <div class="evidence-grid">
+        {{#each evidence.tiles}}
+        <article class="evidence-tile {{effect}}">
+          <div class="evidence-top"><span class="evidence-period">{{period}}</span><span class="pill {{status}}">{{status}}</span></div>
+          <h3 class="evidence-name">{{name}}</h3>
+          <p class="evidence-phrase">{{phrase}}</p>
+          {{#if source.quote}}<blockquote><p>“{{source.quote}}”</p>{{#if source.meta}}<cite>{{source.meta}}</cite>{{/if}}</blockquote>{{/if}}
+        </article>
+        {{/each}}
+      </div>
+    </section>
+    {{/if}}
+
+    {{#if footnote}}
+    <div class="footnote"><strong>{{footnote.lead}}</strong> {{footnote.text}}</div>
+    {{/if}}
+
+    {{#if footer}}
+    <footer>
+      <span>Computed {{footer.computed_date}} · {{footer.n_periods}} periods</span>
+      {{#if footer.sources}}<div class="source-list">{{#each footer.sources}}<span><strong>{{count}}</strong> {{label}}</span>{{/each}}</div>{{/if}}
+    </footer>
+    {{/if}}
+  </main>
+</body>
+</html>
