@@ -381,11 +381,7 @@
     .trend.mixed::before { content: "◆"; }
 
     .spark { width: 110px; height: 42px; overflow: visible; }
-    .spark .base { stroke: #e5e3dc; stroke-width: 1; }
-    .spark .path { fill: none; stroke: #9a9a96; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-    .spark.rising .path { stroke: var(--teal); }
-    .spark.new .path { stroke: var(--blue); }
-    .spark.mixed .path { stroke: var(--amber); }
+
 
     .timeline {
       display: grid;
@@ -669,9 +665,9 @@
           <div><h3 class="pattern-name">{{name}}</h3><p class="pattern-meaning">{{meaning}}</p></div>
           <div class="spark-wrap">
             <span class="trend {{trend}}">{{trend}}</span>
-            <svg class="spark {{trend}}" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
-              <line class="base" x1="0" y1="27" x2="100" y2="27"></line>
-              <polyline class="path" points="{{sparkPoints spark trend}}"></polyline>
+            <svg class="spark" viewBox="0 0 110 46" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <polyline points="{{trendSparkPoints trend}}" fill="none" stroke="{{trendHex trend}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+              <circle cx="104" cy="{{trendSparkEndY trend}}" r="3.5" fill="{{trendHex trend}}"/>
             </svg>
           </div>
         </article>
