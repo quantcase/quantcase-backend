@@ -114,10 +114,43 @@ async function runCompressedHtmlSkill({ slug, ticker, callId, force = false, his
   }
 
   const baseOutput = await fetchL2Context(effectiveSkill, ticker, fiscal_year, quarter, historic);
-  const extracted_json = baseOutput.extracted_json;
+  let extracted_json = baseOutput.extracted_json;
+  let usage = { prompt_tokens: 0, completion_tokens: 0, cost: 0 };
+
+  // Phase 1.5: JSON Compression
+  if (effectiveSkill.html_template_prompt) {
+    if (job) await job.log(`[Compression] Transforming base JSON into target schema using LLM...`);
+    
+    const promptPayload = [
+      effectiveSkill.html_template_prompt,
+      '',
+      '--- SOURCE JSON ---',
+      JSON.stringify(extracted_json, null, 2),
+      '--- END SOURCE JSON ---',
+    ].join('\n');
+
+    const { text, usage: compressionUsage } = await llmStream({
+      model: effectiveSkill.html_template_model,
+      max_tokens: effectiveSkill.max_tokens || 8000,
+      messages: [{ role: 'user', content: promptPayload }]
+    });
+
+    usage.prompt_tokens += (compressionUsage?.prompt_tokens || 0);
+    usage.completion_tokens += (compressionUsage?.completion_tokens || 0);
+    usage.cost += (compressionUsage?.cost || 0);
+
+    const parsedString = stripMarkdownFences(text);
+    try {
+      extracted_json = JSON.parse(parsedString);
+      if (job) await job.log(`[Compression] Successfully transformed JSON.`);
+    } catch (err) {
+      if (job) await job.log(`[Compression] Failed to parse transformed JSON. Error: ${err.message}`);
+      throw new Error(`Compression step returned invalid JSON: ${err.message}`);
+    }
+  }
 
   // Run generation bypassing extraction
-  const { raw_html: raw_html_unstripped, audit_logs, usage } = await runAgenticPipeline({
+  const pipelineResult = await runAgenticPipeline({
     ticker,
     html_template_model: effectiveSkill.html_template_model,
     max_tokens: effectiveSkill.max_tokens,
@@ -128,6 +161,11 @@ async function runCompressedHtmlSkill({ slug, ticker, callId, force = false, his
     enable_data_validation: false, // bypassed anyway
     job,
   });
+
+  const raw_html_unstripped = pipelineResult.raw_html;
+  usage.prompt_tokens += (pipelineResult.usage?.prompt_tokens || 0);
+  usage.completion_tokens += (pipelineResult.usage?.completion_tokens || 0);
+  usage.cost += (pipelineResult.usage?.cost || 0);
 
   const raw_html     = stripMarkdownFences(raw_html_unstripped);
   // Optional text summary extraction
