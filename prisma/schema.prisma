@@ -653,7 +653,9 @@ model HtmlIncrementalSkill {
   name                             String
   category                         PluginCategory
   data_extraction_prompt           String                       @default("")
+  fact_validation_prompt           String                       @default("")
   html_template_prompt             String                       @default("")
+  visual_qa_prompt                 String                       @default("")
   extraction_model                 String                       @default("~anthropic/claude-haiku-latest")
   fact_validation_model            String                       @default("~anthropic/claude-haiku-latest")
   html_template_model              String                       @default("~anthropic/claude-haiku-latest")
@@ -716,8 +718,10 @@ model HtmlIncrementalSkillConfig {
   skill_id                         String
   key                              String // machine identifier, unique per skill, e.g. "transcript_only"
   name                             String // human label, e.g. "Transcript Only"
-  data_extraction_prompt           String               @default("")
-  html_template_prompt             String               @default("")
+  data_extraction_prompt           String                       @default("")
+  fact_validation_prompt           String                       @default("")
+  html_template_prompt             String                       @default("")
+  visual_qa_prompt                 String                       @default("")
   extraction_model                 String               @default("~anthropic/claude-haiku-latest")
   fact_validation_model            String               @default("~anthropic/claude-haiku-latest")
   html_template_model              String               @default("~anthropic/claude-haiku-latest")
