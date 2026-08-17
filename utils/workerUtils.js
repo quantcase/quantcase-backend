@@ -3,7 +3,7 @@
 const openRouter = require('../config/llm');
 const {
   vertexEnabled, getVertexClient, getVertexAccessToken,
-  isGeminiModel, toVertexMessages, vertexModelCandidates, markModelUnavailable, isModelUnavailableError,
+  isGeminiModel, toVertexMessages, vertexModelCandidates, markModelUnavailable, isModelUnavailableError, toVertexModel
 } = require('../config/vertexLlm');
 
 // ─── Colored logger ───────────────────────────────────────────────────────────
