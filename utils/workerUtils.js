@@ -94,11 +94,21 @@ async function llmStream(params, opts = {}) {
   const reqOpts    = { headers: { Authorization: `Bearer ${await getVertexAccessToken()}` } };
   const client     = getVertexClient();
   const messages   = toVertexMessages(params.messages);
-  const candidates = vertexModelCandidates();
+  
+  let candidates = vertexModelCandidates();
+  // If the caller explicitly passed a specific model (not a generic 'gemini' placeholder), use it
+  if (params.model && params.model !== 'gemini' && params.model !== 'google/gemini') {
+    candidates = [toVertexModel(params.model)];
+  }
+
   let lastErr;
   for (let i = 0; i < candidates.length; i++) {
     const model = candidates[i];
-    const maxTokens = Math.min(params.max_tokens ?? GEMINI_MAX_OUTPUT_TOKENS, GEMINI_MAX_OUTPUT_TOKENS);
+    let maxCeiling = 8192;
+    if (model.includes('3.5-flash') || model.includes('flash-lite')) {
+      maxCeiling = 65535;
+    }
+    const maxTokens = Math.min(params.max_tokens ?? maxCeiling, maxCeiling);
     const body  = { ...params, model, messages, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true } };
     try {
       return await runChatStream(client, body, reqOpts, `Vertex(${model})`);
