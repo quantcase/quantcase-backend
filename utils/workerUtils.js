@@ -104,11 +104,17 @@ async function llmStream(params, opts = {}) {
   let lastErr;
   for (let i = 0; i < candidates.length; i++) {
     const model = candidates[i];
-    // Google's Vertex AI OpenAI-compatible endpoint strictly enforces an 8,192 output token limit for standard Flash and Pro models.
-    // Requesting anything higher results in an immediate HTTP 400 (no body) rejection.
-    const maxCeiling = 8192;
+    let maxCeiling = 8192;
+    // gemini-3.5-flash and flash-lite DO support up to 65535 output tokens.
+    if (model.includes('3.5-flash') || model.includes('flash-lite')) {
+      maxCeiling = 65535;
+    }
     const maxTokens = Math.min(params.max_tokens ?? maxCeiling, maxCeiling);
-    const body  = { ...params, model, messages, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true } };
+    
+    // Vertex AI's OpenAI-compatible endpoint strictly validates payload parameters.
+    // Passing `stream_options: { include_usage: true }` causes an immediate HTTP 400 (no body)
+    // rejection on newer models like 3.5-flash. Omit it completely.
+    const body  = { ...params, model, messages, max_tokens: maxTokens, stream: true };
     try {
       return await runChatStream(client, body, reqOpts, `Vertex(${model})`);
     } catch (err) {
