@@ -83,6 +83,9 @@ async function llmStream(params, opts = {}) {
       // Disable reasoning by default for all models on OpenRouter path.
       openRouterParams.reasoning = { enabled: false };
     }
+    if (openRouterParams.model?.includes('deepseek')) {
+      openRouterParams.provider = { ignore: ["Cloudflare"] };
+    }
     return runChatStream(openRouter, openRouterParams, {}, 'OpenRouter');
   }
 
