@@ -49,7 +49,8 @@
     .score-description{max-width:680px;margin:0;color:rgba(255,255,255,.55);font-size:12px;line-height:1.45}
     .reasons{display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}
     .reason{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;color:rgba(255,255,255,.86);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:999px;font-size:12.5px;font-weight:500}
-    .reason-icon{font-size:13px}.reason-tag{color:rgba(255,255,255,.45);font:600 9px/1.3 'IBM Plex Mono',monospace;letter-spacing:.05em;text-transform:uppercase}
+    .reason::before{width:7px;height:7px;background:#9de1d3;border-radius:50%;content:""}.reason.a::before{background:#ffd58c}.reason.r::before{background:#ffaaa4}
+    .reason-tag{color:rgba(255,255,255,.45);font:600 9px/1.3 'IBM Plex Mono',monospace;letter-spacing:.05em;text-transform:uppercase}
     .reason.g .reason-tag{color:#9de1d3}.reason.a .reason-tag{color:#ffd58c}.reason.r .reason-tag{color:#ffaaa4}
 
     section{padding:0;border:0}
@@ -59,11 +60,22 @@
     .section-title{margin:0;font-size:16px;font-weight:600;line-height:1.3}
     .section-note{margin:0 0 0 auto;color:var(--faint);font-size:11px;text-align:right}
 
-    /* 2. WHITE — Three communication score cards */
+    /* 2. WHITE — Three score cards matching the hero tags */
+    .headline-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;counter-reset:headline}
+    .headline-card{position:relative;min-width:0;min-height:164px;padding:20px;background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--teal);border-radius:var(--radius);counter-increment:headline}
+    .headline-card.a{border-top-color:var(--amber)}.headline-card.r{border-top-color:var(--red)}
+    .headline-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+    .headline-number{color:var(--faint);font:600 10px/1.4 'IBM Plex Mono',monospace}.headline-number::before{content:counter(headline,decimal-leading-zero)}
+    .headline-tag{padding:4px 8px;color:var(--teal-dark);background:var(--teal-soft);border-radius:999px;font:700 9px/1.3 'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase}
+    .headline-card.a .headline-tag{color:#875408;background:var(--amber-soft)}.headline-card.r .headline-tag{color:#9a3029;background:var(--red-soft)}
+    .headline-title{margin:0 0 7px;font-family:'Fraunces',Georgia,serif;font-size:19px;font-weight:600;line-height:1.25}
+    .headline-description{margin:0;color:var(--muted);font-size:12.5px;line-height:1.5}
+
+    /* Detailed communication analysis, positioned below The Edge. */
     .communication-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
     .communication-card{min-width:0;padding:20px;background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--teal);border-radius:var(--radius)}
     .communication-card.a{border-top-color:var(--amber)}.communication-card.r{border-top-color:var(--red)}
-    .communication-title-row{display:flex;align-items:center;gap:8px}.communication-icon{font-size:15px}
+    .communication-title-row{display:flex;align-items:center;gap:8px}
     .communication-title{margin:0;font-size:13.5px;font-weight:600}.communication-subtitle{margin:3px 0 12px;color:var(--faint);font-size:11px}
     .communication-items{margin:0;padding:0;list-style:none;counter-reset:communication}
     .communication-item{position:relative;margin-top:9px;padding:9px 0 0 30px;border-top:1px solid var(--line);counter-increment:communication}
@@ -84,14 +96,16 @@
     /* 4. WHITE — Key Patterns */
     .pattern-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
     .pattern-card{position:relative;display:grid;grid-template-columns:82px minmax(0,1fr) auto;gap:14px;align-items:center;min-height:112px;padding:17px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
-    .pattern-visual{display:grid;gap:8px;place-items:center}.pattern-icon{font-size:22px}
+    .pattern-visual{display:grid;gap:8px;place-items:center}
+    .sparkline{display:flex;width:72px;height:46px;align-items:end;justify-content:center;gap:4px;padding:0 4px 4px;border-bottom:1px solid var(--line-dark)}
+    .sparkline i{display:block;width:8px;height:18%;background:var(--teal);border-radius:3px 3px 1px 1px}.pattern-card.a .sparkline i{background:var(--amber)}.pattern-card.r .sparkline i{background:var(--red)}
+    .sparkline i.v0{height:8%}.sparkline i.v1{height:20%}.sparkline i.v2{height:38%}.sparkline i.v3{height:56%}.sparkline i.v4{height:76%}.sparkline i.v5{height:96%}
     .pattern-bar{position:relative;width:64px;height:5px;overflow:hidden;background:var(--surface-soft);border-radius:99px}
     .pattern-bar i{position:absolute;inset-block:0;left:0;width:70%;background:var(--teal);border-radius:inherit}.pattern-bar i.a{background:var(--amber)}.pattern-bar i.r{background:var(--red)}
     .pattern-bar i.very-high{width:92%}.pattern-bar i.high{width:80%}.pattern-bar i.medium{width:68%}.pattern-bar i.mixed{width:52%}.pattern-bar i.low{width:38%}
     .pattern-name{margin:0 0 4px;font-size:13.5px;font-weight:600}.pattern-meaning{margin:0;color:var(--muted);font-size:12px;line-height:1.4}
     .trend{padding:4px 8px;color:var(--muted);background:var(--surface-soft);border-radius:999px;font:700 9px/1.3 'IBM Plex Mono',monospace;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
     .trend.rising{color:var(--teal-dark);background:var(--teal-soft)}.trend.weakening{color:#9a3029;background:var(--red-soft)}.trend.mixed{color:#875408;background:var(--amber-soft)}.trend.new{color:#3047bd;background:#eaedff}
-    .trend.rising::before{content:"▲ "}.trend.steady::before{content:"— "}.trend.mixed::before{content:"~ "}.trend.weakening::before{content:"▼ "}.trend.new::before{content:"◆ "}
 
     /* 5. NAVY — The Edge */
     .edge-panel{padding:22px 24px;color:#fff;background:var(--navy);border:1px solid #31465f;border-radius:var(--radius)}
@@ -116,15 +130,15 @@
     @media(max-width:760px){
       .report{padding:18px 14px 42px}.topline{align-items:flex-start}.hero{grid-template-columns:1fr;padding:26px 20px;text-align:center}.score-ring{width:150px;margin:0 auto}.rating-line,.reasons{justify-content:center}
       .section-head,.section-head>div{align-items:flex-start;flex-direction:column;gap:3px}.section-note{margin-left:0;text-align:left}
-      .communication-grid,.pattern-grid,.watch-grid{grid-template-columns:1fr}.pattern-card{grid-template-columns:70px minmax(0,1fr) auto}
+      .headline-grid,.communication-grid,.pattern-grid,.watch-grid{grid-template-columns:1fr}.pattern-card{grid-template-columns:78px minmax(0,1fr) auto}
       .intuition-panel{min-height:0;padding:22px 18px}.intuition-heading{margin-top:28px}.edge-top{align-items:flex-start;flex-direction:column;gap:5px}
       footer{align-items:flex-start;flex-direction:column}footer span:last-child{text-align:left}
     }
     @media(max-width:480px){
-      .hero{padding-inline:16px}.hero-title{font-size:29px}.communication-card,.edge-panel{padding:17px}.pattern-card{grid-template-columns:52px minmax(0,1fr);gap:10px}.pattern-card .trend{grid-column:2;justify-self:start}.pattern-bar{width:46px}
+      .hero{padding-inline:16px}.hero-title{font-size:29px}.headline-card,.communication-card,.edge-panel{padding:17px}.pattern-card{grid-template-columns:72px minmax(0,1fr);gap:10px}.pattern-card .trend{grid-column:2;justify-self:start}.pattern-bar{width:52px}.sparkline{width:64px}
       .edge-grid{grid-template-columns:1fr;gap:3px}.edge-grid>div{display:grid;gap:3px}.edge-copy+.edge-label{margin-top:9px}.bottom-row{grid-template-columns:1fr;gap:4px}
     }
-    @media print{body{background:#fff}.report{max-width:none;padding:0}.hero,.communication-card,.intuition-panel,.pattern-card,.edge-panel,.watchpoint,.bottom-row{break-inside:avoid}}
+    @media print{body{background:#fff}.report{max-width:none;padding:0}.hero,.headline-card,.communication-card,.intuition-panel,.pattern-card,.edge-panel,.watchpoint,.bottom-row{break-inside:avoid}}
   </style>
 </head>
 <body>
@@ -146,26 +160,23 @@
         {{#if score_badge.description}}<p class="score-description">{{score_badge.description}}</p>{{/if}}
         {{#if hero_reasons.length}}
         <div class="reasons">
-          {{#each hero_reasons}}<div class="reason {{tone}}"><span class="reason-icon" aria-hidden="true">{{icon}}</span><span>{{label}}</span><span class="reason-tag">{{tag}}</span></div>{{/each}}
+          {{#each hero_reasons}}<div class="reason {{tone}}"><span>{{label}}</span><span class="reason-tag">{{tag}}</span></div>{{/each}}
         </div>
         {{/if}}
       </div>
     </header>
 
-    {{#if communication_analysis.columns.length}}
+    {{#if hero_reasons.length}}
     <section>
       <div class="section-head">
-        <div><p class="section-tag">Headline insights</p><h2 class="section-title">Communication behaviour</h2></div>
-        <p class="section-note">{{communication_analysis.source_note}}</p>
+        <div><p class="section-tag">Headline insights</p><h2 class="section-title">Why the score looks this way</h2></div>
       </div>
-      <div class="communication-grid">
-        {{#each communication_analysis.columns}}
-        <article class="communication-card {{tone}}">
-          <div class="communication-title-row"><span class="communication-icon">{{icon}}</span><h3 class="communication-title">{{title}}</h3></div>
-          <p class="communication-subtitle">{{subtitle}}</p>
-          <ol class="communication-items">
-            {{#each items}}<li class="communication-item"><strong>{{label}}</strong><span>{{note}}</span></li>{{/each}}
-          </ol>
+      <div class="headline-grid">
+        {{#each hero_reasons}}
+        <article class="headline-card {{tone}}">
+          <div class="headline-top"><span class="headline-number"></span><span class="headline-tag">{{tag}}</span></div>
+          <h3 class="headline-title">{{label}}</h3>
+          <p class="headline-description">{{description}}</p>
         </article>
         {{/each}}
       </div>
@@ -193,8 +204,14 @@
       </div>
       <div class="pattern-grid">
         {{#each pattern_radar.patterns}}
-        <article class="pattern-card">
-          <div class="pattern-visual"><span class="pattern-icon">{{icon}}</span><span class="pattern-bar"><i class="{{tone}} {{strength}}"></i></span></div>
+        <article class="pattern-card {{tone}}">
+          <div class="pattern-visual">
+            {{#if spark.length}}
+            <span class="sparkline" aria-label="Pattern over time">{{#each spark}}<i class="v{{level}}"></i>{{/each}}</span>
+            {{else}}
+            <span class="pattern-bar"><i class="{{tone}} {{strength}}"></i></span>
+            {{/if}}
+          </div>
           <div><h3 class="pattern-name">{{name}}</h3><p class="pattern-meaning">{{meaning}}</p></div>
           <span class="trend {{trend}}">{{trend}}</span>
         </article>
@@ -215,6 +232,26 @@
           <div><p class="edge-label">Investor focus</p><p class="edge-copy"><span class="focus-chip">{{edge.investor_focus.chip}}</span>{{edge.investor_focus.tail}}</p></div>
           {{/if}}
         </div>
+      </div>
+    </section>
+    {{/if}}
+
+    {{#if communication_analysis.columns.length}}
+    <section>
+      <div class="section-head">
+        <div><p class="section-tag">Disclosure detail</p><h2 class="section-title">Communication behaviour</h2></div>
+        <p class="section-note">{{communication_analysis.source_note}}</p>
+      </div>
+      <div class="communication-grid">
+        {{#each communication_analysis.columns}}
+        <article class="communication-card {{tone}}">
+          <div class="communication-title-row"><h3 class="communication-title">{{title}}</h3></div>
+          <p class="communication-subtitle">{{subtitle}}</p>
+          <ol class="communication-items">
+            {{#each items}}<li class="communication-item"><strong>{{label}}</strong><span>{{note}}</span></li>{{/each}}
+          </ol>
+        </article>
+        {{/each}}
       </div>
     </section>
     {{/if}}
