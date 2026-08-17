@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{asset_name}} · Disclosure Honesty</title>
+  <title>{{asset_name}} · Guidance Credibility</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -167,6 +167,8 @@
     .reason-mark.g::before { content: "✓"; }
     .reason-mark.a { color: #ffd58c; }.reason-mark.a::before { content: "!"; }
     .reason-mark.r { color: #ffaaa4; }.reason-mark.r::before { content: "×"; }
+    .reason-mark.ok { color: #9de1d3; }.reason-mark.ok::before { content: "✓"; }
+    .reason-mark.no { color: #ffaaa4; }.reason-mark.no::before { content: "×"; }
 
     section { padding: 0; border: 0; }
     .section-head {
@@ -219,7 +221,38 @@
     .communication-item strong { display: block; font-size: 12px; font-weight: 600; }
     .communication-item span { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
 
-    /* QC Intuition mirrors the Guidance Credibility edge panel. */
+    .headline-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .headline-card { padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+    .headline-label { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
+    .headline-dot { width: 8px; height: 8px; flex: 0 0 auto; background: var(--teal); border-radius: 50%; }
+    .headline-dot.a { background: var(--amber); }.headline-dot.r { background: var(--red); }
+    .headline-value { margin: 0; color: var(--teal-dark); font: 600 22px/1.15 'Fraunces', Georgia, serif; }
+    .headline-value.mono { font-family: 'IBM Plex Mono', monospace; font-size: 18px; }
+    .headline-value.a { color: #875408; }.headline-value.r { color: #9a3029; }
+    .headline-sub { margin: 9px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+    /* QC Intuition summary immediately below the three headline scores. */
+    .intuition-panel {
+      position: relative;
+      min-height: 220px;
+      margin-top: 14px;
+      padding: 28px 30px;
+      overflow: hidden;
+      color: #fff;
+      background: #1c254b;
+      border: 1px solid #40528f;
+      border-radius: var(--radius);
+    }
+    .intuition-panel::before, .intuition-panel::after { position: absolute; border-radius: 50%; background: rgba(115,139,230,.10); content: ""; pointer-events: none; }
+    .intuition-panel::before { width: 230px; height: 230px; top: -105px; right: -55px; }
+    .intuition-panel::after { width: 230px; height: 230px; bottom: -190px; left: -95px; }
+    .intuition-content { position: relative; z-index: 1; max-width: 790px; }
+    .intuition-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; color: #a9bafa; border: 1px solid #5266aa; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    .intuition-badge::before { width: 7px; height: 7px; background: #7895ff; border-radius: 50%; box-shadow: 0 0 0 6px rgba(120,149,255,.12); content: ""; }
+    .intuition-heading { margin: 38px 0 10px; font-family: 'Fraunces', Georgia, serif; font-size: clamp(25px, 4vw, 38px); font-weight: 500; line-height: 1.15; }
+    .intuition-line { margin: 0; color: rgba(255,255,255,.62); font-size: 15px; line-height: 1.55; }
+
+    /* Detailed behaviour, implication and investor focus now follow Key patterns. */
     .edge-panel {
       position: relative;
       padding: 22px 24px;
@@ -237,11 +270,15 @@
       text-transform: uppercase;
     }
     .signals { color: rgba(255,255,255,.45); font: 500 11px/1.4 'IBM Plex Mono', monospace; }
-    .edge-grid { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 11px 14px; }
-    .edge-grid > div { display: contents; }
+    .edge-layout { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 28px; }
+    .edge-title { margin: 0; color: #8ba4fb; font-size: 13px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
+    .edge-grid { display: grid; gap: 12px; }
+    .edge-grid > div { display: block; }
     .edge-label { margin: 0; padding-top: 2px; color: #8ba4fb; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
     .edge-copy { margin: 0; color: rgba(255,255,255,.85); font-size: 13px; line-height: 1.5; }
     .edge-copy.accent { color: #d9c9ff; }
+    .edge-copy.focus { color: #f2ddff; }
+    .edge-chip { color: #cf9cff; font-weight: 600; }
 
     .pattern-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .pattern-card {
@@ -257,6 +294,11 @@
       border-radius: 12px;
     }
     .pattern-visual { display: grid; gap: 8px; place-items: center; }
+    .sparkline { display: flex; width: 68px; height: 38px; align-items: end; justify-content: center; gap: 3px; padding-bottom: 3px; border-bottom: 1px solid var(--line-dark); }
+    .sparkline i { width: 6px; height: 45%; background: #9a9a96; border-radius: 3px 3px 0 0; }
+    .sparkline i.v1 { height: 20%; }.sparkline i.v2 { height: 36%; }.sparkline i.v3 { height: 52%; }.sparkline i.v4 { height: 72%; }.sparkline i.v5 { height: 92%; }
+    .pattern-card:has(.trend.rising) .sparkline i { background: var(--teal); }
+    .pattern-card:has(.trend.new) .sparkline i { background: var(--blue); }
     .pattern-icon { font-size: 21px; }
     .pattern-bar { position: relative; width: 64px; height: 5px; overflow: hidden; background: var(--surface-soft); border-radius: 99px; }
     .pattern-bar i { position: absolute; inset-block: 0; left: 0; width: 70%; background: var(--teal); border-radius: inherit; }
@@ -278,6 +320,10 @@
     .trend.g { color: var(--teal-dark); background: var(--teal-soft); }
     .trend.a { color: #875408; background: var(--amber-soft); }
     .trend.r { color: #9a3029; background: var(--red-soft); }
+    .trend.rising { color: var(--teal-dark); background: var(--teal-soft); }
+    .trend.steady, .trend.mixed { color: #875408; background: var(--amber-soft); }
+    .trend.new { color: #2444ba; background: #e8edff; }
+    .trend.weakening { color: #9a3029; background: var(--red-soft); }
     .trend.rising::before { content: "▲ "; }.trend.steady::before { content: "— "; }.trend.mixed::before { content: "~ "; }.trend.weakening::before { content: "▼ "; }.trend.new::before { content: "◆ "; }
 
     .watch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; counter-reset: watch; }
@@ -323,8 +369,8 @@
       .reasons { justify-content: center; }
       .section-head, .section-head > div { align-items: flex-start; flex-direction: column; gap: 3px; }
       .section-note { margin-left: 0; }
-      .communication-grid, .pattern-grid, .watch-grid { grid-template-columns: 1fr; }
-      .edge-grid { grid-template-columns: 88px minmax(0, 1fr); }
+      .communication-grid, .headline-grid, .pattern-grid, .watch-grid { grid-template-columns: 1fr; }
+      .edge-layout { grid-template-columns: 1fr; gap: 14px; }
       .edge-top { align-items: flex-start; flex-direction: column; gap: 5px; }
     }
 
@@ -333,8 +379,8 @@
       .action-title { font-size: 24px; }
       .hero { padding-inline: 16px; }
       .communication-card, .edge-panel { padding: 17px; }
-      .edge-grid { grid-template-columns: 1fr; gap: 3px; }
-      .edge-grid > div { display: grid; gap: 3px; }
+      .intuition-panel { min-height: 0; padding: 22px 18px; }
+      .intuition-heading { margin-top: 28px; }
       .edge-copy + .edge-label { margin-top: 9px; }
       .bottom-row { grid-template-columns: 1fr; gap: 4px; }
     }
@@ -349,8 +395,8 @@
 <body>
   <main class="report">
     <div class="topline">
-      <div class="topline-brand">Disclosure Honesty · <strong>{{asset_name}}</strong></div>
-      <p class="topline-period">{{#if period_start}}{{period_start}} → {{period_end}}{{/if}}{{#if computed_date}} · Computed {{computed_date}}{{/if}}</p>
+      <div class="topline-brand">Guidance Credibility · <strong>{{asset_name}}</strong></div>
+      <p class="topline-period">{{#if period_start}}{{period_start}} → {{period_end}}{{/if}}{{#if footer.computed_date}} · Computed {{footer.computed_date}}{{/if}}</p>
     </div>
 
     <header class="hero">
@@ -358,64 +404,78 @@
         <div class="score-copy"><span class="score-value">{{score_badge.score}}</span><span class="score-scale">out of {{score_badge.scale}}</span></div>
       </div>
       <div class="hero-body">
-        <p class="eyebrow">{{score_badge.rating}} · {{lens}}</p>
-        <h1 class="action-title">{{hero_verdict}}</h1>
-        <p class="verdict">{{score_badge.description}}</p>
-        {{#if hero_reasons.length}}
+        <p class="eyebrow">{{hero.eyebrow}}</p>
+        <h1 class="action-title">{{hero.action_title}}</h1>
+        <p class="verdict">{{hero.verdict}}</p>
+        {{#if hero.reasons.length}}
         <div class="reasons">
-          {{#each hero_reasons}}<div class="reason"><span class="reason-mark {{tone}}" aria-hidden="true"></span><span>{{label}}</span></div>{{/each}}
+          {{#each hero.reasons}}<div class="reason"><span class="reason-mark {{mark}}" aria-hidden="true"></span><span>{{text}}</span></div>{{/each}}
         </div>
         {{/if}}
       </div>
     </header>
 
-    {{#if communication_analysis.columns.length}}
+    {{#if headline.cards.length}}
     <section>
       <div class="section-head">
-        <div><p class="section-tag">Headline insights</p><h2 class="section-title">Communication behaviour</h2></div>
-        <p class="section-note">{{communication_analysis.source_note}}</p>
+        <div><p class="section-tag">{{headline.section_tag}}</p><h2 class="section-title">Communication behaviour</h2></div>
       </div>
-      <div class="communication-grid">
-        {{#each communication_analysis.columns}}
-        <article class="communication-card {{tone}}">
-          <div class="communication-title-row"><span class="communication-icon">{{icon}}</span><h3 class="communication-title">{{title}}</h3></div>
-          <p class="communication-subtitle">{{subtitle}}</p>
-          <ol class="communication-items">
-            {{#each items}}<li class="communication-item"><div><strong>{{label}}</strong><span>{{note}}</span></div></li>{{/each}}
-          </ol>
+      <div class="headline-grid">
+        {{#each headline.cards}}
+        <article class="headline-card">
+          <p class="headline-label"><span class="headline-dot {{dot}}"></span>{{label}}</p>
+          <p class="headline-value {{value_color}} {{#if value_mono}}mono{{/if}}">{{#each value_lines}}{{this}}{{#unless @last}}<br>{{/unless}}{{/each}}</p>
+          <p class="headline-sub">{{sub}}</p>
         </article>
         {{/each}}
       </div>
     </section>
     {{/if}}
 
-    {{#if pattern_radar.intuition}}
-    <section class="edge-section">
-      <div class="section-head"><div><p class="section-tag">Synthesis</p><h2 class="section-title">The Edge</h2></div></div>
-      <div class="edge-panel">
-        <div class="edge-top"><span class="edge-badge">◆ QC Intuition · Pattern Recognition</span>{{#if pattern_radar.signals_parsed}}<span class="signals">{{pattern_radar.signals_parsed}} signals parsed</span>{{/if}}</div>
-        <div class="edge-grid">
-          <div><p class="edge-label">Behaviour</p><p class="edge-copy">{{pattern_radar.intuition.lead}}</p></div>
-          <div><p class="edge-label">Implication</p><p class="edge-copy accent">{{pattern_radar.intuition.detail}}</p></div>
+    {{#if edge}}
+    <section>
+      <div class="intuition-panel">
+        <div class="intuition-content">
+          <span class="intuition-badge">{{edge.badge}}</span>
+          <h2 class="intuition-heading">{{edge.intuition_heading}}</h2>
+          <p class="intuition-line">{{edge.intuition_line}}</p>
         </div>
       </div>
     </section>
     {{/if}}
 
-    {{#if pattern_radar.patterns.length}}
+    {{#if patterns.cards.length}}
     <section>
       <div class="section-head">
-        <div><p class="section-tag">Pattern recognition</p><h2 class="section-title">Key patterns</h2></div>
-        <p class="section-note">{{#if pattern_radar.period_start}}{{pattern_radar.period_start}} → {{pattern_radar.period_end}}{{/if}}</p>
+        <div><p class="section-tag">{{patterns.section_tag}}</p><h2 class="section-title">{{patterns.section_title}}</h2></div>
+        <p class="section-note">{{period_start}} → {{period_end}}</p>
       </div>
       <div class="pattern-grid">
-        {{#each pattern_radar.patterns}}
+        {{#each patterns.cards}}
         <article class="pattern-card">
-          <div class="pattern-visual"><span class="pattern-icon">{{icon}}</span><span class="pattern-bar"><i class="{{tone}} {{strength}}"></i></span></div>
+          <div class="pattern-visual"><span class="sparkline">{{#each spark}}<i class="v{{lookup this 1}}"></i>{{/each}}</span></div>
           <div><h3 class="pattern-name">{{name}}</h3><p class="pattern-meaning">{{meaning}}</p></div>
-          <span class="trend {{tone}} {{trend}}">{{trend}}</span>
+          <span class="trend {{trend}}">{{trend}}</span>
         </article>
         {{/each}}
+      </div>
+    </section>
+    {{/if}}
+
+    {{#if edge}}
+    <section class="edge-section">
+      <div class="section-head"><div><p class="section-tag">{{edge.section_tag}}</p><h2 class="section-title">{{edge.section_title}}</h2></div></div>
+      <div class="edge-panel">
+        <div class="edge-layout">
+          <h3 class="edge-title">The Edge</h3>
+          <div class="edge-grid">
+            <div><p class="edge-copy"><strong>Core behaviour:</strong> {{edge.behaviour}}</p></div>
+            <div><p class="edge-copy accent"><strong>Credibility implication:</strong> {{edge.implication}}</p></div>
+            {{#if edge.investor_focus}}
+            <div><p class="edge-copy focus"><strong>Investor focus:</strong> <span class="edge-chip">{{edge.investor_focus.chip}}</span>{{#if edge.investor_focus.tail}} — {{edge.investor_focus.tail}}{{/if}}</p></div>
+            {{/if}}
+          </div>
+        </div>
       </div>
     </section>
     {{/if}}
@@ -424,7 +484,7 @@
     <section>
       <div class="section-head"><div><p class="section-tag">Forward look</p><h2 class="section-title">Watch next four quarters</h2></div></div>
       <div class="watch-grid">
-        {{#each watchpoints}}<article class="watchpoint"><span class="watch-number"></span><h3 class="watch-name">{{title}}</h3><p class="watch-desc">{{desc}}</p></article>{{/each}}
+        {{#each watchpoints}}<article class="watchpoint"><span class="watch-number"></span><h3 class="watch-name">{{name}}</h3><p class="watch-desc">{{desc}}{{#if resolves}} <strong>Resolves: {{resolves}}.</strong>{{/if}}</p></article>{{/each}}
       </div>
     </section>
     {{/if}}
@@ -438,8 +498,7 @@
     </section>
     {{/if}}
 
-    {{#if footer.methodology}}<div class="footnote"><strong>How this score is built.</strong> — {{footer.methodology}}</div>{{/if}}
-    <footer><span>Disclosure Honesty · {{asset_name}}</span>{{#if footer.sources}}<span>{{footer.sources}}</span>{{/if}}</footer>
+    <footer><span>Guidance Credibility · {{asset_name}}</span>{{#if footer.sources}}<span>{{#each footer.sources}}{{count}} {{label}}{{#unless @last}} · {{/unless}}{{/each}}</span>{{/if}}</footer>
   </main>
 </body>
 </html>
