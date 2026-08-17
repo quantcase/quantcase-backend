@@ -114,7 +114,13 @@ async function llmStream(params, opts = {}) {
     // Vertex AI's OpenAI-compatible endpoint strictly validates payload parameters.
     // Passing `stream_options: { include_usage: true }` causes an immediate HTTP 400 (no body)
     // rejection on newer models like 3.5-flash. Omit it completely.
-    const body  = { ...params, model, messages, max_tokens: maxTokens, stream: true };
+    //
+    // gemini-3.5-flash is a thinking/reasoning model. By default it allocates a
+    // thinking budget from max_tokens before generating output. With a large input
+    // context this can exhaust the entire max_tokens budget, causing Vertex to error:
+    // "model output must contain either output text or tool calls, these cannot both
+    // be empty". Disabling thinking ensures all tokens go to actual output.
+    const body  = { ...params, model, messages, max_tokens: maxTokens, stream: true, thinking: { type: 'disabled' } };
     try {
       return await runChatStream(client, body, reqOpts, `Vertex(${model})`);
     } catch (err) {
