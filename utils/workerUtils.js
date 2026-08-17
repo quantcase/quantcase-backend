@@ -104,10 +104,9 @@ async function llmStream(params, opts = {}) {
   let lastErr;
   for (let i = 0; i < candidates.length; i++) {
     const model = candidates[i];
-    let maxCeiling = 8192;
-    if (model.includes('3.5-flash') || model.includes('flash-lite')) {
-      maxCeiling = 65535;
-    }
+    // Google's Vertex AI OpenAI-compatible endpoint strictly enforces an 8,192 output token limit for standard Flash and Pro models.
+    // Requesting anything higher results in an immediate HTTP 400 (no body) rejection.
+    const maxCeiling = 8192;
     const maxTokens = Math.min(params.max_tokens ?? maxCeiling, maxCeiling);
     const body  = { ...params, model, messages, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true } };
     try {
