@@ -696,7 +696,7 @@ async function runAgenticPipeline({
         { role: 'user', content: currentExtractionPrompt }
       ],
       // reasoning can be handled by OpenRouter if supported by model string, we assume the model inherits it
-    });
+    }, { vertex: true });
     mergeUsage(usage);
     jsonString = stripMarkdownFences(text);
     try {
@@ -725,7 +725,7 @@ async function runAgenticPipeline({
           { role: 'system', content: FACT_VALIDATION_PROMPT },
           { role: 'user', content: `--- ORIGINAL DATA ---\n${dataBlock}\n\n--- EXTRACTED JSON ---\n${JSON.stringify(extracted_json, null, 2)}` }
         ]
-      });
+      }, { vertex: true });
       mergeUsage(usage);
       const critiqueStr = stripMarkdownFences(text);
       let critique = [];
@@ -749,7 +749,7 @@ async function runAgenticPipeline({
           { role: 'system', content: 'You are a data correction agent. Update the JSON based on the critique and return ONLY valid JSON.' },
           { role: 'user', content: `--- CRITIQUE ---\n${JSON.stringify(critique)}\n\n--- CURRENT JSON ---\n${JSON.stringify(extracted_json, null, 2)}` }
         ]
-      });
+      }, { vertex: true });
       mergeUsage(cUsage);
       const correctedJsonStr = stripMarkdownFences(correctedText);
       try {
@@ -801,7 +801,7 @@ async function runAgenticPipeline({
           { role: 'system', content: 'Return ONLY a complete, standalone HTML file. No markdown. No explanation.' },
           { role: 'user', content: currentHtmlPrompt }
         ]
-      });
+      }, { vertex: true });
       mergeUsage(usage);
       raw_html = stripMarkdownFences(text);
       
@@ -829,7 +829,7 @@ async function runAgenticPipeline({
         { role: 'system', content: VISUAL_QA_PROMPT },
         { role: 'user', content: raw_html }
       ]
-    });
+    }, { vertex: true });
     mergeUsage(usage);
     const qaStr = stripMarkdownFences(text);
     let bugs = [];
@@ -846,7 +846,7 @@ async function runAgenticPipeline({
           { role: 'system', content: 'You are a UI developer. Fix the formatting bugs in the HTML and return ONLY the corrected HTML.' },
           { role: 'user', content: `--- BUGS ---\n${JSON.stringify(bugs)}\n\n--- CURRENT HTML ---\n${raw_html}` }
         ]
-      });
+      }, { vertex: true });
       mergeUsage(fUsage);
       raw_html = stripMarkdownFences(fixedHtml);
     } else {
