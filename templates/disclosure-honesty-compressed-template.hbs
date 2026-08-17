@@ -61,6 +61,8 @@
     .section-note{margin:0 0 0 auto;color:var(--faint);font-size:11px;text-align:right}
 
     /* 2. WHITE — Three score cards matching the hero tags */
+    /* Extra breathing room before the QC Intuition panel. */
+    .headline-section{padding-bottom:26px}
     .headline-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;counter-reset:headline}
     .headline-card{position:relative;min-width:0;min-height:164px;padding:20px;background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--teal);border-radius:var(--radius);counter-increment:headline}
     .headline-card.a{border-top-color:var(--amber)}.headline-card.r{border-top-color:var(--red)}
@@ -167,7 +169,7 @@
     </header>
 
     {{#if hero_reasons.length}}
-    <section>
+    <section class="headline-section">
       <div class="section-head">
         <div><p class="section-tag">Headline insights</p><h2 class="section-title">Why the score looks this way</h2></div>
       </div>
