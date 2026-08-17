@@ -7,6 +7,107 @@ const { resolveConfigKeyForTicker } = require('./companyGroups');
 const { llmStream, logUsage } = require('../utils/workerUtils');
 const { resolveCallMeta } = require('./htmlIncrementalSkill.service');
 
+// ── JSON extraction helpers ───────────────────────────────────────────────────
+
+/**
+ * Extracts the first valid, balanced JSON object from a raw model response.
+ * Handles conversational prefixes ("Certainly!", "Here's a summary…") and
+ * markdown fences (```json … ```) that some models emit despite instructions.
+ */
+function extractJsonObject(rawResponse) {
+  if (typeof rawResponse !== 'string' || !rawResponse.trim()) {
+    throw new Error('Model returned an empty compression response');
+  }
+
+  const raw = rawResponse.trim();
+
+  // Fast-path: perfectly compliant response.
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Fall through to brace-scanning extraction.
+  }
+
+  // Scan for a balanced { … } while respecting quoted strings.
+  for (let start = 0; start < raw.length; start++) {
+    if (raw[start] !== '{') continue;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let end = start; end < raw.length; end++) {
+      const char = raw[end];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') { inString = true; continue; }
+      if (char === '{') { depth++; continue; }
+      if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          const candidate = raw.slice(start, end + 1);
+          try {
+            return JSON.parse(candidate);
+          } catch {
+            break; // Not valid JSON; keep searching.
+          }
+        }
+      }
+    }
+  }
+
+  throw new Error(
+    `Compression response contained no valid JSON object. Response started with: ${raw.slice(0, 250)}`
+  );
+}
+
+/**
+ * Calls the LLM and extracts a valid JSON object, retrying up to maxAttempts
+ * times when the model returns a non-JSON response.
+ */
+async function generateCompressedJson({ model, max_tokens, systemPrompt, sourceJson, maxAttempts = 3 }) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const retryInstruction = attempt === 1
+      ? ''
+      : `\nYour previous response was invalid because it did not contain a parseable JSON object. Regenerate the result from the SOURCE JSON.\n\nReturn the target JSON object ONLY. The very first character of your response must be {.\n`;
+
+    const userContent = [
+      retryInstruction,
+      '--- SOURCE JSON ---',
+      JSON.stringify(sourceJson, null, 2),
+      '--- END SOURCE JSON ---',
+    ].filter(Boolean).join('\n');
+
+    const messages = systemPrompt
+      ? [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }]
+      : [{ role: 'user', content: userContent }];
+
+    const { text, usage } = await llmStream({ model, max_tokens, messages });
+
+    try {
+      const parsed = extractJsonObject(text);
+      return { parsed, usage };
+    } catch (err) {
+      if (attempt === maxAttempts) {
+        throw new Error(`Compression failed after ${maxAttempts} attempts: ${err.message}`);
+      }
+      // Loop and retry with the correction instruction injected.
+    }
+  }
+
+  throw new Error('Compression failed without producing a response');
+}
+
 // ── Named config resolution ───────────────────────────────────────────────────
 
 async function resolveRequiredConfigKey(ticker, configKey) {
@@ -120,31 +221,24 @@ async function runCompressedHtmlSkill({ slug, ticker, callId, force = false, his
   // Phase 1.5: JSON Compression
   if (effectiveSkill.html_template_prompt) {
     if (job) await job.log(`[Compression] Transforming base JSON into target schema using LLM...`);
-    
-    const promptPayload = [
-      effectiveSkill.html_template_prompt,
-      '',
-      '--- SOURCE JSON ---',
-      JSON.stringify(extracted_json, null, 2),
-      '--- END SOURCE JSON ---',
-    ].join('\n');
 
-    const { text, usage: compressionUsage } = await llmStream({
-      model: effectiveSkill.html_template_model,
-      max_tokens: effectiveSkill.max_tokens || 8000,
-      messages: [{ role: 'user', content: promptPayload }]
-    });
-
-    usage.prompt_tokens += (compressionUsage?.prompt_tokens || 0);
-    usage.completion_tokens += (compressionUsage?.completion_tokens || 0);
-    usage.cost += (compressionUsage?.cost || 0);
-
-    const parsedString = stripMarkdownFences(text);
     try {
-      extracted_json = JSON.parse(parsedString);
+      const { parsed, usage: compressionUsage } = await generateCompressedJson({
+        model:        effectiveSkill.html_template_model,
+        max_tokens:   effectiveSkill.max_tokens || 8000,
+        systemPrompt: effectiveSkill.html_template_prompt,
+        sourceJson:   extracted_json,
+        maxAttempts:  3,
+      });
+
+      extracted_json = parsed;
+      usage.prompt_tokens     += (compressionUsage?.prompt_tokens     || 0);
+      usage.completion_tokens += (compressionUsage?.completion_tokens || 0);
+      usage.cost              += (compressionUsage?.cost              || 0);
+
       if (job) await job.log(`[Compression] Successfully transformed JSON.`);
     } catch (err) {
-      if (job) await job.log(`[Compression] Failed to parse transformed JSON. Error: ${err.message}`);
+      if (job) await job.log(`[Compression] Failed to parse transformed JSON after retries. Error: ${err.message}`);
       throw new Error(`Compression step returned invalid JSON: ${err.message}`);
     }
   }
