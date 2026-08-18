@@ -118,6 +118,11 @@
     .edge-copy{margin:0;color:rgba(255,255,255,.85);font-size:13px;line-height:1.5}.edge-copy.accent{color:#d9c9ff}
     .focus-chip{display:inline-block;margin-right:7px;padding:3px 8px;color:#c9d3ff;background:rgba(115,139,230,.13);border:1px solid rgba(139,164,251,.38);border-radius:999px;font:700 9.5px/1.35 'IBM Plex Mono',monospace;letter-spacing:.04em;text-transform:uppercase;vertical-align:1px}
 
+    .insight-stack{margin-top:0}
+    .insight-stack .intuition-panel{border-radius:20px 20px 0 0}
+    .insight-patterns{padding:18px;background:var(--paper);border-right:1px solid var(--line-dark);border-left:1px solid var(--line-dark)}
+    .insight-stack .edge-panel{border-radius:0 0 var(--radius) var(--radius)}
+
     .watch-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;counter-reset:watch}
     .watchpoint{padding:16px;background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--amber);border-radius:var(--radius);counter-increment:watch}
     .watch-number{display:block;margin-bottom:6px;color:var(--amber);font:700 10px/1.4 'IBM Plex Mono',monospace}.watch-number::before{content:counter(watch,decimal-leading-zero)}
@@ -185,8 +190,8 @@
     </section>
     {{/if}}
 
+    <section class="insight-stack">
     {{#if pattern_radar.intuition}}
-    <section>
       <div class="intuition-panel">
         <div class="intuition-content">
           <span class="intuition-badge">QC Intuition · Pattern Recognition</span>
@@ -195,15 +200,10 @@
           {{#if pattern_radar.period_start}}<p class="intuition-meta">{{#if pattern_radar.signals_parsed}}{{pattern_radar.signals_parsed}} signals · {{/if}}{{pattern_radar.period_start}}{{#if pattern_radar.period_end}} → {{pattern_radar.period_end}}{{/if}}</p>{{/if}}
         </div>
       </div>
-    </section>
     {{/if}}
 
     {{#if pattern_radar.patterns.length}}
-    <section>
-      <div class="section-head">
-        <div><p class="section-tag">Pattern recognition</p><h2 class="section-title">Key Patterns</h2></div>
-        <p class="section-note">{{#if pattern_radar.signals_parsed}}{{pattern_radar.signals_parsed}} signals parsed{{/if}}{{#if pattern_radar.period_start}} · {{pattern_radar.period_start}}{{#if pattern_radar.period_end}} → {{pattern_radar.period_end}}{{/if}}{{/if}}</p>
-      </div>
+    <div class="insight-patterns">
       <div class="pattern-grid">
         {{#each pattern_radar.patterns}}
         <article class="pattern-card {{tone}}">
@@ -219,12 +219,10 @@
         </article>
         {{/each}}
       </div>
-    </section>
+    </div>
     {{/if}}
 
     {{#if edge}}
-    <section>
-      <div class="section-head"><div><p class="section-tag">{{edge.section_tag}}</p><h2 class="section-title">{{edge.section_title}}</h2></div></div>
       <div class="edge-panel">
         <div class="edge-top"><span class="edge-badge">{{edge.badge}}</span></div>
         <div class="edge-grid">
@@ -235,8 +233,8 @@
           {{/if}}
         </div>
       </div>
-    </section>
     {{/if}}
+    </section>
 
     {{#if communication_analysis.columns.length}}
     <section>

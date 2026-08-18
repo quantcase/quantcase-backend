@@ -440,6 +440,11 @@
     .bottom-row.a .bottom-tag { color: #875408; }.bottom-row.r .bottom-tag { color: #9a3029; }
     .bottom-copy { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 
+    .insight-stack { margin-top: 34px; }
+    .insight-stack .intuition-panel { margin-top: 0; border-radius: var(--radius) var(--radius) 0 0; }
+    .insight-patterns { padding: 18px; background: var(--paper); border-right: 1px solid var(--line-dark); border-left: 1px solid var(--line-dark); }
+    .insight-stack .edge-panel { border-radius: 0 0 var(--radius) var(--radius); }
+
     .footnote { margin-top: 36px; padding: 16px 0 0; color: var(--faint); border-top: 1px solid var(--line); font-size: 11.5px; line-height: 1.5; }
     .footnote strong { color: var(--muted); }
     footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; color: var(--faint); font-size: 10.5px; }
@@ -523,8 +528,8 @@
     </section>
     {{/if}}
 
+    <section class="insight-stack">
     {{#if edge}}
-    <section>
       <div class="intuition-panel">
         <div class="intuition-content">
           <span class="intuition-badge">◆ QC Intuition · Pattern Recognition</span>
@@ -532,15 +537,10 @@
           <p class="intuition-line">{{#if qc_intuition.summary}}{{qc_intuition.summary}}{{else}}{{edge.behaviour}}{{/if}}</p>
         </div>
       </div>
-    </section>
     {{/if}}
 
     {{#if patterns.cards.length}}
-    <section>
-      <div class="section-head">
-        <div><p class="section-tag">{{patterns.section_tag}}</p><h2 class="section-title">{{patterns.section_title}}</h2></div>
-        <p class="section-note">{{period_start}} → {{period_end}}</p>
-      </div>
+    <div class="insight-patterns">
       <div class="pattern-grid">
         {{#each patterns.cards}}
         <article class="pattern-card">
@@ -556,12 +556,10 @@
         </article>
         {{/each}}
       </div>
-    </section>
+    </div>
     {{/if}}
 
     {{#if edge}}
-    <section class="edge-section">
-      <div class="section-head"><div><p class="section-tag">{{edge.section_tag}}</p><h2 class="section-title">{{edge.section_title}}</h2></div></div>
       <div class="edge-panel">
         <div class="edge-top"><span class="edge-badge">{{edge.badge}}</span></div>
         <div class="edge-grid">
@@ -572,8 +570,8 @@
           {{/if}}
         </div>
       </div>
-    </section>
     {{/if}}
+    </section>
 
     {{#if credibility_timeline.points.length}}
     <section>
@@ -671,7 +669,7 @@
 
     {{#if bottom_line.length}}
     <section>
-      <div class="section-head"><div><p class="section-tag">Investor takeaway</p><h2 class="section-title">Bottom line</h2></div></div>
+      <div class="section-head"><div><p class="section-tag">Investor takeaway</p><h2 class="section-title">{{investor_takeaway_text}}</h2></div></div>
       <div class="bottom-line">
         {{#each bottom_line}}<div class="bottom-row {{tone}}"><span class="bottom-tag">{{tag}}</span><span class="bottom-copy">{{text}}</span></div>{{/each}}
       </div>
