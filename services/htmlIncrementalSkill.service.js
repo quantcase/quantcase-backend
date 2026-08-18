@@ -429,10 +429,29 @@ async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic 
 
   const { dataBlock, marketDataBlock, signals, rawSignals } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
 
+  // Reconstruct the Phase 1 (data extraction) prompt exactly as runAgenticPipeline
+  // builds it — enhancedExtractionPrompt mirrors runIncrementalHtmlSkill lines 476-479,
+  // and the DATA BLOCK section mirrors runAgenticPipeline lines 682-689.
+  const enhancedExtractionPrompt = [
+    effectiveSkill.data_extraction_prompt,
+    baseContextBlock,
+  ].filter(Boolean).join('\n\n');
+
+  const userPrompt = [
+    enhancedExtractionPrompt,
+    '',
+    '--- DATA BLOCK ---',
+    dataBlock,
+    '--- END DATA BLOCK ---',
+    marketDataBlock,
+  ].join('\n');
+
+  const systemPrompt = 'You are an expert data extraction agent. Output ONLY raw JSON.';
+
   return {
     skill: effectiveSkill,
-    userPrompt: "Preview not fully available for multi-stage skills.",
-    systemPrompt: "Preview not fully available for multi-stage skills.",
+    userPrompt,
+    systemPrompt,
     signal_count:        signals.length,
     raw_signal_count:    rawSignals.length,
     base_context_count:  baseOutputs.length,
