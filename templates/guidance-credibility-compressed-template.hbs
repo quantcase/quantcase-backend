@@ -341,8 +341,32 @@
     .cred-point.amber .cred-marker { top: 109px; background: var(--amber); box-shadow: 0 0 0 5px rgba(192,124,18,.17); }
     .cred-point.red .cred-marker { top: 184px; background: var(--red); box-shadow: 0 0 0 5px rgba(196,61,52,.17); }
     .cred-marker.high { width: 30px; height: 30px; }.cred-marker.medium { width: 24px; height: 24px; }.cred-marker.low { width: 18px; height: 18px; }
-    .cred-segment { position: absolute; z-index: 1; left: -50%; width: 100%; height: 3px; background: var(--teal); transform: translateY(-50%); }
-    .cred-point.teal .cred-segment { top: 34px; background: var(--teal); }.cred-point.amber .cred-segment { top: 109px; background: var(--amber); }.cred-point.red .cred-segment { top: 184px; background: var(--red); }
+    /* 1. Define current vertical positions and line colors */
+.cred-point.teal { --curr-y: 34px; --line-color: var(--teal); }
+.cred-point.amber { --curr-y: 109px; --line-color: var(--amber); }
+.cred-point.red { --curr-y: 184px; --line-color: var(--red); }
+
+/* 2. Pass the vertical position forward to the next sibling */
+.cred-point.teal + .cred-point { --prev-y: 34px; }
+.cred-point.amber + .cred-point { --prev-y: 109px; }
+.cred-point.red + .cred-point { --prev-y: 184px; }
+
+/* 3. Use clip-path to draw a diagonal polygon connecting the two Y coordinates */
+.cred-segment { 
+  position: absolute; 
+  z-index: 1; 
+  left: -50%; 
+  top: 0; 
+  width: 100%; 
+  height: 100%; 
+  background: var(--line-color); 
+  clip-path: polygon(
+    0 calc(var(--prev-y) - 1.5px),
+    100% calc(var(--curr-y) - 1.5px),
+    100% calc(var(--curr-y) + 1.5px),
+    0 calc(var(--prev-y) + 1.5px)
+  );
+}
     .cred-labels { position: absolute; top: 232px; left: 0; width: 100%; padding-top: 12px; border-top: 2px solid var(--teal); }
     .cred-label { display: block; padding-inline: 7px; color: var(--ink); font-size: 11px; font-weight: 700; line-height: 1.3; }
     .cred-period { display: block; margin-top: 7px; color: var(--faint); font: 500 10px/1.3 'IBM Plex Mono', monospace; }
