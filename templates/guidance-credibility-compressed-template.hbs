@@ -458,7 +458,7 @@
       .reasons { justify-content: center; }
       .section-head, .section-head > div { align-items: flex-start; flex-direction: column; gap: 3px; }
       .section-note { margin-left: 0; }
-      .communication-grid, .headline-grid, .pattern-grid, .split-grid, .watch-grid, .evidence-grid { grid-template-columns: 1fr; }
+      .communication-grid, .headline-grid, .pattern-grid, .split-grid, .watch-grid, .evidence-grid { grid-template-columns: 1fr; max-height:450px; overflow-y:auto; padding-right:8px; scrollbar-width:thin; scrollbar-color:var(--line-dark) transparent; }
       .edge-grid { grid-template-columns: 88px minmax(0, 1fr); }
       .edge-top { align-items: flex-start; flex-direction: column; gap: 5px; }
     }
