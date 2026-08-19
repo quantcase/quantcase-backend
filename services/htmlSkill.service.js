@@ -919,8 +919,12 @@ function getMissingFields(expected, actual, path = '') {
     if (!Array.isArray(actual) || actual.length === 0) missing.push(path || 'root_array');
     else if (expected.length > 0) missing.push(...getMissingFields(expected[0], actual[0], path + '[]'));
   } else if (expected !== null && typeof expected === 'object') {
-    if (!actual || typeof actual !== 'object' || Array.isArray(actual)) missing.push(path || 'root_object');
-    else {
+    if (Object.keys(expected).length === 0) {
+      // Untyped placeholder {} in schema. Accept any value that exists.
+      if (actual === undefined || actual === null || actual === '') missing.push(path);
+    } else if (!actual || typeof actual !== 'object' || Array.isArray(actual)) {
+      missing.push(path || 'root_object');
+    } else {
       for (const key in expected) {
         missing.push(...getMissingFields(expected[key], actual[key], path ? `${path}.${key}` : key));
       }
