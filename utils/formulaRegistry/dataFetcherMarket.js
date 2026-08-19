@@ -13,11 +13,11 @@ function aggregateBars(rows, interval) {
 
   function bucketKey(d) {
     const dt = d instanceof Date ? d : new Date(d);
-    if (interval === '1d')  return dt.toISOString().slice(0, 10);
+    if (interval === '1d') return dt.toISOString().slice(0, 10);
     if (interval === '1wk') {
-      const day  = dt.getDay();
+      const day = dt.getDay();
       const diff = day === 0 ? -6 : 1 - day;
-      const mon  = new Date(dt);
+      const mon = new Date(dt);
       mon.setDate(dt.getDate() + diff);
       return mon.toISOString().slice(0, 10);
     }
@@ -29,21 +29,21 @@ function aggregateBars(rows, interval) {
   for (const r of rows) {
     const closeVal = parseFloat(r.close);
     if (!isFinite(closeVal)) continue;
-    const dt       = r.datetime instanceof Date ? r.datetime : new Date(r.datetime);
-    const key      = bucketKey(dt);
-    const highVal  = isFinite(parseFloat(r.high))  ? parseFloat(r.high)  : closeVal;
-    const lowVal   = isFinite(parseFloat(r.low))   ? parseFloat(r.low)   : closeVal;
-    const openVal  = isFinite(parseFloat(r.open))  ? parseFloat(r.open)  : closeVal;
+    const dt = r.datetime instanceof Date ? r.datetime : new Date(r.datetime);
+    const key = bucketKey(dt);
+    const highVal = isFinite(parseFloat(r.high)) ? parseFloat(r.high) : closeVal;
+    const lowVal = isFinite(parseFloat(r.low)) ? parseFloat(r.low) : closeVal;
+    const openVal = isFinite(parseFloat(r.open)) ? parseFloat(r.open) : closeVal;
     // marketCap tracks close (last value in the bucket wins) and is only present when the
     // caller selected market_cap_cr; consumers that don't need it just ignore it.
     const mcapVal = isFinite(parseFloat(r.market_cap_cr)) ? parseFloat(r.market_cap_cr) : null;
     if (!buckets.has(key)) {
       buckets.set(key, { date: key, open: openVal, high: highVal, low: lowVal, close: closeVal, volume: Number(r.volume ?? 0), marketCap: mcapVal });
     } else {
-      const b  = buckets.get(key);
-      b.high   = Math.max(b.high, highVal);
-      b.low    = Math.min(b.low,  lowVal);
-      b.close  = closeVal;
+      const b = buckets.get(key);
+      b.high = Math.max(b.high, highVal);
+      b.low = Math.min(b.low, lowVal);
+      b.close = closeVal;
       b.volume += Number(r.volume ?? 0);
       b.marketCap = mcapVal;
     }
@@ -64,16 +64,16 @@ function aggregateBars(rows, interval) {
  * @param {{ since?: Date }} [opts]  defaults to 3 years back
  */
 async function fetchOhlcvBars(prisma, symbol, { since } = {}) {
-  const now       = Date.now();
+  const now = Date.now();
   const threeYrsAgo = since ?? new Date(now - 3 * ONE_YEAR_MS);
-  const oneYearAgo  = new Date(now - ONE_YEAR_MS);
-  const twoYrsAgo   = new Date(now - 2 * ONE_YEAR_MS);
+  const oneYearAgo = new Date(now - ONE_YEAR_MS);
+  const twoYrsAgo = new Date(now - 2 * ONE_YEAR_MS);
 
   const [allRows, athAtlRows] = await Promise.all([
     prisma.nse_equity_new.findMany({
-      where:   { symbol, datetime: { gte: threeYrsAgo } },
+      where: { symbol, datetime: { gte: threeYrsAgo } },
       orderBy: { datetime: 'asc' },
-      select:  { datetime: true, open: true, high: true, low: true, close: true, volume: true },
+      select: { datetime: true, open: true, high: true, low: true, close: true, volume: true },
     }),
     prisma.$queryRaw`
       SELECT
@@ -86,12 +86,12 @@ async function fetchOhlcvBars(prisma, symbol, { since } = {}) {
     `,
   ]);
 
-  const dailyRaw   = allRows.filter(r => new Date(r.datetime) >= oneYearAgo);
-  const weeklyRaw  = allRows.filter(r => new Date(r.datetime) >= twoYrsAgo);
+  const dailyRaw = allRows.filter(r => new Date(r.datetime) >= oneYearAgo);
+  const weeklyRaw = allRows.filter(r => new Date(r.datetime) >= twoYrsAgo);
   const monthlyRaw = allRows;
 
-  const dailyBars   = aggregateBars(dailyRaw,   '1d');
-  const weeklyBars  = aggregateBars(weeklyRaw,  '1wk');
+  const dailyBars = aggregateBars(dailyRaw, '1d');
+  const weeklyBars = aggregateBars(weeklyRaw, '1wk');
   const monthlyBars = aggregateBars(monthlyRaw, '1mo');
 
   // Full 3-year daily series (not sliced to 1y like dailyBars). Needed by callers
@@ -100,28 +100,28 @@ async function fetchOhlcvBars(prisma, symbol, { since } = {}) {
   const dailyBarsFull = aggregateBars(allRows, '1d');
 
   const latest = dailyBars.at(-1) ?? null;
-  const prev   = dailyBars.length > 1 ? dailyBars.at(-2) : null;
-  const quote  = latest ? {
-    regularMarketPrice:          latest.close,
-    regularMarketPreviousClose:  prev?.close ?? latest.open,
-    regularMarketOpen:           latest.open,
-    regularMarketDayHigh:        latest.high,
-    regularMarketDayLow:         latest.low,
-    regularMarketVolume:         latest.volume,
-    fiftyTwoWeekHigh:            dailyBars.length ? Math.max(...dailyBars.map(b => b.high)) : null,
-    fiftyTwoWeekLow:             dailyBars.length ? Math.min(...dailyBars.map(b => b.low))  : null,
+  const prev = dailyBars.length > 1 ? dailyBars.at(-2) : null;
+  const quote = latest ? {
+    regularMarketPrice: latest.close,
+    regularMarketPreviousClose: prev?.close ?? latest.open,
+    regularMarketOpen: latest.open,
+    regularMarketDayHigh: latest.high,
+    regularMarketDayLow: latest.low,
+    regularMarketVolume: latest.volume,
+    fiftyTwoWeekHigh: dailyBars.length ? Math.max(...dailyBars.map(b => b.high)) : null,
+    fiftyTwoWeekLow: dailyBars.length ? Math.min(...dailyBars.map(b => b.low)) : null,
   } : null;
 
   const athAtl = athAtlRows[0] ?? {};
-  const allTimeHigh     = athAtl.ath     != null ? parseFloat(athAtl.ath)     : null;
-  const allTimeLow      = athAtl.atl     != null ? parseFloat(athAtl.atl)     : null;
+  const allTimeHigh = athAtl.ath != null ? parseFloat(athAtl.ath) : null;
+  const allTimeLow = athAtl.atl != null ? parseFloat(athAtl.atl) : null;
   const allTimeHighDate = athAtl.ath_date ? new Date(athAtl.ath_date).toISOString().slice(0, 10) : null;
-  const allTimeLowDate  = athAtl.atl_date ? new Date(athAtl.atl_date).toISOString().slice(0, 10) : null;
+  const allTimeLowDate = athAtl.atl_date ? new Date(athAtl.atl_date).toISOString().slice(0, 10) : null;
 
   let high52wDate = null, low52wDate = null;
   if (dailyBars.length) {
     high52wDate = dailyBars.reduce((a, b) => b.high > a.high ? b : a).date;
-    low52wDate  = dailyBars.reduce((a, b) => b.low  < a.low  ? b : a).date;
+    low52wDate = dailyBars.reduce((a, b) => b.low < a.low ? b : a).date;
   }
 
   return { dailyBars, dailyBarsFull, weeklyBars, monthlyBars, quote, nextEarningsDate: null, allTimeHigh, allTimeLow, allTimeHighDate, allTimeLowDate, high52wDate, low52wDate };
@@ -144,9 +144,9 @@ async function fetchOhlcvBars(prisma, symbol, { since } = {}) {
  */
 async function fetchWyckoffBars(prisma, symbol) {
   const rows = await prisma.nse_equity_new.findMany({
-    where:   { symbol },
+    where: { symbol },
     orderBy: { datetime: 'asc' },
-    select:  { datetime: true, open: true, high: true, low: true, close: true, volume: true, market_cap_cr: true },
+    select: { datetime: true, open: true, high: true, low: true, close: true, volume: true, market_cap_cr: true },
   });
   // aggregateBars('1d') also dedupes should the table ever gain two rows for one date —
   // getPrices maps rows straight through and would not.
@@ -162,20 +162,20 @@ async function fetchWyckoffBars(prisma, symbol) {
  */
 async function fetchMarketSnapshot(prisma, symbol) {
   const row = await prisma.nse_equity_new.findFirst({
-    where:   { symbol, close: { not: null } },
+    where: { symbol, close: { not: null } },
     orderBy: { datetime: 'desc' },
-    select:  { close: true, pe: true, eps: true, market_cap_cr: true, volume: true, datetime: true, pe_consolidated: true, pe_standalone: true },
+    select: { close: true, pe: true, eps: true, market_cap_cr: true, volume: true, datetime: true, pe_consolidated: true, pe_standalone: true },
   });
   if (!row) return null;
   return {
-    close:           row.close           != null ? parseFloat(row.close)           : null,
-    pe:              row.pe              != null ? parseFloat(row.pe)              : null,
-    eps:             row.eps             != null ? parseFloat(row.eps)             : null,
-    market_cap_cr:   row.market_cap_cr   != null ? parseFloat(row.market_cap_cr)   : null,
-    volume:          row.volume          != null ? Number(row.volume)              : null,
+    close: row.close != null ? parseFloat(row.close) : null,
+    pe: row.pe != null ? parseFloat(row.pe) : null,
+    eps: row.eps != null ? parseFloat(row.eps) : null,
+    market_cap_cr: row.market_cap_cr != null ? parseFloat(row.market_cap_cr) : null,
+    volume: row.volume != null ? Number(row.volume) : null,
     pe_consolidated: row.pe_consolidated != null ? parseFloat(row.pe_consolidated) : null,
-    pe_standalone:   row.pe_standalone   != null ? parseFloat(row.pe_standalone)   : null,
-    datetime:      row.datetime instanceof Date ? row.datetime.toISOString().slice(0, 10) : null,
+    pe_standalone: row.pe_standalone != null ? parseFloat(row.pe_standalone) : null,
+    datetime: row.datetime instanceof Date ? row.datetime.toISOString().slice(0, 10) : null,
   };
 }
 
@@ -207,13 +207,13 @@ async function fetchMarketSnapshots(prisma, symbols) {
     if (!map[sym]) map[sym] = { close: null, prevClose: null, pe: null, eps: null, market_cap_cr: null, volume: null, pe_consolidated: null, pe_standalone: null };
     const snap = map[sym];
     if (snap.close === null) {
-      snap.close           = row.close           != null ? parseFloat(row.close)           : null;
-      snap.pe              = row.pe              != null ? parseFloat(row.pe)              : null;
-      snap.eps             = row.eps             != null ? parseFloat(row.eps)             : null;
-      snap.market_cap_cr   = row.market_cap_cr   != null ? parseFloat(row.market_cap_cr)   : null;
-      snap.volume          = row.volume          != null ? Number(row.volume)              : null;
+      snap.close = row.close != null ? parseFloat(row.close) : null;
+      snap.pe = row.pe != null ? parseFloat(row.pe) : null;
+      snap.eps = row.eps != null ? parseFloat(row.eps) : null;
+      snap.market_cap_cr = row.market_cap_cr != null ? parseFloat(row.market_cap_cr) : null;
+      snap.volume = row.volume != null ? Number(row.volume) : null;
       snap.pe_consolidated = row.pe_consolidated != null ? parseFloat(row.pe_consolidated) : null;
-      snap.pe_standalone   = row.pe_standalone   != null ? parseFloat(row.pe_standalone)   : null;
+      snap.pe_standalone = row.pe_standalone != null ? parseFloat(row.pe_standalone) : null;
     } else {
       snap.prevClose = row.close != null ? parseFloat(row.close) : null;
     }
@@ -241,12 +241,12 @@ async function fetchPeTimeSeries(prisma, symbol, { months, since } = {}) {
       ...(cutoff ? { datetime: { gte: cutoff } } : {}),
     },
     orderBy: { datetime: 'asc' },
-    select:  { datetime: true, pe: true },
+    select: { datetime: true, pe: true },
   });
 
   return rows.map(r => ({
     date: r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
-    pe:   r.pe != null ? parseFloat(r.pe) : null,
+    pe: r.pe != null ? parseFloat(r.pe) : null,
   }));
 }
 
@@ -351,7 +351,7 @@ function resampleToPeriods(points, periods, mode) {
       return { value: null, fiscal_year: period.fiscal_year, quarter: period.quarter };
     }
     const start = new Date(period.start_date);
-    const end   = new Date(period.end_date);
+    const end = new Date(period.end_date);
     const inRange = valid.filter((p) => {
       const d = new Date(p.date);
       return d >= start && d <= end;
@@ -380,14 +380,14 @@ async function fetchDailySeries(prisma, symbol, abbr) {
   if (!field) return [];
 
   const rows = await prisma.nse_equity_new.findMany({
-    where:   { symbol, [field]: { not: null } },
+    where: { symbol, [field]: { not: null } },
     orderBy: { datetime: 'asc' },
-    select:  { datetime: true, [field]: true },
+    select: { datetime: true, [field]: true },
   });
 
   return rows.map(r => ({
     value: r[field] != null ? parseFloat(r[field]) : null,
-    date:  r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
+    date: r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
   }));
 }
 
@@ -407,24 +407,24 @@ async function fetchDailySeries(prisma, symbol, abbr) {
  */
 async function fetchAllDailySeries(prisma, symbol) {
   const rows = await prisma.nse_equity_new.findMany({
-    where:   { symbol },
+    where: { symbol },
     orderBy: { datetime: 'asc' },
-    select:  { datetime: true, close: true, pe: true, market_cap_cr: true, volume: true, eps: true, pe_consolidated: true, pe_standalone: true },
+    select: { datetime: true, close: true, pe: true, market_cap_cr: true, volume: true, eps: true, pe_consolidated: true, pe_standalone: true },
   });
 
   const toPoints = (field) => rows.map(r => ({
     value: r[field] != null ? parseFloat(r[field]) : null,
-    date:  r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
+    date: r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
   }));
 
   return {
-    PRICE:           toPoints('close'),
-    PE_DAILY:        toPoints('pe'),
-    MCAP_SNAPSHOT:   toPoints('market_cap_cr'),
-    VOLUME_DAILY:    toPoints('volume'),
-    EPS_DAILY:       toPoints('eps'),
+    PRICE: toPoints('close'),
+    PE_DAILY: toPoints('pe'),
+    MCAP_SNAPSHOT: toPoints('market_cap_cr'),
+    VOLUME_DAILY: toPoints('volume'),
+    EPS_DAILY: toPoints('eps'),
     PE_CONSOLIDATED: toPoints('pe_consolidated'),
-    PE_STANDALONE:   toPoints('pe_standalone'),
+    PE_STANDALONE: toPoints('pe_standalone'),
   };
 }
 
@@ -451,7 +451,7 @@ async function fetchPeTimeSeriesBatch(prisma, symbols, { months, since } = {}) {
       ...(cutoff ? { datetime: { gte: cutoff } } : {}),
     },
     orderBy: [{ symbol: 'asc' }, { datetime: 'asc' }],
-    select:  { symbol: true, datetime: true, pe: true },
+    select: { symbol: true, datetime: true, pe: true },
   });
 
   const result = {};
@@ -459,7 +459,7 @@ async function fetchPeTimeSeriesBatch(prisma, symbols, { months, since } = {}) {
     const sym = r.symbol.toUpperCase();
     (result[sym] ??= []).push({
       date: r.datetime instanceof Date ? r.datetime.toISOString().slice(0, 10) : String(r.datetime),
-      pe:   r.pe != null ? parseFloat(r.pe) : null,
+      pe: r.pe != null ? parseFloat(r.pe) : null,
     });
   }
   return result;
@@ -537,6 +537,48 @@ async function fetchMonthlyOhlcv(prisma, symbol, { since }) {
   return rows;
 }
 
+async function fetchPriceOnOrBefore(prisma, symbol, targetDate) {
+  const row = await prisma.nse_equity_new.findFirst({
+    where: {
+      symbol: symbol,
+      datetime: { lte: targetDate },
+      close: { not: null },
+    },
+    select: { datetime: true, close: true },
+    orderBy: { datetime: 'desc' },
+  });
+  return row ? { date: row.datetime, price: parseFloat(row.close) } : null;
+}
+
+async function getRollingStockPriceCagr(prisma, symbol, currentDate = new Date()) {
+  const latestSnap = await fetchPriceOnOrBefore(prisma, symbol, currentDate);
+  if (!latestSnap || !latestSnap.price) {
+    return { '1y': null, '3y': null, '5y': null, '10y': null };
+  }
+
+  const latestPrice = latestSnap.price;
+  const latestDate = new Date(latestSnap.date);
+  const years = [1, 3, 5, 10];
+  const out = {};
+
+  for (const nYears of years) {
+    const targetDate = new Date(latestDate);
+    targetDate.setFullYear(targetDate.getFullYear() - nYears);
+
+    const priorSnap = await fetchPriceOnOrBefore(prisma, symbol, targetDate);
+
+    if (priorSnap && priorSnap.price && priorSnap.price > 0) {
+      const cagr = (Math.pow(latestPrice / priorSnap.price, 1 / nYears) - 1) * 100;
+      out[`${nYears}y`] = Math.round(cagr * 100) / 100;
+    } else {
+      out[`${nYears}y`] = null;
+    }
+  }
+
+  return out;
+}
+
+
 module.exports = {
   aggregateBars,
   DAILY_RESAMPLE_MODE,
@@ -554,4 +596,5 @@ module.exports = {
   fetchMonthlyClose,
   fetchMonthlyCloseBatch,
   fetchMonthlyOhlcv,
+  getRollingStockPriceCagr,
 };
