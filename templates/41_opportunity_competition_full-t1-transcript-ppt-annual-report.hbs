@@ -1460,7 +1460,13 @@
         body *::after {
             font-family: var(--font-sans) !important
         }
-    </style>
+            /* QC Intuition Table PC Layout Fix */
+        .qci table, .qci-table { table-layout: fixed; }
+        .qci table th:nth-child(1), .qci-table th:nth-child(1) { width: 32% !important; }
+        .qci table th:nth-child(2), .qci-table th:nth-child(2) { width: 14% !important; }
+        .qci table th:nth-child(3), .qci-table th:nth-child(3) { width: 14% !important; }
+        .qci table th:nth-child(4), .qci-table th:nth-child(4) { width: 40% !important; }
+</style>
 </head>
 
 <body>
