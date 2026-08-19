@@ -326,7 +326,7 @@
 
     .timeline-card { padding: 24px 22px 18px; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
     .timeline-scroll { overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; scrollbar-color: var(--line-dark) transparent; }
-    .timeline-canvas { min-width: 800px; }
+    .timeline-canvas { min-width: 800px;  width: max-content; }
     .cred-chart { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; }
     .cred-axis { display: grid; grid-template-rows: repeat(3, 68px); gap: 7px; color: var(--faint); font-size: 11px; }
     .cred-axis span { display: flex; align-items: center; }
@@ -489,11 +489,17 @@
   
     /* Global scrollbars for grids */
     .pattern-grid, .headline-grid, .three-grid, .two-grid, .watch-grid, .edge-grid, .communication-grid, .split-grid, .evidence-grid {
-      max-height: 600px;
+      max-height: 450px;
       overflow-y: auto;
       padding-right: 8px;
       scrollbar-width: thin;
       scrollbar-color: var(--line-dark) transparent;
+    }
+
+    /* Fix for .card-meta highlight block */
+    p.card-meta.tone-g, p.card-meta.tone-a, p.card-meta.tone-r, p.card-meta.tone-amber, p.card-meta.tone-red, p.card-meta.tone-green {
+      background: transparent !important;
+      font-weight: 700;
     }
 </style>
 </head>

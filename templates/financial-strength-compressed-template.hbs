@@ -749,7 +749,7 @@
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: var(--radius)
-    }
+     width: max-content; }
 
     .timeline-track {
       position: relative;
@@ -1226,7 +1226,39 @@
   
     /* Global scrollbars for grids */
     .pattern-grid, .headline-grid, .three-grid, .two-grid, .watch-grid, .edge-grid, .communication-grid, .split-grid, .evidence-grid {
-      max-height: 600px;
+      max-height: 450px;
+      overflow-y: auto;
+      padding-right: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-dark) transparent;
+    }
+
+    /* Fix for .card-meta highlight block */
+    p.card-meta.tone-g, p.card-meta.tone-a, p.card-meta.tone-r, p.card-meta.tone-amber, p.card-meta.tone-red, p.card-meta.tone-green {
+      background: transparent !important;
+      font-weight: 700;
+    }
+
+    /* Make bar-row panels scrollable */
+    .panel:has(.bar-row) {
+      max-height: 450px;
+      overflow-y: auto;
+      padding-right: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-dark) transparent;
+    }
+
+    /* Make component panels scrollable */
+    .panel:has(> table), .panel:has(.component-row), section > .panel {
+      max-height: 450px;
+      overflow-y: auto;
+      padding-right: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-dark) transparent;
+    }
+
+    .scrollable-panel {
+      max-height: 450px;
       overflow-y: auto;
       padding-right: 8px;
       scrollbar-width: thin;
@@ -1345,7 +1377,7 @@
           </div>
           <p class="section-note">Component scores and weights are copied from the source assessment.</p>
         </div>
-        <div class="panel">{{#each components.rows}}
+        <div class="panel scrollable-panel">{{#each components.rows}}
             <div class="bar-row">
               <div class="bar-left">
                 <span class="bar-name">{{name}}</span>

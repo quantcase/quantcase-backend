@@ -1117,11 +1117,17 @@
   
     /* Global scrollbars for grids */
     .pattern-grid, .headline-grid, .three-grid, .two-grid, .watch-grid, .edge-grid, .communication-grid, .split-grid, .evidence-grid {
-      max-height: 600px;
+      max-height: 450px;
       overflow-y: auto;
       padding-right: 8px;
       scrollbar-width: thin;
       scrollbar-color: var(--line-dark) transparent;
+    }
+
+    /* Fix for .card-meta highlight block */
+    p.card-meta.tone-g, p.card-meta.tone-a, p.card-meta.tone-r, p.card-meta.tone-amber, p.card-meta.tone-red, p.card-meta.tone-green {
+      background: transparent !important;
+      font-weight: 700;
     }
 </style>
 </head>
