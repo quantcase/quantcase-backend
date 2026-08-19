@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Earnings Forecast — {{asset_name}}</title>
+  <title>Earnings Forecast — {{{asset_name}}}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Serif+4:wght@500;600&display=swap" rel="stylesheet">
@@ -1146,22 +1146,22 @@
 <body>
   <main class="report" data-template-category="earnings-forecast-compressed">
     <div class="topline">
-      <span class="topline-brand">{{lens}} · <strong>{{asset_name}}</strong></span>
-      <p class="topline-period">{{#if period_start}}{{period_start}}{{#if period_end}} →
-            {{period_end}}{{/if}}{{/if}}{{#if computed_date}}<br>Computed {{computed_date}}{{/if}}</p>
+      <span class="topline-brand">{{{lens}}} · <strong>{{{asset_name}}}</strong></span>
+      <p class="topline-period">{{#if period_start}}{{{period_start}}}{{#if period_end}} →
+            {{{period_end}}}{{/if}}{{/if}}{{#if computed_date}}<br>Computed {{{computed_date}}}{{/if}}</p>
     </div>
     <header class="hero">
-      <div class="score-ring {{score_badge.status_color}}" style="--score:{{score_badge.score}}" role="img"
-        aria-label="Earnings forecast score {{score_badge.score}} out of {{score_badge.scale}}">
-        <div class="score-copy"><span class="score-value">{{score_badge.score}}</span><span class="score-scale">out of
-            {{score_badge.scale}}</span></div>
+      <div class="score-ring {{{score_badge.status_color}}}" style="--score:{{{score_badge.score}}}" role="img"
+        aria-label="Earnings forecast score {{{score_badge.score}}} out of {{{score_badge.scale}}}">
+        <div class="score-copy"><span class="score-value">{{{score_badge.score}}}</span><span class="score-scale">out of
+            {{{score_badge.scale}}}</span></div>
       </div>
       <div class="hero-body">
         <p class="eyebrow">Earnings Forecast</p>
-        <h1 class="action-title">{{hero.action_title}}</h1>
-        <p class="verdict">{{hero.verdict}}</p>
+        <h1 class="action-title">{{{hero.action_title}}}</h1>
+        <p class="verdict">{{{hero.verdict}}}</p>
         {{#if hero.reasons.length}}
-          <div class="reasons">{{#each hero.reasons}}<span class="reason {{tone}}">{{text}}</span>{{/each}}</div>
+          <div class="reasons">{{#each hero.reasons}}<span class="reason {{{tone}}}">{{{text}}}</span>{{/each}}</div>
         {{/if}}
       </div>
     </header>
@@ -1169,17 +1169,17 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{scenarios.section_tag}}</p>
-            <h2 class="section-title">{{scenarios.section_title}}</h2>
+            <p class="section-tag">{{{scenarios.section_tag}}}</p>
+            <h2 class="section-title">{{{scenarios.section_title}}}</h2>
           </div>
         </div>
         <div class="three-grid">{{#each scenarios.cards}}
-            <article class="headline-card {{tone}}">
-              <p class="headline-label">{{case}} case</p>
-              <p class="headline-value {{tone}}">{{cagr}}</p>
+            <article class="headline-card {{{tone}}}">
+              <p class="headline-label">{{{case}}} case</p>
+              <p class="headline-value {{{tone}}}">{{{cagr}}}</p>
               <p class="card-meta">Earnings CAGR</p>
               <ul class="list">{{#each drivers}}
-                  <li><strong>{{label}}:</strong> {{detail}}</li>
+                  <li><strong>{{{label}}}:</strong> {{{detail}}}</li>
                 {{/each}}</ul>
             </article>
           {{/each}}</div>
@@ -1190,10 +1190,10 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{earnings_chart.section_tag}}</p>
-            <h2 class="section-title">{{earnings_chart.section_title}}</h2>
+            <p class="section-tag">{{{earnings_chart.section_tag}}}</p>
+            <h2 class="section-title">{{{earnings_chart.section_title}}}</h2>
           </div>
-          <p class="section-note">{{earnings_chart.note}}</p>
+          <p class="section-note">{{{earnings_chart.note}}}</p>
         </div>
         <div class="chart-scroll">
           <div class="panel" style="min-width:760px;height:330px"><canvas id="earningsForecastChart"
@@ -1206,10 +1206,10 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{margin_chart.section_tag}}</p>
-            <h2 class="section-title">{{margin_chart.section_title}}</h2>
+            <p class="section-tag">{{{margin_chart.section_tag}}}</p>
+            <h2 class="section-title">{{{margin_chart.section_title}}}</h2>
           </div>
-          <p class="section-note">{{margin_chart.note}} · {{margin_chart.unit}}</p>
+          <p class="section-note">{{{margin_chart.note}}} · {{{margin_chart.unit}}}</p>
         </div>
         <div class="chart-scroll">
           <div class="panel" style="min-width:760px;height:330px"><canvas id="marginForecastChart"
@@ -1221,37 +1221,37 @@
       {{#if qc_intuition.summary}}
         <div class="intuition-panel"><span class="intuition-badge">QC Intuition · Pattern Recognition</span>
           <h2 class="intuition-heading">What mechanically supports—and changes—the forecast.</h2>
-          <p class="intuition-line">{{qc_intuition.summary}}</p>
+          <p class="intuition-line">{{{qc_intuition.summary}}}</p>
         </div>
       {{/if}}
       {{#if patterns.cards.length}}
         <div class="insight-patterns">
           <div class="pattern-grid">{{#each patterns.cards}}
-              <article class="pattern-card {{tone}} {{#if full_width}}full{{/if}}">
+              <article class="pattern-card {{{tone}}} {{#if full_width}}full{{/if}}">
                 <div class="pattern-visual"><span class="sparkline"
                     aria-label="Relative pattern evolution">{{#each spark}}<i
-                        class="v{{this}}"></i>{{/each}}</span><span class="trend {{trend}}">{{trend}}</span></div>
-                <h3 class="pattern-name">{{name}}</h3>
-                <p class="pattern-meaning">{{meaning}}</p>
+                        class="v{{{this}}}"></i>{{/each}}</span><span class="trend {{{trend}}}">{{{trend}}}</span></div>
+                <h3 class="pattern-name">{{{name}}}</h3>
+                <p class="pattern-meaning">{{{meaning}}}</p>
               </article>
             {{/each}}</div>
         </div>
       {{/if}}
       {{#if edge}}
-        <div class="edge-panel"><span class="edge-badge">{{edge.badge}}</span>
+        <div class="edge-panel"><span class="edge-badge">{{{edge.badge}}}</span>
           <div class="edge-grid">
             <div>
               <p class="edge-label">Theme</p>
-              <p class="edge-copy">{{edge.behaviour}}</p>
+              <p class="edge-copy">{{{edge.behaviour}}}</p>
             </div>
             <div>
               <p class="edge-label">Floor reason</p>
-              <p class="edge-copy accent">{{edge.implication}}</p>
+              <p class="edge-copy accent">{{{edge.implication}}}</p>
             </div>{{#if edge.investor_focus.chip}}
               <div>
                 <p class="edge-label">Swing variable</p>
                 <p class="edge-copy"><span
-                    class="focus-chip">{{edge.investor_focus.chip}}</span>{{edge.investor_focus.tail}}</p>
+                    class="focus-chip">{{{edge.investor_focus.chip}}}</span>{{{edge.investor_focus.tail}}}</p>
               </div>
             {{/if}}
           </div>
@@ -1262,10 +1262,10 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{assumptions.section_tag}}</p>
-            <h2 class="section-title">{{assumptions.section_title}}</h2>
+            <p class="section-tag">{{{assumptions.section_tag}}}</p>
+            <h2 class="section-title">{{{assumptions.section_title}}}</h2>
           </div>
-          <p class="section-note">{{assumptions.unit}}</p>
+          <p class="section-note">{{{assumptions.unit}}}</p>
         </div>
         <div class="table-scroll">
           <table class="data-table">
@@ -1279,10 +1279,10 @@
             </thead>
             <tbody>{{#each assumptions.rows}}
                 <tr>
-                  <td><strong>{{metric}}</strong></td>
-                  <td>{{bull}}</td>
-                  <td>{{base}}</td>
-                  <td>{{bear}}</td>
+                  <td><strong>{{{metric}}}</strong></td>
+                  <td>{{{bull}}}</td>
+                  <td>{{{base}}}</td>
+                  <td>{{{bear}}}</td>
                 </tr>
               {{/each}}</tbody>
           </table>
@@ -1300,12 +1300,12 @@
         </div>
         <div class="two-grid">
           <article class="watch-card g">
-            <h3 class="watch-title">{{triggers.bull.title}}</h3>
-            <p class="watch-desc">{{triggers.bull.desc}}</p>
+            <h3 class="watch-title">{{{triggers.bull.title}}}</h3>
+            <p class="watch-desc">{{{triggers.bull.desc}}}</p>
           </article>
           <article class="watch-card r">
-            <h3 class="watch-title">{{triggers.bear.title}}</h3>
-            <p class="watch-desc">{{triggers.bear.desc}}</p>
+            <h3 class="watch-title">{{{triggers.bear.title}}}</h3>
+            <p class="watch-desc">{{{triggers.bear.desc}}}</p>
           </article>
         </div>
       </section>
@@ -1315,12 +1315,12 @@
         <div class="section-head">
           <div>
             <p class="section-tag">Investor takeaway</p>
-            <h2 class="section-title">{{investor_takeaway_text}}</h2>
+            <h2 class="section-title">{{{investor_takeaway_text}}}</h2>
           </div>
         </div>
         <div class="bottom-line">{{#each bottom_line}}
-            <div class="bottom-row {{tone}}"><span class="bottom-tag">{{tag}}</span><span
-                class="bottom-copy">{{text}}</span></div>
+            <div class="bottom-row {{{tone}}}"><span class="bottom-tag">{{{tag}}}</span><span
+                class="bottom-copy">{{{text}}}</span></div>
           {{/each}}</div>
       </section>
     {{/if}}
@@ -1337,7 +1337,7 @@
   }) ();
     </script>
     <footer class="foot"><span>Earnings Forecast ·
-        {{asset_name}}</span><span>{{footer.sources}}{{#if footer.methodology}} · {{footer.methodology}}{{/if}}</span>
+        {{{asset_name}}}</span><span>{{{footer.sources}}}{{#if footer.methodology}} · {{{footer.methodology}}}{{/if}}</span>
     </footer>
   </main>
 </body>

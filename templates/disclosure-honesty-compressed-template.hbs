@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{asset_name}} · Disclosure Honesty</title>
+  <title>{{{asset_name}}} · Disclosure Honesty</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Serif+4:wght@500;600&display=swap" rel="stylesheet">
@@ -119,7 +119,7 @@
     }
 
     .score-ring {
-      --score: {{score_badge.score}};
+      --score: {{{score_badge.score}}};
       --score-color:var(--teal);
       position:relative;
       display:grid;
@@ -1135,27 +1135,27 @@
 <body>
   <main class="report">
     <div class="topline">
-      <span class="topline-brand"><strong>{{asset_name}}</strong> · {{lens}}</span>
-      <p class="topline-period">{{#if period_start}}{{period_start}}{{#if period_end}} →
-            {{period_end}}{{/if}}{{/if}}{{#if computed_date}}<br>Computed {{computed_date}}{{/if}}</p>
+      <span class="topline-brand"><strong>{{{asset_name}}}</strong> · {{{lens}}}</span>
+      <p class="topline-period">{{#if period_start}}{{{period_start}}}{{#if period_end}} →
+            {{{period_end}}}{{/if}}{{/if}}{{#if computed_date}}<br>Computed {{{computed_date}}}{{/if}}</p>
     </div>
 
     <header class="hero">
-      <div class="score-ring {{score_badge.status_color}}" role="img"
-        aria-label="Disclosure honesty score {{score_badge.score}} out of {{score_badge.scale}}">
-        <div class="score-copy"><span class="score-value">{{score_badge.score}}</span><span class="score-scale">out of
-            {{score_badge.scale}}</span></div>
+      <div class="score-ring {{{score_badge.status_color}}}" role="img"
+        aria-label="Disclosure honesty score {{{score_badge.score}}} out of {{{score_badge.scale}}}">
+        <div class="score-copy"><span class="score-value">{{{score_badge.score}}}</span><span class="score-scale">out of
+            {{{score_badge.scale}}}</span></div>
       </div>
       <div class="hero-body">
         <p class="eyebrow">Disclosure Honesty</p>
-        <h1 class="hero-title">{{score_badge.label}}</h1>
-        <div class="rating-line"><span class="rating-badge {{score_badge.status_color}}">{{score_badge.rating}}</span>
+        <h1 class="hero-title">{{{score_badge.label}}}</h1>
+        <div class="rating-line"><span class="rating-badge {{{score_badge.status_color}}}">{{{score_badge.rating}}}</span>
         </div>
-        <p class="verdict">{{hero_verdict}}</p>
+        <p class="verdict">{{{hero_verdict}}}</p>
         {{#if hero_reasons.length}}
           <div class="reasons">
             {{#each hero_reasons}}
-              <div class="reason {{tone}}"><span>{{label}}</span><span class="reason-tag">{{tag}}</span></div>
+              <div class="reason {{{tone}}}"><span>{{{label}}}</span><span class="reason-tag">{{{tag}}}</span></div>
             {{/each}}
           </div>
         {{/if}}
@@ -1172,11 +1172,11 @@
         </div>
         <div class="headline-grid">
           {{#each hero_reasons}}
-            <article class="headline-card {{tone}}">
-              <div class="headline-top"><span class="headline-number"></span><span class="headline-tag">{{tag}}</span>
+            <article class="headline-card {{{tone}}}">
+              <div class="headline-top"><span class="headline-number"></span><span class="headline-tag">{{{tag}}}</span>
               </div>
-              <h3 class="headline-title">{{label}}</h3>
-              <p class="headline-description">{{description}}</p>
+              <h3 class="headline-title">{{{label}}}</h3>
+              <p class="headline-description">{{{description}}}</p>
             </article>
           {{/each}}
         </div>
@@ -1188,12 +1188,12 @@
         <div class="intuition-panel">
           <div class="intuition-content">
             <span class="intuition-badge">QC Intuition · Pattern Recognition</span>
-            <h2 class="intuition-heading">{{pattern_radar.intuition.lead}}</h2>
-            <p class="intuition-line">{{pattern_radar.intuition.detail}}</p>
+            <h2 class="intuition-heading">{{{pattern_radar.intuition.lead}}}</h2>
+            <p class="intuition-line">{{{pattern_radar.intuition.detail}}}</p>
             {{#if pattern_radar.period_start}}
-              <p class="intuition-meta">{{#if pattern_radar.signals_parsed}}{{pattern_radar.signals_parsed}} signals ·
-                {{/if}}{{pattern_radar.period_start}}{{#if pattern_radar.period_end}} →
-                  {{pattern_radar.period_end}}{{/if}}</p>
+              <p class="intuition-meta">{{#if pattern_radar.signals_parsed}}{{{pattern_radar.signals_parsed}}} signals ·
+                {{/if}}{{{pattern_radar.period_start}}}{{#if pattern_radar.period_end}} →
+                  {{{pattern_radar.period_end}}}{{/if}}</p>
             {{/if}}
           </div>
         </div>
@@ -1203,20 +1203,20 @@
         <div class="insight-patterns">
           <div class="pattern-grid">
             {{#each pattern_radar.patterns}}
-              <article class="pattern-card {{tone}}">
+              <article class="pattern-card {{{tone}}}">
                 <div class="pattern-visual">
                   {{#if spark.length}}
                     <span class="sparkline" aria-label="Pattern over time">{{#each spark}}<i
-                          class="v{{level}}"></i>{{/each}}</span>
+                          class="v{{{level}}}"></i>{{/each}}</span>
                   {{else}}
-                    <span class="pattern-bar"><i class="{{tone}} {{strength}}"></i></span>
+                    <span class="pattern-bar"><i class="{{{tone}}} {{{strength}}}"></i></span>
                   {{/if}}
                 </div>
                 <div>
-                  <h3 class="pattern-name">{{name}}</h3>
-                  <p class="pattern-meaning">{{meaning}}</p>
+                  <h3 class="pattern-name">{{{name}}}</h3>
+                  <p class="pattern-meaning">{{{meaning}}}</p>
                 </div>
-                <span class="trend {{trend}}">{{trend}}</span>
+                <span class="trend {{{trend}}}">{{{trend}}}</span>
               </article>
             {{/each}}
           </div>
@@ -1225,21 +1225,21 @@
 
       {{#if edge}}
         <div class="edge-panel">
-          <div class="edge-top"><span class="edge-badge">{{edge.badge}}</span></div>
+          <div class="edge-top"><span class="edge-badge">{{{edge.badge}}}</span></div>
           <div class="edge-grid">
             <div>
               <p class="edge-label">Behaviour</p>
-              <p class="edge-copy">{{edge.behaviour}}</p>
+              <p class="edge-copy">{{{edge.behaviour}}}</p>
             </div>
             <div>
               <p class="edge-label">Watch Point</p>
-              <p class="edge-copy accent">{{edge.implication}}</p>
+              <p class="edge-copy accent">{{{edge.implication}}}</p>
             </div>
             {{#if edge.investor_focus}}
               <div>
                 <p class="edge-label">Verdict</p>
                 <p class="edge-copy"><span
-                    class="focus-chip">{{edge.investor_focus.chip}}</span>{{edge.investor_focus.tail}}</p>
+                    class="focus-chip">{{{edge.investor_focus.chip}}}</span>{{{edge.investor_focus.tail}}}</p>
               </div>
             {{/if}}
           </div>
@@ -1254,18 +1254,18 @@
             <p class="section-tag">Disclosure detail</p>
             <h2 class="section-title">Communication behaviour</h2>
           </div>
-          <p class="section-note">{{communication_analysis.source_note}}</p>
+          <p class="section-note">{{{communication_analysis.source_note}}}</p>
         </div>
         <div class="communication-grid">
           {{#each communication_analysis.columns}}
-            <article class="communication-card {{tone}}">
+            <article class="communication-card {{{tone}}}">
               <div class="communication-title-row">
-                <h3 class="communication-title">{{title}}</h3>
+                <h3 class="communication-title">{{{title}}}</h3>
               </div>
-              <p class="communication-subtitle">{{subtitle}}</p>
+              <p class="communication-subtitle">{{{subtitle}}}</p>
               <ol class="communication-items">
                 {{#each items}}
-                  <li class="communication-item"><strong>{{label}}</strong><span>{{note}}</span></li>
+                  <li class="communication-item"><strong>{{{label}}}</strong><span>{{{note}}}</span></li>
                 {{/each}}
               </ol>
             </article>
@@ -1285,8 +1285,8 @@
         <div class="watch-grid">
           {{#each watchpoints}}
             <article class="watchpoint"><span class="watch-number"></span>
-              <h3 class="watch-name">{{title}}</h3>
-              <p class="watch-desc">{{desc}}</p>
+              <h3 class="watch-name">{{{title}}}</h3>
+              <p class="watch-desc">{{{desc}}}</p>
             </article>
           {{/each}}
         </div>
@@ -1298,22 +1298,22 @@
         <div class="section-head">
           <div>
             <p class="section-tag">Investor takeaway</p>
-            <h2 class="section-title">{{investor_takeaway_text}}</h2>
+            <h2 class="section-title">{{{investor_takeaway_text}}}</h2>
           </div>
         </div>
         <div class="bottom-line">
           {{#each bottom_line}}
-            <div class="bottom-row {{tone}}"><span class="bottom-tag">{{tag}}</span><span
-                class="bottom-copy">{{text}}</span></div>
+            <div class="bottom-row {{{tone}}}"><span class="bottom-tag">{{{tag}}}</span><span
+                class="bottom-copy">{{{text}}}</span></div>
           {{/each}}
         </div>
       </section>
     {{/if}}
 
     <footer>
-      <span>Disclosure Honesty · {{asset_name}}</span>
-      <span>{{#if footer.sources}}{{footer.sources}}{{/if}}{{#if footer.methodology}} ·
-          {{footer.methodology}}{{/if}}</span>
+      <span>Disclosure Honesty · {{{asset_name}}}</span>
+      <span>{{#if footer.sources}}{{{footer.sources}}}{{/if}}{{#if footer.methodology}} ·
+          {{{footer.methodology}}}{{/if}}</span>
     </footer>
   </main>
 </body>

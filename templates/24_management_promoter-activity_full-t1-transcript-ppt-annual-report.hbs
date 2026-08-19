@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Promoter & Ownership Activity — {{asset_name}}</title>
+    <title>Promoter & Ownership Activity — {{{asset_name}}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -1100,28 +1100,28 @@
         <header class="top">
             <div>
                 <div class="lens-row"><span class="eyebrow">Management Lens</span>{{#if overall_rating}}<span
-                            class="pill {{overall_rating.pill_class}}">{{overall_rating.label}}</span>{{/if}}</div>
+                            class="pill {{{overall_rating.pill_class}}}">{{{overall_rating.label}}}</span>{{/if}}</div>
                 <h1 class="title">Promoter Activity</h1>
-                <div class="asset-kicker">{{asset_name}}</div>
+                <div class="asset-kicker">{{{asset_name}}}</div>
             </div><button class="xbtn" aria-label="Close">&times;</button>
         </header>
 
         {{#if score_badge}}
             <section class="score-badge">
-                <div class="score-ring {{score_badge.status_color}}" style="--score:{{score_badge.score}}"><span
-                        class="score-num">{{score_badge.score}}</span></div>
+                <div class="score-ring {{{score_badge.status_color}}}" style="--score:{{{score_badge.score}}}"><span
+                        class="score-num">{{{score_badge.score}}}</span></div>
                 <div>
-                    <div class="score-label">{{score_badge.rating}} · {{score_badge.label}}</div>
-                    <div class="score-desc">{{score_badge.desc}}</div>
+                    <div class="score-label">{{{score_badge.rating}}} · {{{score_badge.label}}}</div>
+                    <div class="score-desc">{{{score_badge.desc}}}</div>
                 </div>
             </section>
         {{else}}{{#if score}}
                 <section class="score-badge">
-                    <div class="score-ring {{score.color}}" style="--score:{{score.value}}"><span
-                            class="score-num">{{score.value}}</span></div>
+                    <div class="score-ring {{{score.color}}}" style="--score:{{{score.value}}}"><span
+                            class="score-num">{{{score.value}}}</span></div>
                     <div>
-                        <div class="score-label">{{score.rating_label}} · {{score.tagline}}</div>
-                        <div class="score-desc">{{score.desc}}</div>
+                        <div class="score-label">{{{score.rating_label}}} · {{{score.tagline}}}</div>
+                        <div class="score-desc">{{{score.desc}}}</div>
                     </div>
                 </section>
             {{/if}}
@@ -1135,9 +1135,9 @@
                 </div>
                 <div class="grid three">{{#each headline}}
                         <article class="stat">
-                            <div class="lab {{dot}}"><span class="dot"></span>{{label}}</div>
-                            <div class="big {{value_color}}">{{value}}</div>
-                            <div class="desc">{{desc}}</div>
+                            <div class="lab {{{dot}}}"><span class="dot"></span>{{{label}}}</div>
+                            <div class="big {{{value_color}}}">{{{value}}}</div>
+                            <div class="desc">{{{desc}}}</div>
                         </article>
                     {{/each}}</div>
             </section>
@@ -1148,8 +1148,8 @@
                 <div class="qci-head">
                     <div class="qci-badge">QC Intuition · Pattern Recognition</div>
                     <div class="qci-title">What ownership signals reveal about conviction</div>
-                    {{!-- <div class="qci-sub">{{narrative.source_types}}{{#if narrative.period_start}} ·
-                            {{narrative.period_start}} → {{narrative.period_end}}{{/if}}</div> --}}
+                    {{!-- <div class="qci-sub">{{{narrative.source_types}}}{{#if narrative.period_start}} ·
+                            {{{narrative.period_start}}} → {{{narrative.period_end}}}{{/if}}</div> --}}
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -1163,12 +1163,12 @@
                         </thead>
                         <tbody>{{#each narrative.patterns}}
                                 <tr>
-                                    <td><strong>{{name}}</strong>
-                                        <div class="sub">{{sub}}</div>
+                                    <td><strong>{{{name}}}</strong>
+                                        <div class="sub">{{{sub}}}</div>
                                     </td>
                                     <td>{{{trendSparkline this}}}</td>
                                     <td><span
-                                            class="pill {{trend}}">{{#if status_label}}{{status_label}}{{else}}{{trend}}{{/if}}</span>
+                                            class="pill {{{trend}}}">{{#if status_label}}{{{status_label}}}{{else}}{{{trend}}}{{/if}}</span>
                                     </td>
                                     <td>{{{interp}}}</td>
                                 </tr>
@@ -1178,10 +1178,10 @@
                     <div class="qci-edge">
                         <div class="qci-edge-label">THE EDGE</div>
                         <div>
-                            <p class="edge-copy"><span class="edge-accent">{{narrative.edge.structural_feature}}</span>
+                            <p class="edge-copy"><span class="edge-accent">{{{narrative.edge.structural_feature}}}</span>
                                 <span
-                                    class="edge-positive">{{narrative.edge.confirmed_clean}}{{narrative.edge.confirmed_alignment}}</span>
-                                <span class="edge-watch">{{narrative.edge.watch_item}}</span></p>
+                                    class="edge-positive">{{{narrative.edge.confirmed_clean}}}{{{narrative.edge.confirmed_alignment}}}</span>
+                                <span class="edge-watch">{{{narrative.edge.watch_item}}}</span></p>
                         </div>
                     </div>
                 {{/if}}
@@ -1205,11 +1205,11 @@
                         </thead>
                         <tbody>{{#each timeline}}
                                 <tr>
-                                    <td>{{period}}</td>
-                                    <td><b>{{behaviour}}</b></td>
-                                    <td>{{evidence}}</td>
-                                    <td>{{interpretation}}</td>
-                                    <td><span class="pill {{status}}">{{status}}</span></td>
+                                    <td>{{{period}}}</td>
+                                    <td><b>{{{behaviour}}}</b></td>
+                                    <td>{{{evidence}}}</td>
+                                    <td>{{{interpretation}}}</td>
+                                    <td><span class="pill {{{status}}}">{{{status}}}</span></td>
                                 </tr>
                             {{/each}}</tbody>
                     </table>
@@ -1223,9 +1223,9 @@
                 </div>
                 <div class="grid three">{{#each key_behaviours}}
                         <article class="stat">
-                            <div class="lab {{dot}}"><span class="dot"></span>{{label}}</div>
-                            <div class="big {{value_color}}">{{value}}</div>
-                            <div class="desc">{{desc}}</div>
+                            <div class="lab {{{dot}}}"><span class="dot"></span>{{{label}}}</div>
+                            <div class="big {{{value_color}}}">{{{value}}}</div>
+                            <div class="desc">{{{desc}}}</div>
                         </article>
                     {{/each}}</div>
             </section>
@@ -1235,37 +1235,37 @@
                 <div class="sec-title">Synthesis</div>
                 <div class="synthesis-grid">
                     <div class="synthesis-panel"><span class="synthesis-label neutral">Bottom line</span>
-                        <div class="lead">{{key_message.lead}}</div>
+                        <div class="lead">{{{key_message.lead}}}</div>
                     </div>{{#if key_message.positive}}
                         <div class="synthesis-panel"><span class="synthesis-label positive">Positive</span>
-                            <p>{{key_message.positive}}</p>
+                            <p>{{{key_message.positive}}}</p>
                         </div>
                     {{/if}}{{#if key_message.watch}}
                         <div class="synthesis-panel"><span class="synthesis-label watch">Watch</span>
-                            <p>{{key_message.watch}}</p>
+                            <p>{{{key_message.watch}}}</p>
                         </div>
                     {{/if}}{{#if key_message.risk}}
                         <div class="synthesis-panel"><span class="synthesis-label risk">Risk</span>
-                            <p>{{key_message.risk}}</p>
+                            <p>{{{key_message.risk}}}</p>
                         </div>
                     {{/if}}
                 </div>
             </section>
         {{else}}{{#if keymsg}}
-                <section class="sec keymsg synthesis-card" style="border-left-color:{{keymsg.left_border_color}}">
+                <section class="sec keymsg synthesis-card" style="border-left-color:{{{keymsg.left_border_color}}}">
                     <div class="sec-title">Synthesis</div>
                     <div class="synthesis-grid">
                         <div class="synthesis-panel"><span class="synthesis-label neutral">Bottom line</span>
-                            <div class="lead">{{keymsg.lead}}</div>
+                            <div class="lead">{{{keymsg.lead}}}</div>
                         </div>
                         <div class="synthesis-panel"><span class="synthesis-label positive">Positive</span>
-                            <p>{{keymsg.positives}}</p>
+                            <p>{{{keymsg.positives}}}</p>
                         </div>
                         <div class="synthesis-panel"><span class="synthesis-label watch">Watch</span>
-                            <p>{{keymsg.watch}}</p>
+                            <p>{{{keymsg.watch}}}</p>
                         </div>
                         <div class="synthesis-panel"><span class="synthesis-label risk">Risk</span>
-                            <p>{{keymsg.risk}}</p>
+                            <p>{{{keymsg.risk}}}</p>
                         </div>
                     </div>
                 </section>

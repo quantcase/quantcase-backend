@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Guidance Credibility — {{asset_name}}</title>
+  <title>Guidance Credibility — {{{asset_name}}}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1160,22 +1160,22 @@
     <header class="top">
       <div>
         <div class="lens-row"><span class="eyebrow">Management lens</span><span
-            class="pill {{ratingClass overall_rating.pill}}">{{overall_rating.label}}</span></div>
+            class="pill {{{ratingClass overall_rating.pill}}}">{{{overall_rating.label}}}</span></div>
         <h1 class="title serif">Guidance Credibility</h1>
-        <div class="asset-kicker">{{asset_name}}</div>
+        <div class="asset-kicker">{{{asset_name}}}</div>
       </div><button class="xbtn" aria-label="Close">&times;</button>
     </header>
     {{#if score_badge}}
       <section class="score-badge">
         <div class="score-ring"><svg width="72" height="72" aria-hidden="true">
             <circle cx="36" cy="36" r="30" fill="none" stroke="#f0efeb" stroke-width="7" />
-            <circle cx="36" cy="36" r="30" fill="none" stroke="{{statusHex score_badge.status_color}}" stroke-width="7"
-              stroke-linecap="round" stroke-dasharray="188.5" stroke-dashoffset="{{scoreOffset score_badge.score}}"
+            <circle cx="36" cy="36" r="30" fill="none" stroke="{{{statusHex score_badge.status_color}}}" stroke-width="7"
+              stroke-linecap="round" stroke-dasharray="188.5" stroke-dashoffset="{{{scoreOffset score_badge.score}}}"
               transform="rotate(-90 36 36)" />
-          </svg><span class="score-num c-{{lower score_badge.status_color}}">{{score_badge.score}}</span></div>
+          </svg><span class="score-num c-{{{lower score_badge.status_color}}}">{{{score_badge.score}}}</span></div>
         <div>
-          <div class="score-label c-{{lower score_badge.status_color}}">{{score_badge.label}}</div>
-          <div class="score-desc">{{score_badge.desc}}</div>
+          <div class="score-label c-{{{lower score_badge.status_color}}}">{{{score_badge.label}}}</div>
+          <div class="score-desc">{{{score_badge.desc}}}</div>
         </div>
       </section>
     {{/if}}
@@ -1185,11 +1185,11 @@
           <div class="sec-title">Headline insights</div>
           <div class="sec-note">How consistently management delivers - and on which kinds of promises.</div>
         </div>
-        <div class="trio" style="--count:{{headline.length}}">{{#each headline}}
+        <div class="trio" style="--count:{{{headline.length}}}">{{#each headline}}
             <article class="stat">
-              <div class="lab"><span class="dot {{dot}}"></span>{{label}}</div>
-              <div class="big {{value_color}}">{{value}}</div>
-              <div class="desc">{{desc}}</div>
+              <div class="lab"><span class="dot {{{dot}}}"></span>{{{label}}}</div>
+              <div class="big {{{value_color}}}">{{{value}}}</div>
+              <div class="desc">{{{desc}}}</div>
             </article>
           {{/each}}</div>
       </section>
@@ -1201,7 +1201,7 @@
           <div class="qci-header-title">What management is really saying.</div>
           {{!-- <div class="qci-header-sub">Recurring <strong>future commitments, execution updates and disclosure
               patterns</strong> extracted from Annual Reports and Management Presentations across
-            <strong>{{narrative.period_start}} &rarr; {{narrative.period_end}}</strong>, highlighting how management
+            <strong>{{{narrative.period_start}}} &rarr; {{{narrative.period_end}}}</strong>, highlighting how management
             communicates, updates and follows through on long-term commitments.</div> --}}
         </div>
         <div class="qci-body">
@@ -1209,7 +1209,7 @@
             <thead>
               <tr>
                 <th style="width:220px">THEME</th>
-                <th>SIGNAL TREND {{narrative.period_start}} &rarr; {{narrative.period_end}}</th>
+                <th>SIGNAL TREND {{{narrative.period_start}}} &rarr; {{{narrative.period_end}}}</th>
                 <th>Status</th>
                 <th>What it means</th>
               </tr>
@@ -1217,16 +1217,16 @@
             <tbody>{{#each narrative.themes}}
                 <tr>
                   <td>
-                    <div class="theme-name">{{name}}</div>
-                    <div class="theme-sub">{{sub}}</div>
+                    <div class="theme-name">{{{name}}}</div>
+                    <div class="theme-sub">{{{sub}}}</div>
                   </td>
                   <td><svg class="spark" viewBox="0 0 110 46" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-                      <polyline points="{{trendSparkPoints trend}}" fill="none" stroke="{{trendHex trend}}"
+                      <polyline points="{{{trendSparkPoints trend}}}" fill="none" stroke="{{{trendHex trend}}}"
                         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
                         vector-effect="non-scaling-stroke" />
-                      <circle cx="104" cy="{{trendSparkEndY trend}}" r="3.5" fill="{{trendHex trend}}" />
+                      <circle cx="104" cy="{{{trendSparkEndY trend}}}" r="3.5" fill="{{{trendHex trend}}}" />
                     </svg></td>
-                  <td><span class="qci-status-pill {{lower trend}}">{{trendGlyph trend}} {{trend}}</span></td>
+                  <td><span class="qci-status-pill {{{lower trend}}}">{{{trendGlyph trend}}} {{{trend}}}</span></td>
                   <td>{{{bold interp}}}</td>
                 </tr>
               {{/each}}</tbody>
@@ -1238,19 +1238,19 @@
             <div class="qci-edge-label">THE EDGE</div>
             <div class="qci-edge-text">
               <p class="edge-copy">{{#if narrative.edge.core_pattern}}<span
-                    class="edge-accent">{{narrative.edge.core_pattern}}</span>
+                    class="edge-accent">{{{narrative.edge.core_pattern}}}</span>
                 {{/if}}{{#if narrative.edge.core_behaviour}}<span
-                    class="edge-accent">{{narrative.edge.core_behaviour}}</span>
+                    class="edge-accent">{{{narrative.edge.core_behaviour}}}</span>
                 {{/if}}{{#if narrative.edge.credibility_implication}}<strong>Credibility implication:</strong> <span
-                    class="edge-positive">{{narrative.edge.credibility_implication}}</span>
+                    class="edge-positive">{{{narrative.edge.credibility_implication}}}</span>
                 {{/if}}{{#if narrative.edge.key_watch_item}}<strong>Key watch item:</strong> <span
-                    class="edge-watch">{{narrative.edge.key_watch_item}}</span>
+                    class="edge-watch">{{{narrative.edge.key_watch_item}}}</span>
                 {{/if}}{{#if narrative.edge.investor_focus}}<span
-                    class="edge-watch">{{narrative.edge.investor_focus.theme}}</span>{{#if narrative.edge.investor_focus.reason}}
-                    — {{narrative.edge.investor_focus.reason}}{{/if}}
+                    class="edge-watch">{{{narrative.edge.investor_focus.theme}}}</span>{{#if narrative.edge.investor_focus.reason}}
+                    — {{{narrative.edge.investor_focus.reason}}}{{/if}}
                 {{/if}}{{#if narrative.edge.supporting_metric}}<strong>Supporting metric:</strong> <span
-                    class="edge-risk">{{narrative.edge.supporting_metric}}</span>
-                {{/if}}{{#if narrative.edge.closing_line}}<span>{{narrative.edge.closing_line}}</span>{{/if}}</p>
+                    class="edge-risk">{{{narrative.edge.supporting_metric}}}</span>
+                {{/if}}{{#if narrative.edge.closing_line}}<span>{{{narrative.edge.closing_line}}}</span>{{/if}}</p>
             </div>
           </div>
         {{/if}}
@@ -1264,37 +1264,37 @@
         </div>
         <div class="scatter">
           <div class="chart-scroll"><svg class="chart" viewBox="0 0 1080 270" role="img"
-              aria-label="Guidance credibility timeline {{narrative.period_start}} → {{narrative.period_end}}">
+              aria-label="Guidance credibility timeline {{{narrative.period_start}}} → {{{narrative.period_end}}}">
               <line x1="145" y1="170" x2="1040" y2="170" stroke="#e2e1dd" />
               <line x1="145" y1="70" x2="1040" y2="70" stroke="#f0efeb" stroke-dasharray="3 4" />
               <line x1="145" y1="115" x2="1040" y2="115" stroke="#f0efeb" stroke-dasharray="3 4" />
               <g fill="#9a9a96" font-family="Inter" font-size="11"><text x="10" y="60">High Credibility</text><text
                   x="10" y="112">Developing</text><text x="10" y="172">Lower Credibility</text></g>
-              <polyline points="{{timelinePoints credibility_timeline}}" fill="none" stroke="#cbc9c2" stroke-width="2"
+              <polyline points="{{{timelinePoints credibility_timeline}}}" fill="none" stroke="#cbc9c2" stroke-width="2"
                 stroke-linejoin="round" />
               <g class="timeline-points">{{#each credibility_timeline}}
                   <g class="timeline-point"
-                    transform="translate({{timelineX @index ../credibility_timeline.length}} 0)">
-                    <title>{{label}} · {{period}}</title>
-                    <line class="timeline-leader label-above" x1="0" y1="{{markerY credibility}}" x2="0" y2="64" />
-                    <line class="timeline-leader label-below" x1="0" y1="{{markerY credibility}}" x2="0" y2="178" />
+                    transform="translate({{{timelineX @index ../credibility_timeline.length}}} 0)">
+                    <title>{{{label}}} · {{{period}}}</title>
+                    <line class="timeline-leader label-above" x1="0" y1="{{{markerY credibility}}}" x2="0" y2="64" />
+                    <line class="timeline-leader label-below" x1="0" y1="{{{markerY credibility}}}" x2="0" y2="178" />
                     {{#if (eq credibility "insufficient")}}
-                      <circle cx="0" cy="{{markerY credibility}}" r="{{markerRadius confidence}}" fill="none"
+                      <circle cx="0" cy="{{{markerY credibility}}}" r="{{{markerRadius confidence}}}" fill="none"
                         stroke="#9a9a96" stroke-width="2" />
                     {{else}}
-                      <circle cx="0" cy="{{markerY credibility}}" r="{{markerRadius confidence}}"
-                        fill="{{credibilityHex credibility}}" />
+                      <circle cx="0" cy="{{{markerY credibility}}}" r="{{{markerRadius confidence}}}"
+                        fill="{{{credibilityHex credibility}}}" />
                     {{/if}}
                     <foreignObject class="timeline-label-box label-above" x="-52" y="7" width="104" height="55">
                       <div xmlns="http://www.w3.org/1999/xhtml" class="timeline-label-card above">
-                        <div class="timeline-label-text">{{label}}</div>
-                        <div class="timeline-label-period">{{period}}</div>
+                        <div class="timeline-label-text">{{{label}}}</div>
+                        <div class="timeline-label-period">{{{period}}}</div>
                       </div>
                     </foreignObject>
                     <foreignObject class="timeline-label-box label-below" x="-52" y="181" width="104" height="62">
                       <div xmlns="http://www.w3.org/1999/xhtml" class="timeline-label-card below">
-                        <div class="timeline-label-text">{{label}}</div>
-                        <div class="timeline-label-period">{{period}}</div>
+                        <div class="timeline-label-text">{{{label}}}</div>
+                        <div class="timeline-label-period">{{{period}}}</div>
                       </div>
                     </foreignObject>
                   </g>
@@ -1328,23 +1328,23 @@
               </thead>
               <tbody>{{#each this}}
                   <tr>
-                    <td>{{period}}</td>
-                    <td class="metric {{effectClass this}}">
-                      <div class="m-name">{{topic}}</div>
-                      <div class="m-desc">{{description}}</div>{{#if source}}<button class="src-btn"
-                          onclick="toggleSrc(this,{{@index}})">&#9656; Source quote</button>{{/if}}
+                    <td>{{{period}}}</td>
+                    <td class="metric {{{effectClass this}}}">
+                      <div class="m-name">{{{topic}}}</div>
+                      <div class="m-desc">{{{description}}}</div>{{#if source}}<button class="src-btn"
+                          onclick="toggleSrc(this,{{{@index}}})">&#9656; Source quote</button>{{/if}}
                     </td>
-                    <td>{{evidenceText this}}</td>
-                    <td>{{outcome}}</td>
-                    <td>{{evidenceType this}}</td>
-                    <td><span class="pill {{statusClass status}}">{{status}}</span></td>
+                    <td>{{{evidenceText this}}}</td>
+                    <td>{{{outcome}}}</td>
+                    <td>{{{evidenceType this}}}</td>
+                    <td><span class="pill {{{statusClass status}}}">{{{status}}}</span></td>
                   </tr>{{#if source}}
-                    <tr class="src-row" id="src-{{@index}}">
+                    <tr class="src-row" id="src-{{{@index}}}">
                       <td colspan="6">
                         <div class="src-inner">{{#if source.quote}}
-                            <div class="quote">&ldquo;{{source.quote}}&rdquo;</div>
+                            <div class="quote">&ldquo;{{{source.quote}}}&rdquo;</div>
                           {{/if}}{{#if source.meta}}
-                            <div class="src-meta">{{source.meta}}</div>
+                            <div class="src-meta">{{{source.meta}}}</div>
                           {{/if}}</div>
                       </td>
                     </tr>
@@ -1365,18 +1365,18 @@
           <div class="split-grid">{{#eachBucket split}}
               <div class="control-column">
                 <div class="control-column__header">
-                  <h3>{{title}}</h3>
-                  <p>{{sub}}</p>
+                  <h3>{{{title}}}</h3>
+                  <p>{{{sub}}}</p>
                 </div>
                 <div class="control-column__metric">
-                  <div class="control-column__metric-label"><span>Credible guidance ratio</span><span>{{credible}} /
-                      {{total}}</span></div>
+                  <div class="control-column__metric-label"><span>Credible guidance ratio</span><span>{{{credible}}} /
+                      {{{total}}}</span></div>
                   <div class="control-column__bar">
-                    <div class="control-column__bar-fill" style="width:{{ratioPercent credible total}}%;"></div>
+                    <div class="control-column__bar-fill" style="width:{{{ratioPercent credible total}}}%;"></div>
                   </div>
                 </div>
                 <ul class="signal-list">{{#each items}}
-                    <li class="signal-{{statusClass status}}">{{text}}</li>
+                    <li class="signal-{{{statusClass status}}}">{{{text}}}</li>
                   {{/each}}</ul>
               </div>
             {{/eachBucket}}</div>{{#if split.takeaway}}
@@ -1394,11 +1394,11 @@
         <div class="watch">{{#each watchpoints}}
             <article class="wcard">
               <div class="wtop">
-                <div class="wname">{{name}}</div><span class="pill track">Tracking</span>
+                <div class="wname">{{{name}}}</div><span class="pill track">Tracking</span>
               </div>
-              <div class="wdesc">{{desc}}</div>
-              <div class="wfoot"><span>Resolves: <strong>{{resolves}}</strong></span><span>Type:
-                  <strong>{{typeLabel type}}</strong></span></div>
+              <div class="wdesc">{{{desc}}}</div>
+              <div class="wfoot"><span>Resolves: <strong>{{{resolves}}}</strong></span><span>Type:
+                  <strong>{{{typeLabel type}}}</strong></span></div>
             </article>
           {{/each}}</div>
       </section>
@@ -1408,20 +1408,20 @@
         <div class="sec-title">Synthesis</div>
         <div class="synthesis-grid">{{#if narrative.edge.closing_line}}
             <div class="synthesis-panel"><span class="synthesis-label neutral">Bottom line</span>
-              <div class="lead">{{narrative.edge.closing_line}}</div>
+              <div class="lead">{{{narrative.edge.closing_line}}}</div>
             </div>
           {{/if}}{{#if narrative.edge.core_behaviour}}
             <div class="synthesis-panel"><span class="synthesis-label positive">Core behaviour</span>
-              <p>{{narrative.edge.core_behaviour}}</p>
+              <p>{{{narrative.edge.core_behaviour}}}</p>
             </div>
           {{/if}}{{#if narrative.edge.investor_focus}}
             <div class="synthesis-panel"><span class="synthesis-label watch">Investor focus</span>
-              <p>{{narrative.edge.investor_focus.theme}}{{#if narrative.edge.investor_focus.reason}} —
-                  {{narrative.edge.investor_focus.reason}}{{/if}}</p>
+              <p>{{{narrative.edge.investor_focus.theme}}}{{#if narrative.edge.investor_focus.reason}} —
+                  {{{narrative.edge.investor_focus.reason}}}{{/if}}</p>
             </div>
           {{/if}}{{#if narrative.edge.supporting_metric}}
             <div class="synthesis-panel"><span class="synthesis-label risk">Supporting metric</span>
-              <p>{{narrative.edge.supporting_metric}}</p>
+              <p>{{{narrative.edge.supporting_metric}}}</p>
             </div>
           {{/if}}</div>
       </section>

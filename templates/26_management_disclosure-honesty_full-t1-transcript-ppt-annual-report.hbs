@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Disclosure Honesty — {{asset_name}}</title>
+    <title>Disclosure Honesty — {{{asset_name}}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -1131,29 +1131,29 @@
         <header class="top">
             <div>
                 <div class="lens-row"><span class="eyebrow">Management Lens</span>{{#if overall_rating}}<span
-                            class="pill {{overall_rating.pill}}{{overall_rating.pill_class}}">{{overall_rating.label}}</span>{{/if}}
+                            class="pill {{{overall_rating.pill}}}{{{overall_rating.pill_class}}}">{{{overall_rating.label}}}</span>{{/if}}
                 </div>
                 <h1 class="title">Disclosure Honesty</h1>
-                <div class="asset-kicker">{{asset_name}}</div>
+                <div class="asset-kicker">{{{asset_name}}}</div>
             </div><button class="xbtn" aria-label="Close">&times;</button>
         </header>
 
         {{#if score_badge}}
             <section class="score-badge">
-                <div class="score-ring {{score_badge.status_color}}" style="--score:{{score_badge.score}}"><span
-                        class="score-num">{{score_badge.score}}</span></div>
+                <div class="score-ring {{{score_badge.status_color}}}" style="--score:{{{score_badge.score}}}"><span
+                        class="score-num">{{{score_badge.score}}}</span></div>
                 <div>
-                    <div class="score-label">{{score_badge.rating}} · {{score_badge.label}}</div>
-                    <div class="score-desc">{{score_badge.desc}}</div>
+                    <div class="score-label">{{{score_badge.rating}}} · {{{score_badge.label}}}</div>
+                    <div class="score-desc">{{{score_badge.desc}}}</div>
                 </div>
             </section>
         {{else}}{{#if score}}
                 <section class="score-badge">
-                    <div class="score-ring {{score.color}}" style="--score:{{score.value}}"><span
-                            class="score-num">{{score.value}}</span></div>
+                    <div class="score-ring {{{score.color}}}" style="--score:{{{score.value}}}"><span
+                            class="score-num">{{{score.value}}}</span></div>
                     <div>
-                        <div class="score-label">{{score.rating_label}} · {{score.phrase}}</div>
-                        <div class="score-desc">{{score.desc}}</div>
+                        <div class="score-label">{{{score.rating_label}}} · {{{score.phrase}}}</div>
+                        <div class="score-desc">{{{score.desc}}}</div>
                     </div>
                 </section>
             {{/if}}
@@ -1167,9 +1167,9 @@
                 </div>
                 <div class="grid three">{{#each headline}}
                         <article class="stat">
-                            <div class="lab {{dot}}"><span class="dot"></span>{{label}}</div>
-                            <div class="big {{value_color}}">{{value}}</div>
-                            <div class="desc">{{desc}}</div>
+                            <div class="lab {{{dot}}}"><span class="dot"></span>{{{label}}}</div>
+                            <div class="big {{{value_color}}}">{{{value}}}</div>
+                            <div class="desc">{{{desc}}}</div>
                         </article>
                     {{/each}}</div>
             </section>
@@ -1180,8 +1180,8 @@
                 <div class="qci-head">
                     <div class="qci-badge"> QC Intuition · Pattern Recognition</div>
                     <div class="qci-title">What the disclosure patterns reveal.</div>
-                    {{!-- <div class="qci-sub">{{qc_intuition.source_types}}{{#if qc_intuition.period_start}} ·
-                            {{qc_intuition.period_start}} → {{qc_intuition.period_end}}{{/if}}</div> --}}
+                    {{!-- <div class="qci-sub">{{{qc_intuition.source_types}}}{{#if qc_intuition.period_start}} ·
+                            {{{qc_intuition.period_start}}} → {{{qc_intuition.period_end}}}{{/if}}</div> --}}
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -1195,11 +1195,11 @@
                         </thead>
                         <tbody>{{#each qc_intuition.patterns}}
                                 <tr>
-                                    <td><strong>{{name}}</strong>
-                                        <div class="sub">{{sub}}</div>
+                                    <td><strong>{{{name}}}</strong>
+                                        <div class="sub">{{{sub}}}</div>
                                     </td>
                                     <td>{{{trendSparkline this}}}</td>
-                                    <td><span class="pill {{trend}}">{{trend}}</span></td>
+                                    <td><span class="pill {{{trend}}}">{{{trend}}}</span></td>
                                     <td>{{{interp}}}</td>
                                 </tr>
                             {{/each}}</tbody>
@@ -1209,10 +1209,10 @@
                         <div class="qci-edge-label">THE EDGE</div>
                         <div>
                             <p class="edge-copy"><span
-                                    class="edge-accent">{{qc_intuition.pattern_call.core_behaviour}}</span> <span
-                                    class="edge-positive">{{qc_intuition.pattern_call.transparency_implication}}</span>
-                                <span class="edge-watch">{{qc_intuition.pattern_call.watchpoint}}</span>
-                                <span>{{qc_intuition.pattern_call.closing_line}}</span></p>
+                                    class="edge-accent">{{{qc_intuition.pattern_call.core_behaviour}}}</span> <span
+                                    class="edge-positive">{{{qc_intuition.pattern_call.transparency_implication}}}</span>
+                                <span class="edge-watch">{{{qc_intuition.pattern_call.watchpoint}}}</span>
+                                <span>{{{qc_intuition.pattern_call.closing_line}}}</span></p>
                         </div>
                     </div>
                 {{/if}}
@@ -1225,15 +1225,15 @@
                     <div class="sec-note">How management communicates reality — where communication is strong, where clarity is improving, and where important gaps remain.</div>
                 </div>
                 <div class="keymsg">
-                    <div class="lead">{{communication_analysis.verdict}}</div>
+                    <div class="lead">{{{communication_analysis.verdict}}}</div>
                 </div>
                 <div class="grid three" style="margin-top:16px">{{#each communication_analysis.columns}}
-                        <article class="card analysis-card {{status}}">
-                            <h3>{{title}}</h3>
-                            <div class="sub">{{subtitle}}</div>
+                        <article class="card analysis-card {{{status}}}">
+                            <h3>{{{title}}}</h3>
+                            <div class="sub">{{{subtitle}}}</div>
                             <ul class="list">{{#each items}}
-                                    <li><strong>{{label}}</strong>
-                                        <div class="sub">{{note}}</div>
+                                    <li><strong>{{{label}}}</strong>
+                                        <div class="sub">{{{note}}}</div>
                                     </li>
                                 {{/each}}</ul>
                         </article>
@@ -1248,8 +1248,8 @@
                 </div>
                 <div class="grid two numbered-grid">{{#each watchpoints}}
                         <article class="watch-card">
-                            <h3>{{title}}</h3>
-                            <p>{{desc}}</p>
+                            <h3>{{{title}}}</h3>
+                            <p>{{{desc}}}</p>
                         </article>
                     {{/each}}</div>
             </section>
@@ -1259,18 +1259,18 @@
                 <div class="sec-title">Synthesis</div>
                 <div class="synthesis-grid">
                     <div class="synthesis-panel"><span class="synthesis-label neutral">Bottom line</span>
-                        <div class="lead">{{key_message.lead}}</div>
+                        <div class="lead">{{{key_message.lead}}}</div>
                     </div>{{#if key_message.transparent}}
                         <div class="synthesis-panel"><span class="synthesis-label positive">Transparent</span>
-                            <p>{{key_message.transparent}}</p>
+                            <p>{{{key_message.transparent}}}</p>
                         </div>
                     {{/if}}{{#if key_message.watch}}
                         <div class="synthesis-panel"><span class="synthesis-label watch">Watch</span>
-                            <p>{{key_message.watch}}</p>
+                            <p>{{{key_message.watch}}}</p>
                         </div>
                     {{/if}}{{#if key_message.concern}}
                         <div class="synthesis-panel"><span class="synthesis-label risk">Concern</span>
-                            <p>{{key_message.concern}}</p>
+                            <p>{{{key_message.concern}}}</p>
                         </div>
                     {{/if}}
                 </div>

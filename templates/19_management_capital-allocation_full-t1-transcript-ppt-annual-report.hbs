@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Capital Allocation — {{asset_name}}</title>
+    <title>Capital Allocation — {{{asset_name}}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -1518,26 +1518,26 @@
         <header class="top">
             <div>
                 <div class="lens-row"><span class="eyebrow">Management Lens</span>{{#if overall_rating}}<span
-                            class="pill {{overall_rating.pill}}">{{overall_rating.label}}</span>{{/if}}</div>
+                            class="pill {{{overall_rating.pill}}}">{{{overall_rating.label}}}</span>{{/if}}</div>
                 <h1 class="title">Capital Allocation Quality</h1>
-                <div class="asset-kicker">{{asset_name}}</div>
+                <div class="asset-kicker">{{{asset_name}}}</div>
             </div><button class="xbtn" aria-label="Close">&times;</button>
         </header>
         {{#if score_badge}}{{#if score_badge.score}}
                 <section class="score-badge">
-                    <div class="score-ring {{score_badge.status_color}}" style="--score:{{score_badge.score}}"><span
-                            class="score-num">{{score_badge.score}}</span></div>
+                    <div class="score-ring {{{score_badge.status_color}}}" style="--score:{{{score_badge.score}}}"><span
+                            class="score-num">{{{score_badge.score}}}</span></div>
                     <div>
-                        <div class="score-label">{{score_badge.rating}} · {{score_badge.label}}</div>
-                        <div class="score-desc">{{score_badge.desc}}</div>
+                        <div class="score-label">{{{score_badge.rating}}} · {{{score_badge.label}}}</div>
+                        <div class="score-desc">{{{score_badge.desc}}}</div>
                     </div>
                 </section>
             {{else}}
-                <section class="score-badge no-score {{score_badge.status_color}}">
+                <section class="score-badge no-score {{{score_badge.status_color}}}">
                     <div>
-                        <div class="score-label {{score_badge.status_color}}">{{score_badge.rating}} ·
-                            {{score_badge.label}}</div>
-                        <div class="score-desc">{{score_badge.desc}}</div>
+                        <div class="score-label {{{score_badge.status_color}}}">{{{score_badge.rating}}} ·
+                            {{{score_badge.label}}}</div>
+                        <div class="score-desc">{{{score_badge.desc}}}</div>
                     </div>
                 </section>
             {{/if}}{{/if}}
@@ -1549,9 +1549,9 @@
                 </div>
                 <div class="grid three">{{#each headline}}
                         <article class="stat">
-                            <div class="lab {{dot}}"><span class="dot"></span>{{label}}</div>
-                            <div class="big {{value_color}}">{{value}}</div>
-                            <div class="desc">{{desc}}</div>
+                            <div class="lab {{{dot}}}"><span class="dot"></span>{{{label}}}</div>
+                            <div class="big {{{value_color}}}">{{{value}}}</div>
+                            <div class="desc">{{{desc}}}</div>
                         </article>
                     {{/each}}</div>
             </section>
@@ -1561,8 +1561,8 @@
                 <div class="qci-head">
                     <div class="qci-badge">QC Intuition · Capital Allocation Patterns</div>
                     <div class="qci-title">What the capital allocation signals reveal.</div>
-                    {{!-- <div class="qci-sub">{{pattern_intelligence.source_types}}{{#if pattern_intelligence.period_start}}
-                            · {{pattern_intelligence.period_start}} → {{pattern_intelligence.period_end}}{{/if}}</div> --}}
+                    {{!-- <div class="qci-sub">{{{pattern_intelligence.source_types}}}{{#if pattern_intelligence.period_start}}
+                            · {{{pattern_intelligence.period_start}}} → {{{pattern_intelligence.period_end}}}{{/if}}</div> --}}
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -1576,12 +1576,12 @@
                         </thead>
                         <tbody>{{#each pattern_intelligence.patterns}}
                                 <tr>
-                                    <td><strong>{{name}}</strong>
-                                        <div class="sub">{{sub}}</div>
+                                    <td><strong>{{{name}}}</strong>
+                                        <div class="sub">{{{sub}}}</div>
                                     </td>
                                     <td>{{{trendSparkline this}}}</td>
-                                    <td><span class="pill {{trend}}">{{trend}}</span></td>
-                                    <td data-inline-markdown>{{interp}}</td>
+                                    <td><span class="pill {{{trend}}}">{{{trend}}}</span></td>
+                                    <td data-inline-markdown>{{{interp}}}</td>
                                 </tr>
                             {{/each}}</tbody>
                     </table>
@@ -1590,7 +1590,7 @@
                     <div class="qci-edge">
                         <div class="qci-edge-label">THE EDGE</div>
                         <div>
-                            <p class="edge-copy">{{pattern_intelligence.pattern_call}}</p>
+                            <p class="edge-copy">{{{pattern_intelligence.pattern_call}}}</p>
                         </div>
                     </div>
                 {{/if}}
@@ -1603,23 +1603,23 @@
                     <div class="sec-note">Allocation posture, core evidence and trajectory</div>
                 </div>{{#if analysis.verdict}}
                     <div class="keymsg">
-                        <div class="lead">{{analysis.verdict}}</div>
+                        <div class="lead">{{{analysis.verdict}}}</div>
                     </div>
                 {{/if}}
                 <div class="grid two" style="margin-top:16px">
                     <article class="card">
                         <h3>Core Signals</h3>
                         <div class="signal-stack">{{#each analysis.core_signals}}
-                                <div class="signal-item"><strong class="{{dot}}">{{this.bold}}</strong>
-                                    <div class="desc">{{text}}</div>
+                                <div class="signal-item"><strong class="{{{dot}}}">{{{this.bold}}}</strong>
+                                    <div class="desc">{{{text}}}</div>
                                 </div>
                             {{/each}}</div>
                     </article>
                     <article class="card">
                         <h3>Trajectory</h3>
                         <div class="signal-stack">{{#each analysis.trajectory}}
-                                <div class="signal-item"><strong class="{{dot}}">{{this.bold}}</strong>
-                                    <div class="desc">{{text}}</div>
+                                <div class="signal-item"><strong class="{{{dot}}}">{{{this.bold}}}</strong>
+                                    <div class="desc">{{{text}}}</div>
                                 </div>
                             {{/each}}</div>
                     </article>
@@ -1634,8 +1634,8 @@
                 </div>
                 <div class="grid two numbered-grid">{{#each watchpoints}}
                         <article class="watch-card">
-                            <h3>{{title}}</h3>
-                            <p class="desc">{{desc}}</p>
+                            <h3>{{{title}}}</h3>
+                            <p class="desc">{{{desc}}}</p>
                         </article>
                     {{/each}}</div>
             </section>
@@ -1645,16 +1645,16 @@
                 <div class="sec-title">Synthesis</div>
                 <div class="synthesis-grid">
                     <div class="synthesis-panel"><span class="synthesis-label neutral">Bottom line</span>
-                        <div class="lead">{{key_message.lead}}</div>
+                        <div class="lead">{{{key_message.lead}}}</div>
                     </div>
                     <div class="synthesis-panel"><span class="synthesis-label positive">Positive</span>
-                        <p>{{key_message.positive}}</p>
+                        <p>{{{key_message.positive}}}</p>
                     </div>
                     <div class="synthesis-panel"><span class="synthesis-label watch">Watch</span>
-                        <p>{{key_message.watch}}</p>
+                        <p>{{{key_message.watch}}}</p>
                     </div>
                     <div class="synthesis-panel"><span class="synthesis-label risk">Risk</span>
-                        <p>{{key_message.risk}}</p>
+                        <p>{{{key_message.risk}}}</p>
                     </div>
                 </div>
             </section>

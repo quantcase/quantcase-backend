@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Earnings Forecast — {{asset_name}}</title>
+    <title>Earnings Forecast — {{{asset_name}}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -613,23 +613,23 @@
                 <div class="lens-row">
                     <span class="eyebrow">Forecast Lens</span>
                     {{#if primary_scenario}}
-                        <span class="pill {{primary_scenario.case}}">{{primary_scenario.pill_label}}</span>
+                        <span class="pill {{{primary_scenario.case}}}">{{{primary_scenario.pill_label}}}</span>
                     {{/if}}
                 </div>
                 <h1 class="title">Earnings Forecast</h1>
-                <div class="asset-kicker">{{asset_name}}</div>
+                <div class="asset-kicker">{{{asset_name}}}</div>
             </div>
             <button class="xbtn" aria-label="Close">&times;</button>
         </header>
 
         {{#if score_badge}}
             <section class="score-badge">
-                <div class="score-ring amber" style="--score:{{score_badge.score}}">
-                    <span class="score-num">{{score_badge.score}}</span>
+                <div class="score-ring amber" style="--score:{{{score_badge.score}}}">
+                    <span class="score-num">{{{score_badge.score}}}</span>
                 </div>
                 <div>
-                    <div class="score-label">{{score_badge.rating}} · {{score_badge.label}}</div>
-                    <div class="score-desc">{{score_badge.desc}}</div>
+                    <div class="score-label">{{{score_badge.rating}}} · {{{score_badge.label}}}</div>
+                    <div class="score-desc">{{{score_badge.desc}}}</div>
                 </div>
             </section>
         {{/if}}
@@ -641,18 +641,18 @@
                 </div>
                 <div class="grid three">
                     {{#each scenarios}}
-                        <article class="card {{case}}">
-                            <span class="pill {{case}}">{{case}}</span>
+                        <article class="card {{{case}}}">
+                            <span class="pill {{{case}}}">{{{case}}}</span>
                             {{#if cagr}}
-                                <div class="big">{{cagr}}</div>
+                                <div class="big">{{{cagr}}}</div>
                             {{else}}
                                 <div class="big missing-value">CAGR not quantified</div>
                             {{/if}}
                             <ul class="list">
                                 {{#each drivers}}
                                     <li>
-                                        <strong>{{label}}</strong>
-                                        <div class="sub">{{detail}}</div>
+                                        <strong>{{{label}}}</strong>
+                                        <div class="sub">{{{detail}}}</div>
                                     </li>
                                 {{/each}}
                             </ul>
@@ -679,8 +679,8 @@
         {{#if margin_chart.labels.length}}
             <section class="sec">
                 <div class="sec-head">
-                    <div class="sec-title">{{margin_chart.metric_label}}</div>
-                    <div class="sec-note">{{margin_chart.metric_note}} · {{margin_chart.unit}}</div>
+                    <div class="sec-title">{{{margin_chart.metric_label}}}</div>
+                    <div class="sec-note">{{{margin_chart.metric_note}}} · {{{margin_chart.unit}}}</div>
                 </div>
                 <div class="chart-scroll">
                     <div class="chart-wrap">
@@ -695,7 +695,7 @@
                 <div class="qci-head">
                     <div class="qci-badge"> QC Intuition · Earnings Growth Patterns</div>
                     <div class="qci-title">What drives the earnings path</div>
-                    {{!-- <div class="qci-sub">{{patterns.source_types}}</div> --}}
+                    {{!-- <div class="qci-sub">{{{patterns.source_types}}}</div> --}}
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -720,13 +720,13 @@
                             {{#each patterns.items}}
                                 <tr>
                                     <td>
-                                        <strong>{{title}}</strong>
+                                        <strong>{{{title}}}</strong>
                                         {{#if metrics.length}}
                                         <div class="pattern-metrics">
                                             {{#each metrics}}
                                                 <div class="metric-item">
-                                                    <strong>{{value}}</strong> 
-                                                    <span class="meta">{{label}}</span>
+                                                    <strong>{{{value}}}</strong> 
+                                                    <span class="meta">{{{label}}}</span>
                                                 </div>
                                             {{/each}}
                                         </div>
@@ -734,7 +734,7 @@
                                     </td>
                                     <td>{{{read_text}}}</td>
                                     <td>
-                                        <span class="pill {{status_class}}">{{status_label}}</span>
+                                        <span class="pill {{{status_class}}}">{{{status_label}}}</span>
                                     </td>
                                     <td>{{{interpretation}}}</td>
                                     <td>{{{earnings_impact}}}</td>
@@ -748,12 +748,12 @@
                         <div class="qci-edge-label">THE EDGE</div>
                         <div>
                             <p class="edge-copy">
-                                <strong class="edge-accent">{{patterns.edge.hl_theme}}</strong> and
-                                <strong class="edge-positive">{{patterns.edge.hl2_theme}}</strong> are the decisive mechanisms.
-                                {{#if patterns.edge.mechanical_floor}}<span>{{patterns.edge.mechanical_floor}}</span>{{/if}}
-                                {{#if patterns.edge.floor_reason}}<span>{{patterns.edge.floor_reason}}</span>{{/if}}
-                                {{#if patterns.edge.pct_qualifier}}<span class="edge-accent">{{patterns.edge.pct_qualifier}}</span>.{{/if}} 
-                                <span class="edge-watch">{{patterns.edge.swing_variable}}</span>
+                                <strong class="edge-accent">{{{patterns.edge.hl_theme}}}</strong> and
+                                <strong class="edge-positive">{{{patterns.edge.hl2_theme}}}</strong> are the decisive mechanisms.
+                                {{#if patterns.edge.mechanical_floor}}<span>{{{patterns.edge.mechanical_floor}}}</span>{{/if}}
+                                {{#if patterns.edge.floor_reason}}<span>{{{patterns.edge.floor_reason}}}</span>{{/if}}
+                                {{#if patterns.edge.pct_qualifier}}<span class="edge-accent">{{{patterns.edge.pct_qualifier}}}</span>.{{/if}} 
+                                <span class="edge-watch">{{{patterns.edge.swing_variable}}}</span>
                             </p>
                         </div>
                     </div>
@@ -765,7 +765,7 @@
             <section class="sec">
                 <div class="sec-head">
                     <div class="sec-title">Key assumption summary</div>
-                    <div class="sec-note">Unit · {{assumption_table.unit}}</div>
+                    <div class="sec-note">Unit · {{{assumption_table.unit}}}</div>
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -780,10 +780,10 @@
                         <tbody>
                             {{#each assumption_table.rows}}
                                 <tr>
-                                    <td><strong>{{metric}}</strong></td>
-                                    <td class="g">{{bull}}</td>
-                                    <td style="color:#3652d9;font-weight:700">{{base}}</td>
-                                    <td class="r">{{bear}}</td>
+                                    <td><strong>{{{metric}}}</strong></td>
+                                    <td class="g">{{{bull}}}</td>
+                                    <td style="color:#3652d9;font-weight:700">{{{base}}}</td>
+                                    <td class="r">{{{bear}}}</td>
                                 </tr>
                             {{/each}}
                         </tbody>
@@ -798,21 +798,21 @@
                 <div class="synthesis-grid">
                     <div class="synthesis-panel">
                         <span class="synthesis-label neutral">Forecast read</span>
-                        <div class="lead">{{key_message.lead}}</div>
+                        <div class="lead">{{{key_message.lead}}}</div>
                     </div>
                     <div class="synthesis-panel">
                         <span class="synthesis-label neutral">Scenario rationale</span>
                         {{#each key_message.paras}}
-                            <p>{{this}}</p>
+                            <p>{{{this}}}</p>
                         {{/each}}
                     </div>
                     <div class="synthesis-panel">
                         <span class="synthesis-label positive">Bull trigger</span>
-                        <p>{{key_message.bull_trigger}}</p>
+                        <p>{{{key_message.bull_trigger}}}</p>
                     </div>
                     <div class="synthesis-panel">
                         <span class="synthesis-label risk">Bear trigger</span>
-                        <p>{{key_message.bear_trigger}}</p>
+                        <p>{{{key_message.bear_trigger}}}</p>
                     </div>
                 </div>
             </section>

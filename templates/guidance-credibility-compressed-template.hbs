@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{asset_name}} · Guidance Credibility</title>
+  <title>{{{asset_name}}} · Guidance Credibility</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Serif+4:wght@500;600&display=swap" rel="stylesheet">
@@ -95,7 +95,7 @@
     .hero-body, .score-ring { position: relative; z-index: 1; }
     .hero-body { min-width: 0; }
     .score-ring {
-      --score: {{score_badge.score}};
+      --score: {{{score_badge.score}}};
       --score-color: var(--teal);
       position: relative;
       display: grid;
@@ -506,21 +506,21 @@
 <body>
   <main class="report">
     <div class="topline">
-      <div class="topline-brand">Guidance Credibility · <strong>{{asset_name}}</strong></div>
-      <p class="topline-period">{{#if period_start}}{{period_start}} → {{period_end}}{{/if}}{{#if footer.computed_date}} · Computed {{footer.computed_date}}{{/if}}</p>
+      <div class="topline-brand">Guidance Credibility · <strong>{{{asset_name}}}</strong></div>
+      <p class="topline-period">{{#if period_start}}{{{period_start}}} → {{{period_end}}}{{/if}}{{#if footer.computed_date}} · Computed {{{footer.computed_date}}}{{/if}}</p>
     </div>
 
     <header class="hero">
-      <div class="score-ring {{score_badge.status_color}}" role="img" aria-label="Score {{score_badge.score}} out of {{score_badge.scale}}">
-        <div class="score-copy"><span class="score-value">{{score_badge.score}}</span><span class="score-scale">out of {{score_badge.scale}}</span></div>
+      <div class="score-ring {{{score_badge.status_color}}}" role="img" aria-label="Score {{{score_badge.score}}} out of {{{score_badge.scale}}}">
+        <div class="score-copy"><span class="score-value">{{{score_badge.score}}}</span><span class="score-scale">out of {{{score_badge.scale}}}</span></div>
       </div>
       <div class="hero-body">
-        <p class="eyebrow">{{hero.eyebrow}}</p>
-        <h1 class="action-title">{{hero.action_title}}</h1>
-        <p class="verdict">{{hero.verdict}}</p>
+        <p class="eyebrow">{{{hero.eyebrow}}}</p>
+        <h1 class="action-title">{{{hero.action_title}}}</h1>
+        <p class="verdict">{{{hero.verdict}}}</p>
         {{#if hero.reasons.length}}
         <div class="reasons">
-          {{#each hero.reasons}}<div class="reason"><span class="reason-mark {{mark}}" aria-hidden="true"></span><span>{{text}}</span></div>{{/each}}
+          {{#each hero.reasons}}<div class="reason"><span class="reason-mark {{{mark}}}" aria-hidden="true"></span><span>{{{text}}}</span></div>{{/each}}
         </div>
         {{/if}}
       </div>
@@ -529,14 +529,14 @@
     {{#if headline.cards.length}}
     <section>
       <div class="section-head">
-        <div><p class="section-tag">{{headline.section_tag}}</p><h2 class="section-title">Communication behaviour</h2></div>
+        <div><p class="section-tag">{{{headline.section_tag}}}</p><h2 class="section-title">Communication behaviour</h2></div>
       </div>
       <div class="headline-grid">
         {{#each headline.cards}}
         <article class="headline-card">
-          <p class="headline-label"><span class="headline-dot {{dot}}"></span>{{label}}</p>
-          <p class="headline-value {{value_color}} {{#if value_mono}}mono{{/if}}">{{#each value_lines}}{{this}}{{#unless @last}}<br>{{/unless}}{{/each}}</p>
-          <p class="headline-sub">{{sub}}</p>
+          <p class="headline-label"><span class="headline-dot {{{dot}}}"></span>{{{label}}}</p>
+          <p class="headline-value {{{value_color}}} {{#if value_mono}}mono{{/if}}">{{#each value_lines}}{{{this}}}{{#unless @last}}<br>{{/unless}}{{/each}}</p>
+          <p class="headline-sub">{{{sub}}}</p>
         </article>
         {{/each}}
       </div>
@@ -549,7 +549,7 @@
         <div class="intuition-content">
           <span class="intuition-badge">◆ QC Intuition · Pattern Recognition</span>
           <h2 class="intuition-heading">How management communicates future commitments.</h2>
-          <p class="intuition-line">{{#if qc_intuition.summary}}{{qc_intuition.summary}}{{else}}{{edge.behaviour}}{{/if}}</p>
+          <p class="intuition-line">{{#if qc_intuition.summary}}{{{qc_intuition.summary}}}{{else}}{{{edge.behaviour}}}{{/if}}</p>
         </div>
       </div>
     {{/if}}
@@ -561,13 +561,13 @@
         <article class="pattern-card">
           <div class="pattern-visual">
             {{#if strength}}
-            <span class="pattern-icon">{{icon}}</span><span class="pattern-bar"><i class="{{tone}} {{strength}}"></i></span>
+            <span class="pattern-icon">{{{icon}}}</span><span class="pattern-bar"><i class="{{{tone}}} {{{strength}}}"></i></span>
             {{else}}
-            <span class="sparkline">{{#each spark}}<i class="v{{lookup this 1}}"></i>{{/each}}</span>
+            <span class="sparkline">{{#each spark}}<i class="v{{{lookup this 1}}}"></i>{{/each}}</span>
             {{/if}}
           </div>
-          <div><h3 class="pattern-name">{{name}}</h3><p class="pattern-meaning">{{meaning}}</p></div>
-          <span class="trend {{trend}}">{{trend}}</span>
+          <div><h3 class="pattern-name">{{{name}}}</h3><p class="pattern-meaning">{{{meaning}}}</p></div>
+          <span class="trend {{{trend}}}">{{{trend}}}</span>
         </article>
         {{/each}}
       </div>
@@ -576,12 +576,12 @@
 
     {{#if edge}}
       <div class="edge-panel">
-        <div class="edge-top"><span class="edge-badge">{{edge.badge}}</span></div>
+        <div class="edge-top"><span class="edge-badge">{{{edge.badge}}}</span></div>
         <div class="edge-grid">
-          <div><p class="edge-label">Behaviour</p><p class="edge-copy">{{edge.behaviour}}</p></div>
-          <div><p class="edge-label">Implication</p><p class="edge-copy accent">{{edge.implication}}</p></div>
+          <div><p class="edge-label">Behaviour</p><p class="edge-copy">{{{edge.behaviour}}}</p></div>
+          <div><p class="edge-label">Implication</p><p class="edge-copy accent">{{{edge.implication}}}</p></div>
           {{#if edge.investor_focus}}
-          <div><p class="edge-label">Investor focus</p><p class="edge-copy"><strong>{{edge.investor_focus.chip}}</strong>{{#if edge.investor_focus.tail}} — {{edge.investor_focus.tail}}{{/if}}</p></div>
+          <div><p class="edge-label">Investor focus</p><p class="edge-copy"><strong>{{{edge.investor_focus.chip}}}</strong>{{#if edge.investor_focus.tail}} — {{{edge.investor_focus.tail}}}{{/if}}</p></div>
           {{/if}}
         </div>
       </div>
@@ -591,7 +591,7 @@
     {{#if credibility_timeline.points.length}}
     <section>
       <div class="section-head">
-        <div><p class="section-tag">{{credibility_timeline.section_tag}}</p><h2 class="section-title">{{credibility_timeline.section_title}}</h2></div>
+        <div><p class="section-tag">{{{credibility_timeline.section_tag}}}</p><h2 class="section-title">{{{credibility_timeline.section_title}}}</h2></div>
         <p class="section-note">Vertical position shows credibility level; marker size shows confidence in the assessment.</p>
       </div>
       <div class="timeline-card">
@@ -603,10 +603,10 @@
                 <div class="cred-bands" aria-hidden="true"><span class="cred-band high"></span><span class="cred-band developing"></span><span class="cred-band lower"></span></div>
                 <div class="cred-points">
                   {{#each credibility_timeline.points}}
-                  <div class="cred-point {{tone}}">
+                  <div class="cred-point {{{tone}}}">
                     {{#unless @first}}<span class="cred-segment" aria-hidden="true"></span>{{/unless}}
-                    <span class="cred-marker {{confidence}}" aria-hidden="true"></span>
-                    <div class="cred-labels"><span class="cred-label">{{label}}</span><span class="cred-period">{{period}}</span></div>
+                    <span class="cred-marker {{{confidence}}}" aria-hidden="true"></span>
+                    <div class="cred-labels"><span class="cred-label">{{{label}}}</span><span class="cred-period">{{{period}}}</span></div>
                   </div>
                   {{/each}}
                 </div>
@@ -629,31 +629,31 @@
     {{#if split}}
     <section>
       <div class="section-head">
-        <div><p class="section-tag">{{split.section_tag}}</p><h2 class="section-title">{{split.section_title}}</h2></div>
+        <div><p class="section-tag">{{{split.section_tag}}}</p><h2 class="section-title">{{{split.section_title}}}</h2></div>
       </div>
       <div class="split-grid">
-        <article class="split-card {{split.controllable.color}}">
+        <article class="split-card {{{split.controllable.color}}}">
           <div class="split-head">
-            <div><h3 class="split-title">{{split.controllable.title}}</h3><p class="split-sub">{{split.controllable.sub}}</p></div>
-            <div class="split-count">{{split.controllable.credible}}/{{split.controllable.total}}<small>credible</small></div>
+            <div><h3 class="split-title">{{{split.controllable.title}}}</h3><p class="split-sub">{{{split.controllable.sub}}}</p></div>
+            <div class="split-count">{{{split.controllable.credible}}}/{{{split.controllable.total}}}<small>credible</small></div>
           </div>
-          <progress class="split-progress" value="{{split.controllable.credible}}" max="{{split.controllable.total}}">{{split.controllable.credible}} of {{split.controllable.total}}</progress>
+          <progress class="split-progress" value="{{{split.controllable.credible}}}" max="{{{split.controllable.total}}}">{{{split.controllable.credible}}} of {{{split.controllable.total}}}</progress>
           <ul class="split-items">
-            {{#each split.controllable.items}}<li class="split-item"><span class="split-status {{status}}"></span><span>{{text}}</span></li>{{/each}}
+            {{#each split.controllable.items}}<li class="split-item"><span class="split-status {{{status}}}"></span><span>{{{text}}}</span></li>{{/each}}
           </ul>
         </article>
-        <article class="split-card {{split.demand_led.color}}">
+        <article class="split-card {{{split.demand_led.color}}}">
           <div class="split-head">
-            <div><h3 class="split-title">{{split.demand_led.title}}</h3><p class="split-sub">{{split.demand_led.sub}}</p></div>
-            <div class="split-count">{{split.demand_led.credible}}/{{split.demand_led.total}}<small>credible</small></div>
+            <div><h3 class="split-title">{{{split.demand_led.title}}}</h3><p class="split-sub">{{{split.demand_led.sub}}}</p></div>
+            <div class="split-count">{{{split.demand_led.credible}}}/{{{split.demand_led.total}}}<small>credible</small></div>
           </div>
-          <progress class="split-progress" value="{{split.demand_led.credible}}" max="{{split.demand_led.total}}">{{split.demand_led.credible}} of {{split.demand_led.total}}</progress>
+          <progress class="split-progress" value="{{{split.demand_led.credible}}}" max="{{{split.demand_led.total}}}">{{{split.demand_led.credible}}} of {{{split.demand_led.total}}}</progress>
           <ul class="split-items">
-            {{#each split.demand_led.items}}<li class="split-item"><span class="split-status {{status}}"></span><span>{{text}}</span></li>{{/each}}
+            {{#each split.demand_led.items}}<li class="split-item"><span class="split-status {{{status}}}"></span><span>{{{text}}}</span></li>{{/each}}
           </ul>
         </article>
       </div>
-      {{#if split.takeaway}}<p class="split-takeaway"><strong>Takeaway:</strong> {{split.takeaway}}</p>{{/if}}
+      {{#if split.takeaway}}<p class="split-takeaway"><strong>Takeaway:</strong> {{{split.takeaway}}}</p>{{/if}}
     </section>
     {{/if}}
 
@@ -661,21 +661,21 @@
     <section>
       <div class="section-head"><div><p class="section-tag">Forward look</p><h2 class="section-title">Watch next four quarters</h2></div></div>
       <div class="watch-grid">
-        {{#each watchpoints}}<article class="watchpoint"><span class="watch-number"></span><h3 class="watch-name">{{name}}</h3><p class="watch-desc">{{desc}}{{#if resolves}} <strong>Resolves: {{resolves}}.</strong>{{/if}}</p></article>{{/each}}
+        {{#each watchpoints}}<article class="watchpoint"><span class="watch-number"></span><h3 class="watch-name">{{{name}}}</h3><p class="watch-desc">{{{desc}}}{{#if resolves}} <strong>Resolves: {{{resolves}}}.</strong>{{/if}}</p></article>{{/each}}
       </div>
     </section>
     {{/if}}
 
     {{#if evidence.tiles.length}}
     <section>
-      <div class="section-head"><div><p class="section-tag">{{evidence.section_tag}}</p><h2 class="section-title">{{evidence.section_title}}</h2></div></div>
+      <div class="section-head"><div><p class="section-tag">{{{evidence.section_tag}}}</p><h2 class="section-title">{{{evidence.section_title}}}</h2></div></div>
       <div class="evidence-grid">
         {{#each evidence.tiles}}
-        <article class="evidence-card {{effect}}">
-          <div class="evidence-top"><span class="evidence-period">{{period}}</span><span class="evidence-status">{{status}}</span></div>
-          <h3 class="evidence-name">{{name}}</h3>
-          <p class="evidence-phrase">{{phrase}}</p>
-          {{#if source}}<p class="evidence-source">{{#if source.quote}}<span class="evidence-quote">“{{source.quote}}”</span>{{/if}}{{source.meta}}</p>{{/if}}
+        <article class="evidence-card {{{effect}}}">
+          <div class="evidence-top"><span class="evidence-period">{{{period}}}</span><span class="evidence-status">{{{status}}}</span></div>
+          <h3 class="evidence-name">{{{name}}}</h3>
+          <p class="evidence-phrase">{{{phrase}}}</p>
+          {{#if source}}<p class="evidence-source">{{#if source.quote}}<span class="evidence-quote">“{{{source.quote}}}”</span>{{/if}}{{{source.meta}}}</p>{{/if}}
         </article>
         {{/each}}
       </div>
@@ -684,14 +684,14 @@
 
     {{#if bottom_line.length}}
     <section>
-      <div class="section-head"><div><p class="section-tag">Investor takeaway</p><h2 class="section-title">{{investor_takeaway_text}}</h2></div></div>
+      <div class="section-head"><div><p class="section-tag">Investor takeaway</p><h2 class="section-title">{{{investor_takeaway_text}}}</h2></div></div>
       <div class="bottom-line">
-        {{#each bottom_line}}<div class="bottom-row {{tone}}"><span class="bottom-tag">{{tag}}</span><span class="bottom-copy">{{text}}</span></div>{{/each}}
+        {{#each bottom_line}}<div class="bottom-row {{{tone}}}"><span class="bottom-tag">{{{tag}}}</span><span class="bottom-copy">{{{text}}}</span></div>{{/each}}
       </div>
     </section>
     {{/if}}
 
-    <footer><span>Guidance Credibility · {{asset_name}}</span>{{#if footer.sources}}<span>{{#each footer.sources}}{{count}} {{label}}{{#unless @last}} · {{/unless}}{{/each}}</span>{{/if}}</footer>
+    <footer><span>Guidance Credibility · {{{asset_name}}}</span>{{#if footer.sources}}<span>{{#each footer.sources}}{{{count}}} {{{label}}}{{#unless @last}} · {{/unless}}{{/each}}</span>{{/if}}</footer>
   </main>
 </body>
 </html>

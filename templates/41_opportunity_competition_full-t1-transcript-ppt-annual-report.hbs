@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Competition — {{asset_name}}</title>
+    <title>Competition — {{{asset_name}}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -1478,18 +1478,18 @@
         <header class="top">
             <div>
                 <div class="lens-row"><span class="eyebrow">Opportunity Lens</span>{{#if overall_rating}}<span
-                            class="pill {{score_badge.status_color}}">{{overall_rating.label}}</span>{{/if}}</div>
+                            class="pill {{{score_badge.status_color}}}">{{{overall_rating.label}}}</span>{{/if}}</div>
                 <h1 class="title">Competition</h1>
-                <div class="asset-kicker">{{asset_name}}</div>
+                <div class="asset-kicker">{{{asset_name}}}</div>
             </div><button class="xbtn" aria-label="Close">&times;</button>
         </header>
         {{#if score_badge}}
             <section class="score-badge">
-                <div class="score-ring {{score_badge.status_color}}" style="--score:{{score_badge.score}}"><span
-                        class="score-num">{{score_badge.score}}</span></div>
+                <div class="score-ring {{{score_badge.status_color}}}" style="--score:{{{score_badge.score}}}"><span
+                        class="score-num">{{{score_badge.score}}}</span></div>
                 <div>
-                    <div class="score-label">{{score_badge.rating}} · {{score_badge.label}}</div>
-                    <div class="score-desc">{{score_badge.desc}}</div>
+                    <div class="score-label">{{{score_badge.rating}}} · {{{score_badge.label}}}</div>
+                    <div class="score-desc">{{{score_badge.desc}}}</div>
                 </div>
             </section>
         {{/if}}
@@ -1500,9 +1500,9 @@
                 </div>
                 <div class="grid three">{{#each headline}}
                         <article class="stat">
-                            <div class="lab {{dot}}"><span class="dot"></span>{{label}}</div>
-                            <div class="big {{value_color}}">{{value}}</div>
-                            <div class="desc">{{desc}}</div>
+                            <div class="lab {{{dot}}}"><span class="dot"></span>{{{label}}}</div>
+                            <div class="big {{{value_color}}}">{{{value}}}</div>
+                            <div class="desc">{{{desc}}}</div>
                         </article>
                     {{/each}}</div>
             </section>
@@ -1525,12 +1525,12 @@
                         </thead>
                         <tbody>{{#each narrative.patterns}}
                                 <tr>
-                                    <td><strong>{{name}}</strong>
-                                        <div class="sub">{{sub}}</div>
+                                    <td><strong>{{{name}}}</strong>
+                                        <div class="sub">{{{sub}}}</div>
                                     </td>
                                     <td>{{{trendSparkline this}}}</td>
-                                    <td><span class="pill {{trend}}">{{trend}}</span></td>
-                                    <td>{{interp}}</td>
+                                    <td><span class="pill {{{trend}}}">{{{trend}}}</span></td>
+                                    <td>{{{interp}}}</td>
                                 </tr>
                             {{/each}}</tbody>
                     </table>
@@ -1539,12 +1539,12 @@
                         <div class="qci-edge-label">THE EDGE</div>
                         <div>
                             <p class="edge-copy"><strong>Structural advantage:</strong> <span
-                                    class="edge-positive">{{narrative.edge.structural_advantage}}</span>
+                                    class="edge-positive">{{{narrative.edge.structural_advantage}}}</span>
                                 <strong>Competitive pressure:</strong> <span
-                                    class="edge-risk">{{narrative.edge.competitive_pressure}}</span> <strong>Management
+                                    class="edge-risk">{{{narrative.edge.competitive_pressure}}}</span> <strong>Management
                                     response:</strong> <span
-                                    class="edge-accent">{{narrative.edge.management_response}}</span>
-                                <span>{{narrative.edge.closing_line}}</span></p>
+                                    class="edge-accent">{{{narrative.edge.management_response}}}</span>
+                                <span>{{{narrative.edge.closing_line}}}</span></p>
                         </div>
                     </div>
                 {{/if}}
@@ -1558,27 +1558,27 @@
                     </div>
                 </div>
                 <div class="keymsg">
-                    <div class="lead">{{competitive_landscape.verdict}}</div>
+                    <div class="lead">{{{competitive_landscape.verdict}}}</div>
                 </div>
                 <div class="grid three" style="margin-top:16px">
                     <article class="card landscape-card advantage">
                         <h3>Structural advantages</h3>{{#each competitive_landscape.advantages}}
-                            <div class="landscape-item"><strong>{{title}}</strong>
-                                <div class="desc">{{evidence}}</div><em>{{why_it_matters}}</em>
+                            <div class="landscape-item"><strong>{{{title}}}</strong>
+                                <div class="desc">{{{evidence}}}</div><em>{{{why_it_matters}}}</em>
                             </div>
                         {{/each}}
                     </article>
                     <article class="card landscape-card pressure">
                         <h3>Competitive pressures</h3>{{#each competitive_landscape.pressures}}
-                            <div class="landscape-item"><strong>{{title}}</strong>
-                                <div class="desc">{{evidence}}</div><em>{{why_it_matters}}</em>
+                            <div class="landscape-item"><strong>{{{title}}}</strong>
+                                <div class="desc">{{{evidence}}}</div><em>{{{why_it_matters}}}</em>
                             </div>
                         {{/each}}
                     </article>
                     <article class="card landscape-card response">
                         <h3>Strategic response</h3>{{#each competitive_landscape.responses}}
-                            <div class="landscape-item"><strong>{{title}}</strong>
-                                <div class="desc">{{evidence}}</div><em>{{why_it_matters}}</em>
+                            <div class="landscape-item"><strong>{{{title}}}</strong>
+                                <div class="desc">{{{evidence}}}</div><em>{{{why_it_matters}}}</em>
                             </div>
                         {{/each}}
                     </article>
@@ -1593,8 +1593,8 @@
                 </div>
                 <div class="grid two numbered-grid">{{#each watch}}
                         <article class="watch-card">
-                            <h3>{{title}}</h3>
-                            <p class="desc">{{desc}}</p>
+                            <h3>{{{title}}}</h3>
+                            <p class="desc">{{{desc}}}</p>
                         </article>
                     {{/each}}</div>
             </section>
@@ -1604,16 +1604,16 @@
                 <div class="sec-title">Synthesis</div>
                 <div class="synthesis-grid">
                     <div class="synthesis-panel"><span class="synthesis-label neutral">Bottom line</span>
-                        <div class="lead">{{key_message.lead}}</div>
+                        <div class="lead">{{{key_message.lead}}}</div>
                     </div>
                     <div class="synthesis-panel"><span class="synthesis-label positive">Positive</span>
-                        <p>{{key_message.positive}}</p>
+                        <p>{{{key_message.positive}}}</p>
                     </div>
                     <div class="synthesis-panel"><span class="synthesis-label watch">Watch</span>
-                        <p>{{key_message.watch}}</p>
+                        <p>{{{key_message.watch}}}</p>
                     </div>
                     <div class="synthesis-panel"><span class="synthesis-label risk">Risk</span>
-                        <p>{{key_message.risk}}</p>
+                        <p>{{{key_message.risk}}}</p>
                     </div>
                 </div>
             </section>

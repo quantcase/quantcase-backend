@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Customer Distribution — {{asset_name}}</title>
+  <title>Customer Distribution — {{{asset_name}}}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Serif+4:wght@500;600&display=swap" rel="stylesheet">
@@ -1149,22 +1149,22 @@
 <body>
   <main class="report" data-template-category="customer-distribution-compressed">
     <div class="topline">
-      <span class="topline-brand">{{lens}} · <strong>{{asset_name}}</strong></span>
-      <p class="topline-period">{{#if period_start}}{{period_start}}{{#if period_end}} →
-            {{period_end}}{{/if}}{{/if}}{{#if computed_date}}<br>Computed {{computed_date}}{{/if}}</p>
+      <span class="topline-brand">{{{lens}}} · <strong>{{{asset_name}}}</strong></span>
+      <p class="topline-period">{{#if period_start}}{{{period_start}}}{{#if period_end}} →
+            {{{period_end}}}{{/if}}{{/if}}{{#if computed_date}}<br>Computed {{{computed_date}}}{{/if}}</p>
     </div>
     <header class="hero">
-      <div class="score-ring {{score_badge.status_color}}" style="--score:{{score_badge.score}}" role="img"
-        aria-label="Customer distribution score {{score_badge.score}} out of {{score_badge.scale}}">
-        <div class="score-copy"><span class="score-value">{{score_badge.score}}</span><span class="score-scale">out of
-            {{score_badge.scale}}</span></div>
+      <div class="score-ring {{{score_badge.status_color}}}" style="--score:{{{score_badge.score}}}" role="img"
+        aria-label="Customer distribution score {{{score_badge.score}}} out of {{{score_badge.scale}}}">
+        <div class="score-copy"><span class="score-value">{{{score_badge.score}}}</span><span class="score-scale">out of
+            {{{score_badge.scale}}}</span></div>
       </div>
       <div class="hero-body">
         <p class="eyebrow">Customer Distribution</p>
-        <h1 class="action-title">{{hero.action_title}}</h1>
-        <p class="verdict">{{hero.verdict}}</p>
+        <h1 class="action-title">{{{hero.action_title}}}</h1>
+        <p class="verdict">{{{hero.verdict}}}</p>
         {{#if hero.reasons.length}}
-          <div class="reasons">{{#each hero.reasons}}<span class="reason {{tone}}">{{text}}</span>{{/each}}</div>
+          <div class="reasons">{{#each hero.reasons}}<span class="reason {{{tone}}}">{{{text}}}</span>{{/each}}</div>
         {{/if}}
       </div>
     </header>
@@ -1172,15 +1172,15 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{headline.section_tag}}</p>
-            <h2 class="section-title">{{headline.section_title}}</h2>
+            <p class="section-tag">{{{headline.section_tag}}}</p>
+            <h2 class="section-title">{{{headline.section_title}}}</h2>
           </div>
         </div>
         <div class="headline-grid">{{#each headline.cards}}
-            <article class="headline-card {{dot}}">
-              <p class="headline-label">{{label}}</p>
-              <p class="headline-value {{value_color}}">{{value}}</p>
-              <p class="headline-sub">{{sub}}</p>
+            <article class="headline-card {{{dot}}}">
+              <p class="headline-label">{{{label}}}</p>
+              <p class="headline-value {{{value_color}}}">{{{value}}}</p>
+              <p class="headline-sub">{{{sub}}}</p>
             </article>
           {{/each}}</div>
       </section>
@@ -1189,36 +1189,36 @@
       {{#if qc_intuition.summary}}
         <div class="intuition-panel"><span class="intuition-badge">QC Intuition · Pattern Recognition</span>
           <h2 class="intuition-heading">What the customer franchise and route to market are signalling.</h2>
-          <p class="intuition-line">{{qc_intuition.summary}}</p>
+          <p class="intuition-line">{{{qc_intuition.summary}}}</p>
         </div>
       {{/if}}
       {{#if patterns.cards.length}}
         <div class="insight-patterns">
           <div class="pattern-grid">{{#each patterns.cards}}
-              <article class="pattern-card {{tone}} {{#if full_width}}full{{/if}}">
+              <article class="pattern-card {{{tone}}} {{#if full_width}}full{{/if}}">
                 <div class="pattern-visual"><span class="sparkline"
                     aria-label="Relative pattern evolution">{{#each spark}}<i
-                        class="v{{this}}"></i>{{/each}}</span><span class="trend {{trend}}">{{trend}}</span></div>
-                <h3 class="pattern-name">{{name}}</h3>
-                <p class="pattern-meaning">{{meaning}}</p>
+                        class="v{{{this}}}"></i>{{/each}}</span><span class="trend {{{trend}}}">{{{trend}}}</span></div>
+                <h3 class="pattern-name">{{{name}}}</h3>
+                <p class="pattern-meaning">{{{meaning}}}</p>
               </article>
             {{/each}}</div>
         </div>
       {{/if}}
       {{#if edge}}
-        <div class="edge-panel"><span class="edge-badge">{{edge.badge}}</span>
+        <div class="edge-panel"><span class="edge-badge">{{{edge.badge}}}</span>
           <div class="edge-grid">
             <div>
               <p class="edge-label">Strength</p>
-              <p class="edge-copy">{{edge.behaviour}}</p>
+              <p class="edge-copy">{{{edge.behaviour}}}</p>
             </div>
             <div>
               <p class="edge-label">Risk</p>
-              <p class="edge-copy accent">{{edge.implication}}</p>
+              <p class="edge-copy accent">{{{edge.implication}}}</p>
             </div>{{#if edge.investor_focus.chip}}
               <div>
                 <p class="edge-label">Takeaway</p>
-                <p class="edge-copy">{{edge.investor_focus.tail}}</p>
+                <p class="edge-copy">{{{edge.investor_focus.tail}}}</p>
               </div>
             {{/if}}
           </div>
@@ -1229,16 +1229,16 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{franchise_snapshot.section_tag}}</p>
-            <h2 class="section-title">{{franchise_snapshot.section_title}}</h2>
+            <p class="section-tag">{{{franchise_snapshot.section_tag}}}</p>
+            <h2 class="section-title">{{{franchise_snapshot.section_title}}}</h2>
           </div>
-          <p class="section-note">{{franchise_snapshot.summary}}</p>
+          <p class="section-note">{{{franchise_snapshot.summary}}}</p>
         </div>
         <div class="two-grid">{{#each franchise_snapshot.metrics}}
-            <article class="metric-card {{tone}}">
-              <p class="headline-label"><span class="status-dot {{tone}}"></span>{{label}}</p>
-              <p class="headline-value {{tone}}">{{value}}</p>
-              <p class="headline-sub">{{detail}}</p>
+            <article class="metric-card {{{tone}}}">
+              <p class="headline-label"><span class="status-dot {{{tone}}}"></span>{{{label}}}</p>
+              <p class="headline-value {{{tone}}}">{{{value}}}</p>
+              <p class="headline-sub">{{{detail}}}</p>
             </article>
           {{/each}}</div>
       </section>
@@ -1248,22 +1248,22 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{commercial_signals.section_tag}}</p>
-            <h2 class="section-title">{{commercial_signals.section_title}}</h2>
+            <p class="section-tag">{{{commercial_signals.section_tag}}}</p>
+            <h2 class="section-title">{{{commercial_signals.section_title}}}</h2>
           </div>
         </div>
         <div class="two-grid">{{#each commercial_signals.cards}}
             <article class="panel">
-              <p class="card-meta"><span class="status-dot {{tone}}"></span>{{badge}}</p>
-              <h3 class="card-title">{{title}}</h3>
-              <p class="card-copy">{{detail}}</p>
+              <p class="card-meta"><span class="status-dot {{{tone}}}"></span>{{{badge}}}</p>
+              <h3 class="card-title">{{{title}}}</h3>
+              <p class="card-copy">{{{detail}}}</p>
             </article>
           {{/each}}</div>
         {{#if commercial_signals.quote.text}}
           <article class="panel" style="margin-top:12px">
             <p class="section-tag">Source evidence</p>
-            <blockquote class="quote">“{{commercial_signals.quote.text}}”{{#if
-              commercial_signals.quote.source}}<br><strong>— {{commercial_signals.quote.source}}</strong>
+            <blockquote class="quote">“{{{commercial_signals.quote.text}}}”{{#if
+              commercial_signals.quote.source}}<br><strong>— {{{commercial_signals.quote.source}}}</strong>
         {{/if}}</blockquote>
         </article>
     {{/if}}
@@ -1277,10 +1277,10 @@
           </div>
         </div>
         <div class="watch-grid">{{#each watchpoints}}
-            <article class="watch-card {{tone}}">
-              <h3 class="watch-title">{{title}}</h3>
-              <p class="watch-desc">{{desc}}</p>{{#if resolves}}
-                <p class="watch-meta">Resolves: {{resolves}}</p>
+            <article class="watch-card {{{tone}}}">
+              <h3 class="watch-title">{{{title}}}</h3>
+              <p class="watch-desc">{{{desc}}}</p>{{#if resolves}}
+                <p class="watch-meta">Resolves: {{{resolves}}}</p>
               {{/if}}
             </article>
           {{/each}}</div>
@@ -1291,17 +1291,17 @@
         <div class="section-head">
           <div>
             <p class="section-tag">Investor takeaway</p>
-            <h2 class="section-title">{{investor_takeaway_text}}</h2>
+            <h2 class="section-title">{{{investor_takeaway_text}}}</h2>
           </div>
         </div>
         <div class="bottom-line">{{#each bottom_line}}
-            <div class="bottom-row {{tone}}"><span class="bottom-tag">{{tag}}</span><span
-                class="bottom-copy">{{text}}</span></div>
+            <div class="bottom-row {{{tone}}}"><span class="bottom-tag">{{{tag}}}</span><span
+                class="bottom-copy">{{{text}}}</span></div>
           {{/each}}</div>
       </section>
     {{/if}}
     <footer class="foot"><span>Customer Distribution ·
-        {{asset_name}}</span><span>{{footer.sources}}{{#if footer.methodology}} · {{footer.methodology}}{{/if}}</span>
+        {{{asset_name}}}</span><span>{{{footer.sources}}}{{#if footer.methodology}} · {{{footer.methodology}}}{{/if}}</span>
     </footer>
   </main>
 </body>

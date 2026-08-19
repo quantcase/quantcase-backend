@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Earnings Quality — {{asset_name}}</title>
+  <title>Earnings Quality — {{{asset_name}}}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Source+Serif+4:wght@500;600&display=swap" rel="stylesheet">
@@ -1199,22 +1199,22 @@
 <body>
   <main class="report" data-template-category="earnings-quality-compressed">
     <div class="topline">
-      <span class="topline-brand">{{lens}} · <strong>{{asset_name}}</strong></span>
-      <p class="topline-period">{{#if period_start}}{{period_start}}{{#if period_end}} →
-            {{period_end}}{{/if}}{{/if}}{{#if computed_date}}<br>Computed {{computed_date}}{{/if}}</p>
+      <span class="topline-brand">{{{lens}}} · <strong>{{{asset_name}}}</strong></span>
+      <p class="topline-period">{{#if period_start}}{{{period_start}}}{{#if period_end}} →
+            {{{period_end}}}{{/if}}{{/if}}{{#if computed_date}}<br>Computed {{{computed_date}}}{{/if}}</p>
     </div>
     <header class="hero">
-      <div class="score-ring {{score_badge.status_color}}" style="--score:{{score_badge.score}}" role="img"
-        aria-label="Earnings quality score {{score_badge.score}} out of {{score_badge.scale}}">
-        <div class="score-copy"><span class="score-value">{{score_badge.score}}</span><span class="score-scale">out of
-            {{score_badge.scale}}</span></div>
+      <div class="score-ring {{{score_badge.status_color}}}" style="--score:{{{score_badge.score}}}" role="img"
+        aria-label="Earnings quality score {{{score_badge.score}}} out of {{{score_badge.scale}}}">
+        <div class="score-copy"><span class="score-value">{{{score_badge.score}}}</span><span class="score-scale">out of
+            {{{score_badge.scale}}}</span></div>
       </div>
       <div class="hero-body">
         <p class="eyebrow">Earnings Quality</p>
-        <h1 class="action-title">{{hero.action_title}}</h1>
-        <p class="verdict">{{hero.verdict}}</p>
+        <h1 class="action-title">{{{hero.action_title}}}</h1>
+        <p class="verdict">{{{hero.verdict}}}</p>
         {{#if hero.reasons.length}}
-          <div class="reasons">{{#each hero.reasons}}<span class="reason {{tone}}">{{text}}</span>{{/each}}</div>
+          <div class="reasons">{{#each hero.reasons}}<span class="reason {{{tone}}}">{{{text}}}</span>{{/each}}</div>
         {{/if}}
       </div>
     </header>
@@ -1222,15 +1222,15 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{headline.section_tag}}</p>
-            <h2 class="section-title">{{headline.section_title}}</h2>
+            <p class="section-tag">{{{headline.section_tag}}}</p>
+            <h2 class="section-title">{{{headline.section_title}}}</h2>
           </div>
         </div>
         <div class="headline-grid">{{#each headline.cards}}
-            <article class="headline-card {{dot}}">
-              <p class="headline-label">{{label}}</p>
-              <p class="headline-value {{value_color}}">{{value}}</p>
-              <p class="headline-sub">{{sub}}</p>
+            <article class="headline-card {{{dot}}}">
+              <p class="headline-label">{{{label}}}</p>
+              <p class="headline-value {{{value_color}}}">{{{value}}}</p>
+              <p class="headline-sub">{{{sub}}}</p>
             </article>
           {{/each}}</div>
       </section>
@@ -1239,37 +1239,37 @@
       {{#if qc_intuition.summary}}
         <div class="intuition-panel"><span class="intuition-badge">QC Intuition · Pattern Recognition</span>
           <h2 class="intuition-heading">How earnings quality changes the valuation range.</h2>
-          <p class="intuition-line">{{qc_intuition.summary}}</p>
+          <p class="intuition-line">{{{qc_intuition.summary}}}</p>
         </div>
       {{/if}}
       {{#if patterns.cards.length}}
         <div class="insight-patterns">
           <div class="pattern-grid">{{#each patterns.cards}}
-              <article class="pattern-card {{tone}} {{#if full_width}}full{{/if}}">
+              <article class="pattern-card {{{tone}}} {{#if full_width}}full{{/if}}">
                 <div class="pattern-visual"><span class="sparkline"
                     aria-label="Relative pattern evolution">{{#each spark}}<i
-                        class="v{{this}}"></i>{{/each}}</span><span class="trend {{trend}}">{{trend}}</span></div>
-                <h3 class="pattern-name">{{name}}</h3>
-                <p class="pattern-meaning">{{meaning}}</p>
+                        class="v{{{this}}}"></i>{{/each}}</span><span class="trend {{{trend}}}">{{{trend}}}</span></div>
+                <h3 class="pattern-name">{{{name}}}</h3>
+                <p class="pattern-meaning">{{{meaning}}}</p>
               </article>
             {{/each}}</div>
         </div>
       {{/if}}
       {{#if edge}}
-        <div class="edge-panel"><span class="edge-badge">{{edge.badge}}</span>
+        <div class="edge-panel"><span class="edge-badge">{{{edge.badge}}}</span>
           <div class="edge-grid">
             <div>
               <p class="edge-label">Risk</p>
-              <p class="edge-copy">{{edge.behaviour}}</p>
+              <p class="edge-copy">{{{edge.behaviour}}}</p>
             </div>
             <div>
               <p class="edge-label">Earnings Quality</p>
-              <p class="edge-copy accent">{{edge.implication}}</p>
+              <p class="edge-copy accent">{{{edge.implication}}}</p>
             </div>{{#if edge.investor_focus.chip}}
               <div>
                 <p class="edge-label">Validation</p>
                 <p class="edge-copy"><span
-                    class="focus-chip">{{edge.investor_focus.chip}}</span>{{edge.investor_focus.tail}}</p>
+                    class="focus-chip">{{{edge.investor_focus.chip}}}</span>{{{edge.investor_focus.tail}}}</p>
               </div>
             {{/if}}
           </div>
@@ -1280,37 +1280,37 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{quality_pillars.section_tag}}</p>
-            <h2 class="section-title">{{quality_pillars.section_title}}</h2>
+            <p class="section-tag">{{{quality_pillars.section_tag}}}</p>
+            <h2 class="section-title">{{{quality_pillars.section_title}}}</h2>
           </div>
-          <p class="section-note">{{quality_pillars.takeaway}}</p>
+          <p class="section-note">{{{quality_pillars.takeaway}}}</p>
         </div>
         <div class="two-grid">{{#with quality_pillars.reported}}
             <article class="panel">
-              <p class="card-meta tone-{{tone}}">{{subtitle}}</p>
-              <h3 class="card-title">{{title}}</h3>{{#if fill_pct}}
+              <p class="card-meta tone-{{{tone}}}">{{{subtitle}}}</p>
+              <h3 class="card-title">{{{title}}}</h3>{{#if fill_pct}}
                 <div class="bar-track">
-                  <div class="bar-fill {{tone}}" style="width:{{fill_pct}}%"></div>
+                  <div class="bar-fill {{{tone}}}" style="width:{{{fill_pct}}}%"></div>
                 </div>
               {{/if}}{{#if score}}
-                <p class="bar-value">{{score}}{{#if scale}}/{{scale}}{{/if}}</p>
+                <p class="bar-value">{{{score}}}{{#if scale}}/{{{scale}}}{{/if}}</p>
               {{/if}}
               <ul class="list">{{#each items}}
-                  <li><span class="status-dot {{tone}}"></span>{{text}}</li>
+                  <li><span class="status-dot {{{tone}}}"></span>{{{text}}}</li>
                 {{/each}}</ul>
             </article>
           {{/with}}{{#with quality_pillars.forward}}
             <article class="panel">
-              <p class="card-meta tone-{{tone}}">{{subtitle}}</p>
-              <h3 class="card-title">{{title}}</h3>{{#if fill_pct}}
+              <p class="card-meta tone-{{{tone}}}">{{{subtitle}}}</p>
+              <h3 class="card-title">{{{title}}}</h3>{{#if fill_pct}}
                 <div class="bar-track">
-                  <div class="bar-fill {{tone}}" style="width:{{fill_pct}}%"></div>
+                  <div class="bar-fill {{{tone}}}" style="width:{{{fill_pct}}}%"></div>
                 </div>
               {{/if}}{{#if score}}
-                <p class="bar-value">{{score}}{{#if scale}}/{{scale}}{{/if}}</p>
+                <p class="bar-value">{{{score}}}{{#if scale}}/{{{scale}}}{{/if}}</p>
               {{/if}}
               <ul class="list">{{#each items}}
-                  <li><span class="status-dot {{tone}}"></span>{{text}}</li>
+                  <li><span class="status-dot {{{tone}}}"></span>{{{text}}}</li>
                 {{/each}}</ul>
             </article>
           {{/with}}</div>
@@ -1325,43 +1325,43 @@
             <p class="section-tag">Scenario Chart</p>
             <h2 class="section-title">Three-year P/E path</h2>
           </div>
-          <div class="section-note">{{pe_path.fy_start}} {{pe_path.y_mid_label}} → {{pe_path.fy_end}} scenario range</div>
+          <div class="section-note">{{{pe_path.fy_start}}} {{{pe_path.y_mid_label}}} → {{{pe_path.fy_end}}} scenario range</div>
         </div>
         <div class="pe-scatter panel">
           <div class="chart-scroll"><svg class="pe-chart" viewBox="0 0 1080 240" role="img"
-              aria-label="Three-year P/E scenario path from {{pe_path.fy_start}} to {{pe_path.fy_end}}">
+              aria-label="Three-year P/E scenario path from {{{pe_path.fy_start}}} to {{{pe_path.fy_end}}}">
               <line x1="80" y1="190" x2="1045" y2="190" stroke="#e2e1dd" />
               <line x1="80" y1="40" x2="1045" y2="40" stroke="#f0efeb" stroke-dasharray="3 4" />
               <line x1="80" y1="105" x2="1045" y2="105" stroke="#f0efeb" stroke-dasharray="3 4" />
-              <text x="70" y="44" text-anchor="end" fill="#9a9a96" font-size="12" font-family="Manrope">{{pe_path.y_top_label}}</text>
-              <text x="70" y="109" text-anchor="end" fill="#9a9a96" font-size="12" font-family="Manrope">{{pe_path.y_mid_label}}</text>
-              <text x="70" y="186" text-anchor="end" fill="#9a9a96" font-size="12" font-family="Manrope">{{pe_path.y_low_label}}</text>
-              <text x="250" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{pe_path.fy_start}}</text>
-              <text x="650" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{pe_path.fy_mid}}</text>
-              <text x="930" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{pe_path.fy_end}}</text>
+              <text x="70" y="44" text-anchor="end" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.y_top_label}}}</text>
+              <text x="70" y="109" text-anchor="end" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.y_mid_label}}}</text>
+              <text x="70" y="186" text-anchor="end" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.y_low_label}}}</text>
+              <text x="250" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.fy_start}}}</text>
+              <text x="650" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.fy_mid}}}</text>
+              <text x="930" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.fy_end}}}</text>
               
               {{#with (lookup pe_path.scenarios 0)}}
-                <polyline points="250,105 650,78 930,58" fill="none" stroke="{{color}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                <circle cx="250" cy="105" r="6" fill="{{color}}" />
-                <circle cx="650" cy="78" r="6" fill="{{color}}" />
-                <circle cx="930" cy="58" r="7.5" fill="{{color}}" />
-                <text x="942" y="55" fill="{{color}}" font-size="12" font-weight="700" font-family="Manrope">{{label}}</text>
+                <polyline points="250,105 650,78 930,58" fill="none" stroke="{{{color}}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                <circle cx="250" cy="105" r="6" fill="{{{color}}}" />
+                <circle cx="650" cy="78" r="6" fill="{{{color}}}" />
+                <circle cx="930" cy="58" r="7.5" fill="{{{color}}}" />
+                <text x="942" y="55" fill="{{{color}}}" font-size="12" font-weight="700" font-family="Manrope">{{{label}}}</text>
               {{/with}}
               
               {{#with (lookup pe_path.scenarios 1)}}
-                <polyline points="250,105 650,105 930,105" fill="none" stroke="{{color}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                <circle cx="250" cy="105" r="6" fill="{{color}}" />
-                <circle cx="650" cy="105" r="6" fill="{{color}}" />
-                <circle cx="930" cy="105" r="7.5" fill="{{color}}" />
-                <text x="942" y="102" fill="{{color}}" font-size="12" font-weight="700" font-family="Manrope">{{label}}</text>
+                <polyline points="250,105 650,105 930,105" fill="none" stroke="{{{color}}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                <circle cx="250" cy="105" r="6" fill="{{{color}}}" />
+                <circle cx="650" cy="105" r="6" fill="{{{color}}}" />
+                <circle cx="930" cy="105" r="7.5" fill="{{{color}}}" />
+                <text x="942" y="102" fill="{{{color}}}" font-size="12" font-weight="700" font-family="Manrope">{{{label}}}</text>
               {{/with}}
               
               {{#with (lookup pe_path.scenarios 2)}}
-                <polyline points="250,105 650,136 930,154" fill="none" stroke="{{color}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                <circle cx="250" cy="105" r="6" fill="{{color}}" />
-                <circle cx="650" cy="136" r="6" fill="{{color}}" />
-                <circle cx="930" cy="154" r="7.5" fill="{{color}}" />
-                <text x="942" y="151" fill="{{color}}" font-size="12" font-weight="700" font-family="Manrope">{{label}}</text>
+                <polyline points="250,105 650,136 930,154" fill="none" stroke="{{{color}}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                <circle cx="250" cy="105" r="6" fill="{{{color}}}" />
+                <circle cx="650" cy="136" r="6" fill="{{{color}}}" />
+                <circle cx="930" cy="154" r="7.5" fill="{{{color}}}" />
+                <text x="942" y="151" fill="{{{color}}}" font-size="12" font-weight="700" font-family="Manrope">{{{label}}}</text>
               {{/with}}
             </svg>
           </div>
@@ -1369,8 +1369,8 @@
           <div class="pe-legend">
             {{#each valuation_scenarios.cards}}
               <div class="pe-lg">
-                <span class="pe-lg-dot {{case}}"></span>
-                <div><strong>{{case}}</strong> · {{summary}}</div>
+                <span class="pe-lg-dot {{{case}}}"></span>
+                <div><strong>{{{case}}}</strong> · {{{summary}}}</div>
               </div>
             {{/each}}
           </div>
@@ -1382,18 +1382,18 @@
       <section>
         <div class="section-head">
           <div>
-            <p class="section-tag">{{valuation_scenarios.section_tag}}</p>
-            <h2 class="section-title">{{valuation_scenarios.section_title}}</h2>
+            <p class="section-tag">{{{valuation_scenarios.section_tag}}}</p>
+            <h2 class="section-title">{{{valuation_scenarios.section_title}}}</h2>
           </div>
           <p class="section-note">Scenario outputs, not price recommendations.</p>
         </div>
         <div class="three-grid">{{#each valuation_scenarios.cards}}
-            <article class="headline-card {{tone}}">
-              <p class="headline-label">{{case}}</p>
-              <p class="headline-value {{tone}}">{{#if pe}}{{pe}}{{else}}P/E not supported{{/if}}</p>{{#if probability}}
-                <p class="card-meta">Probability {{probability}}</p>
+            <article class="headline-card {{{tone}}}">
+              <p class="headline-label">{{{case}}}</p>
+              <p class="headline-value {{{tone}}}">{{#if pe}}{{{pe}}}{{else}}P/E not supported{{/if}}</p>{{#if probability}}
+                <p class="card-meta">Probability {{{probability}}}</p>
               {{/if}}
-              <p class="headline-sub">{{summary}}</p>
+              <p class="headline-sub">{{{summary}}}</p>
             </article>
           {{/each}}</div>
       </section>
@@ -1408,12 +1408,12 @@
           </div>
         </div>
         <div class="watch-grid">{{#each gatekeepers}}
-            <article class="watch-card {{tone}}">
-              <h3 class="watch-title">{{title}}</h3>
-              <p class="watch-desc">{{desc}}</p>{{#if resolves}}
-                <p class="watch-meta">Resolves: {{resolves}}{{#if drives}} · Drives: {{drives}}{{/if}}</p>
+            <article class="watch-card {{{tone}}}">
+              <h3 class="watch-title">{{{title}}}</h3>
+              <p class="watch-desc">{{{desc}}}</p>{{#if resolves}}
+                <p class="watch-meta">Resolves: {{{resolves}}}{{#if drives}} · Drives: {{{drives}}}{{/if}}</p>
                 {{else}}{{#if drives}}
-                  <p class="watch-meta">Drives: {{drives}}</p>
+                  <p class="watch-meta">Drives: {{{drives}}}</p>
                 {{/if}}
               {{/if}}
             </article>
@@ -1425,17 +1425,17 @@
         <div class="section-head">
           <div>
             <p class="section-tag">Investor takeaway</p>
-            <h2 class="section-title">{{investor_takeaway_text}}</h2>
+            <h2 class="section-title">{{{investor_takeaway_text}}}</h2>
           </div>
         </div>
         <div class="bottom-line">{{#each bottom_line}}
-            <div class="bottom-row {{tone}}"><span class="bottom-tag">{{tag}}</span><span
-                class="bottom-copy">{{text}}</span></div>
+            <div class="bottom-row {{{tone}}}"><span class="bottom-tag">{{{tag}}}</span><span
+                class="bottom-copy">{{{text}}}</span></div>
           {{/each}}</div>
       </section>
     {{/if}}
     <footer class="foot"><span>Earnings Quality ·
-        {{asset_name}}</span><span>{{footer.sources}}{{#if footer.methodology}} · {{footer.methodology}}{{/if}}</span>
+        {{{asset_name}}}</span><span>{{{footer.sources}}}{{#if footer.methodology}} · {{{footer.methodology}}}{{/if}}</span>
     </footer>
   </main>
 </body>

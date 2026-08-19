@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Customer & Distribution Strength — {{asset_name}}</title>
+    <title>Customer & Distribution Strength — {{{asset_name}}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -1463,19 +1463,19 @@
         <header class="top">
             <div>
                 <div class="lens-row"><span class="eyebrow">Opportunity Lens</span>{{#if overall_rating}}<span
-                            class="pill {{score_badge.status_color}}">{{overall_rating.label}}</span>{{/if}}</div>
+                            class="pill {{{score_badge.status_color}}}">{{{overall_rating.label}}}</span>{{/if}}</div>
                 <h1 class="title">Customer &amp; Distribution</h1>
-                <div class="asset-kicker">{{asset_name}}</div>
+                <div class="asset-kicker">{{{asset_name}}}</div>
             </div><button class="xbtn" aria-label="Close">&times;</button>
         </header>
 
         {{#if score_badge}}
             <section class="score-badge">
-                <div class="score-ring {{score_badge.status_color}}" style="--score:{{score_badge.score}}"><span
-                        class="score-num">{{score_badge.score}}</span></div>
+                <div class="score-ring {{{score_badge.status_color}}}" style="--score:{{{score_badge.score}}}"><span
+                        class="score-num">{{{score_badge.score}}}</span></div>
                 <div>
-                    <div class="score-label">{{score_badge.rating}} · {{score_badge.label}}</div>
-                    <div class="score-desc">{{score_badge.desc}}</div>
+                    <div class="score-label">{{{score_badge.rating}}} · {{{score_badge.label}}}</div>
+                    <div class="score-desc">{{{score_badge.desc}}}</div>
                 </div>
             </section>
         {{/if}}
@@ -1484,36 +1484,36 @@
                 <div class="ct-outer">
                     <div class="ct-header">
                         <div class="ct-header-left"><span class="ct-header-label">Customer
-                                traction</span>{{#if period}}<span class="ct-date-pill">{{period}}</span>{{/if}}</div>
+                                traction</span>{{#if period}}<span class="ct-date-pill">{{{period}}}</span>{{/if}}</div>
                         {{#if customer_traction.verdict_label}}
                             <div class="ct-verdict"><span
-                                    class="ct-verdict-dot {{score_badge.status_color}}"></span>{{customer_traction.verdict_label}}
+                                    class="ct-verdict-dot {{{score_badge.status_color}}}"></span>{{{customer_traction.verdict_label}}}
                             </div>
                         {{/if}}
                     </div>{{#if customer_traction.block_summary}}
-                        <p class="ct-summary">{{customer_traction.block_summary}}</p>
+                        <p class="ct-summary">{{{customer_traction.block_summary}}}</p>
                     {{/if}}{{#if customer_traction.stats.length}}
                         <div class="ct-stat-row">{{#each customer_traction.stats}}
-                                <article class="ct-stat {{color}} {{#if highlight}}hl{{/if}}">
-                                    <div class="ct-stat-label {{color}}">{{label}}</div>
-                                    <div class="ct-stat-value">{{value}}</div>
-                                    <div class="ct-stat-desc">{{desc}}</div>
+                                <article class="ct-stat {{{color}}} {{#if highlight}}hl{{/if}}">
+                                    <div class="ct-stat-label {{{color}}}">{{{label}}}</div>
+                                    <div class="ct-stat-value">{{{value}}}</div>
+                                    <div class="ct-stat-desc">{{{desc}}}</div>
                                 </article>
                             {{/each}}</div>
                     {{/if}}{{#if customer_traction.quote.text}}
-                        <blockquote class="ct-quote">“{{customer_traction.quote.text}}”{{#if
+                        <blockquote class="ct-quote">“{{{customer_traction.quote.text}}}”{{#if
                             customer_traction.quote.source}}<span
-                                class="ct-quote-source">{{customer_traction.quote.source}}</span>
+                                class="ct-quote-source">{{{customer_traction.quote.source}}}</span>
                     {{/if}}</blockquote>
         {{/if}}{{#if customer_traction.signals.length}}
             <div class="ct-signals">{{#each customer_traction.signals}}
-                    <article class="ct-signal {{sentiment}}"><span class="ct-signal-icon"
+                    <article class="ct-signal {{{sentiment}}}"><span class="ct-signal-icon"
                             aria-hidden="true">{{#if (eq sentiment "pos")}}✓{{else}}!{{/if}}</span>
                         <div class="ct-signal-head">
-                            <h3>{{title}}</h3>{{#if badge_label}}<span
-                                    class="pill {{badge_color}}">{{badge_label}}</span>{{/if}}
+                            <h3>{{{title}}}</h3>{{#if badge_label}}<span
+                                    class="pill {{{badge_color}}}">{{{badge_label}}}</span>{{/if}}
                         </div>
-                        <p>{{desc}}</p>
+                        <p>{{{desc}}}</p>
                     </article>
                 {{/each}}</div>
         {{/if}}</div>
@@ -1524,7 +1524,7 @@
                     <div class="qci-badge"> QC Intuition · Pattern Recognition</div>
                     <div class="qci-title">What the distribution signals reveal.</div>
                     {{!-- <div class="qci-sub">Customer and distribution evidence{{#if qci.period_start}} ·
-                        {{qci.period_start}} → {{qci.period_end}}
+                        {{{qci.period_start}}} → {{{qci.period_end}}}
         {{/if}} --}}
         </div>
         </div>
@@ -1540,11 +1540,11 @@
                 </thead>
                 <tbody>{{#each qci.themes}}
                         <tr>
-                            <td><strong>{{name}}</strong>
-                                <div class="sub">{{sub}}</div>
+                            <td><strong>{{{name}}}</strong>
+                                <div class="sub">{{{sub}}}</div>
                             </td>
                             <td>{{{trendSparkline this}}}</td>
-                            <td><span class="pill {{trend}}">{{trend}}</span></td>
+                            <td><span class="pill {{{trend}}}">{{{trend}}}</span></td>
                             <td>{{{interp}}}</td>
                         </tr>
                     {{/each}}</tbody>
@@ -1554,8 +1554,8 @@
                 <div class="qci-edge-label">THE EDGE</div>
                 <div>
                     <p class="edge-copy"><strong>Strength:</strong> <span
-                            class="edge-positive">{{qci.edge.strength}}</span> <strong>Risk:</strong> <span
-                            class="edge-watch">{{qci.edge.risk}}</span> <span>{{qci.edge.conclusion}}</span></p>
+                            class="edge-positive">{{{qci.edge.strength}}}</span> <strong>Risk:</strong> <span
+                            class="edge-watch">{{{qci.edge.risk}}}</span> <span>{{{qci.edge.conclusion}}}</span></p>
                 </div>
             </div>
         {{/if}}</section>{{/if}}
@@ -1567,13 +1567,13 @@
                         <div class="customer-ai-label">Customer &amp; Distribution</div>
                         {{#if ai_summary.text_segments.length}}
                             <div class="customer-ai-copy">{{#each ai_summary.text_segments}}<span
-                                        class="{{class}}">{{text}}</span>{{/each}}</div>
+                                        class="{{{class}}}">{{{text}}}</span>{{/each}}</div>
                         {{/if}}{{#if ai_summary.kpis.length}}
                             <div class="customer-ai-kpis">{{#each ai_summary.kpis}}
                                     <div class="customer-ai-kpi">
-                                        <div class="customer-ai-kpi-label">{{label}}</div>
-                                        <div class="customer-ai-kpi-value">{{value}}</div>
-                                        <div class="customer-ai-kpi-sub">{{sub}}</div>
+                                        <div class="customer-ai-kpi-label">{{{label}}}</div>
+                                        <div class="customer-ai-kpi-value">{{{value}}}</div>
+                                        <div class="customer-ai-kpi-sub">{{{sub}}}</div>
                                     </div>
                                 {{/each}}</div>
                         {{/if}}

@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
-    <title>Industry Analysis — {{asset_name}}</title>
+    <title>Industry Analysis — {{{asset_name}}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -1719,19 +1719,19 @@
         <header class="top">
             <div>
                 <div class="lens-row"><span class="eyebrow">Opportunity Lens</span>{{#if overall_sentiment}}<span
-                            class="pill {{overall_sentiment.pill_class}}">{{overall_sentiment.label}}</span>{{/if}}
+                            class="pill {{{overall_sentiment.pill_class}}}">{{{overall_sentiment.label}}}</span>{{/if}}
                 </div>
                 <h1 class="title">Management Views on Industry</h1>
-                <div class="asset-kicker">{{asset_name}}</div>
+                <div class="asset-kicker">{{{asset_name}}}</div>
             </div><button class="xbtn" aria-label="Close">&times;</button>
         </header>
         {{#if score}}
             <section class="score-badge">
-                <div class="score-ring {{score.sentiment_class}}" style="--score:{{score.value}}"><span
-                        class="score-num">{{score.value}}</span></div>
+                <div class="score-ring {{{score.sentiment_class}}}" style="--score:{{{score.value}}}"><span
+                        class="score-num">{{{score.value}}}</span></div>
                 <div>
-                    <div class="score-label">{{score.label}}</div>
-                    <div class="score-desc">{{score.desc}}</div>
+                    <div class="score-label">{{{score.label}}}</div>
+                    <div class="score-desc">{{{score.desc}}}</div>
                 </div>
             </section>
         {{/if}}
@@ -1742,9 +1742,9 @@
                 </div>
                 <div class="grid three">{{#each headline}}
                         <article class="stat">
-                            <div class="lab {{dot}}"><span class="dot"></span>{{label}}</div>
-                            <div class="big {{value_color}}">{{value}}</div>
-                            <div class="desc">{{desc}}</div>
+                            <div class="lab {{{dot}}}"><span class="dot"></span>{{{label}}}</div>
+                            <div class="big {{{value_color}}}">{{{value}}}</div>
+                            <div class="desc">{{{desc}}}</div>
                         </article>
                     {{/each}}</div>
             </section>
@@ -1752,20 +1752,20 @@
         {{#if dimensions.length}}
             <section class="sec">
                 <div class="sec-head">
-                    <div class="sec-title">{{#if score.value}}How the {{score.value}}/100 is built{{else}}How the
+                    <div class="sec-title">{{#if score.value}}How the {{{score.value}}}/100 is built{{else}}How the
                             industry score is built{{/if}}</div>
-                    <div class="sec-note">Weighted across {{dimensions.length}} perception dimensions</div>
+                    <div class="sec-note">Weighted across {{{dimensions.length}}} perception dimensions</div>
                 </div>
                 <div class="score-composition">{{#each dimensions}}
                         <div class="composition-row">
-                            <div class="composition-name">{{name}}</div>
+                            <div class="composition-name">{{{name}}}</div>
                             <div class="composition-bar">
-                                <div class="composition-fill {{color}}" style="width:{{score}}%"></div>
+                                <div class="composition-fill {{{color}}}" style="width:{{{score}}}%"></div>
                             </div>
-                            <div class="composition-value {{color}}">{{score}}</div>
+                            <div class="composition-value {{{color}}}">{{{score}}}</div>
                         </div>
                     {{/each}}{{#if score.desc}}
-                        <p class="composition-insight"><strong>Key insight:</strong> {{score.desc}}</p>
+                        <p class="composition-insight"><strong>Key insight:</strong> {{{score.desc}}}</p>
                     {{/if}}</div>
             </section>
         {{/if}}
@@ -1774,8 +1774,8 @@
                 <div class="qci-head">
                     <div class="qci-badge">QC Intuition · Pattern Recognition</div>
                     <div class="qci-title">What management sees in the industry</div>
-                    {{!-- <div class="qci-sub">{{narrative.source_types}}{{#if narrative.period_start}} ·
-                            {{narrative.period_start}} → {{narrative.period_end}}{{/if}}</div> --}}
+                    {{!-- <div class="qci-sub">{{{narrative.source_types}}}{{#if narrative.period_start}} ·
+                            {{{narrative.period_start}}} → {{{narrative.period_end}}}{{/if}}</div> --}}
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -1789,12 +1789,12 @@
                         </thead>
                         <tbody>{{#each narrative.themes}}
                                 <tr>
-                                    <td><strong>{{name}}</strong>
-                                        <div class="sub">{{sub}}</div>
+                                    <td><strong>{{{name}}}</strong>
+                                        <div class="sub">{{{sub}}}</div>
                                     </td>
                                     <td>{{{trendSparkline this}}}</td>
                                     <td><span
-                                            class="pill {{trend}}">{{#if status_label}}{{status_label}}{{else}}{{trend}}{{/if}}</span>
+                                            class="pill {{{trend}}}">{{#if status_label}}{{{status_label}}}{{else}}{{{trend}}}{{/if}}</span>
                                     </td>
                                     <td>{{{interp}}}</td>
                                 </tr>
@@ -1807,8 +1807,8 @@
                             <p class="edge-copy">{{#if narrative.edge}}<span
                                         data-inline-markdown>{{{narrative.edge}}}</span>
                                 {{else}}{{#if narrative.edge.hl}}<span
-                                            class="edge-positive">{{narrative.edge.hl}}</span>{{/if}}{{/if}}{{#if narrative.edge.pct}}
-                                    <span class="edge-watch">{{narrative.edge.pct}}</span>{{/if}}</p>
+                                            class="edge-positive">{{{narrative.edge.hl}}}</span>{{/if}}{{/if}}{{#if narrative.edge.pct}}
+                                    <span class="edge-watch">{{{narrative.edge.pct}}}</span>{{/if}}</p>
                         </div>
                     </div>
                 {{/if}}
@@ -1830,15 +1830,15 @@
                                 x="22" y="124">Cautious</text><text class="sentiment-axis" x="22"
                                 y="172">Defensive</text>{{#each timeline}}
                                 <g>
-                                    <title>{{x_period}} · {{label}} · {{posture}} · intensity {{severity}}/5</title>
-                                    <circle class="sentiment-dot" cx="{{timelineX @index ../timeline.length}}"
+                                    <title>{{{x_period}}} · {{{label}}} · {{{posture}}} · intensity {{{severity}}}/5</title>
+                                    <circle class="sentiment-dot" cx="{{{timelineX @index ../timeline.length}}}"
                                         cy="{{#if (eq posture " optimistic")}}72{{else}}{{#if (eq posture "defensive"
                                         )}}168{{else}}120{{/if}}{{/if}}"
                                         r="{{#if (eq severity 4)}}11{{else}}{{#if (eq severity 3)}}9{{else}}7.5{{/if}}{{/if}}"
                                         fill="{{#if (eq posture " optimistic")}}#1c7a4d{{else}}{{#if (eq
                                         posture "defensive" )}}#bb3a32{{else}}#b1750f{{/if}}{{/if}}"></circle><text
-                                        class="sentiment-period" x="{{timelineX @index ../timeline.length}}" y="204"
-                                        text-anchor="middle">{{x_period}}</text>
+                                        class="sentiment-period" x="{{{timelineX @index ../timeline.length}}}" y="204"
+                                        text-anchor="middle">{{{x_period}}}</text>
                                 </g>
                             {{/each}}
                         </svg></div>
@@ -1866,22 +1866,22 @@
                         </thead>
                         <tbody>{{#each dynamics}}
                                 <tr>
-                                    <td><strong>{{period}}</strong>
-                                        <div class="meta">{{date_label}}</div>
+                                    <td><strong>{{{period}}}</strong>
+                                        <div class="meta">{{{date_label}}}</div>
                                     </td>
-                                    <td><strong>{{name}}</strong>
-                                        <div class="sub">{{desc}}</div>{{#if source.quote}}<button class="source-toggle"
+                                    <td><strong>{{{name}}}</strong>
+                                        <div class="sub">{{{desc}}}</div>{{#if source.quote}}<button class="source-toggle"
                                                 type="button" aria-expanded="false"
-                                                aria-controls="industry-source-{{@index}}"
-                                                onclick="toggleIndustrySource(this,'industry-source-{{@index}}')">Source quote</button>{{/if}}
+                                                aria-controls="industry-source-{{{@index}}}"
+                                                onclick="toggleIndustrySource(this,'industry-source-{{{@index}}}')">Source quote</button>{{/if}}
                                     </td>
-                                    <td>{{direction_word}}</td>
-                                    <td><span class="pill {{signal}}">{{signal}}</span></td>
+                                    <td>{{{direction_word}}}</td>
+                                    <td><span class="pill {{{signal}}}">{{{signal}}}</span></td>
                                 </tr>{{#if source.quote}}
-                                    <tr class="source-detail" id="industry-source-{{@index}}" hidden>
+                                    <tr class="source-detail" id="industry-source-{{{@index}}}" hidden>
                                         <td colspan="4">
-                                            <div class="source-detail-inner">“{{source.quote}}”{{#if source.meta}}<span
-                                                    class="source-detail-meta">{{source.meta}}</span>
+                                            <div class="source-detail-inner">“{{{source.quote}}}”{{#if source.meta}}<span
+                                                    class="source-detail-meta">{{{source.meta}}}</span>
                                 {{/if}}
                 </div>
                 </td>
@@ -1901,31 +1901,31 @@
                         <article class="balance-block">
                             <div class="balance-head">
                                 <div>
-                                    <h3>{{positioning.strengths.title}}</h3>
-                                    <div class="sub">{{positioning.strengths.sub}}</div>
-                                </div><span class="balance-count g">{{positioning.strengths.count}} items</span>
+                                    <h3>{{{positioning.strengths.title}}}</h3>
+                                    <div class="sub">{{{positioning.strengths.sub}}}</div>
+                                </div><span class="balance-count g">{{{positioning.strengths.count}}} items</span>
                             </div>
                             <div class="balance-track">
-                                <div class="balance-fill g" style="width:{{positioning.strengths.count}}0%"></div>
+                                <div class="balance-fill g" style="width:{{{positioning.strengths.count}}}0%"></div>
                             </div>{{#each positioning.strengths.items}}
-                                <div class="factor-item"><span class="factor-mark g">✓</span><span>{{this}}</span></div>
+                                <div class="factor-item"><span class="factor-mark g">✓</span><span>{{{this}}}</span></div>
                             {{/each}}
                         </article>
                         <article class="balance-block">
                             <div class="balance-head">
                                 <div>
-                                    <h3>{{positioning.vulnerabilities.title}}</h3>
-                                    <div class="sub">{{positioning.vulnerabilities.sub}}</div>
-                                </div><span class="balance-count r">{{positioning.vulnerabilities.count}} items</span>
+                                    <h3>{{{positioning.vulnerabilities.title}}}</h3>
+                                    <div class="sub">{{{positioning.vulnerabilities.sub}}}</div>
+                                </div><span class="balance-count r">{{{positioning.vulnerabilities.count}}} items</span>
                             </div>
                             <div class="balance-track">
-                                <div class="balance-fill r" style="width:{{positioning.vulnerabilities.count}}0%"></div>
+                                <div class="balance-fill r" style="width:{{{positioning.vulnerabilities.count}}}0%"></div>
                             </div>{{#each positioning.vulnerabilities.items}}
-                                <div class="factor-item"><span class="factor-mark r">×</span><span>{{this}}</span></div>
+                                <div class="factor-item"><span class="factor-mark r">×</span><span>{{{this}}}</span></div>
                             {{/each}}
                         </article>
                     </div>{{#if positioning.takeaway}}
-                        <div class="balance-takeaway"><strong>Synthesis:</strong> {{positioning.takeaway}}</div>
+                        <div class="balance-takeaway"><strong>Synthesis:</strong> {{{positioning.takeaway}}}</div>
                     {{/if}}
                 </div>
             </section>
@@ -1937,12 +1937,12 @@
                     <div class="sec-note">Card color follows the underlying signal.</div>
                 </div>
                 <div class="outlook-grid">{{#each outlook}}
-                        <article class="outlook-card {{direction}}">
+                        <article class="outlook-card {{{direction}}}">
                             <div class="factor-head">
-                                <h3>{{name}}</h3><span class="pill {{direction}}">{{direction}}</span>
+                                <h3>{{{name}}}</h3><span class="pill {{{direction}}}">{{{direction}}}</span>
                             </div>
-                            <p class="desc">{{desc}}</p>
-                            <div class="meta">Driver: <strong>{{driver}}</strong> · Type: <strong>{{type}}</strong>
+                            <p class="desc">{{{desc}}}</p>
+                            <div class="meta">Driver: <strong>{{{driver}}}</strong> · Type: <strong>{{{type}}}</strong>
                             </div>
                         </article>
                     {{/each}}</div>
@@ -1953,13 +1953,13 @@
                 <div class="sec-title">Synthesis</div>
                 <div class="synthesis-grid">
                     <div class="synthesis-panel"><span class="synthesis-label neutral">Bottom line</span>
-                        <div class="lead">{{synthesis.lead}}</div>
+                        <div class="lead">{{{synthesis.lead}}}</div>
                     </div>
                     <div class="synthesis-panel"><span class="synthesis-label positive">Industry structure</span>
-                        <p>{{synthesis.structure_para}}</p>
+                        <p>{{{synthesis.structure_para}}}</p>
                     </div>
                     <div class="synthesis-panel"><span class="synthesis-label watch">Operating dynamics</span>
-                        <p>{{synthesis.dynamics_para}}</p>
+                        <p>{{{synthesis.dynamics_para}}}</p>
                     </div>
                     <div class="synthesis-panel"><span class="synthesis-label risk">Strategic read</span>
                         <p>{{{synthesis.framework_para}}}</p>
