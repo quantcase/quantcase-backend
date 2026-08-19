@@ -396,7 +396,7 @@
     {{/if}}
   </section>
 
-  <!-- NEW DEEP-DIVE SECTION (Replacing capital_evolution timeline to match Reliance) -->
+  <!-- NEW DEEP-DIVE SECTION -->
   {{#if analysis}}
     <section>
       <div class="section-head">
@@ -410,7 +410,7 @@
             {{#each analysis.core_signals}}
               <li class="signal-item">
                 <span class="signal-dot {{dot}}"></span>
-                <span class="signal-text"><strong>{{bold}}:</strong> {{text}}</span>
+                <span class="signal-text"><strong>{{this.title}}:</strong> {{text}}</span>
               </li>
             {{/each}}
           </ul>
@@ -423,7 +423,7 @@
             {{#each analysis.trajectory}}
               <li class="signal-item">
                 <span class="signal-dot {{dot}}"></span>
-                <span class="signal-text"><strong>{{bold}}:</strong> {{text}}</span>
+                <span class="signal-text"><strong>{{this.title}}:</strong> {{text}}</span>
               </li>
             {{/each}}
           </ul>
