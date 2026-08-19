@@ -836,30 +836,26 @@ async function runAgenticPipeline({
       let schemaAttempts = 0;
       let missingFields = getMissingFields(expectedSchema, extracted_json);
 
-      while (missingFields.length > 0 && schemaAttempts < 3) {
+      while (missingFields.length > 0 && schemaAttempts < 5) {
         schemaAttempts++;
-        await logJob(`[Loop 2] Missing schema fields detected: ${missingFields.join(', ')}. Regenerating narratives (Attempt ${schemaAttempts}/3)...`);
+        await logJob(`[Loop 2] Missing schema fields detected: ${missingFields.join(', ')}. Regenerating narratives (Attempt ${schemaAttempts}/5)...`);
 
         const SYSTEM_PROMPT = json_validation_prompt || `You are a strict JSON schema validator and expert financial analyst. 
-The CURRENT JSON was passed through a strict fact-checker which stripped out synthesized narrative fields.
-Your task is to:
-1. Identify the missing fields based on the EXPECTED SCHEMA.
-2. Regenerate these missing narrative fields (insights, verdicts, headlines) from scratch by analysing the ORIGINAL DATA.
-3. Keep the existing fact-checked data intact.
-4. Output ONLY the complete JSON object that perfectly matches the EXPECTED SCHEMA. No markdown fences.`;
+Your task is to regenerate ONLY the specific fields listed in the MISSING FIELDS array.
+
+1. Analyze the ORIGINAL DATA to synthesize the missing narratives (insights, verdicts, headlines).
+2. Adhere STRICTLY to the data types defined in the EXPECTED SCHEMA (e.g., if it says \"string\", output a primitive string, not a nested object).
+3. Output ONLY a partial JSON object containing the newly generated fields. Do NOT output the entire JSON. Do NOT wrap in markdown fences.`;
 
         const USER_PROMPT = `
---- EXPECTED SCHEMA ---
-${JSON.stringify(expectedSchema, null, 2)}
-
---- MISSING FIELDS ---
+--- MISSING FIELDS TO GENERATE ---
 ${JSON.stringify(missingFields)}
+
+--- EXPECTED SCHEMA (FOR TYPE REFERENCE) ---
+${JSON.stringify(expectedSchema, null, 2)}
 
 --- ORIGINAL DATA ---
 ${dataBlock}
-
---- CURRENT JSON ---
-${JSON.stringify(extracted_json, null, 2)}
 `;
 
         const { text: newJsonStr, usage } = await llmStream({
@@ -875,7 +871,7 @@ ${JSON.stringify(extracted_json, null, 2)}
 
         try {
           const parsed = JSON.parse(stripMarkdownFences(newJsonStr));
-          extracted_json = parsed; 
+          extracted_json = deepMerge(extracted_json, parsed); 
           missingFields = getMissingFields(expectedSchema, extracted_json); 
         } catch(e) {
           await logJob(`[Loop 2] Failed to parse regenerated JSON: ${e.message}`);
@@ -885,7 +881,7 @@ ${JSON.stringify(extracted_json, null, 2)}
       if (missingFields.length === 0) {
         await logJob(`[Loop 2] JSON perfectly matches expected schema.`);
       } else {
-        await logJob(`[Loop 2] Warning: JSON still missing fields after 3 attempts: ${missingFields.join(', ')}`);
+        await logJob(`[Loop 2] Warning: JSON still missing fields after 5 attempts: ${missingFields.join(', ')}`);
       }
       
       // Update HTML with the synthesized JSON
@@ -927,7 +923,47 @@ function getMissingFields(expected, actual, path = '') {
       }
     }
   } else {
-    if (actual === undefined || actual === null || actual === '') missing.push(path);
+    // Type checking for primitives
+    if (actual === undefined || actual === null || actual === '') {
+      missing.push(path);
+    } else {
+      // If expected is a primitive string placeholder like "string", "number", etc.
+      if (typeof expected === 'string') {
+        if (typeof actual === 'object' || Array.isArray(actual)) {
+          // It's an object/array but we expect a primitive (This causes the [object Object] bug)
+          missing.push(path);
+        }
+      }
+    }
   }
   return missing;
+}
+
+
+function deepMerge(target, source) {
+  if (typeof target !== 'object' || target === null) return source;
+  if (typeof source !== 'object' || source === null) return source;
+
+  if (Array.isArray(target) && Array.isArray(source)) {
+    // For arrays, if the source has items, we assume it's patching the first item (common in our schema).
+    // A more robust array merge might be needed if they have multiple objects, but usually the missing keys are like `array[].key`.
+    // Actually, since the LLM returns the patched structure, let's merge elements by index.
+    const result = [...target];
+    source.forEach((item, index) => {
+      if (index < result.length) {
+        result[index] = deepMerge(result[index], item);
+      } else {
+        result.push(item);
+      }
+    });
+    return result;
+  }
+
+  for (const key of Object.keys(source)) {
+    if (source[key] instanceof Object && target[key]) {
+      Object.assign(source[key], deepMerge(target[key], source[key]));
+    }
+  }
+  Object.assign(target || {}, source);
+  return target;
 }
