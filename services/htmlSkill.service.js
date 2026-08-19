@@ -854,5 +854,10 @@ async function runAgenticPipeline({
     }
   }
 
+  if (typeof raw_html === 'string') {
+    // Automatically parse **markdown** bold tags into <strong> HTML elements globally
+    raw_html = raw_html.replace(/\*\*([\s\S]*?)\*\*/g, '<strong>$1</strong>');
+  }
+
   return { raw_html, extracted_json, audit_logs, usage: usageAcc };
 }

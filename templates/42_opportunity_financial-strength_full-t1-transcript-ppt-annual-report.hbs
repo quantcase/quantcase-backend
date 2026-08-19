@@ -1426,6 +1426,18 @@
         .qci table th:nth-child(2), .qci-table th:nth-child(2) { width: 14% !important; }
         .qci table th:nth-child(3), .qci-table th:nth-child(3) { width: 14% !important; }
         .qci table th:nth-child(4), .qci-table th:nth-child(4) { width: 40% !important; }
+
+        /* Extra pill colors for trend */
+        .pill.deteriorating { color: var(--red-d); background: var(--red-bg) !important; border-color: var(--red-bd); }
+        .pill.neutral { color: var(--amber-d); background: var(--amber-bg) !important; border-color: var(--amber-bd); }
+        
+        /* Fix for Strengths vs Weaknesses paragraph text bleeding color */
+        .balance-track .desc { color: var(--ink); }
+
+        /* Force correct colors in balance block */
+        .balance-block:first-child .balance-head h3 { color: var(--green); }
+        .balance-block:last-child .balance-head h3 { color: var(--red); }
+        .balance-block .balance-head .sub, .balance-block .factor-item span { color: var(--ink) !important; }
 </style>
 </head>
 
@@ -1494,7 +1506,7 @@
                     </table>
                 </div>{{#if qci.edge}}
                     <div class="qci-edge">
-                        <div class="qci-edge-label">The Edge</div>
+                        <div class="qci-edge-label">THE EDGE</div>
                         <div>
                             <p class="edge-copy"><span class="edge-accent">{{{qci.edge.synthesis}}}</span>
                                 <strong>Dominant signal:</strong> <span
@@ -1553,12 +1565,10 @@
                         </thead>
                         <tbody>{{#each components}}
                                 <tr>
-                                    <td><strong>{{name}}</strong>
-                                        <div class="sub"><span class="pill {{pill_class}}">{{pill_label}}</span></div>
-                                    </td>
+                                    <td><strong>{{name}}</strong></td>
                                     <td><strong>{{score}}</strong></td>
                                     <td>{{weight}}</td>
-                                    <td>{{trend}}</td>
+                                    <td><span class="pill {{trend}}">{{trend}}</span></td>
                                     <td>{{desc}}{{#if source.quote}}
                                             <div class="source-box">“{{source.quote}}”<span
                                                     class="meta">{{source.meta}}</span></div>
