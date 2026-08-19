@@ -1437,7 +1437,16 @@
         /* Force correct colors in balance block */
         .balance-block:first-child .balance-head h3 { color: var(--green); }
         .balance-block:last-child .balance-head h3 { color: var(--red); }
-        .balance-block .balance-head .sub, .balance-block .factor-item span { color: var(--ink) !important; }
+        .balance-block .balance-head .sub { color: var(--ink) !important; }
+        .factor-item span:last-child { color: var(--ink) !important; }
+
+        /* Force synthesis text to be standard ink color, regardless of LLM markdown or nested tags */
+        .synthesis-panel p,
+        .synthesis-panel strong,
+        .synthesis-panel div,
+        .synthesis-panel span:not(.synthesis-label) {
+            color: var(--ink) !important;
+        }
 </style>
 </head>
 
