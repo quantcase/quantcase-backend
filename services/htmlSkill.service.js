@@ -843,8 +843,8 @@ async function runAgenticPipeline({
         const SYSTEM_PROMPT = json_validation_prompt || `You are a strict JSON schema validator and expert financial analyst. 
 Your task is to regenerate ONLY the specific fields listed in the MISSING FIELDS array.
 
-1. Analyze the ORIGINAL DATA to synthesize the missing narratives (insights, verdicts, headlines).
-2. Adhere STRICTLY to the data types defined in the EXPECTED SCHEMA (e.g., if it says \"string\", output a primitive string, not a nested object).
+1. Analyze the ORIGINAL DATA to synthesize the missing narratives (insights, verdicts, headlines). Use the EXTRACTION RULES for context on how these fields should be formatted and calculated (e.g. scoring out of 100).
+2. Adhere STRICTLY to the data types defined in the EXPECTED SCHEMA (e.g., if it says "string", output a primitive string, not a nested object).
 3. Output ONLY a partial JSON object containing the newly generated fields. Do NOT output the entire JSON. Do NOT wrap in markdown fences.`;
 
         const USER_PROMPT = `
@@ -853,6 +853,9 @@ ${JSON.stringify(missingFields)}
 
 --- EXPECTED SCHEMA (FOR TYPE REFERENCE) ---
 ${JSON.stringify(expectedSchema, null, 2)}
+
+--- EXTRACTION RULES (FOR CONTEXT) ---
+${data_extraction_prompt}
 
 --- ORIGINAL DATA ---
 ${dataBlock}
