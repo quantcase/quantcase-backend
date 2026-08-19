@@ -982,6 +982,27 @@
       content: "×"
     }
 
+
+    /* 1. Fix for Image 1: The Pattern Grid (QC Intuition section) */
+    .pattern-grid {
+      max-height: 205px; /* Fits one row (cards have a 177px min-height + padding) */
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 8px; /* Prevents the scrollbar from overlapping the card borders */
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-dark) transparent;
+    }
+
+    /* 2. Fix for Image 2: The Two-Column Grids (Reach & Mix / Signals) */
+    .two-grid {
+      max-height: 150px; /* Fits one row of .metric-card or .panel elements */
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 8px; /* Prevents the scrollbar from overlapping the card borders */
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-dark) transparent;
+    }
+
     @media(max-width:760px) {
       .report {
         padding: 20px 16px 40px
