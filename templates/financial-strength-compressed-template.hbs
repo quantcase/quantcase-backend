@@ -621,7 +621,8 @@
       margin: 0;
       line-height: 1.4;
       border-left: 2px solid var(--line);
-      padding-left: 8px
+      padding-left: 8px;
+      font-style: italic;
     }
 
     .bar-meta {
@@ -1123,14 +1124,24 @@
         padding-right: 8px
       }
 
+      /* Right-aligning the score ring on mobile devices */
       .bar-row {
-        grid-template-columns: 1fr;
-        gap: 12px
+        grid-template-columns: 1fr auto;
+        gap: 8px 16px;
       }
-
+      .bar-left {
+        grid-column: 1;
+        grid-row: 1;
+      }
+      .bar-center {
+        grid-column: 1;
+        grid-row: 2;
+      }
       .bar-right {
-        justify-content: flex-start;
-        padding-top: 4px;
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        justify-content: flex-end;
+        padding-top: 0;
       }
 
       .foot {
