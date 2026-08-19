@@ -514,13 +514,15 @@
             line-height: 1.58
         }
 
-        .synthesis-label {
+        synthesis-label {
             display: block;
             margin-bottom: 7px;
             font-size: 10.5px;
             font-weight: 800;
             letter-spacing: .09em;
             text-transform: uppercase;
+            background: none !important; /* Forces the background to be transparent */
+            border: 0 !important;        /* Removes the border */
         }
 
         .synthesis-label.neutral { color: #5267c8 }
@@ -786,7 +788,7 @@
 
         {{#if key_message}}
             <section class="sec keymsg synthesis-card">
-                <div class="sec-title">{{key_message.kicker}}</div>
+                <div class="sec-title">Synthesis</div>
                 <div class="synthesis-grid">
                     <div class="synthesis-panel">
                         <span class="synthesis-label neutral">Forecast read</span>
