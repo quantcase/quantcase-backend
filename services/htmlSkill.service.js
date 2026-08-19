@@ -921,8 +921,19 @@ ${dataBlock}
 function getMissingFields(expected, actual, path = '') {
   let missing = [];
   if (Array.isArray(expected)) {
-    if (!Array.isArray(actual) || actual.length === 0) missing.push(path || 'root_array');
-    else if (expected.length > 0) missing.push(...getMissingFields(expected[0], actual[0], path + '[]'));
+    if (!Array.isArray(actual)) {
+      missing.push(path || 'root_array');
+    } else if (expected.length > 0) {
+      if (actual.length === 0) {
+        // Array is empty but we expected items. Flag as missing so LLM attempts to synthesize it.
+        missing.push(path);
+      } else {
+        // Validate every item in the actual array against the expected schema
+        actual.forEach((actItem, idx) => {
+          missing.push(...getMissingFields(expected[0], actItem, path ? `${path}[${idx}]` : `[${idx}]`));
+        });
+      }
+    }
   } else if (expected !== null && typeof expected === 'object') {
     if (Object.keys(expected).length === 0) {
       // Untyped placeholder {} in schema. Accept any value that exists and is not an empty object itself.
@@ -958,6 +969,23 @@ function deepMerge(target, source) {
   if (source === undefined) return target;
   if (typeof target !== 'object' || target === null) return source;
   if (typeof source !== 'object' || source === null) return source;
+
+  if (Array.isArray(target) && !Array.isArray(source)) {
+    // Sometimes the LLM returns an object {"2": {...}} to patch the 3rd item of an array
+    const isNumericalObject = Object.keys(source).every(k => !isNaN(parseInt(k, 10)));
+    if (isNumericalObject) {
+      const result = [...target];
+      for (const key of Object.keys(source)) {
+        const idx = parseInt(key, 10);
+        if (idx < result.length) {
+          result[idx] = deepMerge(result[idx], source[key]);
+        } else {
+          result[idx] = source[key];
+        }
+      }
+      return result;
+    }
+  }
 
   if (Array.isArray(target) !== Array.isArray(source)) {
     return source;
