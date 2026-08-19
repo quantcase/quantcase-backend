@@ -576,7 +576,7 @@ function previewCacheKey({ ticker, skill_prompt, transcript_signal_types, ppt_si
  * @param {number|null} [opts.market_cmp_months]       Months of CMP history (requires "cmp" in signal types)
  * @param {boolean}  [opts.force]  Skip cache
  */
-async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_template_prompt, use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types, ppt_signal_types, annual_report_signal_types, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types = [], max_market_data_months = null, force = false }, job) {
+async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_template_prompt, use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types, ppt_signal_types, annual_report_signal_types, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types = [], max_market_data_months = null, force = false, expected_json_schema, json_validation_prompt }, job) {
   const previewSkill = await getPreviewSkill();
   
   // NOTE: previewCacheKey should ideally use all these fields but it's preview so we can just generate a random v for force or include them.
@@ -605,7 +605,7 @@ async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_templa
     ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens,
     data_extraction_prompt, html_template_prompt, html_template_filename,
     use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
-    dataBlock, marketDataBlock, job
+    dataBlock, marketDataBlock, job, expected_json_schema, json_validation_prompt
   });
 
   logUsage(`html-skill-preview:${ticker}`, usage);
@@ -647,6 +647,7 @@ module.exports = {
 async function runAgenticPipeline({
   ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, data_extraction_prompt, html_template_prompt, html_template_filename,
   use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
+  expected_json_schema, json_validation_prompt,
   dataBlock, marketDataBlock, job, pre_extracted_json
 }) {
   const audit_logs = { fact_validation: [], visual_qa: [] };
@@ -818,39 +819,88 @@ async function runAgenticPipeline({
     if (!htmlRenderSuccess) throw new Error("Failed to generate valid HTML structure after 3 attempts.");
   }
 
-  // Feedback Loop 2: HTML Validation
-  const shouldValidateHtml = enable_html_validation === true || enable_html_validation === 'true' || enable_html_validation === 1 || enable_html_validation === '1';
-  if (shouldValidateHtml) {
-    await notifyProgress(80, 'visual_qa');
-    await logJob(`[Loop 2] Running visual QA...`);
-    const { text, usage } = await llmStream({
-      model: visual_qa_model, max_tokens,
-        messages: [
-        { role: 'system', content: VISUAL_QA_PROMPT },
-        { role: 'user', content: raw_html }
-      ]
-    }, { vertex: true });
-    mergeUsage(usage);
-    const qaStr = stripMarkdownFences(text);
-    let bugs = [];
-    try { bugs = JSON.parse(qaStr); } catch(e) { bugs = [qaStr]; }
+  // Feedback Loop 2: JSON Schema Validation & Narrative Synthesis
+  const shouldValidateSchema = enable_html_validation === true || enable_html_validation === 'true' || enable_html_validation === 1 || enable_html_validation === '1';
+
+  if (shouldValidateSchema && expected_json_schema) {
+    let expectedSchema = null;
+    try {
+      expectedSchema = typeof expected_json_schema === 'string' ? JSON.parse(expected_json_schema) : expected_json_schema;
+    } catch (e) {
+      await logJob(`[Loop 2] Failed to parse expected_json_schema from DB.`);
+    }
     
-    if (!Array.isArray(bugs)) bugs = [bugs];
-    audit_logs.visual_qa.push(bugs);
-    
-    if (bugs.length > 0) {
-      await logJob(`[Loop 2] Found visual bugs: ${JSON.stringify(bugs)}. Correcting HTML...`);
-      const { text: fixedHtml, usage: fUsage } = await llmStream({
-        model: visual_qa_model, max_tokens,
-        messages: [
-          { role: 'system', content: 'You are a UI developer. Fix the formatting bugs in the HTML and return ONLY the corrected HTML.' },
-          { role: 'user', content: `--- BUGS ---\n${JSON.stringify(bugs)}\n\n--- CURRENT HTML ---\n${raw_html}` }
-        ]
-      }, { vertex: true });
-      mergeUsage(fUsage);
-      raw_html = stripMarkdownFences(fixedHtml);
-    } else {
-      await logJob(`[Loop 2] No visual bugs found.`);
+    if (expectedSchema) {
+      let schemaAttempts = 0;
+      let missingFields = getMissingFields(expectedSchema, extracted_json);
+
+      while (missingFields.length > 0 && schemaAttempts < 3) {
+        schemaAttempts++;
+        await logJob(`[Loop 2] Missing schema fields detected: ${missingFields.join(', ')}. Regenerating narratives (Attempt ${schemaAttempts}/3)...`);
+
+        const SYSTEM_PROMPT = json_validation_prompt || `You are a strict JSON schema validator and expert financial analyst. 
+The CURRENT JSON was passed through a strict fact-checker which stripped out synthesized narrative fields.
+Your task is to:
+1. Identify the missing fields based on the EXPECTED SCHEMA.
+2. Regenerate these missing narrative fields (insights, verdicts, headlines) from scratch by analysing the ORIGINAL DATA.
+3. Keep the existing fact-checked data intact.
+4. Output ONLY the complete JSON object that perfectly matches the EXPECTED SCHEMA. No markdown fences.`;
+
+        const USER_PROMPT = `
+--- EXPECTED SCHEMA ---
+${JSON.stringify(expectedSchema, null, 2)}
+
+--- MISSING FIELDS ---
+${JSON.stringify(missingFields)}
+
+--- ORIGINAL DATA ---
+${dataBlock}
+
+--- CURRENT JSON ---
+${JSON.stringify(extracted_json, null, 2)}
+`;
+
+        const { text: newJsonStr, usage } = await llmStream({
+          model: fact_validation_model || visual_qa_model, 
+          max_tokens,
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: USER_PROMPT }
+          ]
+        }, { vertex: true });
+        
+        mergeUsage(usage);
+
+        try {
+          const parsed = JSON.parse(stripMarkdownFences(newJsonStr));
+          extracted_json = parsed; 
+          missingFields = getMissingFields(expectedSchema, extracted_json); 
+        } catch(e) {
+          await logJob(`[Loop 2] Failed to parse regenerated JSON: ${e.message}`);
+        }
+      }
+      
+      if (missingFields.length === 0) {
+        await logJob(`[Loop 2] JSON perfectly matches expected schema.`);
+      } else {
+        await logJob(`[Loop 2] Warning: JSON still missing fields after 3 attempts: ${missingFields.join(', ')}`);
+      }
+      
+      // Update HTML with the synthesized JSON
+      if (use_template_engine && html_template_filename) {
+         try {
+            const tplPath = require('path').join(__dirname, '..', 'templates', html_template_filename);
+            if (require('fs').existsSync(tplPath)) {
+               const templateStr = require('fs').readFileSync(tplPath, 'utf8');
+               const Handlebars = require('handlebars');
+               const template = Handlebars.compile(templateStr);
+               raw_html = template(extracted_json);
+               await logJob(`[Loop 2] HTML successfully re-rendered with synthesized JSON.`);
+            }
+         } catch(e) {
+            await logJob(`[Loop 2] HTML re-render failed: ${e.message}`);
+         }
+      }
     }
   }
 
@@ -860,4 +910,22 @@ async function runAgenticPipeline({
   }
 
   return { raw_html, extracted_json, audit_logs, usage: usageAcc };
+}
+
+function getMissingFields(expected, actual, path = '') {
+  let missing = [];
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || actual.length === 0) missing.push(path || 'root_array');
+    else if (expected.length > 0) missing.push(...getMissingFields(expected[0], actual[0], path + '[]'));
+  } else if (expected !== null && typeof expected === 'object') {
+    if (!actual || typeof actual !== 'object' || Array.isArray(actual)) missing.push(path || 'root_object');
+    else {
+      for (const key in expected) {
+        missing.push(...getMissingFields(expected[key], actual[key], path ? `${path}.${key}` : key));
+      }
+    }
+  } else {
+    if (actual === undefined || actual === null || actual === '') missing.push(path);
+  }
+  return missing;
 }
