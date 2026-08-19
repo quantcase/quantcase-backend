@@ -1329,7 +1329,7 @@
 
         .synthesis-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+            grid-template-columns: repeat(4, 1fr);
             border-top: 1px solid var(--line)
         }
 
@@ -1384,16 +1384,35 @@
             color: var(--red-d)
         }
 
+        @media (max-width: 1050px) {
+            .synthesis-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            .synthesis-panel:first-child {
+                grid-column: 1 / -1;
+                border-bottom: 1px solid var(--line);
+                padding-bottom: 20px;
+                margin-bottom: 5px;
+            }
+            .synthesis-panel:nth-child(2) {
+                border-left: none;
+                padding-left: 0;
+            }
+        }
+
         @media(max-width:820px) {
             .synthesis-grid {
                 grid-template-columns: 1fr
             }
 
             .synthesis-panel,
-            .synthesis-panel:first-child {
+            .synthesis-panel:first-child,
+            .synthesis-panel:nth-child(2) {
                 padding: 15px 0;
                 border-left: 0;
-                border-top: 1px solid var(--line)
+                border-top: 1px solid var(--line);
+                border-bottom: 0;
+                margin-bottom: 0;
             }
 
             .synthesis-panel:first-child {
@@ -1554,23 +1573,33 @@
 
         /* Collapsible source evidence */
         .source-toggle {
-            margin-top: 10px;
-            padding: 5px 9px;
-            border: 1px solid var(--line);
-            border-radius: 6px;
-            background: #fff;
-            color: var(--muted);
-            font: 700 10.5px 'Manrope', system-ui, sans-serif;
-            letter-spacing: .04em;
-            text-transform: uppercase;
-            cursor: pointer
+            display: inline-flex;
+            align-items: center;
+            margin-top: 8px;
+            padding: 0;
+            border: none;
+            background: transparent;
+            color: var(--amber-d);
+            font: 600 13px var(--font-sans);
+            cursor: pointer;
+            text-transform: none;
+            letter-spacing: normal;
         }
 
         .source-toggle:hover,
         .source-toggle:focus-visible {
-            border-color: var(--amber-bd);
-            color: var(--amber-d);
+            color: var(--amber);
             outline: none
+        }
+
+        .source-toggle::before {
+            content: "▼";
+            margin-right: 5px;
+            font-size: 9px;
+        }
+
+        .source-toggle[aria-expanded="true"]::before {
+            content: "▲";
         }
 
         .source-detail td {
@@ -1606,25 +1635,22 @@
 
         .outlook-card {
             --outlook-color: var(--amber);
-            --outlook-bg: var(--amber-bg);
             min-width: 0;
             padding: 21px 23px;
             border: 1px solid var(--line);
             border-left: 3px solid var(--outlook-color);
             border-radius: var(--radius);
-            background: linear-gradient(105deg, var(--outlook-bg), #fff 42%)
+            background: #fff;
         }
 
         .outlook-card.tailwind,
         .outlook-card.optimistic {
             --outlook-color: var(--green);
-            --outlook-bg: var(--green-bg)
         }
 
         .outlook-card.headwind,
         .outlook-card.defensive {
             --outlook-color: var(--red);
-            --outlook-bg: var(--red-bg)
         }
 
         .outlook-card h3 {
@@ -1739,9 +1765,7 @@
         {{/if}}
         {{#if narrative.themes.length}}
             <section class="qci">
-                <div class="qci-head">{{#if narrative.signals_parsed}}
-                        {{!-- <div class="qci-count">{{narrative.signals_parsed}}</div> --}}
-                    {{/if}}
+                <div class="qci-head">
                     <div class="qci-badge">QC Intuition · Pattern Recognition</div>
                     <div class="qci-title">What management sees in the industry</div>
                     <div class="qci-sub">{{narrative.source_types}}{{#if narrative.period_start}} ·
@@ -1843,8 +1867,7 @@
                                         <div class="sub">{{desc}}</div>{{#if source.quote}}<button class="source-toggle"
                                                 type="button" aria-expanded="false"
                                                 aria-controls="industry-source-{{@index}}"
-                                                onclick="toggleIndustrySource(this,'industry-source-{{@index}}')">View
-                                                source quote</button>{{/if}}
+                                                onclick="toggleIndustrySource(this,'industry-source-{{@index}}')">Source quote</button>{{/if}}
                                     </td>
                                     <td>{{direction_word}}</td>
                                     <td><span class="pill {{signal}}">{{signal}}</span></td>
@@ -1938,9 +1961,25 @@
                 </div>
             </section>
         {{/if}}
-        <footer class="foot"><strong>How this read is built.</strong> Signals synthesized from
-            {{narrative.source_types}} spanning {{narrative.period_start}} → {{narrative.period_end}}.</footer>
-        <script>function toggleIndustrySource(button, id) { const row = document.getElementById(id); if (!row) return; const opening = row.hasAttribute('hidden'); if (opening) row.removeAttribute('hidden'); else row.setAttribute('hidden', ''); button.setAttribute('aria-expanded', String(opening)); button.textContent = opening ? 'Hide source quote' : 'View source quote' } document.querySelectorAll('[data-inline-markdown]').forEach(el => { const parts = el.textContent.split('**'); el.textContent = ''; parts.forEach((part, i) => { const node = i % 2 ? document.createElement('strong') : document.createTextNode(part); if (i % 2) node.textContent = part; el.appendChild(node) }) });</script>
+        <script>
+            function toggleIndustrySource(button, id) { 
+                const row = document.getElementById(id); 
+                if (!row) return; 
+                const opening = row.hasAttribute('hidden'); 
+                if (opening) row.removeAttribute('hidden'); 
+                else row.setAttribute('hidden', ''); 
+                button.setAttribute('aria-expanded', String(opening)); 
+                // Removed the text swap logic so the CSS ::before triangle works perfectly
+            } 
+            document.querySelectorAll('[data-inline-markdown]').forEach(el => { 
+                const parts = el.textContent.split('**'); 
+                el.textContent = ''; 
+                parts.forEach((part, i) => { 
+                    const node = i % 2 ? document.createElement('strong') : document.createTextNode(part); 
+                    if (i % 2) node.textContent = part; el.appendChild(node) 
+                }) 
+            });
+        </script>
     </main>
 </body>
 

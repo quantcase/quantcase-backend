@@ -1171,9 +1171,7 @@
 
         {{#if qc_intuition.patterns.length}}
             <section class="qci">
-                <div class="qci-head">{{#if qc_intuition.signals_parsed}}
-                        <div class="qci-count">{{qc_intuition.signals_parsed}}</div>
-                    {{/if}}
+                <div class="qci-head">
                     <div class="qci-badge"> QC Intuition · Pattern Recognition</div>
                     <div class="qci-title">What the disclosure patterns reveal.</div>
                     <div class="qci-sub">{{qc_intuition.source_types}}{{#if qc_intuition.period_start}} ·
@@ -1272,8 +1270,6 @@
                 </div>
             </section>
         {{/if}}
-        <footer class="foot"><strong>{{footer.methodology}}</strong> {{footer.computed_date}} · {{footer.sources}}
-        </footer>
 
     </main>
 </body>

@@ -1139,9 +1139,7 @@
 
         {{#if narrative.patterns.length}}
             <section class="qci">
-                <div class="qci-head">{{#if narrative.signals_parsed}}
-                        <div class="qci-count">{{narrative.signals_parsed}}</div>
-                    {{/if}}
+                <div class="qci-head">
                     <div class="qci-badge">QC Intuition · Pattern Recognition</div>
                     <div class="qci-title">What ownership signals reveal about conviction</div>
                     <div class="qci-sub">{{narrative.source_types}}{{#if narrative.period_start}} ·
@@ -1202,7 +1200,7 @@
                         <tbody>{{#each timeline}}
                                 <tr>
                                     <td>{{period}}</td>
-                                    <td>{{behaviour}}</td>
+                                    <td><b>{{behaviour}}</b></td>
                                     <td>{{evidence}}</td>
                                     <td>{{interpretation}}</td>
                                     <td><span class="pill {{status}}">{{status}}</span></td>
@@ -1267,9 +1265,6 @@
                 </section>
             {{/if}}
         {{/if}}
-        <footer class="foot"><strong>{{footer.framework}}</strong> {{footer.computed_date}}{{#if footer.sources.length}}
-                · {{#each footer.sources}}{{this}}{{#unless @last}} · {{/unless}}{{/each}}{{/if}}</footer>
-
     </main>
 </body>
 

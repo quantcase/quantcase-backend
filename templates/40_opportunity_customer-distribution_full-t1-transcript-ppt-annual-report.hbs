@@ -1510,9 +1510,7 @@
         </section>{{/if}}
         {{#if qci.themes.length}}
             <section class="qci">
-                <div class="qci-head">{{#if qci.signals_parsed}}
-                        <div class="qci-count">{{qci.signals_parsed}}</div>
-                    {{/if}}
+                <div class="qci-head">
                     <div class="qci-badge"> QC Intuition · Pattern Recognition</div>
                     <div class="qci-title">What the distribution signals reveal.</div>
                     <div class="qci-sub">Customer and distribution evidence{{#if qci.period_start}} ·
@@ -1571,9 +1569,6 @@
                     </div>
                 </div>
             </section>
-        {{/if}}
-        <footer class="foot"><strong>{{footer.framework}}</strong> {{footer.computed_date}} · {{footer.source_list}}
-        </footer>
 
     </main>
 </body>

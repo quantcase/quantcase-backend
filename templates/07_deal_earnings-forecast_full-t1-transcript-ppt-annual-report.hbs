@@ -155,7 +155,7 @@
             background: #eef0ff;
             border-color: #d0d8fd
         }
-
+        
         /* --- Pill Icons for QCI Table --- */
         .pill.locked-in::before, 
         .pill.rising::before {
@@ -475,14 +475,25 @@
 
         .synthesis-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+            grid-template-columns: 1fr 1fr; /* Forces a 2-column layout (2x2 grid) */
             border-top: 1px solid var(--line)
         }
 
         .synthesis-panel {
             min-width: 0;
-            padding: 17px 18px 2px;
+            padding: 24px 18px 24px 18px; /* Added bottom padding to separate the rows */
             border-left: 1px solid var(--line)
+        }
+
+        /* Removes left border/padding for the 1st (Forecast) and 3rd (Bull) panels */
+        .synthesis-panel:nth-child(odd) {
+            padding-left: 0;
+            border-left: 0
+        }
+
+        /* Adds a top border to the 3rd (Bull) and 4th (Bear) panels to separate the rows */
+        .synthesis-panel:nth-child(n+3) {
+            border-top: 1px solid var(--line)
         }
 
         .synthesis-panel:first-child {
@@ -563,12 +574,17 @@
             .qci-edge { grid-template-columns: 1fr }
             .score-badge { align-items: flex-start }
             .chart-wrap { height: 290px }
-            .synthesis-grid { grid-template-columns: 1fr }
-            .synthesis-panel, .synthesis-panel:first-child {
+            ..synthesis-grid { grid-template-columns: 1fr }
+            
+            .synthesis-panel, 
+            .synthesis-panel:first-child,
+            .synthesis-panel:nth-child(odd),
+            .synthesis-panel:nth-child(n+3) {
                 padding: 15px 0;
                 border-left: 0;
                 border-top: 1px solid var(--line)
             }
+            
             .synthesis-panel:first-child { border-top: 0 }
         }
     </style>
@@ -669,15 +685,20 @@
         {{#if patterns.items.length}}
             <section class="qci">
                 <div class="qci-head">
-                    {{#if patterns.n_patterns}}
-                        <div class="qci-count">{{patterns.n_patterns}}</div>
-                    {{/if}}
                     <div class="qci-badge"> QC Intuition · Earnings Growth Patterns</div>
                     <div class="qci-title">What drives the earnings path</div>
                     <div class="qci-sub">{{patterns.source_types}}</div>
                 </div>
                 <div class="table-wrap">
                     <table>
+                        <!-- Defines structural column widths -->
+                        <colgroup>
+                            <col style="width: 26%; min-width: 190px;"> <!-- Pattern (Wider base) -->
+                            <col style="width: 23%;">                   <!-- Read -->
+                            <col style="width: 10%; min-width: 90px;">  <!-- Status (Thinner) -->
+                            <col style="width: 21%;">                   <!-- Interpretation -->
+                            <col style="width: 20%;">                   <!-- What it means -->
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th>Pattern</th>
@@ -787,10 +808,6 @@
                     </div>
                 </div>
             </section>
-        {{/if}}
-
-        <footer class="foot"><strong>Forecast sources.</strong> {{footer_sources}}</footer>
-
         {{#if earnings_chart.labels.length}}
             <script>
                 (() => { 

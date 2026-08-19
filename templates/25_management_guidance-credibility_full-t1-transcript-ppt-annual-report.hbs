@@ -1190,7 +1190,6 @@
     {{#if narrative.themes.length}}
       <section class="qci-section">
         <div class="qci-header">
-          <div class="qci-signal-count">{{narrative.signals_parsed}}<small>signals parsed</small></div>
           <div class="qci-badge"><i class="qci-badge-dot"></i>QC Intuition · Pattern Recognition</div>
           <div class="qci-header-title">What management is really saying.</div>
           <div class="qci-header-sub">Recurring <strong>future commitments, execution updates and disclosure
@@ -1231,15 +1230,15 @@
           <div class="qci-edge">
             <div class="qci-edge-label">The Edge</div>
             <div class="qci-edge-text">
-              <p class="edge-copy">{{#if narrative.edge.core_pattern}}<strong>Core pattern:</strong> <span
+              <p class="edge-copy">{{#if narrative.edge.core_pattern}}<span
                     class="edge-accent">{{narrative.edge.core_pattern}}</span>
-                {{/if}}{{#if narrative.edge.core_behaviour}}<strong>Core behaviour:</strong> <span
+                {{/if}}{{#if narrative.edge.core_behaviour}}<span
                     class="edge-accent">{{narrative.edge.core_behaviour}}</span>
                 {{/if}}{{#if narrative.edge.credibility_implication}}<strong>Credibility implication:</strong> <span
                     class="edge-positive">{{narrative.edge.credibility_implication}}</span>
                 {{/if}}{{#if narrative.edge.key_watch_item}}<strong>Key watch item:</strong> <span
                     class="edge-watch">{{narrative.edge.key_watch_item}}</span>
-                {{/if}}{{#if narrative.edge.investor_focus}}<strong>Investor focus:</strong> <span
+                {{/if}}{{#if narrative.edge.investor_focus}}<span
                     class="edge-watch">{{narrative.edge.investor_focus.theme}}</span>{{#if narrative.edge.investor_focus.reason}}
                     — {{narrative.edge.investor_focus.reason}}{{/if}}
                 {{/if}}{{#if narrative.edge.supporting_metric}}<strong>Supporting metric:</strong> <span
@@ -1306,18 +1305,17 @@
         <section class="sec">
           <div class="sec-head">
             <div class="sec-title">Guidance Behaviour Timeline</div>
-            <div class="sec-note">How disclosed guidance evolved over time through targets, milestones, revisions and
-              subsequent updates.</div>
+            <div class="sec-note">How management's commitments evolved over time - guidance, execution updates, revisions and outcomes.</div>
           </div>
           <div class="tbl-card">
             <table class="tbl">
               <thead>
                 <tr>
                   <th style="width:80px">Period</th>
-                  <th>Guidance Item</th>
-                  <th>Latest Evidence</th>
+                  <th>Guidance Signal</th>
+                  <th>Management Update</th>
                   <th>Outcome</th>
-                  <th>Evidence Type</th>
+                  <th>Behaviour</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -1421,11 +1419,7 @@
           {{/if}}</div>
       </section>
     {{/if}}
-    <footer class="foot"><strong>How this score is built.</strong> — each forward statement paired to its resolved
-      actual and graded beat/in-line/miss; misses weighted by magnitude and recency (last 8 quarters higher), split by
-      controllable vs market-dependent; every row links to source.{{#if footer.computed_date}} Computed
-      {{footer.computed_date}}.{{/if}}{{#if footer.sources}} {{footer.sources}}{{/if}}</footer>
-  </main>
+    </main>
   <script>function toggleSrc(btn, id) { var row = document.getElementById('src-' + id); var open = row.classList.toggle('open'); btn.innerHTML = (open ? '▾ Source quote' : '▸ Source quote') }</script>
 </body>
 

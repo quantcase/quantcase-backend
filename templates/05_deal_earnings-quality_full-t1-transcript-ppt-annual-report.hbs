@@ -542,7 +542,7 @@
             background: var(--red)
         }
         .fan-seg.base {
-            background: var(--blue)
+            background: #1e4fa8; /* Updated to a deeper blue for better white text contrast */
         }
         .fan-seg.bull {
             background: var(--green)
@@ -1852,7 +1852,7 @@
                                 <tr class="{{row_class}} {{scenario}}">
                                     <td>
                                         <span class="scen-name">{{name}}</span>
-                                        <span class="scen-prob">{{prob}}</span>
+                                        {{!-- <span class="scen-prob">{{prob}}</span> --}}
                                     </td>
                                     <td>{{desc}}</td>{{#each kpis}}
                                         <td><strong>{{this}}</strong></td>
@@ -1873,8 +1873,8 @@
                 </div>
                 <div class="card probability-card">
                     <div class="fan-bar">{{#each probability_fan.segments}}
-                            <div class="fan-seg {{class}}" style="width:{{width}}">{{label}} · {{lookup this "p/e"}} ·
-                                {{prob}}</div>
+                            <!-- Changed width:{{width}} to width:{{prob}}; to stretch the segments -->
+                            <div class="fan-seg {{class}}" style="width:{{prob}};">{{label}} · {{lookup this "p/e"}} · {{prob}}</div>
                         {{/each}}</div>
                     {{#if probability_fan.pwlabels.length}}
                         <div class="fan-labels">
@@ -1887,7 +1887,6 @@
                 </div>
             </section>
         {{/if}}
-
         {{#if gatekeepers.length}}
             <section class="sec">
                 <div class="sec-head">
@@ -1922,8 +1921,6 @@
                 </div>
             </section>
         {{/if}}
-        <footer class="foot"><strong>How this view is built.</strong> Unsupported P/E paths, probabilities and numeric
-            pillar scores are omitted rather than inferred.</footer>
     </main>
 </body>
 

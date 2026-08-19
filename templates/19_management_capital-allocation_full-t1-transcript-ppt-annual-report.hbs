@@ -1552,9 +1552,7 @@
         {{/if}}
         {{#if pattern_intelligence.patterns.length}}
             <section class="qci">
-                <div class="qci-head">{{#if pattern_intelligence.signals_parsed}}
-                        <div class="qci-count">{{pattern_intelligence.signals_parsed}}</div>
-                    {{/if}}
+                <div class="qci-head">
                     <div class="qci-badge">QC Intuition · Capital Allocation Patterns</div>
                     <div class="qci-title">What the capital allocation signals reveal.</div>
                     <div class="qci-sub">{{pattern_intelligence.source_types}}{{#if pattern_intelligence.period_start}}
@@ -1581,12 +1579,12 @@
                                 </tr>
                             {{/each}}</tbody>
                     </table>
-                </div>{{#if pattern_intelligence.pattern_call.length}}
+                </div>
+                {{#if pattern_intelligence.pattern_call.length}}
                     <div class="qci-edge">
                         <div class="qci-edge-label">Insight</div>
                         <div>
-                            <p class="edge-copy">{{pattern_intelligence.pattern_call}}<span
-                                    class="edge-segment edge-segment-{{@index}}">{{this}}</span>{{/each}}</p>
+                            <p class="edge-copy">{{pattern_intelligence.pattern_call}}</p>
                         </div>
                     </div>
                 {{/if}}
@@ -1655,10 +1653,6 @@
                 </div>
             </section>
         {{/if}}
-        <footer class="foot">
-            {{#if overall_rating.summary}}<strong>{{overall_rating.summary}}</strong>{{/if}}{{#if footer.attribution}}
-                <div>{{footer.attribution}} · {{footer.source_list}}</div>
-            {{/if}}</footer>
         <script>document.querySelectorAll('[data-inline-markdown]').forEach(el => { const parts = el.textContent.split('**'); el.textContent = ''; parts.forEach((part, i) => { const node = i % 2 ? document.createElement('strong') : document.createTextNode(part); if (i % 2) node.textContent = part; el.appendChild(node) }) });</script>
     </main>
 </body>
