@@ -489,6 +489,8 @@ async function runHtmlSkill({
     enable_data_validation: skill.enable_data_validation,
     data_validation_loops: skill.data_validation_loops,
     enable_html_validation: skill.enable_html_validation,
+    expected_json_schema: skill.expected_json_schema,
+    json_validation_prompt: skill.json_validation_prompt,
     dataBlock, marketDataBlock, job
   });
 

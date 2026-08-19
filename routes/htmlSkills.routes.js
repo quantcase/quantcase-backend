@@ -118,6 +118,8 @@ router.post('/run-preview', async (req, res, next) => {
       market_data_signal_types: Array.isArray(market_data_signal_types) ? market_data_signal_types : [],
       max_market_data_months:   max_market_data_months ?? null,
       force: force === true,
+      expected_json_schema: skill.expected_json_schema,
+      json_validation_prompt: skill.json_validation_prompt,
     });
 
     res.json({ success: true, message: 'Job queued', job: { id: job.id, type: 'html-skill-preview', status: 'pending' } });
