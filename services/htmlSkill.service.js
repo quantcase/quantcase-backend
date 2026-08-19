@@ -874,6 +874,11 @@ ${dataBlock}
 
         try {
           const parsed = JSON.parse(stripMarkdownFences(newJsonStr));
+          audit_logs.visual_qa.push({
+            attempt: schemaAttempts,
+            missing_fields: missingFields,
+            patch: parsed
+          });
           extracted_json = deepMerge(extracted_json, parsed); 
           missingFields = getMissingFields(expectedSchema, extracted_json); 
         } catch(e) {
@@ -920,8 +925,10 @@ function getMissingFields(expected, actual, path = '') {
     else if (expected.length > 0) missing.push(...getMissingFields(expected[0], actual[0], path + '[]'));
   } else if (expected !== null && typeof expected === 'object') {
     if (Object.keys(expected).length === 0) {
-      // Untyped placeholder {} in schema. Accept any value that exists.
-      if (actual === undefined || actual === null || actual === '') missing.push(path);
+      // Untyped placeholder {} in schema. Accept any value that exists and is not an empty object itself.
+      if (actual === undefined || actual === null || actual === '' || (typeof actual === 'object' && Object.keys(actual).length === 0)) {
+        missing.push(path);
+      }
     } else if (!actual || typeof actual !== 'object' || Array.isArray(actual)) {
       missing.push(path || 'root_object');
     } else {
@@ -948,19 +955,23 @@ function getMissingFields(expected, actual, path = '') {
 
 
 function deepMerge(target, source) {
+  if (source === undefined) return target;
   if (typeof target !== 'object' || target === null) return source;
   if (typeof source !== 'object' || source === null) return source;
 
+  if (Array.isArray(target) !== Array.isArray(source)) {
+    return source;
+  }
+
   if (Array.isArray(target) && Array.isArray(source)) {
-    // For arrays, if the source has items, we assume it's patching the first item (common in our schema).
-    // A more robust array merge might be needed if they have multiple objects, but usually the missing keys are like `array[].key`.
-    // Actually, since the LLM returns the patched structure, let's merge elements by index.
     const result = [...target];
     source.forEach((item, index) => {
-      if (index < result.length) {
-        result[index] = deepMerge(result[index], item);
-      } else {
-        result.push(item);
+      if (item !== null && item !== undefined) {
+        if (index < result.length) {
+          result[index] = deepMerge(result[index], item);
+        } else {
+          result.push(item);
+        }
       }
     });
     return result;
