@@ -1542,7 +1542,22 @@
                                     <td><strong>{{{name}}}</strong>
                                         <div class="sub">{{{sub}}}</div>
                                     </td>
-                                    <td>{{{trendSparkline this}}}</td>
+                                    <td>
+                                      <div style="width: 110px;">
+                                        <svg class="spark" viewBox="0 0 110 46" preserveAspectRatio="xMidYMid meet" aria-hidden="true"
+                                          style="display:block;">
+                                          <polyline points="{{{trendSparkPoints trend}}}" fill="none" stroke="{{{trendHex trend}}}"
+                                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                                            vector-effect="non-scaling-stroke" />
+                                          <circle cx="104" cy="{{{trendSparkEndY trend}}}" r="3.5" fill="{{{trendHex trend}}}" />
+                                        </svg>
+                                        <div
+                                          style="display: flex; justify-content: space-between; font-size: 10.5px; color: var(--faint); margin-top: 4px; font-weight: 600; letter-spacing: 0.02em;">
+                                          <span>{{{shortPeriod date}}}</span>
+                                          <span>{{{shortPeriod (lookup this 'end date')}}}</span>
+                                        </div>
+                                      </div>
+                                    </td>
                                     <td><span class="pill {{{trend}}}">{{{trend}}}</span></td>
                                     <td>{{{interp}}}</td>
                                 </tr>
