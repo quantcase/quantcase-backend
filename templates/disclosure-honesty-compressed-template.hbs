@@ -1130,10 +1130,10 @@
       font-weight: 700;
     }
 
-    .top-meta { border-collapse: collapse; width: auto; min-width: 0; background: transparent; margin: 0; }
-    .top-meta td { padding: 0 0 2px; font-size: 10.5px; color: var(--faint); white-space: nowrap; border-bottom: none; font-family: 'Manrope', sans-serif; text-align: left; }
-    .top-meta tr:last-child td { padding-bottom: 0; }
-    .top-meta .meta-label { padding-right: 8px; text-align: right; text-transform: uppercase; letter-spacing: .04em; color: #b4b3ae; font-weight: 600; font-size: 9.5px; font-family: 'Manrope', sans-serif; }
+    .top-meta { border-collapse: separate; border-spacing: 0; width: auto; min-width: 0; background: transparent; border: 1px solid var(--line); border-radius: 6px; margin-left: auto; margin-right: 0; align-self: flex-end; }
+        .top-meta th, .top-meta td { padding: 2px 12px; font-size: 10.5px; color: var(--faint); white-space: nowrap; border-bottom: none; font-family: 'Manrope', sans-serif; }
+        .top-meta tr:last-child td { padding-bottom: 8px; }
+        .top-meta .meta-label { padding-right: 8px; text-align: right; text-transform: uppercase; letter-spacing: .04em; color: #b4b3ae; font-weight: 600; font-size: 9.5px; font-family: 'Manrope', sans-serif; }
 </style>
 
 </head>
@@ -1144,7 +1144,7 @@
       <span class="topline-brand"><strong>{{{asset_name}}}</strong> · {{{lens}}}</span>
       {{#if source_meta}}
       <table class="top-meta">
-          <tr><td style="padding: 0 8px 2px 0; text-align: right; color: #b4b3ae; font-size: 9.5px; font-weight: 400; font-style: italic; white-space: nowrap; border-bottom: none;">Latest analysed</td><td></td></tr>
+          <tr><th colspan="2" style="padding: 8px 12px 4px; text-align: center; color: #b4b3ae; font-size: 9.5px; font-weight: 400; font-style: italic; white-space: nowrap; border-bottom: none;">Latest analysed</th></tr>
           {{#if source_meta.transcript}}<tr><td class="meta-label">Transcript</td><td>{{{source_meta.transcript}}}</td></tr>{{/if}}
           {{#if source_meta.ppt}}<tr><td class="meta-label">Investor Presentation</td><td>{{{source_meta.ppt}}}</td></tr>{{/if}}
           {{#if source_meta.annual_report}}<tr><td class="meta-label">Annual Report</td><td>{{{source_meta.annual_report}}}</td></tr>{{/if}}
