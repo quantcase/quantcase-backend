@@ -273,7 +273,6 @@ module.exports = {
   addHtmlIncrementalSkillJob,
   addHtmlCompressedSkillJob,
   findJob,
-  cleanupQueues,
   addHtmlIncrementalRegenerateJob,
   addHtmlCompressedRegenerateJob,
 };
