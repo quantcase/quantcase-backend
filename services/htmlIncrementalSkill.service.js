@@ -581,7 +581,11 @@ async function regenerateIncrementalHtmlSkill({ slug, ticker, callId, historic =
     throw Object.assign(new Error(`No JSON found to regenerate HTML for ${ticker} on skill '${slug}'.`), { status: 400 });
   }
 
-  const { raw_html: raw_html_unstripped, audit_logs, usage } = await runAgenticPipeline({
+  const baseOutputs = historic ? [] : await fetchBaseContextOutputs(effectiveSkill, ticker, fiscal_year, quarter);
+  const baseContextBlock = formatBaseContextBlock(baseOutputs, effectiveSkill.strip_html);
+  const { signals } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
+
+  const { raw_html: raw_html_unstripped, extracted_json, audit_logs, usage } = await runAgenticPipeline({
     ticker,
     extraction_model: effectiveSkill.extraction_model,
     fact_validation_model: effectiveSkill.fact_validation_model,
@@ -594,6 +598,7 @@ async function regenerateIncrementalHtmlSkill({ slug, ticker, callId, historic =
     enable_html_validation: effectiveSkill.enable_html_validation,
     job,
     pre_extracted_json: existing.extracted_json,
+    source_meta: buildSourceMeta(signals),
   });
 
   const raw_html = stripMarkdownFences(raw_html_unstripped);
@@ -603,7 +608,7 @@ async function regenerateIncrementalHtmlSkill({ slug, ticker, callId, historic =
 
   const output = await prisma.htmlIncrementalSkillOutput.update({
     where: { id: existing.id },
-    data: { raw_html, text_summary, audit_logs },
+    data: { raw_html, text_summary, extracted_json, audit_logs },
   });
 
   return { cached: false, output };

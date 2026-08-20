@@ -323,6 +323,14 @@ async function regenerateCompressedHtmlSkill({ slug, ticker, callId, historic = 
     throw Object.assign(new Error(`No JSON found to regenerate HTML for ${ticker} on skill '${slug}'.`), { status: 400 });
   }
 
+  const baseOutput = await fetchL2Context(effectiveSkill, ticker, fiscal_year, quarter, historic);
+  const sourceMeta = baseOutput.extracted_json?.source_meta;
+
+  const pre_extracted_json = existing.extracted_json;
+  if (sourceMeta && pre_extracted_json) {
+    pre_extracted_json.source_meta = sourceMeta;
+  }
+
   const pipelineResult = await runAgenticPipeline({
     ticker,
     html_template_model: effectiveSkill.html_template_model,
@@ -330,7 +338,7 @@ async function regenerateCompressedHtmlSkill({ slug, ticker, callId, historic = 
     html_template_prompt: effectiveSkill.html_template_prompt,
     html_template_filename: effectiveSkill.html_template_filename,
     use_template_engine: effectiveSkill.use_template_engine,
-    pre_extracted_json: existing.extracted_json,
+    pre_extracted_json: pre_extracted_json,
     enable_data_validation: false,
     job,
   });
@@ -342,7 +350,7 @@ async function regenerateCompressedHtmlSkill({ slug, ticker, callId, historic = 
 
   const output = await prisma.htmlCompressedSkillOutput.update({
     where: { id: existing.id },
-    data: { raw_html, text_summary },
+    data: { raw_html, text_summary, extracted_json: pipelineResult.extracted_json },
   });
 
   return { cached: false, output };
