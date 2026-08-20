@@ -665,6 +665,39 @@ router.post('/:slug/run', async (req, res, next) => {
   }
 });
 
+router.post('/:slug/regenerate-html', async (req, res, next) => {
+  try {
+    const { ticker, callId, historic, configKey } = req.body;
+    if (!ticker) return res.status(400).json({ error: 'ticker is required' });
+    if (!callId) return res.status(400).json({ error: 'callId is required' });
+
+    const skill = await prisma.htmlIncrementalSkill.findUnique({
+      where:  { slug: req.params.slug },
+      select: { id: true, is_active: true },
+    });
+    if (!skill)           return res.status(404).json({ error: 'Skill not found' });
+    if (!skill.is_active) return res.status(400).json({ error: 'Skill is inactive' });
+
+    const { addHtmlIncrementalRegenerateJob } = require('../services/jobs.service');
+    const job = await addHtmlIncrementalRegenerateJob({
+      slug: req.params.slug,
+      ticker,
+      callId,
+      historic: historic === true,
+      configKey: configKey ?? null,
+    });
+
+    res.json({
+      success: true,
+      message: 'Incremental regenerate job enqueued',
+      job: { id: job.id, slug: req.params.slug, ticker, callId, historic: historic === true, configKey: configKey ?? null, type: 'html_skill_incremental', status: 'pending' },
+    });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
 // ── Output fetch ──────────────────────────────────────────────────────────────
 
 // GET /api/html-incremental-skills/:slug/outputs/:ticker?historic=true|false
