@@ -98,7 +98,11 @@
             line-height: 1.2;
             margin: 18px 0 0
         }
-
+        .top-right { display: flex; align-items: flex-start; gap: 20px; }
+        .top-meta { border-collapse: collapse; }
+        .top-meta td { padding: 0 0 2px; font-size: 10.5px; color: var(--faint); white-space: nowrap; }
+        .top-meta tr:last-child td { padding-bottom: 0; }
+        .top-meta .meta-label { padding-right: 8px; text-align: right; text-transform: uppercase; letter-spacing: .04em; color: #b4b3ae; font-weight: 600; font-size: 9.5px; }
         .xbtn {
             width: 38px;
             height: 38px;
@@ -1662,7 +1666,16 @@
                             class="pill {{{overall_quality.pill}}}">{{{overall_quality.label}}}</span>{{/if}}</div>
                 <h1 class="title">Earnings Strength &amp; 3-Year P/E Forecast</h1>
                 <div class="asset-kicker">{{{asset_name}}}</div>
-            </div><button class="xbtn" aria-label="Close">&times;</button>
+            </div>
+            <div class="top-right">
+            {{#if source_meta}}
+            <table class="top-meta">
+                {{#if source_meta.transcript}}<tr><td class="meta-label">Transcripts</td><td>{{{source_meta.transcript}}}</td></tr>{{/if}}
+                {{#if source_meta.ppt}}<tr><td class="meta-label">PPT</td><td>{{{source_meta.ppt}}}</td></tr>{{/if}}
+                {{#if source_meta.annual_report}}<tr><td class="meta-label">ARs</td><td>{{{source_meta.annual_report}}}</td></tr>{{/if}}
+            </table>
+            {{/if}}
+            </div>
         </header>
         {{#if score_badge}}
             <section class="score-badge">
@@ -1694,7 +1707,7 @@
         {{#if earnings_patterns.patterns.length}}
             <section class="qci">
                 <div class="qci-head">
-                    <div class="qci-badge">QC Intuition · Earnings Strength Patterns</div>
+                    <div class="qci-badge">QC Intuition · Pattern Recognition</div>
                     <div class="qci-title">What is really driving the earnings</div>
                     {{!-- <div class="qci-sub">{{{earnings_patterns.driver_dimensions}}}</div> --}}
                 </div>
