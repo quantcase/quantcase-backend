@@ -11,6 +11,7 @@ const {
   buildDataBlock,
   stripMarkdownFences,
   buildMarketDataBlock,
+  buildSourceMeta,
 } = require('./htmlSkill.service');
 const { createResolutionContext, resolveFormulaSeries } = require('../utils/formulaRegistry');
 
@@ -492,7 +493,7 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
   }
   const baseContextBlock = formatBaseContextBlock(baseOutputs, effectiveSkill.strip_html);
 
-  const { dataBlock, marketDataBlock } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
+  const { dataBlock, marketDataBlock, signals } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
 
   const enhancedExtractionPrompt = [
     effectiveSkill.data_extraction_prompt,
@@ -518,6 +519,7 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
     dataBlock,
     marketDataBlock,
     job,
+    source_meta: buildSourceMeta(signals),
   });
 
   const raw_html     = stripMarkdownFences(raw_html_unstripped);

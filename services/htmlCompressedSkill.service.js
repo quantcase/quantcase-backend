@@ -231,7 +231,10 @@ async function runCompressedHtmlSkill({ slug, ticker, callId, force = false, his
         maxAttempts:  3,
       });
 
+      const sourceMeta = extracted_json.source_meta;
       extracted_json = parsed;
+      if (sourceMeta) extracted_json.source_meta = sourceMeta;
+
       usage.prompt_tokens     += (compressionUsage?.prompt_tokens     || 0);
       usage.completion_tokens += (compressionUsage?.completion_tokens || 0);
       usage.cost              += (compressionUsage?.cost              || 0);

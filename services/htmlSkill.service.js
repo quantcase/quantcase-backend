@@ -256,6 +256,75 @@ function stripMarkdownFences(text) {
   return clean.trim();
 }
 
+function parseFiscalYear(fy) {
+  if (!fy) return null;
+  const m = String(fy).match(/(\d{4})/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function parseQuarterNum(q) {
+  if (!q) return null;
+  const m = String(q).match(/(\d)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function transcriptPeriodRank(fiscal_year, quarter) {
+  const year = parseFiscalYear(fiscal_year);
+  if (year == null) return null;
+  return year * 10 + (parseQuarterNum(quarter) ?? 0);
+}
+
+function buildSourceMeta(signals) {
+  const meta = {};
+  
+  let maxTrRank = -Infinity;
+  let maxPptRank = -Infinity;
+  let maxArYear = -Infinity;
+
+  const formatFY = (fy) => {
+    if (!fy) return '';
+    const m = String(fy).match(/(?:20)?(\d{2})$/);
+    if (m) {
+      return `FY${m[1]}`;
+    }
+    const m2 = String(fy).match(/(\d{4})/);
+    if (m2) {
+      const year = m2[1].slice(2);
+      return `FY${year}`;
+    }
+    return String(fy);
+  };
+
+  for (const s of signals) {
+    if (s.source_doc_type === 'transcript') {
+      const rank = transcriptPeriodRank(s.fiscal_year, s.quarter) ?? -Infinity;
+      if (rank > maxTrRank) {
+        maxTrRank = rank;
+        meta.transcript = `${s.quarter || ''} ${formatFY(s.fiscal_year)}`.trim();
+      }
+    } else if (s.source_doc_type === 'ppt') {
+      const rank = transcriptPeriodRank(s.fiscal_year, s.quarter) ?? -Infinity;
+      if (rank > maxPptRank) {
+        maxPptRank = rank;
+        meta.ppt = `${s.quarter || ''} ${formatFY(s.fiscal_year)}`.trim();
+      }
+    } else if (s.source_doc_type === 'annual_report') {
+      const year = parseFiscalYear(s.fiscal_year) ?? -Infinity;
+      if (year > maxArYear) {
+        maxArYear = year;
+        meta.annual_report = formatFY(s.fiscal_year);
+      }
+    }
+  }
+
+  const finalMeta = {};
+  if (meta.transcript) finalMeta.transcript = meta.transcript;
+  if (meta.ppt) finalMeta.ppt = meta.ppt;
+  if (meta.annual_report) finalMeta.annual_report = meta.annual_report;
+  
+  return Object.keys(finalMeta).length > 0 ? finalMeta : null;
+}
+
 /**
  * Trim signals to respect per-source-type window limits and per-source signal type filters.
  * Signals are already ordered by call_date desc, so we just collect the N most
@@ -491,7 +560,7 @@ async function runHtmlSkill({
     enable_html_validation: skill.enable_html_validation,
     expected_json_schema: skill.expected_json_schema,
     json_validation_prompt: skill.json_validation_prompt,
-    dataBlock, marketDataBlock, job
+    dataBlock, marketDataBlock, job, source_meta: buildSourceMeta(signals)
   });
 
   logUsage(`html-skill:${slug}:${ticker}`, usage);
@@ -607,7 +676,7 @@ async function runHtmlSkillPreview({ ticker, data_extraction_prompt, html_templa
     ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens,
     data_extraction_prompt, html_template_prompt, html_template_filename,
     use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
-    dataBlock, marketDataBlock, job, expected_json_schema, json_validation_prompt
+    dataBlock, marketDataBlock, job, expected_json_schema, json_validation_prompt, source_meta: buildSourceMeta(signals)
   });
 
   logUsage(`html-skill-preview:${ticker}`, usage);
@@ -643,6 +712,7 @@ module.exports = {
   fetchNsePeTimeseries,
   fetchNseCmpTimeseries,
   buildMarketDataBlock,
+  buildSourceMeta,
 };
 
 
@@ -650,7 +720,7 @@ async function runAgenticPipeline({
   ticker, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, data_extraction_prompt, html_template_prompt, html_template_filename,
   use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
   expected_json_schema, json_validation_prompt,
-  dataBlock, marketDataBlock, job, pre_extracted_json
+  dataBlock, marketDataBlock, job, pre_extracted_json, source_meta
 }) {
   const audit_logs = { fact_validation: [], visual_qa: [] };
   let extracted_json = pre_extracted_json || null;
@@ -762,6 +832,10 @@ async function runAgenticPipeline({
       }
     }
   }
+  }
+  
+  if (source_meta && extracted_json) {
+    extracted_json.source_meta = source_meta;
   }
 
   // Phase 2: HTML Generation
