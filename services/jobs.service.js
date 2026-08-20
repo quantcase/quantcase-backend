@@ -59,6 +59,26 @@ async function addHtmlCompressedSkillJob({
   });
 }
 
+async function addHtmlIncrementalRegenerateJob({
+  slug, ticker, callId, historic = false, configKey = null,
+}) {
+  return jobQueue.addJob('html_skill_incremental', {
+    slug, ticker, callId, historic, configKey,
+    type: 'html_skill_incremental',
+    action: 'regenerate',
+  });
+}
+
+async function addHtmlCompressedRegenerateJob({
+  slug, ticker, callId, historic = false, configKey = null,
+}) {
+  return jobQueue.addJob('html_skill_compressed', {
+    slug, ticker, callId, historic, configKey,
+    type: 'html_skill_compressed',
+    action: 'regenerate',
+  });
+}
+
 async function addHtmlSkillPreviewJob({ ticker, data_extraction_prompt, html_template_prompt, use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation, transcript_signal_types, ppt_signal_types, annual_report_signal_types, extraction_model, fact_validation_model, html_template_model, visual_qa_model, max_tokens, max_transcript_qtrs, max_ppt_qtrs, max_annual_report_years, market_data_signal_types = [], max_market_data_months = null, force = false, expected_json_schema, json_validation_prompt }) {
   return jobQueue.addJob('html_skill_preview', {
     ticker, data_extraction_prompt, html_template_prompt, use_template_engine, enable_data_validation, data_validation_loops, enable_html_validation,
@@ -253,4 +273,7 @@ module.exports = {
   addHtmlIncrementalSkillJob,
   addHtmlCompressedSkillJob,
   findJob,
+  cleanupQueues,
+  addHtmlIncrementalRegenerateJob,
+  addHtmlCompressedRegenerateJob,
 };

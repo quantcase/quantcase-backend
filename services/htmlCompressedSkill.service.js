@@ -303,9 +303,52 @@ async function runCompressedHtmlSkill({ slug, ticker, callId, force = false, his
   return { cached: false, output };
 }
 
+async function regenerateCompressedHtmlSkill({ slug, ticker, callId, historic = false, configKey = null }, job) {
+  const skill = await prisma.htmlCompressedSkill.findUnique({ where: { slug } });
+  if (!skill) throw Object.assign(new Error(`HtmlCompressedSkill not found: ${slug}`), { status: 404 });
+  if (!skill.is_active) throw Object.assign(new Error(`HtmlCompressedSkill is inactive: ${slug}`), { status: 400 });
+
+  const resolvedConfigKey = await resolveRequiredConfigKey(ticker, configKey);
+  const { effectiveSkill } = await resolveEffectiveSkill(skill, resolvedConfigKey);
+  const { fiscal_year, quarter } = await resolveCallMeta(callId);
+
+  const existing = await prisma.htmlCompressedSkillOutput.findFirst({
+    where: { skill_id: skill.id, ticker, fiscal_year: fiscal_year ?? null, quarter: quarter ?? null, is_historic: historic },
+  });
+
+  if (!existing || !existing.extracted_json) {
+    throw Object.assign(new Error(`No JSON found to regenerate HTML for ${ticker} on skill '${slug}'.`), { status: 400 });
+  }
+
+  const pipelineResult = await runAgenticPipeline({
+    ticker,
+    html_template_model: effectiveSkill.html_template_model,
+    max_tokens: effectiveSkill.max_tokens,
+    html_template_prompt: effectiveSkill.html_template_prompt,
+    html_template_filename: effectiveSkill.html_template_filename,
+    use_template_engine: effectiveSkill.use_template_engine,
+    pre_extracted_json: existing.extracted_json,
+    enable_data_validation: false,
+    job,
+  });
+
+  const raw_html = stripMarkdownFences(pipelineResult.raw_html);
+  const text_summary = stripHtmlToText(raw_html);
+
+  logUsage(`html-compressed-skill-regenerate:${slug}:${ticker}`, pipelineResult.usage);
+
+  const output = await prisma.htmlCompressedSkillOutput.update({
+    where: { id: existing.id },
+    data: { raw_html, text_summary },
+  });
+
+  return { cached: false, output };
+}
+
 module.exports = {
   buildCompressedHtmlSkillPrompt,
   runCompressedHtmlSkill,
+  regenerateCompressedHtmlSkill,
   resolveEffectiveSkill,
   fetchL2Context
 };

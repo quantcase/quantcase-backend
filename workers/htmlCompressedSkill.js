@@ -2,7 +2,7 @@
 
 const { Worker, UnrecoverableError } = require('bullmq');
 const connection = require('../config/redis');
-const { runCompressedHtmlSkill } = require('../services/htmlCompressedSkill.service');
+const { runCompressedHtmlSkill, regenerateCompressedHtmlSkill } = require('../services/htmlCompressedSkill.service');
 
 function rethrowIfUnrecoverable(err) {
   const status = err?.status ?? err?.response?.status;
@@ -14,7 +14,9 @@ function rethrowIfUnrecoverable(err) {
     (status === 400 && msg.toLowerCase().includes('context length')) ||
     code === 'context_length_exceeded';
 
-  if (isContextLength) {
+  const isStructuralError = status === 400 || status === 404;
+
+  if (isContextLength || isStructuralError) {
     const ure = new UnrecoverableError(msg);
     ure.cause = err;
     throw ure;
@@ -22,12 +24,17 @@ function rethrowIfUnrecoverable(err) {
 }
 
 async function processHtmlCompressedSkillJob(job) {
-  const { slug, ticker, callId, force, historic, configKey } = job.data;
-  console.log(`[htmlCompressedSkill] Processing job ${job.id} (skill: ${slug}, ticker: ${ticker}, callId: ${callId}, historic: ${!!historic}, configKey: ${configKey ?? 'none'})`);
+  const { slug, ticker, callId, force, historic, configKey, action } = job.data;
+  console.log(`[htmlCompressedSkill] Processing job ${job.id} (skill: ${slug}, ticker: ${ticker}, callId: ${callId}, historic: ${!!historic}, configKey: ${configKey ?? 'none'}, action: ${action ?? 'run'})`);
 
   try {
     await job.updateProgress(10);
-    const result = await runCompressedHtmlSkill({ slug, ticker, callId, force, historic, configKey }, job);
+    let result;
+    if (action === 'regenerate') {
+      result = await regenerateCompressedHtmlSkill({ slug, ticker, callId, historic, configKey }, job);
+    } else {
+      result = await runCompressedHtmlSkill({ slug, ticker, callId, force, historic, configKey }, job);
+    }
     await job.updateProgress(100);
 
     console.log(`[htmlCompressedSkill] Job ${job.id} done — cached: ${result.cached}`);

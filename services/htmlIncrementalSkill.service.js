@@ -562,9 +562,55 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
   return { cached: false, output };
 }
 
+async function regenerateIncrementalHtmlSkill({ slug, ticker, callId, historic = false, configKey = null }, job) {
+  const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug } });
+  if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
+  if (!skill.is_active) throw Object.assign(new Error(`HtmlIncrementalSkill is inactive: ${slug}`), { status: 400 });
+
+  const resolvedConfigKey = await resolveRequiredConfigKey(ticker, configKey);
+  const { effectiveSkill } = await resolveEffectiveSkill(skill, resolvedConfigKey);
+  const { fiscal_year, quarter } = await resolveCallMeta(callId);
+
+  const existing = await prisma.htmlIncrementalSkillOutput.findFirst({
+    where: { skill_id: skill.id, ticker, fiscal_year: fiscal_year ?? null, quarter: quarter ?? null, is_historic: historic },
+  });
+
+  if (!existing || !existing.extracted_json) {
+    throw Object.assign(new Error(`No JSON found to regenerate HTML for ${ticker} on skill '${slug}'.`), { status: 400 });
+  }
+
+  const { raw_html: raw_html_unstripped, audit_logs, usage } = await runAgenticPipeline({
+    ticker,
+    extraction_model: effectiveSkill.extraction_model,
+    fact_validation_model: effectiveSkill.fact_validation_model,
+    html_template_model: effectiveSkill.html_template_model,
+    visual_qa_model: effectiveSkill.visual_qa_model,
+    max_tokens: effectiveSkill.max_tokens,
+    html_template_prompt: effectiveSkill.html_template_prompt,
+    html_template_filename: effectiveSkill.html_template_filename,
+    use_template_engine: effectiveSkill.use_template_engine,
+    enable_html_validation: effectiveSkill.enable_html_validation,
+    job,
+    pre_extracted_json: existing.extracted_json,
+  });
+
+  const raw_html = stripMarkdownFences(raw_html_unstripped);
+  const text_summary = effectiveSkill.strip_html ? stripHtmlToText(raw_html) : null;
+
+  logUsage(`html-incremental-skill-regenerate:${slug}:${ticker}`, usage);
+
+  const output = await prisma.htmlIncrementalSkillOutput.update({
+    where: { id: existing.id },
+    data: { raw_html, text_summary, audit_logs },
+  });
+
+  return { cached: false, output };
+}
+
 module.exports = {
   buildIncrementalHtmlSkillPrompt,
   runIncrementalHtmlSkill,
+  regenerateIncrementalHtmlSkill,
   fetchBaseContextOutputs,
   resolveBaseAnchorPeriod,
   resolveCallMeta,
