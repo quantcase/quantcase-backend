@@ -47,8 +47,8 @@ async function processHtmlCompressedSkillJob(job) {
 
 const worker = new Worker('html_skill_compressed', processHtmlCompressedSkillJob, {
   connection,
-  concurrency: 10,
-  limiter: { max: 10, duration: 1000 },
+  concurrency: 15,
+  limiter: { max: 15, duration: 1000 },
 });
 
 worker.on('completed', (job)      => console.log(`[htmlCompressedSkill] Job ${job.id} completed`));

@@ -304,4 +304,40 @@ module.exports = function registerDashboardHelpers(Handlebars) {
 
     return endY[String(trend || '').toLowerCase()] ?? 22;
   });
+
+
+  Handlebars.registerHelper("shortPeriod", function (date, endDate) {
+      const start = String(date || "").trim();
+      const end = String(endDate || "").trim();
+
+      // Combine both values so the helper can detect Q information
+      // even when only one of the dates contains it.
+      const value = `${start} ${end}`;
+
+      // Quarterly period: Q1 FY25, Q4 FY26, Q1FY25, Q3-FY26, etc.
+      const quarterMatch = value.match(/\bQ([1-4])\s*[-/]?\s*FY\s*(\d{2,4})\b/i);
+
+      if (quarterMatch) {
+          const quarter = quarterMatch[1];
+          let year = quarterMatch[2];
+
+          // Always use the last two digits of the FY
+          year = year.slice(-2);
+
+          return `Q${quarter}\`${year}`;
+      }
+
+      // Financial year: FY25, FY26, FY2026, etc.
+      const fyMatch = value.match(/\bFY\s*[-/]?\s*(\d{2,4})\b/i);
+
+      if (fyMatch) {
+          const year = fyMatch[1].slice(-2);
+
+          return `FY ${year}`;
+      }
+
+      // Anything else → blank
+      return "";
+  });
+
 };

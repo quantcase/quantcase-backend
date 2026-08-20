@@ -293,6 +293,108 @@ router.post('/:slug/regenerate-html', async (req, res, next) => {
   }
 });
 
+
+// ── Bulk Regenerate ───────────────────────────────────────────────────────────
+
+router.post('/:slug/bulk-regenerate-html', async (req, res, next) => {
+  try {
+    const { tickers, historic, configKey } = req.body;
+    if (!Array.isArray(tickers) || tickers.length === 0) {
+      return res.status(400).json({ error: 'tickers array is required' });
+    }
+
+    const skill = await prisma.htmlCompressedSkill.findUnique({
+      where:  { slug: req.params.slug },
+      select: { id: true, is_active: true },
+    });
+    if (!skill)           return res.status(404).json({ error: 'Skill not found' });
+    if (!skill.is_active) return res.status(400).json({ error: 'Skill is inactive' });
+
+    const { addHtmlCompressedRegenerateJob } = require('../services/jobs.service');
+    const results = [];
+    const isHistoric = historic === true;
+
+    for (const ticker of tickers) {
+      // Find the most recent output matching the request parameters
+      const output = await prisma.htmlCompressedSkillOutput.findFirst({
+        where: {
+          skill_id: skill.id,
+          ticker,
+          is_historic: isHistoric,
+          ...(configKey ? { config_key: configKey } : { config_key: null }),
+          extracted_json: { not: require('@prisma/client').Prisma.JsonNull },
+        },
+        orderBy: { created_at: 'desc' },
+      });
+
+      if (!output) {
+        results.push({ ticker, status: 'missing_json', jobId: null });
+        continue;
+      }
+
+      try {
+        const job = await addHtmlCompressedRegenerateJob({
+          slug: req.params.slug,
+          ticker,
+          callId: output.call_id,
+          historic: isHistoric,
+          configKey: configKey ?? null,
+        });
+        results.push({ ticker, status: 'queued', jobId: job.id, updatedAt: output.updated_at });
+      } catch (err) {
+        results.push({ ticker, status: 'error', error: err.message, jobId: null });
+      }
+    }
+
+    res.json({ success: true, requested: tickers.length, results });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+});
+
+router.post('/:slug/bulk-status', async (req, res, next) => {
+  try {
+    const { jobs } = req.body; // Array of { ticker, jobId }
+    if (!Array.isArray(jobs)) {
+      return res.status(400).json({ error: 'jobs array is required' });
+    }
+
+    const jobQueue = require('../lib/jobQueue');
+    const queue = jobQueue.getQueue('html_skill_compressed');
+    const results = [];
+
+    for (const item of jobs) {
+      const { ticker, jobId } = item;
+      if (!jobId) {
+        results.push({ ticker, status: 'missing', jobId: null });
+        continue;
+      }
+
+      const job = await queue.getJob(jobId);
+      const state = job ? await job.getState() : null;
+
+      let status;
+      if (state === 'active') status = 'processing';
+      else if (state === 'waiting' || state === 'delayed') status = 'queued';
+      else if (state === 'completed') status = 'ready';
+      else if (state === 'failed') status = 'failed';
+      else status = 'missing';
+
+      results.push({
+        ticker,
+        jobId,
+        status,
+        ...(status === 'failed' && job?.failedReason ? { error: job.failedReason } : {}),
+      });
+    }
+
+    res.json({ success: true, results });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── Output fetch ──────────────────────────────────────────────────────────────
 
 router.get('/:slug/outputs/:ticker', async (req, res, next) => {

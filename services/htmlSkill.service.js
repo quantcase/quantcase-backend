@@ -258,8 +258,11 @@ function stripMarkdownFences(text) {
 
 function parseFiscalYear(fy) {
   if (!fy) return null;
-  const m = String(fy).match(/(\d{4})/);
-  return m ? parseInt(m[1], 10) : null;
+  const m4 = String(fy).match(/(\d{4})/);
+  if (m4) return parseInt(m4[1], 10);
+  const m2 = String(fy).match(/(?:FY|fy)(\d{2})/);
+  if (m2) return 2000 + parseInt(m2[1], 10);
+  return null;
 }
 
 function parseQuarterNum(q) {
