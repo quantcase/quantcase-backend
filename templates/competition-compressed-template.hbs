@@ -1130,6 +1130,21 @@
         font-family: var(--font-sans) !important
     }
 
+    .panel.g { border-top: 4px solid var(--teal); }
+    .panel.a { border-top: 4px solid var(--amber); }
+    .panel.r { border-top: 4px solid var(--red); }
+    .panel.g strong { color: var(--teal-dark); font-size: 12.5px; }
+    .panel.a strong { color: #875408; font-size: 12.5px; }
+    .panel.r strong { color: #9a3029; font-size: 12.5px; }
+    .panel .list li strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .panel .list li .card-copy {
+      display: block;
+      margin-top: 6px;
+    }
+
 </style>
 
 </head>
@@ -1238,11 +1253,11 @@
           <p class="section-note">{{{competitive_landscape.verdict}}}</p>
         </div>
         <div class="three-grid">{{#each competitive_landscape.columns}}
-            <article class="panel">
-              <p class="card-meta tone-{{{tone}}}">{{{subtitle}}}</p>
+            <article class="panel {{{tone}}}">
+              {{#if subtitle}}<p class="card-meta tone-{{{tone}}}">{{{subtitle}}}</p>{{/if}}
               <h3 class="card-title">{{{title}}}</h3>
               <ul class="list">{{#each items}}
-                  <li><strong>{{{label}}}</strong><br>{{{evidence}}}<br><span class="card-copy">{{{meaning}}}</span></li>
+                  <li><strong>{{{label}}}</strong>{{{evidence}}}<span class="card-copy"><em>{{{meaning}}}</em></span></li>
                 {{/each}}</ul>
             </article>
           {{/each}}</div>

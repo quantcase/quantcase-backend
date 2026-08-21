@@ -517,6 +517,12 @@
             font-size: 13px;
             line-height: 1.58
         }
+        .card-meta {
+            margin: 0 0 9px;
+            color: var(--faint);
+            font: 600 9.5px/1.35 'Manrope', system-ui, sans-serif;
+            text-transform: uppercase
+        }
 
         .synthesis-label {
             display: block;
@@ -658,6 +664,7 @@
                             <span class="pill {{{case}}}">{{{case}}}</span>
                             {{#if cagr}}
                                 <div class="big">{{{cagr}}}</div>
+                                <p class="card-meta">Earnings CAGR</p>
                             {{else}}
                                 <div class="big missing-value">CAGR not quantified</div>
                             {{/if}}
@@ -675,7 +682,7 @@
             </section>
         {{/if}}
 
-        {{#if earnings_chart.labels.length}}
+        {{!-- {{#if earnings_chart.labels.length}}
             <section class="sec">
                 <div class="sec-head">
                     <div class="sec-title">Earnings growth path by scenario</div>
@@ -701,7 +708,40 @@
                     </div>
                 </div>
             </section>
+        {{/if}} --}}
+
+
+        {{#if assumption_table.rows.length}}
+            <section class="sec">
+                <div class="sec-head">
+                    <div class="sec-title">Key assumption summary</div>
+                    <div class="sec-note">Unit · {{{assumption_table.unit}}}</div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th>Bull</th>
+                                <th>Base</th>
+                                <th>Bear</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{#each assumption_table.rows}}
+                                <tr>
+                                    <td><strong>{{{metric}}}</strong></td>
+                                    <td class="g">{{{bull}}}</td>
+                                    <td style="color:#3652d9;font-weight:700">{{{base}}}</td>
+                                    <td class="r">{{{bear}}}</td>
+                                </tr>
+                            {{/each}}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         {{/if}}
+
 
         {{#if patterns.items.length}}
             <section class="qci">
@@ -774,36 +814,7 @@
             </section>
         {{/if}}
 
-        {{#if assumption_table.rows.length}}
-            <section class="sec">
-                <div class="sec-head">
-                    <div class="sec-title">Key assumption summary</div>
-                    <div class="sec-note">Unit · {{{assumption_table.unit}}}</div>
-                </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Metric</th>
-                                <th>Bull</th>
-                                <th>Base</th>
-                                <th>Bear</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{#each assumption_table.rows}}
-                                <tr>
-                                    <td><strong>{{{metric}}}</strong></td>
-                                    <td class="g">{{{bull}}}</td>
-                                    <td style="color:#3652d9;font-weight:700">{{{base}}}</td>
-                                    <td class="r">{{{bear}}}</td>
-                                </tr>
-                            {{/each}}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-        {{/if}}
+        
 
         {{#if key_message}}
             <section class="sec keymsg synthesis-card">

@@ -164,6 +164,13 @@
       background: var(--amber-soft)
     }
 
+    .rating-badge.blue,
+    .rating-badge.b,
+    .tone-b {
+      color: #2944bd;
+      background: var(--blue-soft)
+    }
+
     .rating-badge.red,
     .rating-badge.r,
     .tone-r {
@@ -193,6 +200,10 @@
 
     .reason.a {
       border-color: #ead3a8
+    }
+
+    .reason.b {
+      border-color: #c3d0ff
     }
 
     .reason.r {
@@ -261,6 +272,10 @@
       border-top-color: var(--amber)
     }
 
+    .headline-card.b {
+      border-top-color: var(--blue)
+    }
+
     .headline-card.r {
       border-top-color: var(--red)
     }
@@ -285,6 +300,10 @@
 
     .headline-value.a {
       color: #875408
+    }
+
+    .headline-value.b {
+      color: #2944bd
     }
 
     .headline-value.r {
@@ -393,6 +412,10 @@
 
     .pattern-card.a .sparkline i {
       background: var(--amber)
+    }
+
+    .pattern-card.b .sparkline i {
+      background: var(--blue)
     }
 
     .pattern-card.r .sparkline i {
@@ -562,6 +585,10 @@
       background: var(--amber)
     }
 
+    .bar-fill.b {
+      background: var(--blue)
+    }
+
     .bar-fill.r {
       background: var(--red)
     }
@@ -671,6 +698,11 @@
       box-shadow: 0 0 0 4px rgba(192, 124, 18, .15)
     }
 
+    .timeline-point.b .timeline-marker {
+      background: var(--blue);
+      box-shadow: 0 0 0 4px rgba(61, 90, 254, .15)
+    }
+
     .timeline-point.r .timeline-marker {
       background: var(--red);
       box-shadow: 0 0 0 4px rgba(196, 61, 52, .15)
@@ -704,6 +736,10 @@
 
     .watch-card.r {
       border-left-color: var(--red)
+    }
+
+    .watch-card.b {
+      border-left-color: var(--blue)
     }
 
     .watch-title {
@@ -743,6 +779,10 @@
       border-left-color: var(--amber)
     }
 
+    .bottom-row.b {
+      border-left-color: var(--blue)
+    }
+
     .bottom-row.r {
       border-left-color: var(--red)
     }
@@ -756,6 +796,10 @@
 
     .bottom-row.a .bottom-tag {
       color: #875408
+    }
+
+    .bottom-row.b .bottom-tag {
+      color: #2944bd
     }
 
     .bottom-row.r .bottom-tag {
@@ -902,7 +946,8 @@
 
     .hero .reason.g,
     .hero .reason.a,
-    .hero .reason.r {
+    .hero .reason.r,
+    .hero .reason.b {
       border-color: rgba(255, 255, 255, .1)
     }
 
@@ -918,6 +963,11 @@
     .hero .reason.a:before {
       color: #ffd58c;
       content: "!"
+    }
+
+    .hero .reason.b:before {
+      color: #a0baff;
+      content: "•"
     }
 
     .hero .reason.r:before {
@@ -1078,7 +1128,7 @@
     }
 
     /* Fix for .card-meta highlight block */
-    p.card-meta.tone-g, p.card-meta.tone-a, p.card-meta.tone-r, p.card-meta.tone-amber, p.card-meta.tone-red, p.card-meta.tone-green {
+    p.card-meta.tone-g, p.card-meta.tone-a, p.card-meta.tone-b, p.card-meta.tone-r, p.card-meta.tone-amber, p.card-meta.tone-red, p.card-meta.tone-green, p.card-meta.tone-blue {
       background: transparent !important;
       font-weight: 700;
     }
@@ -1192,7 +1242,7 @@
       </section>
     {{/if}}
 
-    {{#if earnings_chart.labels.length}}
+    {{!-- {{#if earnings_chart.labels.length}}
       <section>
         <div class="section-head">
           <div>
@@ -1222,48 +1272,7 @@
               aria-label="Secondary forecast metric chart"></canvas></div>
         </div>
       </section>
-    {{/if}}
-    <section class="insight-stack">
-      {{#if qc_intuition.summary}}
-        <div class="intuition-panel"><span class="intuition-badge">QC Intuition · Pattern Recognition</span>
-          <h2 class="intuition-heading">What is driving earnings path</h2>
-          <p class="intuition-line">{{{qc_intuition.summary}}}</p>
-        </div>
-      {{/if}}
-      {{#if patterns.cards.length}}
-        <div class="insight-patterns">
-          <div class="pattern-grid">{{#each patterns.cards}}
-              <article class="pattern-card {{{tone}}} {{#if full_width}}full{{/if}}">
-                <div class="pattern-visual"><span class="sparkline"
-                    aria-label="Relative pattern evolution">{{#each spark}}<i
-                        class="v{{{this}}}"></i>{{/each}}</span><span class="trend {{{trend}}}">{{{trend}}}</span></div>
-                <h3 class="pattern-name">{{{name}}}</h3>
-                <p class="pattern-meaning">{{{meaning}}}</p>
-              </article>
-            {{/each}}</div>
-        </div>
-      {{/if}}
-      {{#if edge}}
-        <div class="edge-panel"><span class="edge-badge">{{{edge.badge}}}</span>
-          <div class="edge-grid">
-            <div>
-              <p class="edge-label">Theme</p>
-              <p class="edge-copy">{{{edge.behaviour}}}</p>
-            </div>
-            <div>
-              <p class="edge-label">Floor reason</p>
-              <p class="edge-copy accent">{{{edge.implication}}}</p>
-            </div>{{#if edge.investor_focus.chip}}
-              <div>
-                <p class="edge-label">Swing variable</p>
-                <p class="edge-copy"><span
-                    class="focus-chip">{{{edge.investor_focus.chip}}}</span>{{{edge.investor_focus.tail}}}</p>
-              </div>
-            {{/if}}
-          </div>
-        </div>
-      {{/if}}
-    </section>
+    {{/if}} --}}
     {{#if assumptions.rows.length}}
       <section>
         <div class="section-head">
@@ -1295,6 +1304,50 @@
         </div>
       </section>
     {{/if}}
+
+
+    <section class="insight-stack">
+      {{#if qc_intuition.summary}}
+        <div class="intuition-panel"><span class="intuition-badge">QC Intuition · Pattern Recognition</span>
+          <h2 class="intuition-heading">What is driving earnings path</h2>
+          <p class="intuition-line">{{{qc_intuition.summary}}}</p>
+        </div>
+      {{/if}}
+      {{#if patterns.cards.length}}
+        <div class="insight-patterns">
+          <div class="pattern-grid">{{#each patterns.cards}}
+              <article class="pattern-card {{{tone}}} {{#if full_width}}full{{/if}}">
+                <div class="pattern-visual"><span class="sparkline"
+                    aria-label="Relative pattern evolution">{{#each spark}}<i
+                        class="v{{{this}}}"></i>{{/each}}</span><span class="trend tone-{{{tone}}}">{{{trend}}}</span></div>
+                <h3 class="pattern-name">{{{name}}}</h3>
+                <p class="pattern-meaning">{{{meaning}}}</p>
+              </article>
+            {{/each}}</div>
+        </div>
+      {{/if}}
+      {{#if edge}}
+        <div class="edge-panel"><span class="edge-badge">{{{edge.badge}}}</span>
+          <div class="edge-grid">
+            <div>
+              <p class="edge-label">Theme</p>
+              <p class="edge-copy">{{{edge.behaviour}}}</p>
+            </div>
+            <div>
+              <p class="edge-label">Floor reason</p>
+              <p class="edge-copy accent">{{{edge.implication}}}</p>
+            </div>{{#if edge.investor_focus.chip}}
+              <div>
+                <p class="edge-label">Swing variable</p>
+                <p class="edge-copy"><span
+                    class="focus-chip">{{{edge.investor_focus.chip}}}</span>{{{edge.investor_focus.tail}}}</p>
+              </div>
+            {{/if}}
+          </div>
+        </div>
+      {{/if}}
+    </section>
+    
 
     {{#if triggers.bull.desc}}
       <section>
