@@ -1319,7 +1319,7 @@
           const baseData = {{{ json earnings_chart.datasets.base }}};
           const bearData = {{{ json earnings_chart.datasets.bear }}};
           const dynamicMax = Math.max(...bullData, ...baseData, ...bearData);
-          const finalMax = Math.max(dynamicMax, {{{ json earnings_chart.y_max }}} || 0);
+          const finalMax = Math.max(dynamicMax, {{{ json earnings_chart.y_max }}} || 0) + 2;
           new Chart(line, { type: 'line', data: { labels: {{{ json earnings_chart.labels }}}, datasets: [{ label: 'Bull', data: bullData, borderColor: colors.bull, backgroundColor: 'rgba(14,156,134,.08)', fill: true, tension: .35}, { label: 'Base', data: baseData, borderColor: colors.base, backgroundColor: 'rgba(61,90,254,.06)', fill: true, tension: .35}, { label: 'Bear', data: bearData, borderColor: colors.bear, backgroundColor: 'rgba(196,61,52,.06)', fill: true, tension: .35}]}, options: {...common, scales: {...common.scales, y: {...common.scales.y, max: finalMax, ticks: {...common.scales.y.ticks, callback: v => v + '%' } } } }});
         }
       const bar = document.getElementById('marginForecastChart');
