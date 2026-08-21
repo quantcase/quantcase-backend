@@ -310,7 +310,7 @@
     .cred-bands { position: absolute; inset: 0 0 auto; display: grid; width: 100%; height: 218px; grid-template-rows: repeat(3, 68px); gap: 7px; }
     .cred-band { border-radius: 8px; }
     .cred-band.high { background: #e9f4ef; }.cred-band.developing { background: #fbf2df; }.cred-band.lower { background: #fbeceb; }
-    .cred-points { position: absolute; inset: 0; display: grid; grid-auto-columns: minmax(130px, 1fr); grid-auto-flow: column; }
+    .cred-points { position: relative; height: 100%; display: grid; grid-auto-columns: minmax(130px, 1fr); grid-auto-flow: column; }
     .cred-point { position: relative; min-width: 0; text-align: center; }
     .cred-marker { position: absolute; z-index: 2; left: 50%; width: 24px; height: 24px; background: var(--teal); border: 4px solid var(--surface); border-radius: 50%; box-shadow: 0 0 0 5px rgba(14,156,134,.17); transform: translate(-50%, -50%); }
     .cred-point.teal .cred-marker { top: 34px; background: var(--teal); box-shadow: 0 0 0 5px rgba(14,156,134,.17); }

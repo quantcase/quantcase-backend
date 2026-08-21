@@ -250,7 +250,7 @@
       padding: 18px;
       background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: var(--radius)
+      border-radius: var(--radius);
     }
 
     .headline-card {
@@ -627,7 +627,7 @@
       padding: 18px;
       background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: var(--radius)
+      border-radius: var(--radius);
      width: max-content; }
 
     .timeline-track {
@@ -928,7 +928,7 @@
     /* ADDED: P/E Chart Styles for compressed view */
     .pe-scatter {
       border: 1px solid var(--line);
-      border-radius: var(--radius);
+      border-radius: var(--radius);;
       background: var(--surface);
       padding: 20px 22px;
     }
@@ -1302,7 +1302,7 @@
     {{/if}}
     
     {{!-- ADDED: 3-Year PE Path Component --}}
-    {{#if pe_path.scenarios.0.points.length}}
+    {{#if pe_path.scenarios}}
       <section class="sec">
         <div class="section-head">
           <div>
@@ -1320,34 +1320,37 @@
               <text x="70" y="44" text-anchor="end" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.y_top_label}}}</text>
               <text x="70" y="109" text-anchor="end" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.y_mid_label}}}</text>
               <text x="70" y="186" text-anchor="end" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.y_low_label}}}</text>
-              <text x="250" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.fy_start}}}</text>
-              <text x="650" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.fy_mid}}}</text>
-              <text x="930" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.fy_end}}}</text>
+              <text x="150" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.fy_start}}}</text>
+              <text x="562" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.fy_mid}}}</text>
+              <text x="975" y="218" text-anchor="middle" fill="#9a9a96" font-size="12" font-family="Manrope">{{{pe_path.fy_end}}}</text>
               
-              {{#with (lookup pe_path.scenarios 0)}}
-                <polyline points="250,105 650,78 930,58" fill="none" stroke="{{{color}}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                <circle cx="250" cy="105" r="6" fill="{{{color}}}" />
-                <circle cx="650" cy="78" r="6" fill="{{{color}}}" />
-                <circle cx="930" cy="58" r="7.5" fill="{{{color}}}" />
-                <text x="942" y="55" fill="{{{color}}}" font-size="12" font-weight="700" font-family="Manrope">{{{label}}}</text>
-              {{/with}}
-              
-              {{#with (lookup pe_path.scenarios 1)}}
-                <polyline points="250,105 650,105 930,105" fill="none" stroke="{{{color}}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                <circle cx="250" cy="105" r="6" fill="{{{color}}}" />
-                <circle cx="650" cy="105" r="6" fill="{{{color}}}" />
-                <circle cx="930" cy="105" r="7.5" fill="{{{color}}}" />
-                <text x="942" y="102" fill="{{{color}}}" font-size="12" font-weight="700" font-family="Manrope">{{{label}}}</text>
-              {{/with}}
-              
-              {{#with (lookup pe_path.scenarios 2)}}
-                <polyline points="250,105 650,136 930,154" fill="none" stroke="{{{color}}}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                <circle cx="250" cy="105" r="6" fill="{{{color}}}" />
-                <circle cx="650" cy="136" r="6" fill="{{{color}}}" />
-                <circle cx="930" cy="154" r="7.5" fill="{{{color}}}" />
-                <text x="942" y="151" fill="{{{color}}}" font-size="12" font-weight="700" font-family="Manrope">{{{label}}}</text>
-              {{/with}}
+              <g id="pe-chart-lines"></g>
             </svg>
+            <script>
+              (() => {
+                const scenarios = {{{ json pe_path.scenarios }}};
+                const g = document.getElementById('pe-chart-lines');
+                if (!g || !scenarios) return;
+                
+                const mapX = (x) => {
+                  if (x <= 80) return 150;
+                  if (x >= 320) return 975;
+                  return 562;
+                };
+                
+                let svgContent = '';
+                scenarios.forEach(s => {
+                  if (!s.points || s.points.length < 3) return;
+                  const pts = s.points.map(p => [mapX(p[0]), p[1]]);
+                  svgContent += `<polyline points="${pts[0][0]},${pts[0][1]} ${pts[1][0]},${pts[1][1]} ${pts[2][0]},${pts[2][1]}" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />`;
+                  svgContent += `<circle cx="${pts[0][0]}" cy="${pts[0][1]}" r="6" fill="${s.color}" />`;
+                  svgContent += `<circle cx="${pts[1][0]}" cy="${pts[1][1]}" r="6" fill="${s.color}" />`;
+                  svgContent += `<circle cx="${pts[2][0]}" cy="${pts[2][1]}" r="7.5" fill="${s.color}" />`;
+                  svgContent += `<text x="${pts[2][0]}" y="${pts[2][1]}" dx="12" dy="4" fill="${s.color}" font-size="12" font-weight="700" font-family="Manrope">${s.label}</text>`;
+                });
+                g.innerHTML = svgContent;
+              })();
+            </script>
           </div>
           
           <div class="pe-legend">
