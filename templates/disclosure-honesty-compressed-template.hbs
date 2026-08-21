@@ -55,36 +55,7 @@
       padding: 28px 24px 60px
     }
 
-    .topline {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-      margin-bottom: 20px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--line)
-    }
-
-    .topline-brand {
-      color: var(--faint);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: .14em;
-      text-transform: uppercase
-    }
-
-    .topline-brand strong {
-      color: var(--ink)
-    }
-
-    .topline-period {
-      margin: 0;
-      color: var(--faint);
-      font: 500 11px/1.45 ui-monospace, monospace;
-      text-align: right
-    }
-
-    /* 1. NAVY — Hero */
+                    /* 1. NAVY — Hero */
     .hero {
       position: relative;
       display: grid;
@@ -969,11 +940,7 @@
         padding: 18px 14px 42px
       }
 
-      .topline {
-        align-items: flex-start
-      }
-
-      .hero {
+            .hero {
         grid-template-columns: 1fr;
         padding: 26px 20px;
         text-align: center
@@ -1132,15 +1099,36 @@
         .top-meta th, .top-meta td { padding: 2px 12px; font-size: 10.5px; color: var(--faint); white-space: nowrap; border-bottom: none; font-family: 'Manrope', sans-serif; }
         .top-meta tr:last-child td { padding-bottom: 8px; }
         .top-meta .meta-label { padding-right: 8px; text-align: right; text-transform: uppercase; letter-spacing: .04em; color: #b4b3ae; font-weight: 600; font-size: 9.5px; font-family: 'Manrope', sans-serif; }
+
+    .top { display: flex; justify-content: space-between; gap: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+    .top-right { display: flex; align-items: flex-start; gap: 20px; flex-shrink: 0; }
+    .lens-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+    .lens-row .eyebrow { font-size: 11.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); margin: 0; }
+    .title { font-size: 36px; line-height: 1.2; margin: 0; font-weight: 600; }
+    .serif { font-family: 'Source Serif 4', Lora, Georgia, serif; }
+    .asset-kicker { margin-top: 5px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 768px) {
+        .top { flex-direction: column; gap: 16px; }
+        .title { font-size: 28px; }
+        .top-right { align-self: flex-start; }
+    }
+
 </style>
 
 </head>
 
 <body>
   <main class="report">
-    <div class="topline">
-      <span class="topline-brand"><strong>{{{asset_name}}}</strong> · {{{lens}}}</span>
-      {{#if source_meta}}
+    <header class="top">
+      <div>
+        <div class="lens-row">
+            <span class="eyebrow">{{{lens}}}</span>
+        </div>
+        <h1 class="title serif">Disclosure Honesty</h1>
+        <div class="asset-kicker">{{{asset_name}}}</div>
+      </div>
+      <div class="top-right">
+        {{#if source_meta}}
       <table class="top-meta">
           <tr><th colspan="2" style="padding: 8px 12px 4px; text-align: center; color: #b4b3ae; font-size: 9.5px; font-weight: 400; white-space: nowrap; border-bottom: none;">Latest analysed</th></tr>
           {{#if source_meta.transcript}}<tr><td class="meta-label">Transcript</td><td>{{{source_meta.transcript}}}</td></tr>{{/if}}
@@ -1148,7 +1136,9 @@
           {{#if source_meta.annual_report}}<tr><td class="meta-label">Annual Report</td><td>{{{source_meta.annual_report}}}</td></tr>{{/if}}
       </table>
       {{/if}}
-    </div>
+      </div>
+    </header>
+
 
     <header class="hero">
       <div class="score-ring {{{score_badge.status_color}}}" role="img"
@@ -1157,8 +1147,7 @@
             {{{score_badge.scale}}}</span></div>
       </div>
       <div class="hero-body">
-        <p class="eyebrow">Disclosure Honesty</p>
-        <h1 class="hero-title">{{{score_badge.label}}}</h1>
+                <h1 class="hero-title">{{{score_badge.label}}}</h1>
         <div class="rating-line"><span class="rating-badge {{{score_badge.status_color}}}">{{{score_badge.rating}}}</span>
         </div>
         <p class="verdict">{{{hero_verdict}}}</p>

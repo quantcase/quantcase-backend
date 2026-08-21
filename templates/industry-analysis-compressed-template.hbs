@@ -53,28 +53,7 @@
       padding: 28px 28px 52px
     }
 
-    .topline {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 20px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--line)
-    }
-
-    .topline-brand {
-      font-size: 12px;
-      letter-spacing: .02em
-    }
-
-    .topline-period {
-      margin: 0;
-      color: var(--faint);
-      font: 500 10.5px/1.5 ui-monospace, monospace;
-      text-align: right
-    }
-
-    .hero {
+                .hero {
       display: grid;
       grid-template-columns: 176px minmax(0, 1fr);
       gap: 30px;
@@ -812,24 +791,7 @@
     }
 
     /* Shared compressed-report hero: intentionally matches Guidance Credibility. */
-    .topline {
-      align-items: center;
-      margin-bottom: 20px
-    }
-
-    .topline-brand {
-      color: var(--faint);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: .14em;
-      text-transform: uppercase
-    }
-
-    .topline-brand strong {
-      color: var(--ink)
-    }
-
-    .hero {
+                .hero {
       position: relative;
       grid-template-columns: 180px minmax(0, 1fr);
       gap: 38px;
@@ -975,17 +937,7 @@
         padding: 20px 16px 40px
       }
 
-      .topline {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 4px
-      }
-
-      .topline-period {
-        text-align: left
-      }
-
-      .hero {
+                  .hero {
         grid-template-columns: 1fr;
         min-height: 0;
         padding: 34px 20px;
@@ -1154,15 +1106,36 @@
         .top-meta th, .top-meta td { padding: 2px 12px; font-size: 10.5px; color: var(--faint); white-space: nowrap; border-bottom: none; font-family: 'Manrope', sans-serif; }
         .top-meta tr:last-child td { padding-bottom: 8px; }
         .top-meta .meta-label { padding-right: 8px; text-align: right; text-transform: uppercase; letter-spacing: .04em; color: #b4b3ae; font-weight: 600; font-size: 9.5px; font-family: 'Manrope', sans-serif; }
+
+    .top { display: flex; justify-content: space-between; gap: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+    .top-right { display: flex; align-items: flex-start; gap: 20px; flex-shrink: 0; }
+    .lens-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+    .lens-row .eyebrow { font-size: 11.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); margin: 0; }
+    .title { font-size: 36px; line-height: 1.2; margin: 0; font-weight: 600; }
+    .serif { font-family: 'Source Serif 4', Lora, Georgia, serif; }
+    .asset-kicker { margin-top: 5px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 768px) {
+        .top { flex-direction: column; gap: 16px; }
+        .title { font-size: 28px; }
+        .top-right { align-self: flex-start; }
+    }
+
 </style>
 
 </head>
 
 <body>
   <main class="report" data-template-category="industry-analysis-compressed">
-    <div class="topline">
-      <span class="topline-brand">{{{lens}}} · <strong>{{{asset_name}}}</strong></span>
-      {{#if source_meta}}
+    <header class="top">
+      <div>
+        <div class="lens-row">
+            <span class="eyebrow">{{{lens}}}</span>
+        </div>
+        <h1 class="title serif">Industry Analysis</h1>
+        <div class="asset-kicker">{{{asset_name}}}</div>
+      </div>
+      <div class="top-right">
+        {{#if source_meta}}
       <table class="top-meta">
           <tr><th colspan="2" style="padding: 8px 12px 4px; text-align: center; color: #b4b3ae; font-size: 9.5px; font-weight: 400; white-space: nowrap; border-bottom: none;">Latest analysed</th></tr>
           {{#if source_meta.transcript}}<tr><td class="meta-label">Transcript</td><td>{{{source_meta.transcript}}}</td></tr>{{/if}}
@@ -1170,7 +1143,9 @@
           {{#if source_meta.annual_report}}<tr><td class="meta-label">Annual Report</td><td>{{{source_meta.annual_report}}}</td></tr>{{/if}}
       </table>
       {{/if}}
-    </div>
+      </div>
+    </header>
+
     <header class="hero">
       <div class="score-ring {{{score_badge.status_color}}}" style="--score:{{{score_badge.score}}}" role="img"
         aria-label="Industry perception score {{{score_badge.score}}} out of {{{score_badge.scale}}}">
@@ -1178,8 +1153,7 @@
             {{{score_badge.scale}}}</span></div>
       </div>
       <div class="hero-body">
-        <p class="eyebrow">Industry Analysis</p>
-        <h1 class="action-title">{{{hero.action_title}}}</h1>
+                <h1 class="action-title">{{{hero.action_title}}}</h1>
         <p class="verdict">{{{hero.verdict}}}</p>
         {{#if hero.reasons.length}}
           <div class="reasons">{{#each hero.reasons}}<span class="reason {{{tone}}}">{{{text}}}</span>{{/each}}</div>
