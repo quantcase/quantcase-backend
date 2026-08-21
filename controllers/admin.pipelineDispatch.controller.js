@@ -159,6 +159,17 @@ const runL2Multi = async (req, res, next) => {
   }
 };
 
+const regenerateHtmlL2Multi = async (req, res, next) => {
+  try {
+    req.body.regenerateHtml = true;
+    const result = await triggerJobBySlug(L2_MULTI_SLUG, req.body);
+    res.json({ success: true, message: 'L2 multi regenerate-html triggered', run_id: result.run_id });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+};
+
 // GET /admin/pipeline-dispatch/l2-multi/runs
 const getL2MultiRuns = async (req, res, next) => {
   try {
@@ -310,6 +321,17 @@ const runL2CompressedMulti = async (req, res, next) => {
   }
 };
 
+const regenerateHtmlL2CompressedMulti = async (req, res, next) => {
+  try {
+    req.body.regenerateHtml = true;
+    const result = await triggerJobBySlug(L2_COMPRESSED_MULTI_SLUG, req.body);
+    res.json({ success: true, message: 'L2 Compressed multi regenerate-html triggered', run_id: result.run_id });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+};
+
 const getL2CompressedMultiRuns = async (req, res, next) => {
   try {
     const job = await prisma.schedulerJob.findUnique({ where: { slug: L2_COMPRESSED_MULTI_SLUG }, select: { id: true } });
@@ -329,7 +351,7 @@ const getL2CompressedMultiRuns = async (req, res, next) => {
 
 module.exports = {
   getL1MultiOptions, previewL1Multi, previewL1MultiCsv, runL1Multi, getL1MultiRuns,
-  getL2MultiOptions, previewL2Multi, previewL2MultiCsv, runL2Multi, getL2MultiRuns,
+  getL2MultiOptions, previewL2Multi, previewL2MultiCsv, runL2Multi, regenerateHtmlL2Multi, getL2MultiRuns,
   getL3MultiOptions, previewL3Multi, previewL3MultiCsv, runL3Multi, getL3MultiRuns,
-  getL2CompressedMultiOptions, previewL2CompressedMulti, previewL2CompressedMultiCsv, runL2CompressedMulti, getL2CompressedMultiRuns,
+  getL2CompressedMultiOptions, previewL2CompressedMulti, previewL2CompressedMultiCsv, runL2CompressedMulti, regenerateHtmlL2CompressedMulti, getL2CompressedMultiRuns,
 };

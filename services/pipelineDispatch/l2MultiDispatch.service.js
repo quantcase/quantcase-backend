@@ -339,7 +339,10 @@ async function runL2MultiDispatch(options = {}) {
       continue;
     }
     try {
-      const result = await dispatchEndpoint(`/api/html-incremental-skills/${slug}/run`, {
+      const endpoint = options.regenerateHtml
+        ? `/api/html-incremental-skills/${slug}/regenerate-html`
+        : `/api/html-incremental-skills/${slug}/run`;
+      const result = await dispatchEndpoint(endpoint, {
         body: { ticker, callId: call.id, historic, force },
       });
       totals.queued++;

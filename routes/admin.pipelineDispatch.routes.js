@@ -54,6 +54,7 @@ router.get(  '/l2-multi/options',     pipelineDispatchController.getL2MultiOptio
 router.post( '/l2-multi/preview',     validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.previewL2Multi);
 router.post( '/l2-multi/preview/csv', validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.previewL2MultiCsv);
 router.post( '/l2-multi/run',         validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.runL2Multi);
+router.post( '/l2-multi/regenerate-html', validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.regenerateHtmlL2Multi);
 router.get(  '/l2-multi/runs',        pipelineDispatchController.getL2MultiRuns);
 
 // ─── L3 Multi-Dispatch (post-html-analysis runs) ──────────────────────────────
@@ -89,6 +90,7 @@ router.get(  '/l2-compressed-multi/options',     pipelineDispatchController.getL
 router.post( '/l2-compressed-multi/preview',     validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.previewL2CompressedMulti);
 router.post( '/l2-compressed-multi/preview/csv', validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.previewL2CompressedMultiCsv);
 router.post( '/l2-compressed-multi/run',         validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.runL2CompressedMulti);
+router.post( '/l2-compressed-multi/regenerate-html', validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.regenerateHtmlL2CompressedMulti);
 router.get(  '/l2-compressed-multi/runs',        pipelineDispatchController.getL2CompressedMultiRuns);
 
 module.exports = router;

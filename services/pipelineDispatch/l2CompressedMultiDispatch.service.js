@@ -141,7 +141,11 @@ async function runL2CompressedMultiDispatch(slug, options = {}) {
       
       const callId = baseOutput?.call_id ?? 'unknown';
 
-      const result = await dispatchEndpoint(`/api/html-compressed-skills/${slug}/run`, {
+      const endpoint = options.regenerateHtml
+        ? `/api/html-compressed-skills/${slug}/regenerate-html`
+        : `/api/html-compressed-skills/${slug}/run`;
+
+      const result = await dispatchEndpoint(endpoint, {
         body: { ticker, callId, force, historic, configKey: options.configKey },
       });
       totals.queued++;
