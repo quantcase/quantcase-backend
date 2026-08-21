@@ -1458,10 +1458,14 @@
             <h2 class="section-title">{{{investor_takeaway_text}}}</h2>
           </div>
         </div>
-        <div class="bottom-line">{{#each bottom_line}}
-            <div class="bottom-row {{{tone}}}"><span class="bottom-tag">{{{tag}}}</span><span
-                class="bottom-copy">{{{text}}}</span></div>
-          {{/each}}</div>
+       <div class="bottom-line">
+    {{#each bottom_line}} 
+      <div class="bottom-row {{#if (eq tag "Watch")}}a{{else if (eq tag "Risk")}}r{{else}}g{{/if}}">
+            <span class="bottom-tag">{{{tag}}}</span><span 
+              class="bottom-copy">{{{text}}}</span>
+          </div> 
+        {{/each}}
+      </div>
       </section>
     {{/if}}
     <footer class="foot"><span>Financial Strength ·
