@@ -634,8 +634,9 @@
       padding: 18px;
       background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: var(--radius);;
-      width: max-content;
+      border-radius: var(--radius);
+      display: inline-block;
+      min-width: max(760px, max-content);
     }
 
     .timeline-track {
@@ -1103,8 +1104,9 @@
       scrollbar-color: var(--line-dark) transparent;
     }
 
-    .top-meta { border-collapse: separate; border-spacing: 0; width: auto; min-width: 0; background: transparent; border: 1px solid var(--line); border-radius: 6px; margin-left: auto; margin-right: 0; align-self: flex-end; }
+    .top-meta { border-collapse: separate; border-spacing: 0; width: auto; min-width: 0; background: transparent; border: 1px solid var(--line); border-radius: 6px; margin-left: auto; margin-right: 0; align-self: flex-end; overflow: hidden; }
         .top-meta th, .top-meta td { padding: 2px 12px; font-size: 10.5px; color: var(--faint); white-space: nowrap; border-bottom: none; font-family: 'Manrope', sans-serif; }
+    .top-meta th { background: #f7f7fb; text-transform: uppercase; letter-spacing: .11em; font-style: normal; }
         .top-meta tr:last-child td { padding-bottom: 8px; }
         .top-meta .meta-label { padding-right: 8px; text-align: right; text-transform: uppercase; letter-spacing: .04em; color: #b4b3ae; font-weight: 600; font-size: 9.5px; font-family: 'Manrope', sans-serif; }
 
