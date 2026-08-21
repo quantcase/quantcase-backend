@@ -331,6 +331,27 @@
         .title { font-size: 28px; }
     }
 
+
+    /* Unified typography: one sans-serif family across every UI element to match full-t1 */
+    :root {
+        --font-sans: 'Manrope', Inter, Arial, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif
+    }
+
+    html,
+    body,
+    button,
+    input,
+    select,
+    textarea {
+        font-family: var(--font-sans) !important
+    }
+
+    body *,
+    body *::before,
+    body *::after {
+        font-family: var(--font-sans) !important
+    }
+
 </style>
 
 </head>
