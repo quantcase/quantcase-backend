@@ -310,6 +310,14 @@
       color: #9a3029
     }
 
+    .scenarios-section .headline-card.a {
+      border-top-color: var(--blue) !important;
+    }
+
+    .scenarios-section .headline-value.a {
+      color: #2944bd !important;
+    }
+
     .headline-sub,
     .card-copy {
       margin: 0;
@@ -745,6 +753,14 @@
     .watch-title {
       margin: 0 0 5px;
       font-size: 12.5px
+    }
+
+    .watch-card.g .watch-title {
+      color: var(--teal-dark)
+    }
+
+    .watch-card.r .watch-title {
+      color: #9a3029
     }
 
     .watch-desc {
@@ -1222,7 +1238,7 @@
       </div>
     </header>
     {{#if scenarios.cards.length}}
-      <section>
+      <section class="scenarios-section">
         <div class="section-head">
           <div>
             <p class="section-tag">{{{scenarios.section_tag}}}</p>
