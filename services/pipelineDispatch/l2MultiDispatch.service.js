@@ -101,10 +101,6 @@ async function resolveLatestCall(ticker) {
 
   const tier = tierRecord ? tierRecord.tier : 'Tier 0';
 
-  if (tier === 'Tier 0' || tier === 'Tier 0.5') {
-    return null;
-  }
-
   if (tier === 'Tier 3') {
     const report = await prisma.annual_reports.findFirst({
       where: { company: ticker },
@@ -116,11 +112,22 @@ async function resolveLatestCall(ticker) {
     return null;
   }
 
-  return prisma.earnings_calls.findFirst({
+  const call = await prisma.earnings_calls.findFirst({
     where:   { company: ticker },
     orderBy: [{ fiscal_year: 'desc' }, { quarter: 'desc' }],
     select:  { id: true, fiscal_year: true, quarter: true },
   });
+  if (call) return call;
+
+  const report = await prisma.annual_reports.findFirst({
+    where: { company: ticker },
+    orderBy: { fiscal_year: 'desc' },
+  });
+  if (report) {
+    return { id: report.id.toString(), fiscal_year: report.fiscal_year, quarter: null };
+  }
+
+  return null;
 }
 
 // Batched signal-availability report — one DB query per (config, ticker
