@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma = require('../config/prisma');
+const { createEntry } = require('../services/journal/journal.service');
 
 async function completeOnboarding(req, res, next) {
   try {
@@ -57,21 +58,11 @@ async function completeOnboarding(req, res, next) {
 
     // Save thesis if provided
     if (thesis && thesis.ticker && thesis.thesis_text) {
-      // Ensure the ticker is in the journal so we can add an entry
-      const jt = await prisma.journalTicker.upsert({
-        where: { journal_id_ticker: { journal_id: journal.id, ticker: thesis.ticker } },
-        create: { journal_id: journal.id, ticker: thesis.ticker, source: mode === 'import' ? 'holdings_sync' : 'manual' },
-        update: {}
-      });
-
-      await prisma.journalEntry.create({
-        data: {
-          journal_ticker_id: jt.id,
-          dimension: thesis.dimension,
-          sub_factors: thesis.sub_factors || [],
-          thesis: thesis.thesis_text,
-          conviction: thesis.conviction,
-        }
+      await createEntry(userId, journal.id, thesis.ticker, {
+        dimension: thesis.dimension,
+        subFactors: thesis.sub_factors || [],
+        thesis: thesis.thesis_text,
+        conviction: thesis.conviction,
       });
     }
 
