@@ -77,9 +77,7 @@ async function getTranscriptCalls(symbol) {
   const tier = tierRecord ? tierRecord.tier : 'Tier 0';
 
   let calls = [];
-  if (tier === 'Tier 0' || tier === 'Tier 0.5') {
-    calls = [];
-  } else if (tier === 'Tier 3') {
+  if (tier === 'Tier 3') {
     const reports = await prisma.annual_reports.findMany({
       where: { company: symbol, annual_report_url: { not: null } },
       select: { id: true, company: true, fiscal_year: true, call_date: true },
