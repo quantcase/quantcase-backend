@@ -5,7 +5,7 @@ const { createEntry } = require('../services/journal/journal.service');
 
 async function completeOnboarding(req, res, next) {
   try {
-    const userId = req.user.id;
+    const userId = req.user.sub;
     const { mode, pickedTickers, thesis } = req.body;
 
     let journal = null;
