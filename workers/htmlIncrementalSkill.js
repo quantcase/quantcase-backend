@@ -47,8 +47,8 @@ async function processHtmlIncrementalSkillJob(job) {
 
 const worker = new Worker('html_skill_incremental', processHtmlIncrementalSkillJob, {
   connection,
-  concurrency: 10,
-  limiter: { max: 10, duration: 1000 },
+  concurrency: 20,
+  limiter: { max: 20, duration: 1000 },
 });
 
 worker.on('completed', (job)      => console.log(`[htmlIncrementalSkill] Job ${job.id} completed`));
