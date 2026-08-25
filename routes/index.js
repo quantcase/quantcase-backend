@@ -37,7 +37,6 @@ const pipelineRouter          = require('./pipeline.routes');
 const journalRouter           = require('./journal.routes');
 const monitoringRouter        = require('./monitoring.routes');
 const { discover: discoverRouter, researchLibrary: researchLibraryRouter, market: marketRouter } = require('./dashboard.routes');
-const accessRequestRouter = require('./accessRequest.routes');
 const onboardingRouter    = require('./onboarding.routes');
 
 // Standalone health check
@@ -45,7 +44,6 @@ router.get('/health', healthController.healthCheck);
 
 // API routes
 router.use('/api/onboarding', onboardingRouter);
-router.use('/api/request-access', accessRequestRouter);
 router.use('/api/calls',       callsRouter);
 router.use('/api/transcript',  transcriptsRouter);
 router.use('/api/summary',     summaryRouter);

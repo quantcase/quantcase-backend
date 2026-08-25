@@ -11,7 +11,6 @@ const PUBLIC_EXACT = [
   { method: 'POST', path: '/api/auth/register' },
   { method: 'POST', path: '/api/auth/google' },
   { method: 'POST', path: '/api/auth/signin' },
-  { method: 'POST', path: '/api/request-access' },
   { method: 'GET',  path: '/api/invites/validate' },  // frontend hits this before signup (no token yet)
   { method: 'GET',  path: '/api/billing/config' },     // pricing page reads — kept public
   { method: 'GET',  path: '/api/billing/products' },

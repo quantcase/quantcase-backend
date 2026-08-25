@@ -20,20 +20,6 @@ async function register({ email, mobile, password, display_name, invite_token })
     err.status = 400;
     throw err;
   }
-  if (!invite_token) {
-    const err = new Error('An invite token is required to register');
-    err.status = 400;
-    throw err;
-  }
-
-  // Throws (404/410) if the token is unknown, already used, or expired.
-  const invite = await inviteService.validateToken(invite_token);
-  if (email && invite.email !== email.trim().toLowerCase()) {
-    const err = new Error('This invite was issued to a different email address');
-    err.status = 403;
-    throw err;
-  }
-
   if (email) {
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -81,12 +67,6 @@ async function register({ email, mobile, password, display_name, invite_token })
         current_period_start: now,
         current_period_end:  trialEnd,
       },
-    });
-
-    // Consumes the invite so its token can't be reused for another signup.
-    await tx.invite.update({
-      where: { token: invite_token },
-      data: { status: 'accepted', acceptedAt: now },
     });
 
     return created;
@@ -150,14 +130,6 @@ async function googleAuth({ id_token }) {
     return user;
   }
 
-  // Brand-new account — must have an active invite for this email.
-  const invite = await inviteService.findActiveInviteForEmail(email);
-  if (!invite) {
-    const err = new Error('This is an invite-only platform. Ask an admin for an invite.');
-    err.status = 403;
-    throw err;
-  }
-
   const now = new Date();
   const trialEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -185,13 +157,6 @@ async function googleAuth({ id_token }) {
         current_period_end: trialEnd,
       },
     });
-
-    if (invite.status !== 'accepted') {
-      await tx.invite.update({
-        where: { id: invite.id },
-        data: { status: 'accepted', acceptedAt: now },
-      });
-    }
 
     return created;
   });
