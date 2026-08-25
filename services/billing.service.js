@@ -117,24 +117,19 @@ async function createSubscribeOrder(userId, priceId, couponCode) {
     where: { id: priceId },
     include: { product: true },
   });
-  if (!price || !price.is_active) {
+  if (!price || !price.is_active || !price.razorpay_plan_id) {
     rzpLog('order ✗', { step: 'price-lookup', priceId, found: Boolean(price), isActive: price?.is_active });
-    const err = new Error('Price not found or inactive');
+    const err = new Error('Price not found, inactive, or missing razorpay_plan_id');
     err.status = 404;
     throw err;
   }
-  rzpLog('order', { step: 'price-resolved', priceId, amount: price.amount, currency: price.currency, plan_type: price.plan_type });
+  rzpLog('order', { step: 'price-resolved', priceId, plan_id: price.razorpay_plan_id, plan_type: price.plan_type });
 
-  let finalAmount = price.amount;
   let couponId = null;
-
   if (couponCode) {
     const couponResult = await validateCoupon(userId, couponCode, priceId);
-    finalAmount = couponResult.discounted_amount;
     couponId = couponResult.coupon_id;
   }
-
-  const rzp = getRazorpay();
 
   let subscription = await prisma.userSubscription.findUnique({ where: { user_id: userId } });
 
@@ -144,67 +139,57 @@ async function createSubscribeOrder(userId, priceId, couponCode) {
         user_id:   userId,
         price_id:  priceId,
         plan_type: price.plan_type,
-        status:    'trialing',
+        status:    'expired', // Starts expired/pending until autopay is setup
       },
     });
   }
 
-  const receiptId = `sub_${subscription.id.replace(/-/g, '').slice(0, 20)}`;
+  const rzp = getRazorpay();
+  const startAt = Math.floor(Date.now() / 1000) + env.trialPeriodHours * 60 * 60;
+
   rzpLog('order →', {
-    step: 'rzp.orders.create',
-    amount: finalAmount, currency: price.currency, receipt: receiptId,
+    step: 'rzp.subscriptions.create',
+    plan_id: price.razorpay_plan_id,
+    start_at: startAt,
     subscription_id: subscription.id,
   });
 
-  let rzpOrder;
+  let rzpSub;
   try {
-    rzpOrder = await rzp.orders.create({
-      amount:   finalAmount,
-      currency: price.currency,
-      receipt:  receiptId,
-      notes:    { subscription_id: subscription.id, user_id: userId, coupon_id: couponId || '' },
+    rzpSub = await rzp.subscriptions.create({
+      plan_id: price.razorpay_plan_id,
+      total_count: 120,
+      start_at: startAt,
+      customer_notify: 1,
+      notes: { subscription_id: subscription.id, user_id: userId, coupon_id: couponId || '' },
     });
   } catch (e) {
-    // Razorpay SDK errors carry statusCode + error.description; surface both so a
-    // frontend "Payment Failed" can be traced to the real Razorpay rejection.
     rzpLog('order ✗', {
-      step: 'rzp.orders.create',
+      step: 'rzp.subscriptions.create',
       statusCode: e?.statusCode,
       error:      e?.error || e?.description || e?.message,
     });
     throw e;
   }
-  rzpLog('order ←', { step: 'rzp.orders.create:ok', order_id: rzpOrder.id, status: rzpOrder.status, amount: rzpOrder.amount });
+  rzpLog('order ←', { step: 'rzp.subscriptions.create:ok', rzp_sub_id: rzpSub.id, status: rzpSub.status });
 
-  await prisma.transaction.create({
-    data: {
-      subscription_id:   subscription.id,
-      user_id:           userId,
-      razorpay_order_id: rzpOrder.id,
-      amount:            finalAmount,
-      currency:          price.currency,
-      status:            'pending',
-      metadata:          { price_id: priceId, coupon_id: couponId },
-    },
+  await prisma.userSubscription.update({
+    where: { id: subscription.id },
+    data: { razorpay_subscription_id: rzpSub.id }
   });
 
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { profile: true } });
 
   rzpLog('order ←', {
     step: 'createSubscribeOrder:return',
-    razorpay_order_id: rzpOrder.id,
-    razorpay_key_id:   env.razorpayKeyId ? `${String(env.razorpayKeyId).slice(0, 12)}…` : null,
+    razorpay_subscription_id: rzpSub.id,
     mode:              getMode(),
-    amount:            finalAmount,
-    currency:          price.currency,
   });
 
   return {
-    razorpay_order_id: rzpOrder.id,
+    razorpay_subscription_id: rzpSub.id,
     razorpay_key_id:   env.razorpayKeyId,
     mode:              getMode(),
-    amount:            finalAmount,
-    currency:          price.currency,
     subscription_id:   subscription.id,
     prefill: {
       name:    user.profile?.full_name || user.display_name || '',
@@ -214,68 +199,16 @@ async function createSubscribeOrder(userId, priceId, couponCode) {
   };
 }
 
-// Shared "capture + activate" path used by BOTH the payment.captured webhook and
-// the synchronous /verify endpoint. Idempotent: if the transaction is already
-// captured it returns without re-activating or double-counting the coupon, so the
-// two callers compose safely when both fire for the same payment.
-async function activateFromCapturedTransaction(txn, paymentId) {
-  if (txn.status === 'captured') {
-    return prisma.userSubscription.findUnique({ where: { id: txn.subscription_id } });
-  }
 
-  await prisma.transaction.update({
-    where: { id: txn.id },
-    data:  { status: 'captured', razorpay_payment_id: paymentId },
-  });
-
-  const now = new Date();
-  const sub = await prisma.userSubscription.findUnique({ where: { id: txn.subscription_id } });
-  if (!sub) return null;
-
-  const price = sub.price_id ? await prisma.price.findUnique({ where: { id: sub.price_id } }) : null;
-  const intervalMonths = price?.interval_months || 1;
-  const periodEnd = new Date(now);
-  periodEnd.setMonth(periodEnd.getMonth() + intervalMonths);
-
-  const updatedSub = await prisma.userSubscription.update({
-    where: { id: sub.id },
-    data: {
-      status:               'active',
-      plan_type:            price?.plan_type || 'monthly',
-      current_period_start: now,
-      current_period_end:   periodEnd,
-      trial_ends_at:        sub.trial_ends_at || now,
-    },
-  });
-
-  const metadata = txn.metadata || {};
-  if (metadata.coupon_id) {
-    const coupon = await prisma.coupon.findUnique({ where: { id: metadata.coupon_id } });
-    if (coupon) {
-      await prisma.$transaction([
-        prisma.discount.create({
-          data: { coupon_id: coupon.id, user_id: txn.user_id },
-        }),
-        prisma.coupon.update({
-          where: { id: coupon.id },
-          data:  { used_count: { increment: 1 } },
-        }),
-      ]);
-    }
-  }
-
-  return updatedSub;
-}
 
 // Step 1.5 of the Razorpay integration: verify the checkout handler's response
 // server-side before treating the payment as genuine, then activate immediately.
 // Uses the KEY secret (distinct from the webhook secret) and the documented
 // HMAC(order_id + "|" + payment_id) construction.
-async function verifyAndActivate(userId, { razorpay_order_id, razorpay_payment_id, razorpay_signature }) {
+async function verifyAndActivate(userId, { razorpay_subscription_id, razorpay_payment_id, razorpay_signature }) {
   rzpLog('verify →', {
     step: 'verifyAndActivate:start',
-    userId, razorpay_order_id, razorpay_payment_id,
-    // Only prefix + length of the signature — enough to confirm it arrived, safe to share.
+    userId, razorpay_subscription_id, razorpay_payment_id,
     signature: razorpay_signature ? `${String(razorpay_signature).slice(0, 8)}…(${razorpay_signature.length})` : null,
   });
 
@@ -284,9 +217,10 @@ async function verifyAndActivate(userId, { razorpay_order_id, razorpay_payment_i
     throw new Error('Razorpay credentials not configured');
   }
 
+  // Razorpay subscription signature logic: payment_id + "|" + subscription_id
   const expected = crypto
     .createHmac('sha256', env.razorpayKeySecret)
-    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+    .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
     .digest('hex');
 
   let valid = false;
@@ -302,33 +236,46 @@ async function verifyAndActivate(userId, { razorpay_order_id, razorpay_payment_i
     gotPrefix:      razorpay_signature ? `${String(razorpay_signature).slice(0, 8)}…` : null,
   });
   if (!valid) {
-    rzpLog('verify ✗', { step: 'signature-mismatch', razorpay_order_id });
+    rzpLog('verify ✗', { step: 'signature-mismatch', razorpay_subscription_id });
     const err = new Error('Invalid payment signature');
     err.status = 400;
     throw err;
   }
 
-  const txn = await prisma.transaction.findUnique({ where: { razorpay_order_id } });
-  if (!txn) {
-    rzpLog('verify ✗', { step: 'transaction-not-found', razorpay_order_id });
-    const err = new Error('Transaction not found for this order');
+  const sub = await prisma.userSubscription.findUnique({ where: { razorpay_subscription_id } });
+  if (!sub) {
+    rzpLog('verify ✗', { step: 'subscription-not-found', razorpay_subscription_id });
+    const err = new Error('Subscription not found');
     err.status = 404;
     throw err;
   }
-  if (txn.user_id !== userId) {
-    rzpLog('verify ✗', { step: 'user-mismatch', txnUser: txn.user_id, reqUser: userId });
-    const err = new Error('Order does not belong to this account');
+  if (sub.user_id !== userId) {
+    rzpLog('verify ✗', { step: 'user-mismatch', subUser: sub.user_id, reqUser: userId });
+    const err = new Error('Subscription does not belong to this account');
     err.status = 403;
     throw err;
   }
 
-  const sub = await activateFromCapturedTransaction(txn, razorpay_payment_id);
-  rzpLog('verify ←', { step: 'verifyAndActivate:ok', subscription_id: txn.subscription_id, status: sub?.status });
+  const now = new Date();
+  const trialEnd = new Date(now.getTime() + env.trialPeriodHours * 60 * 60 * 1000);
+
+  // We set it to trialing here, actual payment charge comes 7 days later
+  const updatedSub = await prisma.userSubscription.update({
+    where: { id: sub.id },
+    data: {
+      status: 'trialing',
+      trial_starts_at: now,
+      trial_ends_at: trialEnd,
+      current_period_end: trialEnd,
+    }
+  });
+
+  rzpLog('verify ←', { step: 'verifyAndActivate:ok', subscription_id: sub.id, status: updatedSub.status });
 
   return {
-    status:          sub?.status || 'active',
-    subscription_id: txn.subscription_id,
-    current_period_end: sub?.current_period_end || null,
+    status:          updatedSub.status,
+    subscription_id: updatedSub.id,
+    current_period_end: updatedSub.current_period_end,
   };
 }
 
@@ -357,46 +304,84 @@ async function handleWebhookEvent(event, payload) {
   rzpLog('webhook →', {
     step: 'event',
     event,
-    order_id: payload?.payment?.entity?.order_id || payload?.subscription?.entity?.id || null,
+    subscription_id: payload?.subscription?.entity?.id || null,
     payment_id: payload?.payment?.entity?.id || null,
   });
-  if (event === 'payment.captured') {
-    const payment = payload.payment?.entity;
-    if (!payment) return;
 
-    const txn = await prisma.transaction.findUnique({
-      where: { razorpay_order_id: payment.order_id },
+  if (event === 'subscription.activated' || event === 'subscription.authenticated') {
+    const rzpSub = payload.subscription?.entity;
+    if (!rzpSub) return;
+
+    const sub = await prisma.userSubscription.findUnique({
+      where: { razorpay_subscription_id: rzpSub.id },
     });
-    if (!txn) return;
+    if (!sub) return;
 
-    await activateFromCapturedTransaction(txn, payment.id);
-    return;
-  }
-
-  if (event === 'payment.failed') {
-    const payment = payload.payment?.entity;
-    if (!payment) return;
-
-    const txn = await prisma.transaction.findUnique({
-      where: { razorpay_order_id: payment.order_id },
-    });
-    if (!txn) return;
-
-    await prisma.transaction.update({
-      where: { id: txn.id },
-      data:  { status: 'failed', failure_reason: payment.error_description || 'Payment failed' },
-    });
-
-    if (txn.subscription_id) {
+    if (sub.status !== 'active') {
+      const now = new Date();
+      const trialEnd = new Date(now.getTime() + env.trialPeriodHours * 60 * 60 * 1000);
       await prisma.userSubscription.update({
-        where: { id: txn.subscription_id },
-        data:  { status: 'past_due' },
+        where: { id: sub.id },
+        data: {
+          status: 'trialing',
+          trial_starts_at: now,
+          trial_ends_at: trialEnd,
+          current_period_end: trialEnd,
+        },
       });
     }
     return;
   }
 
-  if (event === 'subscription.cancelled') {
+  if (event === 'subscription.charged') {
+    const rzpSub = payload.subscription?.entity;
+    const payment = payload.payment?.entity;
+    if (!rzpSub || !payment) return;
+
+    const sub = await prisma.userSubscription.findUnique({
+      where: { razorpay_subscription_id: rzpSub.id },
+    });
+    if (!sub) return;
+
+    let txn = await prisma.transaction.findUnique({ where: { razorpay_payment_id: payment.id } });
+    if (!txn) {
+      txn = await prisma.transaction.create({
+        data: {
+          subscription_id: sub.id,
+          user_id: sub.user_id,
+          razorpay_order_id: payment.order_id,
+          razorpay_payment_id: payment.id,
+          amount: payment.amount,
+          currency: payment.currency,
+          status: 'captured',
+        }
+      });
+    } else if (txn.status !== 'captured') {
+      await prisma.transaction.update({
+        where: { id: txn.id },
+        data: { status: 'captured' }
+      });
+    }
+
+    const price = sub.price_id ? await prisma.price.findUnique({ where: { id: sub.price_id } }) : null;
+    const intervalMonths = price?.interval_months || 1;
+    const now = new Date();
+    const periodEnd = new Date(now);
+    periodEnd.setMonth(periodEnd.getMonth() + intervalMonths);
+
+    await prisma.userSubscription.update({
+      where: { id: sub.id },
+      data: {
+        status: 'active',
+        plan_type: price?.plan_type || 'monthly',
+        current_period_start: now,
+        current_period_end: periodEnd,
+      },
+    });
+    return;
+  }
+
+  if (event === 'subscription.halted' || event === 'subscription.cancelled') {
     const rzpSub = payload.subscription?.entity;
     if (!rzpSub) return;
 
@@ -407,7 +392,10 @@ async function handleWebhookEvent(event, payload) {
 
     await prisma.userSubscription.update({
       where: { id: sub.id },
-      data:  { status: 'cancelled', cancelled_at: new Date() },
+      data:  { 
+        status: event === 'subscription.halted' ? 'past_due' : 'cancelled', 
+        cancelled_at: event === 'subscription.cancelled' ? new Date() : sub.cancelled_at 
+      },
     });
   }
 }

@@ -45,6 +45,7 @@ module.exports = {
   razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
   // Debug logging for the Razorpay flow is on by default; set RAZORPAY_DEBUG=false to silence it.
   razorpayDebug:       process.env.RAZORPAY_DEBUG !== 'false',
+  trialPeriodHours:    parseInt(process.env.TRIAL_PERIOD_HOURS, 10) || (7 * 24),
 
   // Smallcase
   smallcaseEncryptionKey: process.env.SMALLCASE_ENCRYPTION_KEY,

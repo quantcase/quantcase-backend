@@ -39,9 +39,6 @@ async function register({ email, mobile, password, display_name, invite_token })
 
   const password_hash = await bcrypt.hash(password, 10);
 
-  const now = new Date();
-  const trialEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
   const user = await prisma.$transaction(async (tx) => {
     const created = await tx.user.create({
       data: {
@@ -55,18 +52,6 @@ async function register({ email, mobile, password, display_name, invite_token })
 
     await tx.userProfile.create({
       data: { user_id: created.id },
-    });
-
-    await tx.userSubscription.create({
-      data: {
-        user_id:             created.id,
-        plan_type:           'trial',
-        status:              'trialing',
-        trial_starts_at:     now,
-        trial_ends_at:       trialEnd,
-        current_period_start: now,
-        current_period_end:  trialEnd,
-      },
     });
 
     return created;
@@ -130,9 +115,6 @@ async function googleAuth({ id_token }) {
     return user;
   }
 
-  const now = new Date();
-  const trialEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
   user = await prisma.$transaction(async (tx) => {
     const created = await tx.user.create({
       data: {
@@ -145,18 +127,6 @@ async function googleAuth({ id_token }) {
     });
 
     await tx.userProfile.create({ data: { user_id: created.id } });
-
-    await tx.userSubscription.create({
-      data: {
-        user_id: created.id,
-        plan_type: 'trial',
-        status: 'trialing',
-        trial_starts_at: now,
-        trial_ends_at: trialEnd,
-        current_period_start: now,
-        current_period_end: trialEnd,
-      },
-    });
 
     return created;
   });

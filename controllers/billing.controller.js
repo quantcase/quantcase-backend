@@ -49,7 +49,7 @@ const subscribe = async (req, res) => {
   }
 
   const order = await billingService.createSubscribeOrder(req.user.sub, price_id, coupon_code);
-  console.log('[razorpay ctrl ←] POST /subscribe', JSON.stringify({ razorpay_order_id: order.razorpay_order_id, mode: order.mode, amount: order.amount }));
+  console.log('[razorpay ctrl ←] POST /subscribe', JSON.stringify({ razorpay_subscription_id: order.razorpay_subscription_id, mode: order.mode }));
   return res.status(201).json({ success: true, data: order });
 };
 
@@ -64,21 +64,21 @@ const validateCoupon = async (req, res) => {
 // Step 1.5: the checkout handler POSTs the payment result here for synchronous,
 // server-side signature verification + immediate activation.
 const verifyPayment = async (req, res) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+  const { razorpay_subscription_id, razorpay_payment_id, razorpay_signature } = req.body || {};
   console.log('[razorpay ctrl →] POST /verify', JSON.stringify({
     userId: req.user?.sub,
-    razorpay_order_id, razorpay_payment_id,
+    razorpay_subscription_id, razorpay_payment_id,
     hasSignature: Boolean(razorpay_signature),
   }));
-  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+  if (!razorpay_subscription_id || !razorpay_payment_id || !razorpay_signature) {
     console.log('[razorpay ctrl ✗] POST /verify', 'missing required field(s)');
     return res.status(400).json({
-      error: 'razorpay_order_id, razorpay_payment_id and razorpay_signature are required',
+      error: 'razorpay_subscription_id, razorpay_payment_id and razorpay_signature are required',
     });
   }
 
   const result = await billingService.verifyAndActivate(req.user.sub, {
-    razorpay_order_id,
+    razorpay_subscription_id,
     razorpay_payment_id,
     razorpay_signature,
   });
