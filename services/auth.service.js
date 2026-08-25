@@ -179,7 +179,7 @@ async function getFullProfile(userId) {
           current_period_end:   user.subscription.current_period_end,
           ...accessState,
         }
-      : null,
+      : { ...accessState },
     smallcase: user.smallcase_user
       ? {
           is_connected:   user.smallcase_user.is_connected,
