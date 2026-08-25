@@ -465,7 +465,27 @@ async function handleWebhook(payload) {
   return true;
 }
 
+
+async function getStatus(userId) {
+  const scUser = await prisma.smallcaseUser.findUnique({
+    where: { user_id: userId }
+  });
+  if (!scUser || !scUser.is_connected) {
+    return { isConnected: false, broker: null };
+  }
+  return { isConnected: true, broker: scUser.broker || 'Broker' };
+}
+
+async function disconnect(userId) {
+  await prisma.smallcaseUser.deleteMany({
+    where: { user_id: userId }
+  });
+  return { success: true };
+}
+
 module.exports = {
+  getStatus,
+  disconnect,
   createConnect,
   confirmTransaction,
   syncHoldings,

@@ -60,7 +60,20 @@ const handleWebhook = async (req, res) => {
   return res.json({ success: true });
 };
 
+
+const getStatus = async (req, res) => {
+  const result = await smallcaseService.getStatus(req.user.sub);
+  return res.json({ success: true, data: result });
+};
+
+const disconnect = async (req, res) => {
+  const result = await smallcaseService.disconnect(req.user.sub);
+  return res.json({ success: true, data: result });
+};
+
 module.exports = {
+  getStatus,
+  disconnect,
   connect,
   confirmTransaction,
   syncHoldings,

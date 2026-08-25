@@ -13,6 +13,10 @@ router.post('/webhook', express.raw({ type: 'application/json' }), asyncHandler(
 // All routes below require an authenticated QuantCase user.
 router.use(authenticate);
 
+
+router.get('/status',                      asyncHandler(ctrl.getStatus));
+router.post('/disconnect',                 asyncHandler(ctrl.disconnect));
+
 router.post('/connect',                    asyncHandler(ctrl.connect));
 router.post('/transactions/:id/confirm',   asyncHandler(ctrl.confirmTransaction));
 router.post('/sync',                       asyncHandler(ctrl.syncHoldings));
