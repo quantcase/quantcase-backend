@@ -289,6 +289,16 @@ async function resolveConfigKeyForTicker(ticker) {
     const tickers = await resolveGroup(group);
     if (tickers.includes(ticker)) return group.config_key;
   }
+
+  const tierRecord = await prisma.tierClassification.findUnique({
+    where: { company: ticker }
+  });
+  if (tierRecord && tierRecord.tier) {
+    if (tierRecord.tier === 'Tier 1') return 't1';
+    if (tierRecord.tier === 'Tier 2') return 't2';
+    if (tierRecord.tier === 'Tier 3') return 't3';
+  }
+
   return null;
 }
 
