@@ -1829,18 +1829,27 @@
                                 </tr>
                             {{/each}}</tbody>
                     </table>
-                </div>{{#if narrative.edge}}
-                    <div class="qci-edge">
-                        <div class="qci-edge-label">THE EDGE</div>
-                        <div>
-                            <p class="edge-copy">{{#if narrative.edge}}<span
-                                        data-inline-markdown>{{{narrative.edge}}}</span>
-                                {{else}}{{#if narrative.edge.hl}}<span
-                                            class="edge-positive">{{{narrative.edge.hl}}}</span>{{/if}}{{/if}}{{#if narrative.edge.pct}}
-                                    <span class="edge-watch">{{{narrative.edge.pct}}}</span>{{/if}}</p>
-                        </div>
+                </div>
+                {{#if narrative.edge}}
+                <div class="qci-edge">
+                    <div class="qci-edge-label">THE EDGE</div>
+                    <div>
+                        <p class="edge-copy">
+                            {{#if narrative.edge.hl}}
+                                <span class="edge-positive">{{{narrative.edge.hl}}}</span>
+                            {{else if narrative.edge.content}}
+                                <span data-inline-markdown>{{{narrative.edge.content}}}</span>
+                            {{else}}
+                                <span data-inline-markdown>{{{narrative.edge}}}</span>
+                            {{/if}}
+
+                            {{#if narrative.edge.pct}}
+                                <span class="edge-watch">{{{narrative.edge.pct}}}</span>
+                            {{/if}}
+                        </p>
                     </div>
-                {{/if}}
+                </div>
+            {{/if}}
             </section>
         {{/if}}
         {{#if timeline.length}}
