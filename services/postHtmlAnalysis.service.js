@@ -213,18 +213,19 @@ async function getBulkScores(tickers) {
 
   for (const row of rows) {
     if (!scoresByTicker[row.ticker]) {
-      scoresByTicker[row.ticker] = { s: 0, m: 0, o: 0, d: 0, w: '' };
+      scoresByTicker[row.ticker] = { s: 0, m: 0, o: 0, d: 0, w: '', m_txt: '', o_txt: '', d_txt: '' };
     }
     const result = row.result || {};
     const score = typeof result.score === 'number' ? result.score : 0;
+    const thesisHeadline = result.thesis?.headline || result.verdict?.headline || '';
     
     if (row.layer_id === 'l4') {
       scoresByTicker[row.ticker].s = score;
       scoresByTicker[row.ticker].w = result.headline || '';
     } else if (row.layer_id === 'l3') {
-      if (row.type === 'management') scoresByTicker[row.ticker].m = score;
-      if (row.type === 'opportunity') scoresByTicker[row.ticker].o = score;
-      if (row.type === 'deal') scoresByTicker[row.ticker].d = score;
+      if (row.type === 'management') { scoresByTicker[row.ticker].m = score; scoresByTicker[row.ticker].m_txt = thesisHeadline; }
+      if (row.type === 'opportunity') { scoresByTicker[row.ticker].o = score; scoresByTicker[row.ticker].o_txt = thesisHeadline; }
+      if (row.type === 'deal') { scoresByTicker[row.ticker].d = score; scoresByTicker[row.ticker].d_txt = thesisHeadline; }
     }
   }
 
