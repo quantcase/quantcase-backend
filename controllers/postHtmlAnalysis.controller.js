@@ -192,6 +192,16 @@ const previewPrompt = asyncHandler(async (req, res) => {
   }
 });
 
+const getBulkScores = asyncHandler(async (req, res) => {
+  const { tickers } = req.query;
+  if (!tickers) return res.status(400).json({ success: false, error: 'tickers query parameter is required (comma separated)' });
+  
+  const tickerArray = tickers.split(',').map(t => t.trim()).filter(Boolean);
+  const data = await postHtmlAnalysisService.getBulkScores(tickerArray);
+  
+  res.json({ success: true, data });
+});
+
 module.exports = {
   enqueuePostHtmlAnalysis,
   getPostHtmlAnalysis,
@@ -200,4 +210,5 @@ module.exports = {
   updateConfig,
   deactivateConfig,
   previewPrompt,
+  getBulkScores,
 };

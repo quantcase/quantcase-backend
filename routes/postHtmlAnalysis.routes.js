@@ -29,6 +29,9 @@ router.delete('/configs/:layer_id/:type', postHtmlAnalysisController.deactivateC
 // GET /api/post-html-analysis?ticker=X&layer_id=l3&type=management,opportunity,deal
 router.get('/', postHtmlAnalysisController.getPostHtmlAnalysis);
 
+// GET /api/post-html-analysis/bulk-scores?tickers=A,B,C
+router.get('/bulk-scores', postHtmlAnalysisController.getBulkScores);
+
 // POST /api/post-html-analysis  { ticker, layer_id, types?, fiscal_year?, quarter?, forceRefresh? }
 router.post('/', postHtmlAnalysisController.enqueuePostHtmlAnalysis);
 

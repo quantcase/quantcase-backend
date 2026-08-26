@@ -193,6 +193,39 @@ async function buildPreviewPrompt(layerId, type, ticker, period = {}) {
   };
 }
 
+/**
+ * Fetches L3 and L4 scores for a list of tickers.
+ * Returns a mapping: { [ticker]: { s, m, o, d, w } }
+ */
+async function getBulkScores(tickers) {
+  if (!tickers || tickers.length === 0) return {};
+
+  const rows = await prisma.postHtmlAnalysis.findMany({
+    where: { ticker: { in: tickers }, layer_id: { in: ['l3', 'l4'] } },
+  });
+
+  const scoresByTicker = {};
+
+  for (const row of rows) {
+    if (!scoresByTicker[row.ticker]) {
+      scoresByTicker[row.ticker] = { s: 0, m: 0, o: 0, d: 0, w: '' };
+    }
+    const result = row.result || {};
+    const score = typeof result.score === 'number' ? result.score : 0;
+    
+    if (row.layer_id === 'l4') {
+      scoresByTicker[row.ticker].s = score;
+      scoresByTicker[row.ticker].w = result.headline || '';
+    } else if (row.layer_id === 'l3') {
+      if (row.type === 'management') scoresByTicker[row.ticker].m = score;
+      if (row.type === 'opportunity') scoresByTicker[row.ticker].o = score;
+      if (row.type === 'deal') scoresByTicker[row.ticker].d = score;
+    }
+  }
+
+  return scoresByTicker;
+}
+
 module.exports = {
   L3_TYPES,
   L4_TYPE,
@@ -202,4 +235,5 @@ module.exports = {
   enqueuePostHtmlAnalysis,
   getPostHtmlAnalysis,
   buildPreviewPrompt,
+  getBulkScores,
 };
