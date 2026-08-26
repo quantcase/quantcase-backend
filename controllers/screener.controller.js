@@ -418,6 +418,42 @@ async function getTickerInfo(req, res, next) {
       return r2((curr - prev) / Math.abs(prev));
     }
 
+    const kpiByPeriodQtr = {};
+    for (const row of quarterlyRows) {
+      const abbr = row.kpi_abbr;
+      if (!kpiByPeriodQtr[abbr]) kpiByPeriodQtr[abbr] = [];
+      kpiByPeriodQtr[abbr].push(row);
+    }
+
+    function kpiValAny(abbr) {
+      const val = kpiVal(abbr);
+      if (val != null) return val;
+      const series = kpiByPeriodQtr[abbr];
+      if (series && series.length > 0) {
+        const latest = series[series.length - 1];
+        if (latest.value != null) return parseFloat(latest.value);
+      }
+      return null;
+    }
+
+    function kpiYoyAny(abbr) {
+      const annYoy = kpiYoy(abbr);
+      if (annYoy != null) return annYoy;
+      const series = kpiByPeriodQtr[abbr];
+      if (!series || series.length < 2) return null;
+      const latest = series[series.length - 1];
+      const curr = latest.value != null ? parseFloat(latest.value) : null;
+      const latestYear = latest.fiscal_year ? parseInt(latest.fiscal_year.replace(/\D/g, '')) : null;
+      const prior = series.find(
+        (r) => r.quarter === latest.quarter &&
+               r.fiscal_year != null && latestYear != null &&
+               parseInt(r.fiscal_year.replace(/\D/g, '')) === latestYear - 1
+      ) ?? series[0];
+      const prev = prior?.value != null ? parseFloat(prior.value) : null;
+      if (curr == null || prev == null || prev === 0) return null;
+      return r2((curr - prev) / Math.abs(prev));
+    }
+
     // ── 7. PE fallback from market cap / PAT ──────────────────────────────
     if (trailingPE == null && marketCapAbs != null) {
       const patForPe = kpiVal('PAT');
@@ -767,34 +803,34 @@ async function getTickerInfo(req, res, next) {
 
     // ── 9. Build response ──────────────────────────────────────────────────
     // Overrides for 12 boxes as per user request
-    const pegRatio_override = kpiVal('PEG_OVERVIEW');
-    const evToEbitda_override = kpiVal('EV_OVERVIEW');
-    const pbRatio_override = kpiVal('PRICE_BOOK_OVERVIEW');
-    const dividendYield_override = kpiVal('EQ_DIV_PAT_OVERVIEW');
+    const pegRatio_override = kpiValAny('PEG_OVERVIEW');
+    const evToEbitda_override = kpiValAny('EV_OVERVIEW');
+    const pbRatio_override = kpiValAny('PRICE_BOOK_OVERVIEW');
+    const dividendYield_override = kpiValAny('EQ_DIV_PAT_OVERVIEW');
     
-    const revenue_override = kpiVal('PAT_OVERVIEW');
-    const revenueGrowth_override = kpiYoy('PAT_OVERVIEW');
+    const revenue_override = kpiValAny('PAT_OVERVIEW');
+    const revenueGrowth_override = kpiYoyAny('PAT_OVERVIEW');
     
-    const ebitda_override = kpiVal('ROCE_OVERVIEW');
-    const ebitdaGrowth_override = kpiYoy('ROCE_OVERVIEW');
+    const ebitda_override = kpiValAny('ROCE_OVERVIEW');
+    const ebitdaGrowth_override = kpiYoyAny('ROCE_OVERVIEW');
     
-    const netProfit_override = kpiVal('ROA_OVERVIEW');
-    const netProfitGrowth_override = kpiYoy('ROA_OVERVIEW');
+    const netProfit_override = kpiValAny('ROA_OVERVIEW');
+    const netProfitGrowth_override = kpiYoyAny('ROA_OVERVIEW');
     
-    const operatingCashflow_override = kpiVal('CFO_PAT_OVERVIEW');
-    const cfoGrowth_override = kpiYoy('CFO_PAT_OVERVIEW');
+    const operatingCashflow_override = kpiValAny('CFO_PAT_OVERVIEW');
+    const cfoGrowth_override = kpiYoyAny('CFO_PAT_OVERVIEW');
     
-    const freeCashflow_override = kpiVal('CASH_OVERVIEW');
-    const fcfGrowth_override = kpiYoy('CASH_OVERVIEW');
+    const freeCashflow_override = kpiValAny('CASH_OVERVIEW');
+    const fcfGrowth_override = kpiYoyAny('CASH_OVERVIEW');
     
-    const reserves_override = kpiVal('RES_SURPLUS');
-    const reservesGrowth_override = kpiYoy('RES_SURPLUS');
+    const reserves_override = kpiValAny('RES_SURPLUS');
+    const reservesGrowth_override = kpiYoyAny('RES_SURPLUS');
     
-    const totalDebt_override = kpiVal('DEBT_OVERVIEW');
-    const debtGrowth_override = kpiYoy('DEBT_OVERVIEW');
+    const totalDebt_override = kpiValAny('DEBT_OVERVIEW');
+    const debtGrowth_override = kpiYoyAny('DEBT_OVERVIEW');
     
-    const interestCoverage_override = kpiVal('RET_PFT_PAT_OVERVIEW');
-    const interestCoverageGrowth_override = kpiYoy('RET_PFT_PAT_OVERVIEW');
+    const interestCoverage_override = kpiValAny('RET_PFT_PAT_OVERVIEW');
+    const interestCoverageGrowth_override = kpiYoyAny('RET_PFT_PAT_OVERVIEW');
 
     setCacheTillMidnightIst(res);
     res.json({
