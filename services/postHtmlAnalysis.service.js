@@ -6,6 +6,7 @@ const { stripHtmlToText } = require('../utils/stripHtml');
 const { INSIGHT_LENSES } = require('../lib/insightLenses');
 const { transcriptPeriodRank } = require('./htmlIncrementalSkill.service');
 const { postHtmlAnalysisPrompt } = require('../prompts/post_html_analysis');
+const identity = require('./dashboard/identity');
 
 const L3_TYPES = Object.keys(INSIGHT_LENSES); // management | opportunity | deal
 const L4_TYPE  = 'summary';
@@ -213,7 +214,7 @@ async function getBulkScores(tickers) {
 
   for (const row of rows) {
     if (!scoresByTicker[row.ticker]) {
-      scoresByTicker[row.ticker] = { s: 0, m: 0, o: 0, d: 0, w: '', m_txt: '', o_txt: '', d_txt: '' };
+      scoresByTicker[row.ticker] = { s: 0, m: 0, o: 0, d: 0, w: '', m_txt: '', o_txt: '', d_txt: '', n: identity.lookup(row.ticker)?.companyName || row.ticker };
     }
     const result = row.result || {};
     const score = typeof result.score === 'number' ? result.score : 0;

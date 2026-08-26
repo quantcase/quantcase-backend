@@ -555,6 +555,9 @@ async function getTickerInfo(req, res, next) {
           totalDebt:        p.DEBT_OVERVIEW ?? (totalDebtVal != null ? r2(totalDebtVal) : null),
           totalEquity:      p.PRICE_BOOK_OVERVIEW ?? (totalEquityVal != null ? r2(totalEquityVal) : null),
           interestCoverage: p.RET_PFT_PAT_OVERVIEW ?? (icVal != null ? r2(icVal) : null),
+          pegRatio:         p.PEG_OVERVIEW ?? null,
+          evToEbitda:       p.EV_OVERVIEW ?? null,
+          pbRatio:          p.PRICE_BOOK_OVERVIEW ?? null,
         };
       }));
 
