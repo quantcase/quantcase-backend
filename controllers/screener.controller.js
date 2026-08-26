@@ -456,7 +456,9 @@ async function getTickerInfo(req, res, next) {
 
     // ── 7. PE fallback from market cap / PAT ──────────────────────────────
     if (trailingPE == null && marketCapAbs != null) {
-      const patForPe = kpiVal('PAT');
+      const patSeries = kpiByPeriodQtr['PAT'] || [];
+      const trailingPat = patSeries.slice(0, 4).reduce((sum, r) => sum + parseFloat(r.value || 0), 0);
+      const patForPe = kpiVal('PAT') ?? (trailingPat !== 0 ? trailingPat : null); // fallback to TTM PAT
       if (patForPe != null && patForPe !== 0) {
         trailingPE = r2(marketCapAbs / patForPe);
       }
@@ -890,7 +892,7 @@ async function getTickerInfo(req, res, next) {
         operatingMargins,
         netProfit:        netProfit_override ?? kpiVal('PAT'),
         netProfitGrowth:  netProfitGrowth_override ?? kpiYoy('PAT'),
-        profitMargins,
+        profitMargins:    kpiValAny('ROA_OVERVIEW') != null ? r2(kpiValAny('ROA_OVERVIEW') / 100) : profitMargins,
         operatingCashflow: operatingCashflow_override ?? kpiVal('CFO'),
         cfoGrowth:        cfoGrowth_override ?? kpiYoy('CFO'),
         freeCashflow:     freeCashflow_override ?? freeCashflow,
@@ -923,7 +925,7 @@ async function getTickerInfo(req, res, next) {
         evToEbitda:       evToEbitda_override ?? evToEbitda,
         evToRevenue,
         enterpriseValue,
-        profitMargins,
+        profitMargins:    kpiValAny('ROA_OVERVIEW') != null ? r2(kpiValAny('ROA_OVERVIEW') / 100) : profitMargins,
         industryPE:       null,
         industryPELabel:  null,
       },
@@ -931,7 +933,7 @@ async function getTickerInfo(req, res, next) {
       efficiency: {
         returnOnEquity:          roe,
         returnOnAssets:          roa,
-        debtToEquity:            de,
+        debtToEquity:            (kpiValAny('DEBT_OVERVIEW') != null && kpiValAny('RES_SURPLUS') != null && kpiValAny('RES_SURPLUS') !== 0) ? r2(kpiValAny('DEBT_OVERVIEW') / kpiValAny('RES_SURPLUS')) : de,
         debtGrowth:              debtGrowth_override ?? kpiYoy('DE'),
         currentRatio,
         quickRatio,
@@ -973,8 +975,8 @@ async function getTickerInfo(req, res, next) {
       },
 
       ratios: {
-        roce,
-        roce3yAvg,
+        roce:       kpiValAny('ROCE_OVERVIEW') != null ? r2(kpiValAny('ROCE_OVERVIEW') / 100) : roce,
+        roce3yAvg:  kpiValAny('ROCE_OVERVIEW') != null ? r2(kpiValAny('ROCE_OVERVIEW') / 100) : roce3yAvg,
         roe,
         roe3yAvg,
         debtStatus: debtStatus(de),
@@ -990,11 +992,11 @@ async function getTickerInfo(req, res, next) {
       },
 
       financials: {
-        eps_cagr_3y:       epsCagr3y,
-        eps_cagr_3y_label: epsCagrLabel(epsCagr3y),
+        eps_cagr_3y:       epsCagr3y ?? (pegRatio_override != null && trailingPE != null ? r2((trailingPE / pegRatio_override) / 100) : null),
+        eps_cagr_3y_label: epsCagrLabel(epsCagr3y ?? (pegRatio_override != null && trailingPE != null ? r2((trailingPE / pegRatio_override) / 100) : null)),
         ebitda_ev_yield:   ebitda != null && enterpriseValue != null && enterpriseValue !== 0
           ? r2((ebitda / enterpriseValue) * 100) : null,
-        cfo_ebitda_pct:    cfoEbitdaPct,
+        cfo_ebitda_pct:    kpiValAny('CFO_PAT_OVERVIEW') != null ? r2(kpiValAny('CFO_PAT_OVERVIEW') / 100) : cfoEbitdaPct,
         net_debt_ebitda:   netDebtEbitda,
       },
 
