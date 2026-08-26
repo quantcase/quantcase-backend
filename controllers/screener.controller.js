@@ -443,6 +443,10 @@ async function getTickerInfo(req, res, next) {
       'EQ_SHARE_CAP', 'RES_SURPLUS',
       // Interest coverage components
       'IC',
+      // New KPI overrides for fundamentals overview
+      'PEG_OVERVIEW', 'EV_OVERVIEW', 'PRICE_BOOK_OVERVIEW', 'EQ_DIV_PAT_OVERVIEW', 
+      'PAT_OVERVIEW', 'ROCE_OVERVIEW', 'ROA_OVERVIEW', 'CFO_PAT_OVERVIEW', 
+      'CASH_OVERVIEW', 'DEBT_OVERVIEW', 'RET_PFT_PAT_OVERVIEW'
     ]);
     const trendPeriods = {};
     for (const row of quarterlyRows) {
@@ -504,17 +508,17 @@ async function getTickerInfo(req, res, next) {
 
         return {
           period:           `${p.quarter ?? ''} ${p.fiscal_year ?? ''}`.trim(),
-          revenue:          p.REV_OP ?? p.TOTAL_INCOME ?? null,
-          netIncome:        p.PAT ?? null,
+          revenue:          p.PAT_OVERVIEW ?? p.REV_OP ?? p.TOTAL_INCOME ?? null,
+          netIncome:        p.ROA_OVERVIEW ?? p.PAT ?? null,
           eps:              p.EPS_BASIC ?? null,
-          cfo:              cfoVal,
+          cfo:              p.CFO_PAT_OVERVIEW ?? cfoVal,
           cfoProxy:         cfoProxyVal != null ? r2(cfoProxyVal) : null,
-          cfoLabel:         cfoVal != null ? 'CFO' : (cfoProxyVal != null ? 'Est. CFO' : null),
-          ebitda:           ebitdaVal,
+          cfoLabel:         (p.CFO_PAT_OVERVIEW != null || cfoVal != null) ? 'CFO' : (cfoProxyVal != null ? 'Est. CFO' : null),
+          ebitda:           p.ROCE_OVERVIEW ?? ebitdaVal,
           ebitdaLabel:      isBfsi ? 'Op. Profit' : 'EBITDA',
-          totalDebt:        totalDebtVal != null ? r2(totalDebtVal) : null,
-          totalEquity:      totalEquityVal != null ? r2(totalEquityVal) : null,
-          interestCoverage: icVal != null ? r2(icVal) : null,
+          totalDebt:        p.DEBT_OVERVIEW ?? (totalDebtVal != null ? r2(totalDebtVal) : null),
+          totalEquity:      p.PRICE_BOOK_OVERVIEW ?? (totalEquityVal != null ? r2(totalEquityVal) : null),
+          interestCoverage: p.RET_PFT_PAT_OVERVIEW ?? (icVal != null ? r2(icVal) : null),
         };
       }));
 
@@ -762,6 +766,36 @@ async function getTickerInfo(req, res, next) {
     }
 
     // ── 9. Build response ──────────────────────────────────────────────────
+    // Overrides for 12 boxes as per user request
+    const pegRatio_override = kpiVal('PEG_OVERVIEW');
+    const evToEbitda_override = kpiVal('EV_OVERVIEW');
+    const pbRatio_override = kpiVal('PRICE_BOOK_OVERVIEW');
+    const dividendYield_override = kpiVal('EQ_DIV_PAT_OVERVIEW');
+    
+    const revenue_override = kpiVal('PAT_OVERVIEW');
+    const revenueGrowth_override = kpiYoy('PAT_OVERVIEW');
+    
+    const ebitda_override = kpiVal('ROCE_OVERVIEW');
+    const ebitdaGrowth_override = kpiYoy('ROCE_OVERVIEW');
+    
+    const netProfit_override = kpiVal('ROA_OVERVIEW');
+    const netProfitGrowth_override = kpiYoy('ROA_OVERVIEW');
+    
+    const operatingCashflow_override = kpiVal('CFO_PAT_OVERVIEW');
+    const cfoGrowth_override = kpiYoy('CFO_PAT_OVERVIEW');
+    
+    const freeCashflow_override = kpiVal('CASH_OVERVIEW');
+    const fcfGrowth_override = kpiYoy('CASH_OVERVIEW');
+    
+    const reserves_override = kpiVal('RES_SURPLUS');
+    const reservesGrowth_override = kpiYoy('RES_SURPLUS');
+    
+    const totalDebt_override = kpiVal('DEBT_OVERVIEW');
+    const debtGrowth_override = kpiYoy('DEBT_OVERVIEW');
+    
+    const interestCoverage_override = kpiVal('RET_PFT_PAT_OVERVIEW');
+    const interestCoverageGrowth_override = kpiYoy('RET_PFT_PAT_OVERVIEW');
+
     setCacheTillMidnightIst(res);
     res.json({
       symbol: sym,
@@ -807,27 +841,27 @@ async function getTickerInfo(req, res, next) {
 
       financialPerformance: {
         // REV_OP = operating revenue (non-fin) / operating income (fin); TOTAL_INCOME includes other income
-        revenue:          kpiVal('REV_OP') ?? kpiVal('TOTAL_INCOME'),
-        revenueGrowth:    kpiYoy('REV_OP') ?? kpiYoy('TOTAL_INCOME'),
+        revenue:          revenue_override ?? kpiVal('REV_OP') ?? kpiVal('TOTAL_INCOME'),
+        revenueGrowth:    revenueGrowth_override ?? kpiYoy('REV_OP') ?? kpiYoy('TOTAL_INCOME'),
         grossProfits,
         grossMargins,
-        ebitda,
-        ebitdaGrowth,
+        ebitda:           ebitda_override ?? ebitda,
+        ebitdaGrowth:     ebitdaGrowth_override ?? ebitdaGrowth,
         ebitdaMargins,
         operatingMargins,
-        netProfit:        kpiVal('PAT'),
-        netProfitGrowth:  kpiYoy('PAT'),
+        netProfit:        netProfit_override ?? kpiVal('PAT'),
+        netProfitGrowth:  netProfitGrowth_override ?? kpiYoy('PAT'),
         profitMargins,
-        operatingCashflow: kpiVal('CFO'),
-        cfoGrowth:        kpiYoy('CFO'),
-        freeCashflow,
-        fcfGrowth,
+        operatingCashflow: operatingCashflow_override ?? kpiVal('CFO'),
+        cfoGrowth:        cfoGrowth_override ?? kpiYoy('CFO'),
+        freeCashflow:     freeCashflow_override ?? freeCashflow,
+        fcfGrowth:        fcfGrowth_override ?? fcfGrowth,
         earningsGrowth:   kpiYoy('EPS_BASIC'),
         revenuePerShare,
-        reserves:         kpiVal('NET_WORTH') != null && kpiVal('EQ_SHARE_CAP') != null
+        reserves:         reserves_override ?? (kpiVal('NET_WORTH') != null && kpiVal('EQ_SHARE_CAP') != null
           ? r2(kpiVal('NET_WORTH') - kpiVal('EQ_SHARE_CAP'))
-          : kpiVal('NET_WORTH'),
-        reservesGrowth:   kpiYoy('NET_WORTH'),
+          : kpiVal('NET_WORTH')),
+        reservesGrowth:   reservesGrowth_override ?? kpiYoy('NET_WORTH'),
         quarterlyTrend,
         quarterlyTrendMeta: {
           ebitdaLabel:                 isBfsi ? 'Op. Profit' : 'EBITDA',
@@ -845,9 +879,9 @@ async function getTickerInfo(req, res, next) {
         peRatio:          trailingPE,
         peValuationLabel: peValuationLabel(trailingPE),
         forwardPE,
-        pbRatio,
-        pegRatio,
-        evToEbitda,
+        pbRatio:          pbRatio_override ?? pbRatio,
+        pegRatio:         pegRatio_override ?? pegRatio,
+        evToEbitda:       evToEbitda_override ?? evToEbitda,
         evToRevenue,
         enterpriseValue,
         profitMargins,
@@ -859,14 +893,14 @@ async function getTickerInfo(req, res, next) {
         returnOnEquity:          roe,
         returnOnAssets:          roa,
         debtToEquity:            de,
-        debtGrowth:              kpiYoy('DE'),
+        debtGrowth:              debtGrowth_override ?? kpiYoy('DE'),
         currentRatio,
         quickRatio,
         totalCash:               cashEquivAbs,
-        totalDebt:               totalDebtAbs,
+        totalDebt:               totalDebt_override ?? totalDebtAbs,
         totalCashPerShare,
-        interestCoverage,
-        interestCoverageGrowth,
+        interestCoverage:        interestCoverage_override ?? interestCoverage,
+        interestCoverageGrowth:  interestCoverageGrowth_override ?? interestCoverageGrowth,
       },
 
       perShare: {
@@ -874,7 +908,7 @@ async function getTickerInfo(req, res, next) {
         epsForward,
         bookValue,
         dividendRate: null,
-        dividendYield,
+        dividendYield: dividendYield_override ?? dividendYield,
         payoutRatio,
       },
 
