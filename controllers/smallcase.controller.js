@@ -20,6 +20,9 @@ const syncHoldings = async (req, res) => {
 
 const getHoldings = async (req, res) => {
   const result = await smallcaseService.getHoldings(req.user.sub);
+  if (!result) {
+    return res.status(404).json({ success: false, error: 'Smallcase account not connected' });
+  }
   return res.json({ success: true, data: result });
 };
 

@@ -105,9 +105,13 @@ function mapBasket(b, { isPrivate = false } = {}) {
  * Create a HOLDINGS_IMPORT transaction so the user can connect their broker.
  * Returns { transactionId, gateway, expireAt } for the frontend Gateway SDK to run.
  */
+const redis = require('../config/redis');
+
 async function createConnect(userId, { intent = 'HOLDINGS_IMPORT' } = {}) {
-  const config = intent === 'HOLDINGS_IMPORT' ? { assetConfig: { mfHoldings: true } } : {};
-  const txn = await gateway.createTransaction(intent, config);
+  const txn = await gateway.createTransaction(intent, {});
+
+  // Store transactionId -> userId mapping for webhooks that lack smallcaseAuthId (like MF)
+  await redis.setex(`sc_txn:${txn.transactionId}`, 86400, userId);
 
   // Ensure a SmallcaseUser row exists (still disconnected until confirmed).
   await prisma.smallcaseUser.upsert({
@@ -341,7 +345,7 @@ async function getHoldings(userId) {
   });
 
   if (!scUser || !scUser.is_connected) {
-    throw badRequest('Smallcase account not connected', 404);
+    return null;
   }
 
   // The broker lives on the SmallcaseUser (set at confirm time). All of a user's
@@ -450,14 +454,47 @@ async function handleWebhook(payload) {
   }
 
   // On a completed/holdings-import event, re-sync holdings for the connected user.
-  if (smallcaseAuthId && (mappedStatus === 'completed' || /HOLDINGS_IMPORT/i.test(payload.intent || ''))) {
-    const scUser = await prisma.smallcaseUser.findFirst({ where: { smallcase_user_id: smallcaseAuthId } });
-    if (scUser && scUser.is_connected) {
-      try {
-        await syncHoldings(scUser.user_id);
-      } catch (e) {
-        // Non-fatal: webhook is still acknowledged; sync can be retried via POST /sync.
-        console.error('[smallcase] webhook holdings re-sync failed:', e.message);
+  if (mappedStatus === 'completed' || /HOLDINGS_IMPORT/i.test(payload.intent || '')) {
+    let resolvedAuthId = smallcaseAuthId;
+    let userIdForMf = null;
+
+    if (!resolvedAuthId && transactionId) {
+      userIdForMf = await redis.get(`sc_txn:${transactionId}`);
+      if (userIdForMf) {
+        // Fetch details to get the auth ID and broker now that it's completed
+        const details = await gateway.fetchTransactionDetails(transactionId);
+        resolvedAuthId = details.smallcaseAuthId || details.smallcaseAuthToken || details.userId;
+
+        if (resolvedAuthId) {
+          // Update the user record to connected
+          await prisma.smallcaseUser.upsert({
+            where:  { user_id: userIdForMf },
+            create: {
+              user_id:           userIdForMf,
+              smallcase_user_id: resolvedAuthId,
+              auth_token:        details.authToken ? encrypt(details.authToken) : null,
+              broker:            details.broker || null,
+              is_connected:      true,
+            },
+            update: {
+              smallcase_user_id: resolvedAuthId,
+              auth_token:        details.authToken ? encrypt(details.authToken) : undefined,
+              broker:            details.broker || undefined,
+              is_connected:      true,
+            },
+          });
+        }
+      }
+    }
+
+    if (resolvedAuthId) {
+      const scUser = await prisma.smallcaseUser.findFirst({ where: { smallcase_user_id: resolvedAuthId } });
+      if (scUser && scUser.is_connected) {
+        try {
+          await syncHoldings(scUser.user_id);
+        } catch (e) {
+          console.error('[smallcase] webhook holdings re-sync failed:', e.message);
+        }
       }
     }
   }
