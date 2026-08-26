@@ -198,11 +198,16 @@ async function buildPreviewPrompt(layerId, type, ticker, period = {}) {
  * Returns a mapping: { [ticker]: { s, m, o, d, w } }
  */
 async function getBulkScores(tickers) {
-  if (!tickers || tickers.length === 0) return {};
-
-  const rows = await prisma.postHtmlAnalysis.findMany({
-    where: { ticker: { in: tickers }, layer_id: { in: ['l3', 'l4'] } },
-  });
+  let rows;
+  if (!tickers || tickers.length === 0) {
+    rows = await prisma.postHtmlAnalysis.findMany({
+      where: { layer_id: { in: ['l3', 'l4'] } },
+    });
+  } else {
+    rows = await prisma.postHtmlAnalysis.findMany({
+      where: { ticker: { in: tickers }, layer_id: { in: ['l3', 'l4'] } },
+    });
+  }
 
   const scoresByTicker = {};
 

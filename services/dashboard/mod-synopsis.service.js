@@ -12,6 +12,7 @@ const { resolveHoldings } = require('./resolve-holdings.service');
 const { resolveShadowHoldings } = require('./resolve-shadow-holdings.service');
 const { fetchModScores, PILLARS } = require('./mod-scores');
 const identity = require('./identity');
+const postHtmlAnalysisService = require('../postHtmlAnalysis.service');
 
 /** Map a 0-100 score → rating band (thresholds from the spec). */
 function ratingFor(score) {
@@ -42,7 +43,36 @@ async function getModSynopsis(userId) {
 
   // Invested portfolio empty → fall back to shadow/tracker holdings (equal-weighted).
   const trackers = await resolveShadowHoldings(userId);
-  if (trackers.length === 0) return EMPTY;
+  if (trackers.length === 0) {
+    const bulkScores = await postHtmlAnalysisService.getBulkScores();
+    const breakdown = [];
+    for (const [ticker, scores] of Object.entries(bulkScores)) {
+      if (scores.m || scores.o || scores.d) {
+        const info = identity.lookup(ticker);
+        const avgScore = Math.round(((scores.m||0) + (scores.o||0) + (scores.d||0)) / ((scores.m?1:0) + (scores.o?1:0) + (scores.d?1:0)));
+        breakdown.push({
+          avgScore,
+          symbol: ticker,
+          name: info?.companyName ?? ticker,
+          weight_pct: 0,
+          management: scores.m || null,
+          opportunity: scores.o || null,
+          deal: scores.d || null,
+        });
+      }
+    }
+    breakdown.sort((a, b) => b.avgScore - a.avgScore);
+    breakdown.forEach(b => delete b.avgScore);
+    return {
+      empty: true,
+      holdings_type: 'none',
+      overall_score: 0,
+      sub_scores: PILLARS.map(p => ({ pillar: p, score: 0, rating: 'WEAK' })),
+      weakest_pillar: null,
+      dragging_symbols: [],
+      breakdown,
+    };
+  }
 
   return buildSynopsis(trackers, { holdingsType: 'trackers' });
 }
