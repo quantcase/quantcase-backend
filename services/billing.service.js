@@ -110,8 +110,8 @@ async function validateCoupon(userId, code, priceId) {
   };
 }
 
-async function createSubscribeOrder(userId, priceId, couponCode) {
-  rzpLog('order →', { step: 'createSubscribeOrder:start', userId, priceId, couponCode: couponCode || null });
+async function createSubscribeOrder(userId, priceId, couponCode, gstin) {
+  rzpLog('order →', { step: 'createSubscribeOrder:start', userId, priceId, couponCode: couponCode || null, gstin: gstin || null });
 
   const price = await prisma.price.findUnique({
     where: { id: priceId },
@@ -154,6 +154,11 @@ async function createSubscribeOrder(userId, priceId, couponCode) {
     subscription_id: subscription.id,
   });
 
+  const notes = { subscription_id: subscription.id, user_id: userId, coupon_id: couponId || '' };
+  if (gstin) {
+    notes.gstin = gstin;
+  }
+
   let rzpSub;
   try {
     rzpSub = await rzp.subscriptions.create({
@@ -161,7 +166,7 @@ async function createSubscribeOrder(userId, priceId, couponCode) {
       total_count: 120,
       start_at: startAt,
       customer_notify: 1,
-      notes: { subscription_id: subscription.id, user_id: userId, coupon_id: couponId || '' },
+      notes,
     });
   } catch (e) {
     rzpLog('order ✗', {

@@ -1943,6 +1943,8 @@ enum WealthModelType {
 enum SubscriptionPlan {
   trial
   monthly
+  quaterly
+  quarterly
   annual
 }
 

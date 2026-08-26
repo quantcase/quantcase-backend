@@ -1220,11 +1220,12 @@
             </div>
             <div>
               <p class="edge-label">Risk</p>
-              <p class="edge-copy accent">{{{edge.implication}}}</p>
-            </div>{{#if edge.investor_focus.chip}}
+              <p class="edge-copy">{{{edge.investor_focus.tail}}}</p>
+            </div>
+            {{#if edge.investor_focus.chip}}
               <div>
                 <p class="edge-label">Takeaway</p>
-                <p class="edge-copy">{{{edge.investor_focus.tail}}}</p>
+                <p class="edge-copy accent">{{{edge.implication}}}</p>
               </div>
             {{/if}}
           </div>

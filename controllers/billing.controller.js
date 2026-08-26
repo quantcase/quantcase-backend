@@ -41,14 +41,14 @@ const getSubscription = async (req, res) => {
 };
 
 const subscribe = async (req, res) => {
-  const { price_id, coupon_code } = req.body;
-  console.log('[razorpay ctrl →] POST /subscribe', JSON.stringify({ userId: req.user?.sub, price_id, coupon_code: coupon_code || null }));
+  const { price_id, coupon_code, gstin } = req.body;
+  console.log('[razorpay ctrl →] POST /subscribe', JSON.stringify({ userId: req.user?.sub, price_id, coupon_code: coupon_code || null, gstin: gstin || null }));
   if (!price_id) {
     console.log('[razorpay ctrl ✗] POST /subscribe', 'price_id missing');
     return res.status(400).json({ error: 'price_id is required' });
   }
 
-  const order = await billingService.createSubscribeOrder(req.user.sub, price_id, coupon_code);
+  const order = await billingService.createSubscribeOrder(req.user.sub, price_id, coupon_code, gstin);
   console.log('[razorpay ctrl ←] POST /subscribe', JSON.stringify({ razorpay_subscription_id: order.razorpay_subscription_id, mode: order.mode }));
   return res.status(201).json({ success: true, data: order });
 };
