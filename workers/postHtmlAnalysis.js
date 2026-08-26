@@ -155,8 +155,8 @@ async function processPostHtmlAnalysisJob(job) {
 
 const worker = new Worker('post_html_analysis', processPostHtmlAnalysisJob, {
   connection,
-  concurrency: 10,
-  limiter: { max: 10, duration: 1000 },
+  concurrency: 30,
+  limiter: { max: 30, duration: 1000 },
 });
 
 worker.on('completed', job => console.log(`[post-html-analysis] Job ${job.id} completed`));
