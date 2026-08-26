@@ -1216,12 +1216,13 @@
             </div>
             <div>
               <p class="edge-label">Watch Item</p>
-              <p class="edge-copy accent">{{{edge.implication}}}</p>
+              
+              <p class="edge-copy"><span
+                    class="focus-chip">{{{edge.investor_focus.chip}}}</span>{{{edge.investor_focus.tail}}}</p>
             </div>{{#if edge.investor_focus.chip}}
               <div>
                 <p class="edge-label">Signal</p>
-                <p class="edge-copy"><span
-                    class="focus-chip">{{{edge.investor_focus.chip}}}</span>{{{edge.investor_focus.tail}}}</p>
+                <p class="edge-copy accent">{{{edge.implication}}}</p>
               </div>
             {{/if}}
           </div>
