@@ -222,11 +222,18 @@ async function getBulkScores(tickers) {
     
     if (row.layer_id === 'l4') {
       scoresByTicker[row.ticker].s = score;
-      scoresByTicker[row.ticker].w = result.headline || '';
+      scoresByTicker[row.ticker].w = result.subtitle || result.title || '';
     } else if (row.layer_id === 'l3') {
       if (row.type === 'management') { scoresByTicker[row.ticker].m = score; scoresByTicker[row.ticker].m_txt = thesisHeadline; }
       if (row.type === 'opportunity') { scoresByTicker[row.ticker].o = score; scoresByTicker[row.ticker].o_txt = thesisHeadline; }
       if (row.type === 'deal') { scoresByTicker[row.ticker].d = score; scoresByTicker[row.ticker].d_txt = thesisHeadline; }
+    }
+  }
+
+  // For tickers that have L3 but no L4 yet, use the best available L3 headline as the short summary.
+  for (const ticker of Object.keys(scoresByTicker)) {
+    if (!scoresByTicker[ticker].w) {
+      scoresByTicker[ticker].w = scoresByTicker[ticker].o_txt || scoresByTicker[ticker].m_txt || scoresByTicker[ticker].d_txt || '';
     }
   }
 
