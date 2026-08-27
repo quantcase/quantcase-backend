@@ -142,6 +142,13 @@ async function createSubscribeOrder(userId, priceId, couponCode, gstin) {
         status:    'expired', // Starts expired/pending until autopay is setup
       },
     });
+  } else {
+    // Always sync price and plan to what the user selected — they may have
+    // switched from quarterly to annual (or vice-versa) since first subscribing.
+    subscription = await prisma.userSubscription.update({
+      where: { id: subscription.id },
+      data:  { price_id: priceId, plan_type: price.plan_type },
+    });
   }
 
   const rzp = getRazorpay();
@@ -163,7 +170,11 @@ async function createSubscribeOrder(userId, priceId, couponCode, gstin) {
   try {
     rzpSub = await rzp.subscriptions.create({
       plan_id: price.razorpay_plan_id,
-      total_count: 120,
+      // Cap total_count so the mandate duration never exceeds 120 months (10 years).
+      // NPCI/UPI AutoPay rejects mandates longer than 10 years — this is why UPI
+      // works for monthly (120×1=120mo) but silently fails for semi-annual (120×6=720mo).
+      // Formula: floor(120 / interval_months), minimum 1.
+      total_count: Math.max(1, Math.floor(120 / (price.interval_months || 1))),
       start_at: startAt,
       customer_notify: 1,
       notes,
