@@ -78,7 +78,7 @@ async function llmStream(params, opts = {}) {
     const effortMatch = openRouterParams.model?.match(/^(.*):(high|low|floor)$/);
     if (effortMatch) {
       openRouterParams.model = effortMatch[1];
-      openRouterParams.reasoning = { effort: effortMatch[2] };
+      openRouterParams.reasoning = { effort: effortMatch[2] === 'floor' ? 'minimal' : effortMatch[2] };
     } else {
       // Disable reasoning by default for all models on OpenRouter path.
       openRouterParams.reasoning = { enabled: false };
