@@ -119,6 +119,7 @@ async function _buildChartGroup(configKey, resCtx) {
 async function getCharts(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
+    const reportType = req.query.reportType;
 
     const companyName = await resolveProwessName(prisma, symbol);
     if (!companyName) {
@@ -127,7 +128,7 @@ async function getCharts(req, res, next) {
       });
     }
 
-    const resCtx = createResolutionContext({ symbol });
+    const resCtx = createResolutionContext({ symbol, reportType });
 
     // Latest known quarter label, for the top-level `quarter` field —
     // derived from the same quarterly seriesMap the chart groups below read.

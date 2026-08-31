@@ -50,8 +50,9 @@ function _seriesToPoints(seriesRows) {
  *   daily-native abbr resolved through THIS context. Debug/testing knob only (admin.kpis.service.js's
  *   previewKpi threads its ?resample_mode= query param through here) — not persisted anywhere, and no
  *   other caller sets it, so every other context still uses each abbr's fixed default policy.
+ * @param {string} [opts.reportType]
  */
-function createResolutionContext({ prisma, symbol, company, frequency, resampleMode } = {}) {
+function createResolutionContext({ prisma, symbol, company, frequency, resampleMode, reportType } = {}) {
   const db = prisma ?? prismaDefault;
 
   let companyNamePromise = company ? Promise.resolve(company) : null;
@@ -78,8 +79,8 @@ function createResolutionContext({ prisma, symbol, company, frequency, resampleM
         const abbrs = await getProwessRawAbbrs();
         if (!abbrs.length) return {};
         const raw = freq === 'quarterly'
-          ? await fetchQuarterlyBatch(db, symbol, abbrs)
-          : await fetchAnnualBatch(db, symbol, abbrs);
+          ? await fetchQuarterlyBatch(db, symbol, abbrs, reportType)
+          : await fetchAnnualBatch(db, symbol, abbrs, reportType);
         const out = {};
         for (const abbr of abbrs) out[abbr] = _seriesToPoints(raw[abbr]);
 

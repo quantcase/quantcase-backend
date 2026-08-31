@@ -1082,7 +1082,8 @@ async function isFundamentalsInsightStale(dbInsight) {
 async function getFinancials(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
-    const result = await financials.analyze(symbol);
+    const reportType = req.query.reportType;
+    const result = await financials.analyze(symbol, reportType);
 
     const dbInsight = await prisma.aiInsight.findUnique({
       where: { ticker_type: { ticker: symbol, type: 'fundamentals' } },

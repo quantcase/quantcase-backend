@@ -311,7 +311,7 @@ async function _fetchPeriodBoundaries(prisma, company, sourceType, callIdPrefix)
  * @param {string[]} abbrs
  * @returns {Promise<Record<string, Array<{ callId, period, fiscal_year, quarter, call_date, value, abbrUsed }>>>}
  */
-async function fetchAnnualBatch(prisma, ticker, abbrs) {
+async function fetchAnnualBatch(prisma, ticker, abbrs, reportType) {
   const prowessName = await resolveProwessName(prisma, ticker);
   const result      = Object.fromEntries(abbrs.map(a => [a, []]));
   if (!prowessName) return result;
@@ -329,35 +329,60 @@ async function fetchAnnualBatch(prisma, ticker, abbrs) {
     }),
   ]);
 
-  const allPeriods    = periodsC.length ? periodsC : periodsS;
-  const abbrsWithC     = new Set(rowsC.map(r => r.kpi_abbr));
-  const kpiRows        = [...rowsC, ...rowsS.filter(r => !abbrsWithC.has(r.kpi_abbr))];
+  let allPeriods = [];
+  let kpiRows = [];
+
+  if (reportType === 'S') {
+    allPeriods = periodsS;
+    kpiRows = rowsS;
+  } else {
+    allPeriods = periodsC.length ? periodsC : periodsS;
+    const abbrsWithC = new Set(rowsC.map(r => r.kpi_abbr));
+    kpiRows = [...rowsC, ...rowsS.filter(r => !abbrsWithC.has(r.kpi_abbr))];
+  }
 
   return _buildResult(abbrs, allPeriods, kpiRows);
 }
 
 /**
  * Quarterly-only batch from prowess_values_new (callId prefix: prowess_qtr_*).
- * Always standalone (source_type='S'). Individual quarter P&L rows only —
- * use fetchAnnualBatch for balance-sheet snapshots.
+ * Uses same Best Available logic (prefers C over S) unless reportType='S' is requested.
  *
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string}   ticker
  * @param {string[]} abbrs
+ * @param {string}   [reportType]
  * @returns {Promise<Record<string, Array<{ callId, period, fiscal_year, quarter, call_date, value, abbrUsed }>>>}
  */
-async function fetchQuarterlyBatch(prisma, ticker, abbrs) {
+async function fetchQuarterlyBatch(prisma, ticker, abbrs, reportType) {
   const prowessName = await resolveProwessName(prisma, ticker);
   const result      = Object.fromEntries(abbrs.map(a => [a, []]));
   if (!prowessName) return result;
 
-  const [allPeriods, kpiRows] = await Promise.all([
+  const [periodsC, periodsS, rowsC, rowsS] = await Promise.all([
+    _fetchPeriodBoundaries(prisma, prowessName, 'C', 'prowess_qtr_'),
     _fetchPeriodBoundaries(prisma, prowessName, 'S', 'prowess_qtr_'),
+    prisma.prowessValueNew.findMany({
+      where:   { company: prowessName, kpi_abbr: { in: abbrs }, source_type: 'C', callId: { startsWith: 'prowess_qtr_' } },
+      select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
+    }),
     prisma.prowessValueNew.findMany({
       where:   { company: prowessName, kpi_abbr: { in: abbrs }, source_type: 'S', callId: { startsWith: 'prowess_qtr_' } },
       select:  { fiscal_year: true, quarter: true, kpi_abbr: true, value: true, multiplier: true },
     }),
   ]);
+
+  let allPeriods = [];
+  let kpiRows = [];
+
+  if (reportType === 'S') {
+    allPeriods = periodsS;
+    kpiRows = rowsS;
+  } else {
+    allPeriods = periodsC.length ? periodsC : periodsS;
+    const abbrsWithC = new Set(rowsC.map(r => r.kpi_abbr));
+    kpiRows = [...rowsC, ...rowsS.filter(r => !abbrsWithC.has(r.kpi_abbr))];
+  }
 
   return _buildResult(abbrs, allPeriods, kpiRows);
 }
