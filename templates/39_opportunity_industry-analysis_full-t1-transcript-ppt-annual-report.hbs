@@ -1839,6 +1839,8 @@
                                 <span class="edge-positive">{{{narrative.edge.hl}}}</span>
                             {{else if narrative.edge.content}}
                                 <span data-inline-markdown>{{{narrative.edge.content}}}</span>
+                            {{else if narrative.edge.content}}
+                                <span data-inline-markdown>{{{narrative.edge.text}}}</span>
                             {{else}}
                                 <span data-inline-markdown>{{{narrative.edge}}}</span>
                             {{/if}}
