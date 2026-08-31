@@ -735,8 +735,8 @@ async function getTickerInfo(req, res, next) {
 
     const forwardPE   = price != null && epsForward != null && epsForward !== 0
       ? r2(price / (epsForward * 4)) : null;
-    const dividendRate = dividendYield != null && price != null
-      ? r2((dividendYield / 100) * price) : null;
+    const dividendRate = kpiValAny('DIVIDEND_RATE') ?? (dividendYield != null && price != null
+      ? r2((dividendYield / 100) * price) : null);
     const payoutRatio  = dividendRate != null && epsBasic != null && epsBasic !== 0
       ? r2((dividendRate / epsBasic) * 100) : null;
 
@@ -965,7 +965,7 @@ async function getTickerInfo(req, res, next) {
         eps:          kpiVal('EPS_BASIC') ?? kpiVal('EPS_DILUTED'),
         epsForward,
         bookValue,
-        dividendRate: null,
+        dividendRate,
         dividendYield: dividendYield_override ?? dividendYield,
         payoutRatio,
       },
