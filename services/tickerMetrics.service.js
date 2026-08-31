@@ -3,6 +3,7 @@
 const peerIdentity = require('../lib/peerIdentity');
 const prisma = require('../config/prisma');
 const { createMultiCompanyResolutionContext, resolveMetric } = require('../utils/formulaRegistry');
+const { fetchMarketSnapshots } = require('../utils/formulaRegistry/dataFetcherMarket');
 
 // Identity CSV column indices (0-based) — company name/industry classification,
 // not a fundamentals source, so this stays untouched (same CSV screener.
@@ -115,7 +116,7 @@ async function getMetricsForTickers(symbols) {
 
   if (known.length === 0) return { tickers: [], notFound };
 
-  const [config, resCtxMap, modScoreRows] = await Promise.all([
+  const [config, resCtxMap, modScoreRows, snapshots] = await Promise.all([
     prisma.screenConfig.findUnique({ where: { key: PEERS_CONFIG_KEY }, include: { items: true } }),
     createMultiCompanyResolutionContext({ symbols: known }),
     // Use post_html_analysis (l3) — the active MOD-score pipeline — instead of
@@ -124,6 +125,7 @@ async function getMetricsForTickers(symbols) {
       where: { ticker: { in: known }, layer_id: 'l3', type: { in: AI_INSIGHT_TYPES } },
       select: { ticker: true, type: true, result: true },
     }),
+    fetchMarketSnapshots(prisma, known),
   ]);
 
   // modScoresMap[ticker][type] = { score, verdict }
@@ -147,6 +149,16 @@ async function getMetricsForTickers(symbols) {
     const resCtx = resCtxMap.get(sym);
     const columns   = config ? await _resolvePeerColumns(resCtx, config) : {};
     const modScores = modScoresMap[sym] || {};
+    const snap = snapshots[sym] || {};
+
+    let peType = null;
+    if (snap.pe != null) {
+      peType = 'default';
+    } else if (snap.pe_consolidated != null) {
+      peType = 'consolidated';
+    } else if (snap.pe_standalone != null) {
+      peType = 'standalone';
+    }
 
     tickers.push({
       symbol: sym,
@@ -155,6 +167,7 @@ async function getMetricsForTickers(symbols) {
       industryGroup: (idRow[ID_COL_INDUSTRY_GRP]  || '').trim() || null,
       cmp:           null,
       pe:            null,
+      peType,
       marketCapCr:   null,
       divYld:        null,
       npQtrCr:       null,
