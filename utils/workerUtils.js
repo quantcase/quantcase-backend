@@ -75,7 +75,7 @@ async function llmStream(params, opts = {}) {
     // disabled — DeepSeek was silently consuming the full token budget with thinking
     // tokens (which appear as `delta.thinking`, not `delta.reasoning_content`),
     // producing finish_reason='length' with 0 visible chars.
-    const effortMatch = openRouterParams.model?.match(/^(.*):(high|low)$/);
+    const effortMatch = openRouterParams.model?.match(/^(.*):(high|low|floor)$/);
     if (effortMatch) {
       openRouterParams.model = effortMatch[1];
       openRouterParams.reasoning = { effort: effortMatch[2] };
