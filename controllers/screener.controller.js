@@ -363,7 +363,21 @@ async function getTickerInfo(req, res, next) {
     }
 
     // ── 5. P/E ─────────────────────────────────────────────────────────────
-    let trailingPE = marketSnap?.pe != null ? r2(marketSnap.pe) : null;
+    // let trailingPE = marketSnap?.pe != null ? r2(marketSnap.pe) : null;
+
+    let trailingPE = null;
+    let peType = null; // 'consolidated' | 'standalone' | 'default' | 'calculated' | null
+
+    if (marketSnap?.pe != null) {
+      trailingPE = r2(marketSnap.pe);
+      peType = 'default';
+    } else if (marketSnap?.pe_consolidated != null) {
+      trailingPE = r2(marketSnap.pe_consolidated);
+      peType = 'consolidated';
+    } else if (marketSnap?.pe_standalone != null) {
+      trailingPE = r2(marketSnap.pe_standalone);
+      peType = 'standalone';
+    }
 
     // ── 6. KPI helpers — built from annual (audited) rows only ─────────────
     // Pick latest consolidated value per abbr (ORDER BY ensures C before S for same period)
@@ -457,10 +471,11 @@ async function getTickerInfo(req, res, next) {
     // ── 7. PE fallback from market cap / PAT ──────────────────────────────
     if (trailingPE == null && marketCapAbs != null) {
       const patSeries = kpiByPeriodQtr['PAT'] || [];
-      const trailingPat = patSeries.slice(0, 4).reduce((sum, r) => sum + parseFloat(r.value || 0), 0);
+      const trailingPat = patSeries.slice(-4).reduce((sum, r) => sum + parseFloat(r.value || 0), 0);
       const patForPe = kpiVal('PAT') ?? (trailingPat !== 0 ? trailingPat : null); // fallback to TTM PAT
       if (patForPe != null && patForPe !== 0) {
         trailingPE = r2(marketCapAbs / patForPe);
+        peType = 'calculated';
       }
     }
 
@@ -790,6 +805,7 @@ async function getTickerInfo(req, res, next) {
     // PE valuation label based on trailing PE
     function peValuationLabel(pe) {
       if (pe == null) return null;
+      if (pe < 0) return 'N/A';
       if (pe < 10) return 'Undervalued';
       if (pe < 20) return 'Fair value';
       if (pe < 35) return 'Moderately valued';
@@ -918,6 +934,7 @@ async function getTickerInfo(req, res, next) {
 
       valuation: {
         peRatio:          trailingPE,
+        peLabel:          peType === 'consolidated' ? 'Consolidated' : (peType === 'standalone' ? 'Standalone' : (peType === 'calculated' ? 'Calculated TTM' : 'P/E')),
         peValuationLabel: peValuationLabel(trailingPE),
         forwardPE,
         pbRatio:          pbRatio_override ?? pbRatio,
