@@ -24,25 +24,7 @@ async function smallcaseHoldingTickers(userId) {
   }
 }
 
-async function smallcaseBasketTickers(userId) {
-  try {
-    const rows = await prisma.smallcaseBasket.findMany({
-      where:  { smallcase_user: { user_id: userId } },
-      select: { constituents: true },
-    });
-    const tickers = [];
-    for (const row of rows) {
-      const constituents = Array.isArray(row.constituents) ? row.constituents : [];
-      for (const c of constituents) {
-        if (c && c.ticker) tickers.push(c.ticker);
-      }
-    }
-    return tickers;
-  } catch (err) {
-    console.error('[syncHoldingsJournal] smallcase basket gather failed:', err.message);
-    return [];
-  }
-}
+
 
 async function portfolioHoldingTickers(userId) {
   try {
@@ -69,32 +51,47 @@ async function portfolioHoldingTickers(userId) {
 // ─── Sync ─────────────────────────────────────────────────────────────────────
 
 /**
- * Populate the user's default "Holdings" journal from ALL holdings sources
- * (smallcase holdings + smallcase basket constituents + user/shadow portfolio
- * holdings), deduped by uppercased ticker. ADD-ONLY: newly-held tickers are added
- * with source 'holdings_sync'; existing tickers (and all their notes/theses) are
- * never touched, and exited tickers are never removed.
+ * Populate the user's default "Holdings" journal from real holdings sources
+ * (smallcase holdings + user/shadow portfolio holdings), deduped by uppercased ticker.
+ * MIRRORS HOLDINGS: newly-held tickers are added with source 'holdings_sync',
+ * and tickers no longer held are removed (cascading deletes for any notes/theses).
  *
  * @param {string} userId
- * @returns {Promise<{ journalId: string, added: number, total: number }>}
+ * @returns {Promise<{ journalId: string, added: number, total: number, deleted: number }>}
  */
 async function syncHoldingsJournal(userId) {
   const { holdings } = await ensureDefaultJournals(userId);
   const journalId    = holdings.id;
 
-  const [scHoldings, scBaskets, portfolio] = await Promise.all([
+  const [scHoldings, portfolio] = await Promise.all([
     smallcaseHoldingTickers(userId),
-    smallcaseBasketTickers(userId),
     portfolioHoldingTickers(userId),
   ]);
 
   const wanted = [...new Set(
-    [...scHoldings, ...scBaskets, ...portfolio].map(normTicker),
+    [...scHoldings, ...portfolio].map(normTicker),
   )].filter(Boolean);
 
-  if (!wanted.length) return { journalId, added: 0, total: 0 };
+  let added = 0;
+  let deletedCount = 0;
 
-  // Existing tickers in the holdings journal — only add the ones not already there.
+  if (!wanted.length) {
+    const del = await prisma.journalTicker.deleteMany({
+      where: { journal_id: journalId }
+    });
+    return { journalId, added: 0, total: 0, deleted: del.count };
+  }
+
+  // Delete tickers that are no longer in 'wanted'
+  const del = await prisma.journalTicker.deleteMany({
+    where: { 
+      journal_id: journalId, 
+      ticker: { notIn: wanted } 
+    }
+  });
+  deletedCount = del.count;
+
+  // Existing tickers in the holdings journal
   const existing = await prisma.journalTicker.findMany({
     where:  { journal_id: journalId, ticker: { in: wanted } },
     select: { ticker: true },
@@ -107,9 +104,10 @@ async function syncHoldingsJournal(userId) {
       data: toAdd.map(ticker => ({ journal_id: journalId, ticker, source: 'holdings_sync' })),
       skipDuplicates: true,
     });
+    added = toAdd.length;
   }
 
-  return { journalId, added: toAdd.length, total: wanted.length };
+  return { journalId, added, total: wanted.length, deleted: deletedCount };
 }
 
 module.exports = { syncHoldingsJournal };
