@@ -490,7 +490,7 @@ async function getTickerInfo(req, res, next) {
       // Balance sheet — debt
       'BORR_TOTAL', 'DEBT_LT', 'DEBT_ST', 'NET_WORTH',
       // Balance sheet — equity approximation components (available at H1/H2 snapshots)
-      'CURR_ASSETS', 'ASSET_PPE', 'ASSET_CWIP', 'OTH_ASSET_NC',
+      'CURR_ASSETS', 'ASSET_PPE', 'ASSET_CWIP', 'OTH_ASSET_NC', 'CASH_EQUIV',
       'CURR_LIAB', 'PROV_LT', 'PROV_ST',
       // BFSI equity components (available every quarter for insurance/banks)
       'EQ_SHARE_CAP', 'RES_SURPLUS',
@@ -564,6 +564,7 @@ async function getTickerInfo(req, res, next) {
           revenue:          p.PAT_OVERVIEW ?? p.REV_OP ?? p.TOTAL_INCOME ?? null,
           netIncome:        p.ROA_OVERVIEW ?? p.PAT ?? null,
           eps:              p.EPS_BASIC ?? null,
+          freeCashflow:     p.CASH_OVERVIEW ?? p.CASH_EQUIV ?? null,
           cfo:              p.CFO_PAT_OVERVIEW ?? cfoVal,
           cfoProxy:         cfoProxyVal != null ? r2(cfoProxyVal) : null,
           cfoLabel:         (p.CFO_PAT_OVERVIEW != null || cfoVal != null) ? 'CFO' : (cfoProxyVal != null ? 'Est. CFO' : null),
@@ -767,7 +768,10 @@ async function getTickerInfo(req, res, next) {
     const interestCoverageGrowth = kpiYoy('IC');
 
     // EPS 3Y CAGR — route through registry (EPS_CAGR_3Y, window=3, annual ASC series)
-    const epsSeriesAsc = [...(kpiByPeriod['EPS_BASIC'] ?? [])].reverse()
+    const epsSeriesAsc = [...(kpiByPeriod['EPS_BFR_EXTRA'] ?? [])]
+      .filter(r => r.period_type === 'annual' || r.quarter === 'Q4')
+      .filter((v, i, a) => a.findIndex(x => x.fiscal_year === v.fiscal_year) === i)
+      .reverse()
       .map((r) => ({ value: r.value != null ? parseFloat(r.value) : null, fiscal_year: r.fiscal_year, period: r.quarter }));
     const epsCagr3y = r2((await resolveMetric('EPS_CAGR_3Y', createSeriesOnlyContext({ series: epsSeriesAsc }))).value);
 
