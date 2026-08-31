@@ -34,6 +34,7 @@ const getSubscription = async (req, res) => {
       current_period_start: sub.current_period_start,
       current_period_end:   sub.current_period_end,
       razorpay_subscription_id: sub.razorpay_subscription_id,
+      cancelled_at:         sub.cancelled_at,
       price:                sub.price,
       ...access,
     },
@@ -113,4 +114,9 @@ const handleWebhook = async (req, res) => {
   return res.json({ success: true });
 };
 
-module.exports = { getConfig, getProducts, getSubscription, subscribe, validateCoupon, verifyPayment, handleWebhook };
+const cancelSubscription = async (req, res) => {
+  await billingService.cancelSubscription(req.user.sub, true);
+  return res.json({ success: true, message: 'Subscription cancelled successfully' });
+};
+
+module.exports = { getConfig, getProducts, getSubscription, subscribe, validateCoupon, verifyPayment, handleWebhook, cancelSubscription };

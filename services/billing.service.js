@@ -416,6 +416,43 @@ async function handleWebhookEvent(event, payload) {
   }
 }
 
+async function cancelSubscription(userId, cancelAtCycleEnd = true) {
+  rzpLog('cancel →', { step: 'cancelSubscription:start', userId, cancelAtCycleEnd });
+  const sub = await prisma.userSubscription.findUnique({ where: { user_id: userId } });
+  
+  if (!sub) {
+    const err = new Error('Subscription not found');
+    err.status = 404;
+    throw err;
+  }
+  
+  if (!sub.razorpay_subscription_id) {
+    const err = new Error('No active Razorpay subscription found');
+    err.status = 400;
+    throw err;
+  }
+
+  const rzp = getRazorpay();
+  try {
+    const rzpSub = await rzp.subscriptions.cancel(sub.razorpay_subscription_id, cancelAtCycleEnd);
+    rzpLog('cancel ←', { step: 'cancelSubscription:ok', rzp_sub_id: rzpSub.id, status: rzpSub.status });
+  } catch (e) {
+    rzpLog('cancel ✗', {
+      step: 'rzp.subscriptions.cancel',
+      statusCode: e?.statusCode,
+      error:      e?.error || e?.description || e?.message,
+    });
+    throw e;
+  }
+
+  const updatedSub = await prisma.userSubscription.update({
+    where: { id: sub.id },
+    data: { cancelled_at: new Date() }
+  });
+
+  return updatedSub;
+}
+
 module.exports = {
   getMode,
   listProducts,
@@ -425,4 +462,5 @@ module.exports = {
   verifyAndActivate,
   verifyWebhookSignature,
   handleWebhookEvent,
+  cancelSubscription,
 };
