@@ -115,23 +115,29 @@ async function getMetricsForTickers(symbols) {
 
   if (known.length === 0) return { tickers: [], notFound };
 
-  const [config, resCtxMap, aiInsightRows] = await Promise.all([
+  const [config, resCtxMap, modScoreRows] = await Promise.all([
     prisma.screenConfig.findUnique({ where: { key: PEERS_CONFIG_KEY }, include: { items: true } }),
     createMultiCompanyResolutionContext({ symbols: known }),
-    prisma.aiInsight.findMany({
-      where: { ticker: { in: known }, type: { in: AI_INSIGHT_TYPES } },
-      select: { ticker: true, type: true, insight: true },
+    // Use post_html_analysis (l3) — the active MOD-score pipeline — instead of
+    // the legacy ai_insights table which is rarely refreshed and often empty.
+    prisma.postHtmlAnalysis.findMany({
+      where: { ticker: { in: known }, layer_id: 'l3', type: { in: AI_INSIGHT_TYPES } },
+      select: { ticker: true, type: true, result: true },
     }),
   ]);
 
-  // aiInsightsMap[ticker][type] = { score, verdict }
-  const aiInsightsMap = {};
-  for (const row of aiInsightRows) {
+  // modScoresMap[ticker][type] = { score, verdict }
+  // result.score is numeric; result.verdict.rating is title-cased ("Moderate"),
+  // so we uppercase it to match the STRONG/MODERATE/WEAK convention the
+  // frontend's verdictColor() and ScoreChip expect.
+  const modScoresMap = {};
+  for (const row of modScoreRows) {
     const t = row.ticker.toUpperCase();
-    if (!aiInsightsMap[t]) aiInsightsMap[t] = {};
-    aiInsightsMap[t][row.type] = {
-      score:   row.insight?.score   ?? null,
-      verdict: row.insight?.verdict ?? null,
+    if (!modScoresMap[t]) modScoresMap[t] = {};
+    const result = row.result || {};
+    modScoresMap[t][row.type] = {
+      score:   typeof result.score === 'number' ? result.score : null,
+      verdict: result.verdict?.rating ? String(result.verdict.rating).toUpperCase() : null,
     };
   }
 
@@ -140,7 +146,7 @@ async function getMetricsForTickers(symbols) {
     const idRow  = symbolIndex[sym];
     const resCtx = resCtxMap.get(sym);
     const columns   = config ? await _resolvePeerColumns(resCtx, config) : {};
-    const aiScores  = aiInsightsMap[sym] || {};
+    const modScores = modScoresMap[sym] || {};
 
     tickers.push({
       symbol: sym,
@@ -157,9 +163,9 @@ async function getMetricsForTickers(symbols) {
       qtrSalesVar:   null,
       roce:          null,
       ...columns,
-      management:    aiScores.management  ?? null,
-      opportunity:   aiScores.opportunity ?? null,
-      deal:          aiScores.deal        ?? null,
+      management:    modScores.management  ?? null,
+      opportunity:   modScores.opportunity ?? null,
+      deal:          modScores.deal        ?? null,
     });
   }
 
