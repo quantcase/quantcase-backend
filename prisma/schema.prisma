@@ -935,7 +935,7 @@ model nse_equity_new {
   high            Float?
   low             Float?
   close           Float?
-  volume          Int?
+  volume          BigInt?
   pe              Float?
   // Two new Prowess-computed PE variants (2026-07-25), from a custom
   // QueryOnStockPricesAndRatios expression: close / ((PAT * 1e7) / shares) —
@@ -1333,6 +1333,7 @@ model UserProfile {
   risk_profile         RiskProfile?   @map("risk_profile")
   onboarding_completed Boolean        @default(false) @map("onboarding_completed")
   onboarding_step      OnboardingStep @default(profile) @map("onboarding_step")
+  free_tickers_viewed  String[]       @default([]) @map("free_tickers_viewed")
   created_at           DateTime       @default(now())
   updated_at           DateTime       @updatedAt
   user                 User           @relation(fields: [user_id], references: [id], onDelete: Cascade)

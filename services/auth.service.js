@@ -168,6 +168,7 @@ async function getFullProfile(userId) {
           risk_profile:         user.profile.risk_profile,
           onboarding_completed: user.profile.onboarding_completed,
           onboarding_step:      user.profile.onboarding_step,
+          free_tickers_viewed:  user.profile.free_tickers_viewed,
         }
       : null,
     subscription: user.subscription
@@ -240,4 +241,24 @@ async function updateOnboarding(userId, fields) {
   return profile;
 }
 
-module.exports = { register, googleAuth, getFullProfile, updateOnboarding };
+async function recordTickerView(userId, ticker) {
+  const user = await prisma.userProfile.findUnique({
+    where: { user_id: userId },
+    select: { free_tickers_viewed: true }
+  });
+
+  if (!user) return [];
+
+  let viewed = user.free_tickers_viewed || [];
+  if (!viewed.includes(ticker) && viewed.length < 3) {
+    viewed = [...viewed, ticker];
+    await prisma.userProfile.update({
+      where: { user_id: userId },
+      data: { free_tickers_viewed: viewed },
+    });
+  }
+
+  return viewed;
+}
+
+module.exports = { register, googleAuth, getFullProfile, updateOnboarding, recordTickerView };

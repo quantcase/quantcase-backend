@@ -70,4 +70,13 @@ const updateOnboarding = async (req, res) => {
   return res.json({ success: true, data: profile });
 };
 
-module.exports = { register, googleAuth, signin, getMe, updateOnboarding };
+const recordTickerView = async (req, res) => {
+  const { ticker } = req.body;
+  if (!ticker) {
+    return res.status(400).json({ error: 'Ticker is required' });
+  }
+  const viewed = await authService.recordTickerView(req.user.sub, ticker);
+  return res.json({ success: true, data: { free_tickers_viewed: viewed } });
+};
+
+module.exports = { register, googleAuth, signin, getMe, updateOnboarding, recordTickerView };
