@@ -295,8 +295,8 @@ async function analyseDrhp(fileBuffer, mimeType) {
   let savedInsight;
   try {
     savedInsight = await prisma.aiInsight.upsert({
-      where:  { ticker_type: { ticker, type: 'drhp-analysis' } },
-      create: { ticker, type: 'drhp-analysis', insight: result },
+      where:  { ticker_type_fiscal_year_quarter: { ticker, type: 'drhp-analysis', fiscal_year: 'FY2024', quarter: 'Q4' } },
+      create: { ticker, type: 'drhp-analysis', insight: result, fiscal_year: 'FY2024', quarter: 'Q4' },
       update: { insight: result },
     });
   } catch (err) {

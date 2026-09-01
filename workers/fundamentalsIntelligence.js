@@ -49,8 +49,8 @@ async function processFundamentalsJob(job) {
     await job.updateProgress(90);
 
     await prisma.aiInsight.upsert({
-      where:  { ticker_type: { ticker, type: 'fundamentals' } },
-      create: { ticker, type: 'fundamentals', insight },
+      where:  { ticker_type_fiscal_year_quarter: { ticker, type: 'fundamentals', fiscal_year: 'FY2024', quarter: 'Q4' } },
+      create: { ticker, type: 'fundamentals', insight, fiscal_year: 'FY2024', quarter: 'Q4' },
       update: { insight, updated_at: new Date() },
     });
     console.log(`[Fundamentals] Intelligence saved for ${symbol}`);

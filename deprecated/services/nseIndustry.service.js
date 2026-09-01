@@ -26,8 +26,9 @@ async function createNseIndustryJob(subjectTicker) {
 }
 
 async function fetchNseIndustryResult(subjectTicker) {
-  return prisma.aiInsight.findUnique({
-    where: { ticker_type: { ticker: subjectTicker, type: 'nse_industry' } },
+  return prisma.aiInsight.findFirst({
+    where: { ticker: subjectTicker, type: 'nse_industry' },
+    orderBy: [ { fiscal_year: 'desc' }, { quarter: 'desc' }, { updated_at: 'desc' } ],
   });
 }
 

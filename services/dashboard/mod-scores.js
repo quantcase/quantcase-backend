@@ -29,7 +29,7 @@ async function fetchModScores(tickers) {
     WHERE ticker = ANY(${symbols})
       AND layer_id = 'l3'
       AND type IN ('management', 'opportunity', 'deal')
-    ORDER BY ticker, type, updated_at DESC NULLS LAST
+    ORDER BY ticker, type, fiscal_year DESC, quarter DESC, updated_at DESC NULLS LAST
   `;
 
   const map = {};

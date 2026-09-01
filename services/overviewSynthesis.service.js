@@ -41,7 +41,11 @@ async function enqueueOverviewSynthesisJob(ticker, opts = {}) {
 async function getOverviewInsight(ticker) {
   return prisma.aiInsight.findFirst({
     where:   { ticker, type: 'overview' },
-    orderBy: { updated_at: 'desc' },
+    orderBy: [
+      { fiscal_year: 'desc' },
+      { quarter: 'desc' },
+      { updated_at: 'desc' }
+    ],
   });
 }
 
@@ -55,8 +59,19 @@ async function getOverviewInsight(ticker) {
 async function getSourceInsights(ticker) {
   const rows = await prisma.aiInsight.findMany({
     where: { ticker, type: { in: OVERVIEW_SOURCE_TYPES } },
+    orderBy: [
+      { fiscal_year: 'desc' },
+      { quarter: 'desc' },
+      { updated_at: 'desc' }
+    ],
   });
-  return Object.fromEntries(rows.map(r => [r.type, r]));
+  const map = {};
+  for (const r of rows) {
+    if (!map[r.type]) {
+      map[r.type] = r;
+    }
+  }
+  return map;
 }
 
 module.exports = { enqueueOverviewSynthesisJob, getOverviewInsight, getSourceInsights, OVERVIEW_SOURCE_TYPES };

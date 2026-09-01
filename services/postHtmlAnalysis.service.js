@@ -142,10 +142,23 @@ async function enqueuePostHtmlAnalysis(ticker, types, layerId, opts = {}) {
  * @returns {Promise<object[]>}
  */
 async function getPostHtmlAnalysis(ticker, layerId, types) {
-  return prisma.postHtmlAnalysis.findMany({
+  const allRows = await prisma.postHtmlAnalysis.findMany({
     where: { ticker, layer_id: layerId, type: { in: types } },
-    orderBy: { type: 'asc' },
+    orderBy: [
+      { fiscal_year: 'desc' },
+      { quarter: 'desc' },
+      { updated_at: 'desc' }
+    ],
   });
+  const seenTypes = new Set();
+  const latestRows = [];
+  for (const row of allRows) {
+    if (!seenTypes.has(row.type)) {
+      seenTypes.add(row.type);
+      latestRows.push(row);
+    }
+  }
+  return latestRows.sort((a, b) => a.type.localeCompare(b.type));
 }
 
 /**

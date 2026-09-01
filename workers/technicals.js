@@ -38,8 +38,9 @@ async function processTechnicalsJob(job) {
 
     // Read the prior score BEFORE the upsert below overwrites it — this drives the
     // composite tag's direction flag (Tier/Band Rising/Falling). Null on first run.
-    const prevRow = await prisma.aiInsight.findUnique({
-      where: { ticker_type: { ticker, type: 'technicals' } },
+    const prevRow = await prisma.aiInsight.findFirst({
+      where: { ticker, type: 'technicals' },
+      orderBy: [ { fiscal_year: 'desc' }, { quarter: 'desc' }, { updated_at: 'desc' } ],
     });
     const previousScore = prevRow?.insight?.scores?.final_score ?? null;
 
@@ -60,8 +61,8 @@ async function processTechnicalsJob(job) {
     await job.updateProgress(90);
 
     await prisma.aiInsight.upsert({
-      where:  { ticker_type: { ticker, type: 'technicals' } },
-      create: { ticker, type: 'technicals', insight },
+      where:  { ticker_type_fiscal_year_quarter: { ticker, type: 'technicals', fiscal_year: 'FY2024', quarter: 'Q4' } },
+      create: { ticker, type: 'technicals', insight, fiscal_year: 'FY2024', quarter: 'Q4' },
       update: { insight, updated_at: new Date() },
     });
     console.log(`[Technicals] Decision intelligence saved for ${symbol}`);

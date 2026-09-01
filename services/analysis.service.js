@@ -45,7 +45,21 @@ async function getAnalysis(ticker, types) {
     latestCallIdFromLensScores(ticker),
     prisma.aiInsight.findMany({
       where:   { ticker, type: { in: types } },
-      orderBy: { type: 'asc' },
+      orderBy: [
+        { fiscal_year: 'desc' },
+        { quarter: 'desc' },
+        { updated_at: 'desc' }
+      ],
+    }).then(rows => {
+      const seen = new Set();
+      const latest = [];
+      for (const r of rows) {
+        if (!seen.has(r.type)) {
+          seen.add(r.type);
+          latest.push(r);
+        }
+      }
+      return latest.sort((a, b) => a.type.localeCompare(b.type));
     }),
     prisma.lensConfig.findMany({
       where:  { slug: { in: allLensSlugs } },

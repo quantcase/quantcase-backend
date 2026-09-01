@@ -155,9 +155,22 @@ async function evaluateHealth(entryId) {
   const lensMap     = await fetchLensScoreMap(ticker);
   const currentSnap = buildSnapshot(subFactors, lensMap);
 
-  const insightRows = await prisma.aiInsight.findMany({
+  const allInsightRows = await prisma.aiInsight.findMany({
     where: { ticker, type: { in: ['management', 'opportunity', 'deal'] } },
+    orderBy: [
+      { fiscal_year: 'desc' },
+      { quarter: 'desc' },
+      { updated_at: 'desc' }
+    ],
   });
+  const seenTypes = new Set();
+  const insightRows = [];
+  for (const row of allInsightRows) {
+    if (!seenTypes.has(row.type)) {
+      seenTypes.add(row.type);
+      insightRows.push(row);
+    }
+  }
   const modScores = extractModScores(insightRows);
 
   let maxDrop = 0, worstFactor = null, worstPrev = null, worstCurr = null;

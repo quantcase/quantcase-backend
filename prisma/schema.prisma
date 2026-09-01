@@ -532,8 +532,10 @@ model AiInsight {
   updated_at       DateTime @updatedAt
   lens_scores_hash String?  @map("lens_scores_hash")
   prompt_v         String?  @map("prompt_v")
+  fiscal_year      String?
+  quarter          String?
 
-  @@unique([ticker, type])
+  @@unique([ticker, type, fiscal_year, quarter])
   @@index([ticker])
   @@index([type])
   @@map("ai_insights")
@@ -583,7 +585,7 @@ model PostHtmlAnalysis {
   updated_at    DateTime               @updatedAt
   config        PostHtmlAnalysisConfig @relation(fields: [config_id], references: [id], onDelete: Cascade)
 
-  @@unique([layer_id, type, ticker])
+  @@unique([layer_id, type, ticker, fiscal_year, quarter])
   @@index([ticker])
   @@index([layer_id, type])
   @@map("post_html_analysis")

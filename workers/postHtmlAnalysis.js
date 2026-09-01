@@ -97,11 +97,12 @@ async function processPostHtmlAnalysisJob(job) {
     await job.updateProgress(90);
 
     // ── 5. Upsert result ────────────────────────────────────────────────────
+    const fYear = fiscal_year || 'FY2024';
+    const q = quarter || 'Q4';
+
     await prisma.postHtmlAnalysis.upsert({
-      where: { layer_id_type_ticker: { layer_id: layerId, type, ticker } },
+      where: { layer_id_type_ticker_fiscal_year_quarter: { layer_id: layerId, type, ticker, fiscal_year: fYear, quarter: q } },
       update: {
-        fiscal_year: fiscal_year ?? null,
-        quarter: quarter ?? null,
         config_id: config.id,
         input_hash: inputHash,
         result,
@@ -114,8 +115,8 @@ async function processPostHtmlAnalysisJob(job) {
         layer_id: layerId,
         type,
         ticker,
-        fiscal_year: fiscal_year ?? null,
-        quarter: quarter ?? null,
+        fiscal_year: fYear,
+        quarter: q,
         config_id: config.id,
         input_hash: inputHash,
         result,

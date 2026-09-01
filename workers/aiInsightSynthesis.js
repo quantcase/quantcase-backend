@@ -95,10 +95,17 @@ async function processAiInsightSynthesisJob(job) {
     await job.updateProgress(90);
 
     // ── 5. Upsert into ai_insights (existing table, now with lineage cols) ─
+    let fYear = 'FY2024';
+    let q = 'Q4';
+    const fyMatch = callId.match(/_(FY\d{4})/);
+    const qMatch = callId.match(/_(Q[1-4])/);
+    if (fyMatch) fYear = fyMatch[1];
+    if (qMatch) q = qMatch[1];
+
     await prisma.aiInsight.upsert({
-      where:  { ticker_type: { ticker, type: insightType } },
+      where:  { ticker_type_fiscal_year_quarter: { ticker, type: insightType, fiscal_year: fYear, quarter: q } },
       update: { insight: result, lens_scores_hash: lensScoresHash, prompt_v: promptV },
-      create: { ticker, type: insightType, insight: result, lens_scores_hash: lensScoresHash, prompt_v: promptV },
+      create: { ticker, type: insightType, insight: result, lens_scores_hash: lensScoresHash, prompt_v: promptV, fiscal_year: fYear, quarter: q },
     });
     console.log(`[AiInsightSynthesis] ai_insights upserted for ${ticker}/${insightType}`);
 

@@ -33,7 +33,11 @@ async function enqueueAiInsightSynthesisJob(callId, insightType, opts = {}) {
 async function getAiInsight(ticker, insightType) {
   return prisma.aiInsight.findFirst({
     where:   { ticker, type: insightType },
-    orderBy: { updated_at: 'desc' },
+    orderBy: [
+      { fiscal_year: 'desc' },
+      { quarter: 'desc' },
+      { updated_at: 'desc' }
+    ],
   });
 }
 
@@ -44,10 +48,23 @@ async function getAiInsight(ticker, insightType) {
  * @returns {Promise<object[]>}
  */
 async function listAiInsightsByTicker(ticker) {
-  return prisma.aiInsight.findMany({
+  const rows = await prisma.aiInsight.findMany({
     where:   { ticker },
-    orderBy: { type: 'asc' },
+    orderBy: [
+      { fiscal_year: 'desc' },
+      { quarter: 'desc' },
+      { updated_at: 'desc' }
+    ],
   });
+  const seen = new Set();
+  const latest = [];
+  for (const r of rows) {
+    if (!seen.has(r.type)) {
+      seen.add(r.type);
+      latest.push(r);
+    }
+  }
+  return latest.sort((a, b) => a.type.localeCompare(b.type));
 }
 
 module.exports = {

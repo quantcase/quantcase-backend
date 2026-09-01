@@ -93,9 +93,9 @@ async function processOverviewSynthesisJob(job) {
 
     // ── 7. Upsert into ai_insights with type="overview" ───────────────────────
     await prisma.aiInsight.upsert({
-      where:  { ticker_type: { ticker, type: 'overview' } },
+      where:  { ticker_type_fiscal_year_quarter: { ticker, type: 'overview', fiscal_year: 'FY2024', quarter: 'Q4' } },
       update: { insight: result, lens_scores_hash: sourceHash, prompt_v: promptV },
-      create: { ticker, type: 'overview', insight: result, lens_scores_hash: sourceHash, prompt_v: promptV },
+      create: { ticker, type: 'overview', insight: result, lens_scores_hash: sourceHash, prompt_v: promptV, fiscal_year: 'FY2024', quarter: 'Q4' },
     });
     console.log(`[OverviewSynthesis] ai_insights upserted for ${ticker}/overview`);
 

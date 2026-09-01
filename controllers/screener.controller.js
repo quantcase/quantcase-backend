@@ -137,8 +137,9 @@ async function getTechnicals(req, res, next) {
     const forceRefresh = req.query.refresh === '1';
     const result = await technicalAnalysis.analyze(symbol);
 
-    const dbInsight = forceRefresh ? null : await prisma.aiInsight.findUnique({
-      where: { ticker_type: { ticker: symbol, type: 'technicals' } },
+    const dbInsight = forceRefresh ? null : await prisma.aiInsight.findFirst({
+      where: { ticker: symbol, type: 'technicals' },
+      orderBy: [ { fiscal_year: 'desc' }, { quarter: 'desc' }, { updated_at: 'desc' } ],
     });
 
     if (dbInsight?.insight) {
@@ -204,8 +205,9 @@ async function getTechnicalsStatus(req, res, next) {
     const jobId  = technicalsJobId(symbol);
 
     const [dbInsight, job] = await Promise.all([
-      prisma.aiInsight.findUnique({
-        where:  { ticker_type: { ticker: symbol, type: 'technicals' } },
+      prisma.aiInsight.findFirst({
+        where:  { ticker: symbol, type: 'technicals' },
+        orderBy: [ { fiscal_year: 'desc' }, { quarter: 'desc' }, { updated_at: 'desc' } ],
         select: { updated_at: true },
       }),
       jobQueue.getQueue(TECHNICALS_QUEUE).getJob(jobId),
@@ -1085,8 +1087,13 @@ async function getFinancials(req, res, next) {
     const reportType = req.query.reportType;
     const result = await financials.analyze(symbol, reportType);
 
-    const dbInsight = await prisma.aiInsight.findUnique({
-      where: { ticker_type: { ticker: symbol, type: 'fundamentals' } },
+    const dbInsight = await prisma.aiInsight.findFirst({
+      where: { ticker: symbol, type: 'fundamentals' },
+      orderBy: [
+        { fiscal_year: 'desc' },
+        { quarter: 'desc' },
+        { updated_at: 'desc' }
+      ]
     });
 
     if (dbInsight?.insight && !(await isFundamentalsInsightStale(dbInsight))) {
@@ -1098,8 +1105,8 @@ async function getFinancials(req, res, next) {
       result.fundamentalsIntelligence = insight ?? dbInsight?.insight ?? null;
       if (insight) {
         await prisma.aiInsight.upsert({
-          where:  { ticker_type: { ticker: symbol, type: 'fundamentals' } },
-          create: { ticker: symbol, type: 'fundamentals', insight },
+          where:  { ticker_type_fiscal_year_quarter: { ticker: symbol, type: 'fundamentals', fiscal_year: 'FY2024', quarter: 'Q4' } },
+          create: { ticker: symbol, type: 'fundamentals', insight, fiscal_year: 'FY2024', quarter: 'Q4' },
           update: { insight, updated_at: new Date() },
         });
       }
