@@ -78,17 +78,50 @@ async function getTranscriptCalls(symbol) {
 
   let calls = [];
   if (tier === 'Tier 3') {
+    const earningsCalls = await prisma.earnings_calls.findMany({
+      where: {
+        company: symbol,
+        OR: [
+          { transcript_url: { not: null } },
+          { ppt_url:        { not: null } },
+        ],
+      },
+      select: {
+        id:            true,
+        company:       true,
+        company_name:  true,
+        basic_industry: true,
+        fiscal_year:   true,
+        call_date:     true,
+        quarter:       true,
+        ppt_url:       true,
+        transcript_text: false,
+        ppt_text:        false,
+      },
+    });
+
     const reports = await prisma.annual_reports.findMany({
       where: { company: symbol, annual_report_url: { not: null } },
       select: { id: true, company: true, fiscal_year: true, call_date: true },
       orderBy: { fiscal_year: 'desc' }
     });
-    calls = reports.map(r => ({
-      ...r,
-      id: r.id.toString(),
-      quarter: null,
-      source: 'annual_report'
-    }));
+
+    const existingQ4s = new Set(earningsCalls.filter(c => c.quarter === 'Q4').map(c => c.fiscal_year));
+
+    const reportCalls = reports
+      .filter(r => !existingQ4s.has(r.fiscal_year))
+      .map(r => ({
+        ...r,
+        id: r.id.toString(),
+        quarter: 'Q4',
+        source: 'annual_report'
+      }));
+
+    calls = [...earningsCalls, ...reportCalls];
+    calls.sort((a, b) => {
+      if (b.fiscal_year !== a.fiscal_year) return b.fiscal_year.localeCompare(a.fiscal_year);
+      return (b.quarter || '').localeCompare(a.quarter || '');
+    });
   } else {
     calls = await prisma.earnings_calls.findMany({
       where: {
