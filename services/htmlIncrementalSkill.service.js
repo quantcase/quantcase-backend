@@ -32,7 +32,7 @@ async function resolveCallMeta(callId) {
       where: { id: BigInt(callId) },
       select: { fiscal_year: true }
     });
-    if (report) return { fiscal_year: report.fiscal_year ?? null, quarter: null };
+    if (report) return { fiscal_year: report.fiscal_year ?? null, quarter: 'Q4' };
   }
 
   // Fallback for annual_reports or any other call_id source

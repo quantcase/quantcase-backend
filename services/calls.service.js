@@ -77,7 +77,7 @@ async function getTranscriptCalls(symbol) {
   const tier = tierRecord ? tierRecord.tier : 'Tier 0';
 
   let calls = [];
-  if (tier === 'Tier 3') {
+  if (tier === 'Tier 3' || tier === 'Tier 0.5') {
     const earningsCalls = await prisma.earnings_calls.findMany({
       where: {
         company: symbol,
