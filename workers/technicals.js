@@ -95,8 +95,8 @@ async function processTechnicalsJob(job) {
 
 const worker = new Worker('technicals_analysis', processTechnicalsJob, {
   connection,
-  concurrency: 3,
-  limiter: { max: 5, duration: 1000 },
+  concurrency: 20,
+  limiter: { max: 20, duration: 1000 },
 });
 
 worker.on('completed', job      => console.log(`[technicals] Job ${job.id} completed`));
