@@ -104,6 +104,7 @@ async function ingestOhlcvZip(buffer) {
 
   const nameToSymbol = nameToSymbolMap();
   const fileSummaries = [];
+  const stockSymbols = new Set();
   let totalRows = 0;
 
   for (const entry of entries) {
@@ -121,13 +122,23 @@ async function ingestOhlcvZip(buffer) {
         fileSummaries.push({ file: entry.entryName, type: 'index', recordsParsed: records.length, skippedName: skippedRows, nrowExpected: parsedJson.meta?.nrow });
       } else {
         const { type, records, skippedName } = parseOhlcvJson(parsedJson, nameToSymbol);
-        if (records.length) await upsertBatch(records, type);
+        if (records.length) {
+          await upsertBatch(records, type);
+          for (const r of records) {
+            if (r.symbol) stockSymbols.add(r.symbol);
+          }
+        }
         totalRows += records.length;
         fileSummaries.push({ file: entry.entryName, type, recordsParsed: records.length, skippedName, nrowExpected: parsedJson.meta?.nrow });
       }
     } else if (entry.entryName.endsWith('.csv')) {
       const { type, records, skippedName } = parseOhlcvCsv(entry.getData().toString('utf8'), nameToSymbol);
-      if (records.length) await upsertBatch(records, type);
+      if (records.length) {
+        await upsertBatch(records, type);
+        for (const r of records) {
+          if (r.symbol) stockSymbols.add(r.symbol);
+        }
+      }
       totalRows += records.length;
       fileSummaries.push({ file: entry.entryName, type, recordsParsed: records.length, skippedName });
     } else {
@@ -135,7 +146,7 @@ async function ingestOhlcvZip(buffer) {
     }
   }
 
-  return { filesProcessed: entries.length, totalRowsIngested: totalRows, files: fileSummaries };
+  return { filesProcessed: entries.length, totalRowsIngested: totalRows, stockSymbols: Array.from(stockSymbols), files: fileSummaries };
 }
 
 /** Polls one token and updates its ProwessBatchRequest row accordingly. Idempotent on already-resolved rows. */

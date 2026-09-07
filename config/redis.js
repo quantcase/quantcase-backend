@@ -14,4 +14,8 @@ const connection = new Redis({
   retryStrategy:        (times) => Math.min(times * 50, 20000),
 });
 
+connection.on('error', (err) => {
+  console.error('[redis] connection error:', err.message);
+});
+
 module.exports = connection;

@@ -40,10 +40,10 @@ function tally(results) {
  * @param {{ tickers: string[], force?: boolean }} params
  * @returns {Promise<{ requested: number, counts: object, results: Array }>}
  */
-async function bulkEnqueueTechnicals({ tickers, force = false }) {
+async function bulkEnqueueTechnicals({ tickers, force = false, skipLimit = false }) {
   const symbols = normalizeTickers(tickers);
   if (!symbols.length) throw new HttpError(400, 'At least one valid ticker is required');
-  if (symbols.length > MAX_TICKERS) {
+  if (!skipLimit && symbols.length > MAX_TICKERS) {
     throw new HttpError(400, `Too many tickers (${symbols.length}); max ${MAX_TICKERS} per request`);
   }
 

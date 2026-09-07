@@ -12,6 +12,7 @@ const handlers = {
   pipeline_dispatch_l2_multi: () => require('./handlers/pipelineDispatchL2Multi'),
   pipeline_dispatch_l2_compressed_multi: () => require('./handlers/pipelineDispatchL2CompressedMulti'),
   pipeline_dispatch_l3_multi: () => require('./handlers/pipelineDispatchL3Multi'),
+  technicals_daily_batch: () => require('./handlers/technicalsDailyBatch'),
 };
 
 async function dispatch(jobType, config = {}) {

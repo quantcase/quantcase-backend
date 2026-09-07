@@ -39,6 +39,24 @@ async function run(_config = {}) {
 
   const totalRowsIngested = resolved.result?.totalRowsIngested ?? 0;
   console.log(`[prowess-daily-batch] token=${token} completed, ingested ${totalRowsIngested} rows`);
+
+  // On Tuesdays (2) and Thursdays (4) in Asia/Kolkata, auto-trigger technicals batch
+  const istDateStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+  const istDay = new Date(istDateStr).getDay();
+  const isTargetDay = istDay === 2 || istDay === 4;
+
+  if (_config.auto_trigger_technicals !== false && isTargetDay) {
+    try {
+      console.log(`[prowess-daily-batch] Auto-triggering technicals analysis for batch ${token} (IST day=${istDay})...`);
+      const technicalsHandler = require('./technicalsDailyBatch');
+      technicalsHandler.run({ batch_token: token, force: true }).catch((err) => {
+        console.error('[prowess-daily-batch] Background technicals batch error:', err.message);
+      });
+    } catch (err) {
+      console.error('[prowess-daily-batch] Failed to dispatch technicals batch:', err.message);
+    }
+  }
+
   return { records_processed: totalRowsIngested, token, status: resolved.status, files: resolved.result?.files };
 }
 
