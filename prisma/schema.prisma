@@ -705,6 +705,7 @@ model HtmlIncrementalSkill {
   updated_at                       DateTime                     @updatedAt
   outputs                          HtmlIncrementalSkillOutput[]
   configs                          HtmlIncrementalSkillConfig[]
+  ticker_configs                   HtmlIncrementalSkillTickerConfig[]
   compressed_skills                HtmlCompressedSkill[]
 
   @@index([slug])
@@ -766,36 +767,92 @@ model HtmlIncrementalSkillConfig {
   @@map("html_incremental_skill_configs")
 }
 
+// Ticker-specific configuration override for a skill/lens.
+// When an admin adjusts any config property for a specific ticker on a lens,
+// the system clones the ticker's tier-mapped config (or skill default),
+// applies the overrides, and saves it here.
+model HtmlIncrementalSkillTickerConfig {
+  id                               String               @id @default(uuid())
+  skill_id                         String
+  ticker                           String               // ticker symbol, e.g. "M&M", "TCS"
+  name                             String?              // human label, e.g. "M&M Custom - Customer Distribution"
+  data_extraction_prompt           String               @default("")
+  fact_validation_prompt           String               @default("")
+  html_template_prompt             String               @default("")
+  visual_qa_prompt                 String               @default("")
+  expected_json_schema             String               @default("")
+  json_validation_prompt           String               @default("")
+  extraction_model                 String               @default("~anthropic/claude-haiku-latest")
+  fact_validation_model            String               @default("~anthropic/claude-haiku-latest")
+  html_template_model              String               @default("~anthropic/claude-haiku-latest")
+  visual_qa_model                  String               @default("~anthropic/claude-haiku-latest")
+  enable_data_validation           Boolean              @default(true)
+  data_validation_loops            Int                  @default(1)
+  use_template_engine              Boolean              @default(true)
+  html_template_filename           String?
+  enable_html_validation           Boolean              @default(false)
+  transcript_signal_types          String[]
+  ppt_signal_types                 String[]
+  annual_report_signal_types       String[]
+  max_transcript_qtrs              Int?
+  max_ppt_qtrs                     Int?
+  max_annual_report_years          Int?
+  market_data_signal_types         String[]
+  max_market_data_months           Int?
+  historic_max_transcript_qtrs     Int?
+  historic_max_ppt_qtrs            Int?
+  historic_max_annual_report_years Int?
+  historic_max_market_data_months  Int?
+  model                            String?
+  max_tokens                       Int?
+  strip_html                       Boolean?
+  is_active                        Boolean              @default(true)
+  created_at                       DateTime             @default(now())
+  updated_at                       DateTime             @updatedAt
+  skill                            HtmlIncrementalSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  @@unique([skill_id, ticker], name: "skill_ticker_config_key")
+  @@index([skill_id])
+  @@index([ticker])
+  @@map("html_incremental_skill_ticker_configs")
+}
+
 model HtmlIncrementalSkillOutput {
-  id             String               @id @default(uuid())
-  skill_id       String
-  ticker         String
-  call_id        String
-  fiscal_year    String?
-  quarter        String?
-  raw_html       String
-  extracted_json Json?
-  audit_logs     Json?
-  text_summary   String?
-  prompt_v       String
-  model          String
-  input_tokens   Int?
-  output_tokens  Int?
-  cost_usd       Float?
-  is_historic    Boolean              @default(false)
+  id                 String               @id @default(uuid())
+  skill_id           String
+  ticker             String
+  call_id            String
+  fiscal_year        String?
+  quarter            String?
+  raw_html           String
+  extracted_json     Json?
+  audit_logs         Json?
+  text_summary       String?
+  prompt_v           String
+  model              String
+  input_tokens       Int?
+  output_tokens      Int?
+  cost_usd           Float?
+  is_historic        Boolean              @default(false)
   // Which named HtmlIncrementalSkillConfig (by key, not FK — so deleting a
   // config never orphans output history) produced this output. Null = ran
   // with the skill's own top-level fields (no config selected).
-  config_key     String?
+  config_key         String?
+  // Source of config used: 'ticker_custom', 'tier_mapped', 'explicit', or 'skill_default'
+  config_source      String?
+  // JSON completeness validation results
+  is_complete        Boolean?             @default(true)
+  missing_keys       String[]             @default([])
+  completeness_score Float?
   // LEGACY — superseded by HtmlIncrementalSkill.pinned_fiscal_year/pinned_quarter/
   // pinned_historic (a single global pin per skill, applied per-ticker at lookup
   // time). No longer read or written anywhere. Left in place rather than dropped
   // since it still holds real historical pin state; safe to drop once confirmed
   // nothing depends on it.
-  is_pinned_base Boolean              @default(false)
-  created_at     DateTime             @default(now())
-  updated_at     DateTime             @updatedAt
-  skill          HtmlIncrementalSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+  is_pinned_base     Boolean              @default(false)
+  created_at         DateTime             @default(now())
+  updated_at         DateTime             @updatedAt
+  skill              HtmlIncrementalSkill @relation(fields: [skill_id], references: [id], onDelete: Cascade)
 
   // is_historic is part of the identity so a historic run and an incremental run
   // for the same period never collide/overwrite each other.
@@ -803,6 +860,7 @@ model HtmlIncrementalSkillOutput {
   @@index([skill_id, ticker])
   @@index([ticker])
   @@index([call_id])
+  @@index([is_complete])
   @@map("html_incremental_skill_outputs")
 }
 

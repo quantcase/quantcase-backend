@@ -314,86 +314,68 @@ async function assemblePrompt(skill, ticker, baseContextBlock, historic = false,
 // every OTHER active skill at creation time so that gap can't open up by
 // default — same shape as scripts/seedAvailabilityConfigs.js's original
 // t1/t2/t3 seeding, now reused there instead of duplicated.
+const { validateLensJsonCompleteness } = require('./lensValidation.service');
+
+// A config's key is just a string tag with no schema-level guarantee it
+// exists under every skill — resolveConfigKeyForTicker (CompanyGroup side)
+// happily returns a key that only exists for some skills, and any lens
+// missing that key 404s at resolveEffectiveSkill/run time (or reports
+// all-zero in L2 preview). This clone is how a new key gets seeded under
+// every OTHER active skill at creation time so that gap can't open up by
+// default — same shape as scripts/seedAvailabilityConfigs.js's original
+// t1/t2/t3 seeding, now reused there instead of duplicated.
 function defaultConfigFieldsFromSkill(skill) {
   return {
     data_extraction_prompt:           skill.data_extraction_prompt,
     html_template_prompt:             skill.html_template_prompt,
-    transcript_signal_types:          skill.transcript_signal_types,
-    ppt_signal_types:                 skill.ppt_signal_types,
-    annual_report_signal_types:       skill.annual_report_signal_types,
-    max_transcript_qtrs:              skill.max_transcript_qtrs,
-    max_ppt_qtrs:                     skill.max_ppt_qtrs,
-    max_annual_report_years:          skill.max_annual_report_years,
-    market_data_signal_types:         skill.market_data_signal_types,
-    max_market_data_months:           skill.max_market_data_months,
-    historic_max_transcript_qtrs:     skill.historic_max_transcript_qtrs,
-    historic_max_ppt_qtrs:            skill.historic_max_ppt_qtrs,
-    historic_max_annual_report_years: skill.historic_max_annual_report_years,
-    historic_max_market_data_months:  skill.historic_max_market_data_months,
-    extraction_model:                 skill.extraction_model,
-    fact_validation_model:            skill.fact_validation_model,
-    html_template_model:              skill.html_template_model,
-    visual_qa_model:                  skill.visual_qa_model,
-    enable_data_validation:           skill.enable_data_validation,
-    data_validation_loops:            skill.data_validation_loops,
-    use_template_engine:              skill.use_template_engine,
-    enable_html_validation:           skill.enable_html_validation,
-    max_tokens: skill.max_tokens,
-    strip_html: skill.strip_html,
+    expected_json_schema:             skill.expected_json_schema ?? '',
+    json_validation_prompt:           skill.json_validation_prompt ?? '',
+    html_template_filename:           skill.html_template_filename ?? null,
+    transcript_signal_types:          skill.transcript_signal_types ?? [],
+    ppt_signal_types:                 skill.ppt_signal_types ?? [],
+    annual_report_signal_types:       skill.annual_report_signal_types ?? [],
+    max_transcript_qtrs:              skill.max_transcript_qtrs ?? null,
+    max_ppt_qtrs:                     skill.max_ppt_qtrs ?? null,
+    max_annual_report_years:          skill.max_annual_report_years ?? null,
+    market_data_signal_types:         skill.market_data_signal_types ?? [],
+    max_market_data_months:           skill.max_market_data_months ?? null,
+    historic_max_transcript_qtrs:     skill.historic_max_transcript_qtrs ?? null,
+    historic_max_ppt_qtrs:            skill.historic_max_ppt_qtrs ?? null,
+    historic_max_annual_report_years: skill.historic_max_annual_report_years ?? null,
+    historic_max_market_data_months:  skill.historic_max_market_data_months ?? null,
+    extraction_model:                 skill.extraction_model ?? '~anthropic/claude-haiku-latest',
+    fact_validation_model:            skill.fact_validation_model ?? '~anthropic/claude-haiku-latest',
+    html_template_model:              skill.html_template_model ?? '~anthropic/claude-haiku-latest',
+    visual_qa_model:                  skill.visual_qa_model ?? '~anthropic/claude-haiku-latest',
+    enable_data_validation:           skill.enable_data_validation ?? true,
+    data_validation_loops:            skill.data_validation_loops ?? 1,
+    use_template_engine:              skill.use_template_engine ?? true,
+    enable_html_validation:           skill.enable_html_validation ?? false,
+    max_tokens:                       skill.max_tokens ?? 16000,
+    strip_html:                       skill.strip_html ?? true,
   };
 }
 
-// ── Named config resolution ───────────────────────────────────────────────────
-// A HtmlIncrementalSkillConfig is a saved, alternate settings bundle for a
-// skill (e.g. one per data-availability shape). A run always needs one:
-// explicitly via configKey, or auto-resolved from the ticker's CompanyGroup
-// membership (CompanyGroup.config_key — see resolveConfigKeyForTicker in
-// services/companyGroups/resolver.js). If neither yields a config, the run
-// is blocked (400) rather than silently falling back to the skill's own
-// top-level fields — every run must be tied to a known, deliberate config.
-async function resolveRequiredConfigKey(ticker, configKey) {
-  if (configKey) return configKey;
-
-  const resolved = await resolveConfigKeyForTicker(ticker);
-  if (resolved) return resolved;
-
-  throw Object.assign(
-    new Error(`No config resolved for ${ticker} — it isn't in any config-mapped company group. Assign it to a group with a config_key set, or pass configKey explicitly.`),
-    { status: 400 },
-  );
-}
-
-// Prompt/filters/caps come entirely from the config; only
-// model/max_tokens/strip_html fall back to the skill's own value if left
-// unset on the config, since those are execution knobs rather than analysis
-// behavior.
-async function resolveEffectiveSkill(skill, configKey) {
-  const config = await prisma.htmlIncrementalSkillConfig.findUnique({
-    where: { skill_id_key: { skill_id: skill.id, key: configKey } },
-  });
-  if (!config || !config.is_active) {
-    throw Object.assign(new Error(`Config '${configKey}' not found for skill '${skill.slug}'`), { status: 404 });
-  }
-
-  const effectiveSkill = {
+function buildEffectiveSkillFromConfig(skill, config) {
+  return {
     ...skill,
-    data_extraction_prompt:           config.data_extraction_prompt,
-    html_template_prompt:             config.html_template_prompt,
-    expected_json_schema:             config.expected_json_schema,
-    json_validation_prompt:           config.json_validation_prompt,
+    data_extraction_prompt:           config.data_extraction_prompt ?? skill.data_extraction_prompt,
+    html_template_prompt:             config.html_template_prompt ?? skill.html_template_prompt,
+    expected_json_schema:             config.expected_json_schema ?? skill.expected_json_schema,
+    json_validation_prompt:           config.json_validation_prompt ?? skill.json_validation_prompt,
     html_template_filename:           config.html_template_filename ?? skill.html_template_filename,
-    transcript_signal_types:          config.transcript_signal_types,
-    ppt_signal_types:                 config.ppt_signal_types,
-    annual_report_signal_types:       config.annual_report_signal_types,
-    max_transcript_qtrs:              config.max_transcript_qtrs,
-    max_ppt_qtrs:                     config.max_ppt_qtrs,
-    max_annual_report_years:          config.max_annual_report_years,
-    market_data_signal_types:         config.market_data_signal_types,
-    max_market_data_months:           config.max_market_data_months,
-    historic_max_transcript_qtrs:     config.historic_max_transcript_qtrs,
-    historic_max_ppt_qtrs:            config.historic_max_ppt_qtrs,
-    historic_max_annual_report_years: config.historic_max_annual_report_years,
-    historic_max_market_data_months:  config.historic_max_market_data_months,
+    transcript_signal_types:          config.transcript_signal_types ?? skill.transcript_signal_types,
+    ppt_signal_types:                 config.ppt_signal_types ?? skill.ppt_signal_types,
+    annual_report_signal_types:       config.annual_report_signal_types ?? skill.annual_report_signal_types,
+    max_transcript_qtrs:              config.max_transcript_qtrs ?? skill.max_transcript_qtrs,
+    max_ppt_qtrs:                     config.max_ppt_qtrs ?? skill.max_ppt_qtrs,
+    max_annual_report_years:          config.max_annual_report_years ?? skill.max_annual_report_years,
+    market_data_signal_types:         config.market_data_signal_types ?? skill.market_data_signal_types,
+    max_market_data_months:           config.max_market_data_months ?? skill.max_market_data_months,
+    historic_max_transcript_qtrs:     config.historic_max_transcript_qtrs ?? skill.historic_max_transcript_qtrs,
+    historic_max_ppt_qtrs:            config.historic_max_ppt_qtrs ?? skill.historic_max_ppt_qtrs,
+    historic_max_annual_report_years: config.historic_max_annual_report_years ?? skill.historic_max_annual_report_years,
+    historic_max_market_data_months:  config.historic_max_market_data_months ?? skill.historic_max_market_data_months,
     
     extraction_model:                 config.extraction_model ?? skill.extraction_model,
     fact_validation_model:            config.fact_validation_model ?? skill.fact_validation_model,
@@ -404,12 +386,142 @@ async function resolveEffectiveSkill(skill, configKey) {
     use_template_engine:              config.use_template_engine ?? skill.use_template_engine,
     enable_html_validation:           config.enable_html_validation ?? skill.enable_html_validation,
 
-    max_tokens: config.max_tokens ?? skill.max_tokens,
-    strip_html: config.strip_html ?? skill.strip_html,
+    max_tokens:                       config.max_tokens ?? skill.max_tokens,
+    strip_html:                       config.strip_html ?? skill.strip_html,
   };
-  const promptVKey = `${skill.slug}:${configKey}@${config.updated_at.toISOString()}`;
+}
 
-  return { effectiveSkill, promptVKey };
+// ── Ticker & Tier Config Resolution with Fallback ───────────────────────────
+// Hierarchical resolution:
+// 1. Explicit configKey (if supplied in request)
+// 2. Ticker-specific config (HtmlIncrementalSkillTickerConfig for (skill.id, ticker))
+// 3. Tier-mapped config key (from CompanyGroup or TierClassification: t1/t2/t3)
+// 4. Default skill top-level fields
+async function resolveEffectiveSkillForTicker(skill, ticker, explicitConfigKey = null) {
+  // 1. Explicit configKey
+  if (explicitConfigKey) {
+    const config = await prisma.htmlIncrementalSkillConfig.findUnique({
+      where: { skill_id_key: { skill_id: skill.id, key: explicitConfigKey } },
+    });
+    if (config && config.is_active) {
+      return {
+        effectiveSkill: buildEffectiveSkillFromConfig(skill, config),
+        configKey: explicitConfigKey,
+        configSource: 'explicit',
+        promptVKey: `${skill.slug}:${explicitConfigKey}@${config.updated_at.toISOString()}`,
+      };
+    }
+  }
+
+  // 2. Ticker-specific custom config
+  const tickerConfig = await prisma.htmlIncrementalSkillTickerConfig.findUnique({
+    where: { skill_ticker_config_key: { skill_id: skill.id, ticker } },
+  });
+  if (tickerConfig && tickerConfig.is_active) {
+    return {
+      effectiveSkill: buildEffectiveSkillFromConfig(skill, tickerConfig),
+      configKey: `ticker:${ticker}`,
+      configSource: 'ticker_custom',
+      promptVKey: `${skill.slug}:ticker:${ticker}@${tickerConfig.updated_at.toISOString()}`,
+    };
+  }
+
+  // 3. Fallback: Tier-mapped config key
+  const tierConfigKey = await resolveConfigKeyForTicker(ticker);
+  if (tierConfigKey) {
+    const config = await prisma.htmlIncrementalSkillConfig.findUnique({
+      where: { skill_id_key: { skill_id: skill.id, key: tierConfigKey } },
+    });
+    if (config && config.is_active) {
+      return {
+        effectiveSkill: buildEffectiveSkillFromConfig(skill, config),
+        configKey: tierConfigKey,
+        configSource: 'tier_mapped',
+        promptVKey: `${skill.slug}:${tierConfigKey}@${config.updated_at.toISOString()}`,
+      };
+    }
+  }
+
+  // 4. Default Fallback: Skill Top-Level Fields
+  return {
+    effectiveSkill: { ...skill },
+    configKey: null,
+    configSource: 'skill_default',
+    promptVKey: `${skill.slug}:default@${skill.updated_at.toISOString()}`,
+  };
+}
+
+// Copy-on-change pipeline for ticker configurations:
+// If a ticker config doesn't exist yet, clone the complete tier mapped config
+// for that ticker, merge the changed properties, and persist a unique record.
+async function upsertTickerSkillConfig(slug, ticker, data) {
+  const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug } });
+  if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
+
+  const existing = await prisma.htmlIncrementalSkillTickerConfig.findUnique({
+    where: { skill_ticker_config_key: { skill_id: skill.id, ticker } },
+  });
+
+  if (existing) {
+    const updated = await prisma.htmlIncrementalSkillTickerConfig.update({
+      where: { id: existing.id },
+      data: {
+        ...data,
+        updated_at: new Date(),
+      },
+    });
+    return { created: false, config: updated };
+  }
+
+  // Clone from tier config fallback
+  const tierKey = await resolveConfigKeyForTicker(ticker);
+  let baseFields = null;
+  if (tierKey) {
+    const tierConfig = await prisma.htmlIncrementalSkillConfig.findUnique({
+      where: { skill_id_key: { skill_id: skill.id, key: tierKey } },
+    });
+    if (tierConfig) {
+      baseFields = defaultConfigFieldsFromSkill(tierConfig);
+    }
+  }
+  if (!baseFields) {
+    baseFields = defaultConfigFieldsFromSkill(skill);
+  }
+
+  const mergedData = {
+    ...baseFields,
+    ...data,
+    skill_id: skill.id,
+    ticker,
+  };
+
+  const created = await prisma.htmlIncrementalSkillTickerConfig.create({
+    data: mergedData,
+  });
+  return { created: true, config: created };
+}
+
+// Legacy helper maintained for backwards compatibility
+async function resolveRequiredConfigKey(ticker, configKey) {
+  if (configKey) return configKey;
+  const resolved = await resolveConfigKeyForTicker(ticker);
+  if (resolved) return resolved;
+  return null;
+}
+
+// Legacy helper maintained for backwards compatibility
+async function resolveEffectiveSkill(skill, configKey) {
+  if (!configKey) return { effectiveSkill: { ...skill }, promptVKey: `${skill.slug}:default@${skill.updated_at.toISOString()}` };
+  const config = await prisma.htmlIncrementalSkillConfig.findUnique({
+    where: { skill_id_key: { skill_id: skill.id, key: configKey } },
+  });
+  if (!config || !config.is_active) {
+    throw Object.assign(new Error(`Config '${configKey}' not found for skill '${skill.slug}'`), { status: 404 });
+  }
+  return {
+    effectiveSkill: buildEffectiveSkillFromConfig(skill, config),
+    promptVKey: `${skill.slug}:${configKey}@${config.updated_at.toISOString()}`,
+  };
 }
 
 // ── Public: dry-run prompt builder (no LLM) ───────────────────────────────────
@@ -417,8 +529,8 @@ async function resolveEffectiveSkill(skill, configKey) {
 async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic = false, configKey = null }) {
   const skill = await prisma.htmlIncrementalSkill.findUnique({ where: { slug } });
   if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
-  const resolvedConfigKey       = await resolveRequiredConfigKey(ticker, configKey);
-  const { effectiveSkill }      = await resolveEffectiveSkill(skill, resolvedConfigKey);
+  
+  const { effectiveSkill, configKey: resolvedConfigKey, configSource } = await resolveEffectiveSkillForTicker(skill, ticker, configKey);
 
   const { fiscal_year, quarter } = await resolveCallMeta(callId);
   const baseOutputs              = historic ? [] : await fetchBaseContextOutputs(effectiveSkill, ticker, fiscal_year, quarter);
@@ -432,9 +544,6 @@ async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic 
 
   const { dataBlock, marketDataBlock, signals, rawSignals } = await assemblePrompt(effectiveSkill, ticker, baseContextBlock, historic, fiscal_year, quarter, baseOutputs);
 
-  // Reconstruct the Phase 1 (data extraction) prompt exactly as runAgenticPipeline
-  // builds it — enhancedExtractionPrompt mirrors runIncrementalHtmlSkill lines 476-479,
-  // and the DATA BLOCK section mirrors runAgenticPipeline lines 682-689.
   const enhancedExtractionPrompt = [
     effectiveSkill.data_extraction_prompt,
     baseContextBlock,
@@ -462,6 +571,7 @@ async function buildIncrementalHtmlSkillPrompt({ slug, ticker, callId, historic 
     quarter,
     historic,
     configKey: resolvedConfigKey,
+    configSource,
   };
 }
 
@@ -472,10 +582,10 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
   if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
   if (!skill.is_active) throw Object.assign(new Error(`HtmlIncrementalSkill is inactive: ${slug}`), { status: 400 });
 
-  const resolvedConfigKey              = await resolveRequiredConfigKey(ticker, configKey);
-  const { effectiveSkill, promptVKey } = await resolveEffectiveSkill(skill, resolvedConfigKey);
-  const prompt_v                       = promptVKey;
-  const { fiscal_year, quarter }       = await resolveCallMeta(callId);
+  const { effectiveSkill, promptVKey, configKey: resolvedConfigKey, configSource: resolvedConfigSource } =
+    await resolveEffectiveSkillForTicker(skill, ticker, configKey);
+  const prompt_v                 = promptVKey;
+  const { fiscal_year, quarter } = await resolveCallMeta(callId);
 
   if (!force) {
     const cached = await prisma.htmlIncrementalSkillOutput.findFirst({
@@ -531,35 +641,61 @@ async function runIncrementalHtmlSkill({ slug, ticker, callId, force = false, hi
   const output_tokens = usage?.completion_tokens ?? null;
   const cost_usd      = usage?.cost              ?? null;
 
+  // Exact JSON Completeness Validation
+  const validation = validateLensJsonCompleteness(skill.slug, extracted_json);
+  if (audit_logs && typeof audit_logs === 'object') {
+    audit_logs.json_completeness = validation;
+  }
+
   const existing = await prisma.htmlIncrementalSkillOutput.findFirst({
     where: { skill_id: skill.id, ticker, fiscal_year: fiscal_year ?? null, quarter: quarter ?? null, is_historic: historic },
   });
 
+  const outputData = {
+    raw_html,
+    text_summary,
+    prompt_v,
+    call_id:       callId ?? 'unknown',
+    model:         effectiveSkill.extraction_model,
+    input_tokens,
+    output_tokens,
+    cost_usd,
+    is_historic:   historic,
+    config_key:    resolvedConfigKey,
+    config_source: resolvedConfigSource,
+    is_complete:   validation.is_complete,
+    missing_keys:  validation.missing_keys,
+    completeness_score: validation.completeness_score,
+    extracted_json,
+    audit_logs,
+  };
+
   const output = existing
     ? await prisma.htmlIncrementalSkillOutput.update({
         where: { id: existing.id },
-        data:  { raw_html, text_summary, prompt_v, call_id: callId ?? 'unknown', model: effectiveSkill.extraction_model, input_tokens, output_tokens, cost_usd, is_historic: historic, config_key: resolvedConfigKey, extracted_json, audit_logs },
+        data:  outputData,
       })
     : await prisma.htmlIncrementalSkillOutput.create({
         data: {
           skill_id: skill.id,
           ticker,
-          call_id:     callId ?? 'unknown',
           fiscal_year: fiscal_year ?? null,
           quarter:     quarter     ?? null,
-          raw_html,
-          text_summary,
-          prompt_v,
-          model:        effectiveSkill.extraction_model,
-          input_tokens,
-          output_tokens,
-          cost_usd,
-          is_historic: historic,
-          config_key:  resolvedConfigKey,
-          extracted_json,
-          audit_logs,
+          ...outputData,
         },
       });
+
+  // If JSON validation failed (incomplete JSON), fail the BullMQ job for easy requeuing
+  if (!validation.is_complete) {
+    const errorMsg = `Lens validation failed for ${ticker} (${skill.slug}): missing expected keys [${validation.missing_keys.join(', ')}]`;
+    if (job) await job.log(`[Validation Error] ${errorMsg}`);
+    const validationErr = new Error(errorMsg);
+    validationErr.name = 'LensValidationError';
+    validationErr.is_validation_failure = true;
+    validationErr.missing_keys = validation.missing_keys;
+    validationErr.output_id = output.id;
+    throw validationErr;
+  }
 
   return { cached: false, output };
 }
@@ -569,8 +705,8 @@ async function regenerateIncrementalHtmlSkill({ slug, ticker, callId, historic =
   if (!skill) throw Object.assign(new Error(`HtmlIncrementalSkill not found: ${slug}`), { status: 404 });
   if (!skill.is_active) throw Object.assign(new Error(`HtmlIncrementalSkill is inactive: ${slug}`), { status: 400 });
 
-  const resolvedConfigKey = await resolveRequiredConfigKey(ticker, configKey);
-  const { effectiveSkill } = await resolveEffectiveSkill(skill, resolvedConfigKey);
+  const { effectiveSkill, configKey: resolvedConfigKey, configSource: resolvedConfigSource } =
+    await resolveEffectiveSkillForTicker(skill, ticker, configKey);
   const { fiscal_year, quarter } = await resolveCallMeta(callId);
 
   const existing = await prisma.htmlIncrementalSkillOutput.findFirst({
@@ -606,10 +742,36 @@ async function regenerateIncrementalHtmlSkill({ slug, ticker, callId, historic =
 
   logUsage(`html-incremental-skill-regenerate:${slug}:${ticker}`, usage);
 
+  const validation = validateLensJsonCompleteness(skill.slug, extracted_json);
+  if (audit_logs && typeof audit_logs === 'object') {
+    audit_logs.json_completeness = validation;
+  }
+
   const output = await prisma.htmlIncrementalSkillOutput.update({
     where: { id: existing.id },
-    data: { raw_html, text_summary, extracted_json, audit_logs },
+    data: {
+      raw_html,
+      text_summary,
+      extracted_json,
+      audit_logs,
+      config_key: resolvedConfigKey,
+      config_source: resolvedConfigSource,
+      is_complete: validation.is_complete,
+      missing_keys: validation.missing_keys,
+      completeness_score: validation.completeness_score,
+    },
   });
+
+  if (!validation.is_complete) {
+    const errorMsg = `Lens validation failed for ${ticker} (${skill.slug}): missing expected keys [${validation.missing_keys.join(', ')}]`;
+    if (job) await job.log(`[Validation Error] ${errorMsg}`);
+    const validationErr = new Error(errorMsg);
+    validationErr.name = 'LensValidationError';
+    validationErr.is_validation_failure = true;
+    validationErr.missing_keys = validation.missing_keys;
+    validationErr.output_id = output.id;
+    throw validationErr;
+  }
 
   return { cached: false, output };
 }
@@ -624,4 +786,7 @@ module.exports = {
   transcriptPeriodRank,
   parseFiscalYear,
   defaultConfigFieldsFromSkill,
+  resolveEffectiveSkillForTicker,
+  upsertTickerSkillConfig,
 };
+

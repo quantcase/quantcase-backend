@@ -229,25 +229,48 @@ async function buildSignalAvailabilityReport(slug, tickers, { filterBySignalType
       await fetchCounts(batch, []);
     }
   } else {
-    // Same resolution a real run uses (resolveRequiredConfigKey /
-    // resolveConfigKeyForTicker) — group tickers by their resolved config so
-    // each config's own whitelist + window cap only has to be looked up
-    // once per group, not once per ticker.
+    // Resolve configs per ticker: Check ticker-specific config first, then fall back to tier/company group config
+    const tickerConfigs = await prisma.htmlIncrementalSkillTickerConfig.findMany({
+      where: { skill_id: skill.id, ticker: { in: tickers }, is_active: true },
+    });
+    const tickerConfigMap = new Map(tickerConfigs.map(tc => [tc.ticker, tc]));
+
     const tickersByConfigKey = new Map(); // configKey (string or null) -> ticker[]
+    const customConfigTickers = [];
+
     for (const ticker of tickers) {
-      const configKey = await resolveConfigKeyForTicker(ticker);
-      byTicker.get(ticker).configKey = configKey;
-      if (!tickersByConfigKey.has(configKey)) tickersByConfigKey.set(configKey, []);
-      tickersByConfigKey.get(configKey).push(ticker);
+      if (tickerConfigMap.has(ticker)) {
+        const tc = tickerConfigMap.get(ticker);
+        byTicker.get(ticker).configKey = `ticker:${ticker}`;
+        customConfigTickers.push({ ticker, config: tc });
+      } else {
+        const configKey = await resolveConfigKeyForTicker(ticker);
+        byTicker.get(ticker).configKey = configKey;
+        if (!tickersByConfigKey.has(configKey)) tickersByConfigKey.set(configKey, []);
+        tickersByConfigKey.get(configKey).push(ticker);
+      }
     }
 
+    // Process custom ticker configs
+    for (const { ticker, config } of customConfigTickers) {
+      const allTypes = [...config.transcript_signal_types, ...config.ppt_signal_types, ...config.annual_report_signal_types];
+      const caps = {
+        transcript:    config.historic_max_transcript_qtrs     ?? config.max_transcript_qtrs,
+        ppt:           config.historic_max_ppt_qtrs            ?? config.max_ppt_qtrs,
+        annual_report: config.historic_max_annual_report_years ?? config.max_annual_report_years,
+      };
+      await fetchCounts([ticker], allTypes);
+      applyCaps(ticker, caps);
+    }
+
+    // Process tier-grouped configs
     for (const [configKey, groupTickers] of tickersByConfigKey) {
-      if (configKey == null) continue; // no resolvable config — left all-zero, same as a real run would 400
+      if (configKey == null) continue; // no resolvable config — left all-zero
 
       const config = await prisma.htmlIncrementalSkillConfig.findUnique({
         where: { skill_id_key: { skill_id: skill.id, key: configKey } },
       });
-      if (!config || !config.is_active) continue; // defensive — resolveConfigKeyForTicker only returns keys admins set on a group
+      if (!config || !config.is_active) continue;
 
       const allTypes = [...config.transcript_signal_types, ...config.ppt_signal_types, ...config.annual_report_signal_types];
       const caps = {

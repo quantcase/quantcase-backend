@@ -10,8 +10,16 @@ const {
   transcriptPeriodRank,
   parseFiscalYear,
   defaultConfigFieldsFromSkill,
+  upsertTickerSkillConfig,
 } = require('../services/htmlIncrementalSkill.service');
 const { applySignalLimits } = require('../services/htmlSkill.service');
+const {
+  validateLensJsonCompleteness,
+  EXPECTED_KEYS,
+  SLUG_TO_NAME,
+} = require('../services/lensValidation.service');
+const { resolveConfigKeyForTicker } = require('../services/companyGroups');
+const { resolveLatestCall } = require('../services/pipelineDispatch/l2MultiDispatch.service');
 
 const router = Router();
 
@@ -26,6 +34,395 @@ router.get('/', async (req, res, next) => {
       orderBy: { slug: 'asc' },
     });
     res.json({ count: skills.length, skills });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── JSON Completeness Validation & Failure Reporting ────────────────────────
+
+// GET /api/html-incremental-skills/validation/overview
+// Returns completeness distribution (0 to 10 complete lenses vs number of tickers)
+router.get('/validation/overview', async (req, res, next) => {
+  try {
+    const targetSlugs = Object.keys(SLUG_TO_NAME);
+    const targetSkills = await prisma.htmlIncrementalSkill.findMany({
+      where: { slug: { in: targetSlugs } },
+      select: { id: true, slug: true },
+    });
+    const skillIdToSlug = Object.fromEntries(targetSkills.map(s => [s.id, s.slug]));
+    const targetSkillIds = targetSkills.map(s => s.id);
+
+    const distinctTickers = await prisma.htmlIncrementalSkillOutput.findMany({
+      select: { ticker: true },
+      distinct: ['ticker'],
+    });
+    const tickers = distinctTickers.map(t => t.ticker).filter(Boolean);
+
+    const tickerCompleteness = new Map();
+    for (const ticker of tickers) {
+      const lensMap = new Map();
+      for (const slug of targetSlugs) lensMap.set(slug, false);
+      tickerCompleteness.set(ticker, lensMap);
+    }
+
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+      const batch = tickers.slice(i, i + BATCH_SIZE);
+      const latestOutputs = await prisma.htmlIncrementalSkillOutput.findMany({
+        where: { ticker: { in: batch }, skill_id: { in: targetSkillIds } },
+        orderBy: { updated_at: 'desc' },
+        distinct: ['ticker', 'skill_id'],
+        select: {
+          ticker: true,
+          skill_id: true,
+          is_complete: true,
+          extracted_json: true,
+        },
+      });
+
+      for (const out of latestOutputs) {
+        const slug = skillIdToSlug[out.skill_id];
+        if (!slug) continue;
+        let isComplete = out.is_complete;
+        if (isComplete === null || isComplete === undefined) {
+          isComplete = validateLensJsonCompleteness(slug, out.extracted_json).is_complete;
+        }
+        const m = tickerCompleteness.get(out.ticker);
+        if (m) m.set(slug, isComplete);
+      }
+    }
+
+    const distribution = {};
+    for (let count = 0; count <= targetSlugs.length; count++) {
+      distribution[count] = 0;
+    }
+
+    for (const [, lensMap] of tickerCompleteness) {
+      const completeCount = Array.from(lensMap.values()).filter(Boolean).length;
+      distribution[completeCount] = (distribution[completeCount] || 0) + 1;
+    }
+
+    const distributionArray = Object.entries(distribution)
+      .map(([count, numTickers]) => ({ complete_lenses: parseInt(count, 10), num_tickers: numTickers }))
+      .sort((a, b) => b.complete_lenses - a.complete_lenses);
+
+    res.json({
+      total_tickers: tickers.length,
+      target_lenses_count: targetSlugs.length,
+      distribution: distributionArray,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/html-incremental-skills/validation/matrix
+// Returns flattened ticker x lens completeness table
+router.get('/validation/matrix', async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page ?? '1', 10));
+    const pageSize = Math.min(500, Math.max(1, parseInt(req.query.pageSize ?? '100', 10)));
+
+    const targetSlugs = Object.keys(SLUG_TO_NAME);
+    const targetSkills = await prisma.htmlIncrementalSkill.findMany({
+      where: { slug: { in: targetSlugs } },
+      select: { id: true, slug: true },
+    });
+    const skillIdToSlug = Object.fromEntries(targetSkills.map(s => [s.id, s.slug]));
+    const targetSkillIds = targetSkills.map(s => s.id);
+
+    const distinctTickers = await prisma.htmlIncrementalSkillOutput.findMany({
+      select: { ticker: true },
+      distinct: ['ticker'],
+      orderBy: { ticker: 'asc' },
+    });
+    const allTickers = distinctTickers.map(t => t.ticker).filter(Boolean);
+    const totalTickers = allTickers.length;
+    const pageTickers = allTickers.slice((page - 1) * pageSize, page * pageSize);
+
+    const classifications = await prisma.tierClassification.findMany({
+      where: { company: { in: pageTickers } },
+      select: { company: true, tier: true },
+    });
+    const tierMap = new Map(classifications.map(c => [c.company, c.tier]));
+
+    const matrix = [];
+    const latestOutputs = await prisma.htmlIncrementalSkillOutput.findMany({
+      where: { ticker: { in: pageTickers }, skill_id: { in: targetSkillIds } },
+      orderBy: { updated_at: 'desc' },
+      distinct: ['ticker', 'skill_id'],
+      select: {
+        ticker: true,
+        skill_id: true,
+        is_complete: true,
+        extracted_json: true,
+      },
+    });
+
+    const outputsByTicker = new Map();
+    for (const out of latestOutputs) {
+      if (!outputsByTicker.has(out.ticker)) outputsByTicker.set(out.ticker, new Map());
+      outputsByTicker.get(out.ticker).set(skillIdToSlug[out.skill_id], out);
+    }
+
+    for (const ticker of pageTickers) {
+      const outMap = outputsByTicker.get(ticker) || new Map();
+      const completeness = {};
+      let completeCount = 0;
+
+      for (const slug of targetSlugs) {
+        const out = outMap.get(slug);
+        let isComplete = false;
+        if (out) {
+          isComplete = out.is_complete ?? validateLensJsonCompleteness(slug, out.extracted_json).is_complete;
+        }
+        completeness[slug] = isComplete;
+        if (isComplete) completeCount++;
+      }
+
+      matrix.push({
+        ticker,
+        tier: tierMap.get(ticker) || 'Unknown',
+        complete_count: completeCount,
+        lenses: completeness,
+      });
+    }
+
+    res.json({
+      page,
+      pageSize,
+      totalTickers,
+      totalPages: Math.ceil(totalTickers / pageSize),
+      target_lenses: targetSlugs,
+      matrix,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/html-incremental-skills/validation/failed
+// Returns failed lenses per ticker with tier metadata
+router.get('/validation/failed', async (req, res, next) => {
+  try {
+    const { completeCount, tier, slug } = req.query;
+    const targetSlugs = slug ? [slug] : Object.keys(SLUG_TO_NAME);
+    const targetSkills = await prisma.htmlIncrementalSkill.findMany({
+      where: { slug: { in: targetSlugs } },
+      select: { id: true, slug: true },
+    });
+    const skillIdToSlug = Object.fromEntries(targetSkills.map(s => [s.id, s.slug]));
+    const targetSkillIds = targetSkills.map(s => s.id);
+
+    let tickers;
+    if (tier) {
+      const tierRecords = await prisma.tierClassification.findMany({
+        where: { tier },
+        select: { company: true },
+      });
+      tickers = tierRecords.map(r => r.company);
+    } else {
+      const distinctTickers = await prisma.htmlIncrementalSkillOutput.findMany({
+        select: { ticker: true },
+        distinct: ['ticker'],
+      });
+      tickers = distinctTickers.map(t => t.ticker).filter(Boolean);
+    }
+
+    const classifications = await prisma.tierClassification.findMany({
+      where: { company: { in: tickers } },
+      select: { company: true, tier: true },
+    });
+    const tierMap = new Map(classifications.map(c => [c.company, c.tier]));
+
+    const failedResults = [];
+    const BATCH_SIZE = 50;
+
+    for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+      const batch = tickers.slice(i, i + BATCH_SIZE);
+      const latestOutputs = await prisma.htmlIncrementalSkillOutput.findMany({
+        where: { ticker: { in: batch }, skill_id: { in: targetSkillIds } },
+        orderBy: { updated_at: 'desc' },
+        distinct: ['ticker', 'skill_id'],
+        select: {
+          id: true,
+          ticker: true,
+          skill_id: true,
+          is_complete: true,
+          missing_keys: true,
+          completeness_score: true,
+          extracted_json: true,
+          updated_at: true,
+        },
+      });
+
+      const outputsByTicker = new Map();
+      for (const out of latestOutputs) {
+        if (!outputsByTicker.has(out.ticker)) outputsByTicker.set(out.ticker, new Map());
+        outputsByTicker.get(out.ticker).set(skillIdToSlug[out.skill_id], out);
+      }
+
+      for (const tickerName of batch) {
+        const outMap = outputsByTicker.get(tickerName) || new Map();
+        const tickerTier = tierMap.get(tickerName) || 'Unknown';
+
+        const completeList = [];
+        const failedList = [];
+
+        for (const s of targetSlugs) {
+          const out = outMap.get(s);
+          if (!out) {
+            failedList.push({
+              slug: s,
+              lens_name: SLUG_TO_NAME[s] || s,
+              missing_keys: ['no_output_generated'],
+              completeness_score: 0,
+              updated_at: null,
+            });
+          } else {
+            let isComplete = out.is_complete;
+            let missingKeys = out.missing_keys || [];
+            let completenessScore = out.completeness_score;
+
+            if (isComplete === null || isComplete === undefined) {
+              const val = validateLensJsonCompleteness(s, out.extracted_json);
+              isComplete = val.is_complete;
+              missingKeys = val.missing_keys;
+              completenessScore = val.completeness_score;
+            }
+
+            if (isComplete) {
+              completeList.push(s);
+            } else {
+              failedList.push({
+                slug: s,
+                lens_name: SLUG_TO_NAME[s] || s,
+                missing_keys: missingKeys,
+                completeness_score: completenessScore,
+                updated_at: out.updated_at,
+              });
+            }
+          }
+        }
+
+        if (completeCount !== undefined) {
+          if (completeList.length !== parseInt(completeCount, 10)) {
+            continue;
+          }
+        }
+
+        for (const failed of failedList) {
+          failedResults.push({
+            ticker: tickerName,
+            tier: tickerTier,
+            complete_lenses_count: completeList.length,
+            failed_lens: failed.slug,
+            lens_name: failed.lens_name,
+            missing_keys: failed.missing_keys,
+            completeness_score: failed.completeness_score,
+            updated_at: failed.updated_at,
+          });
+        }
+      }
+    }
+
+    res.json({
+      count: failedResults.length,
+      failed_lenses: failedResults,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/html-incremental-skills/validation/retry-failed
+// Batch dispatches runs for failed lenses matching criteria
+router.post('/validation/retry-failed', async (req, res, next) => {
+  try {
+    const { items, completeCount, tier, slug, historic = false, force = true } = req.body;
+
+    let targets = [];
+    if (Array.isArray(items) && items.length > 0) {
+      targets = items; // [{ ticker, slug }]
+    } else {
+      const targetSlugs = slug ? [slug] : Object.keys(SLUG_TO_NAME);
+      const targetSkills = await prisma.htmlIncrementalSkill.findMany({
+        where: { slug: { in: targetSlugs } },
+        select: { id: true, slug: true },
+      });
+      const skillIdToSlug = Object.fromEntries(targetSkills.map(s => [s.id, s.slug]));
+      const targetSkillIds = targetSkills.map(s => s.id);
+
+      let tickers;
+      if (tier) {
+        const tierRecords = await prisma.tierClassification.findMany({ where: { tier }, select: { company: true } });
+        tickers = tierRecords.map(r => r.company);
+      } else {
+        const distinctTickers = await prisma.htmlIncrementalSkillOutput.findMany({ select: { ticker: true }, distinct: ['ticker'] });
+        tickers = distinctTickers.map(t => t.ticker).filter(Boolean);
+      }
+
+      for (const ticker of tickers) {
+        const latestOutputs = await prisma.htmlIncrementalSkillOutput.findMany({
+          where: { ticker, skill_id: { in: targetSkillIds } },
+          orderBy: { updated_at: 'desc' },
+          distinct: ['skill_id'],
+          select: { skill_id: true, is_complete: true, extracted_json: true },
+        });
+        const outMap = new Map(latestOutputs.map(o => [skillIdToSlug[o.skill_id], o]));
+        const completeList = [];
+        const candidateFailed = [];
+
+        for (const s of targetSlugs) {
+          const out = outMap.get(s);
+          const isComplete = out ? (out.is_complete ?? validateLensJsonCompleteness(s, out.extracted_json).is_complete) : false;
+          if (isComplete) {
+            completeList.push(s);
+          } else {
+            candidateFailed.push({ ticker, slug: s });
+          }
+        }
+
+        if (completeCount !== undefined) {
+          if (completeList.length !== parseInt(completeCount, 10)) {
+            continue;
+          }
+        }
+        targets.push(...candidateFailed);
+      }
+    }
+
+    const queued = [];
+    const errors = [];
+
+    for (const { ticker, slug: skillSlug } of targets) {
+      try {
+        const call = await resolveLatestCall(ticker);
+        if (!call) {
+          errors.push({ ticker, slug: skillSlug, error: 'No source calls found' });
+          continue;
+        }
+        const job = await addHtmlIncrementalSkillJob({
+          slug: skillSlug,
+          ticker,
+          callId: call.id,
+          historic,
+          force,
+        });
+        queued.push({ ticker, slug: skillSlug, jobId: job.id });
+      } catch (err) {
+        errors.push({ ticker, slug: skillSlug, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      queued_count: queued.length,
+      error_count: errors.length,
+      queued,
+      errors,
+    });
   } catch (err) {
     next(err);
   }
@@ -340,6 +737,116 @@ router.delete('/:slug/configs/:key', async (req, res, next) => {
     res.json({ success: true, key: config.key, is_active: false, deactivatedElsewhere: count });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Config not found' });
+    next(err);
+  }
+});
+
+// ── Ticker-Specific Config CRUD ─────────────────────────────────────────────
+
+// GET /api/html-incremental-skills/:slug/ticker-configs
+// Lists all custom ticker configurations configured for this skill.
+router.get('/:slug/ticker-configs', async (req, res, next) => {
+  try {
+    const skill = await prisma.htmlIncrementalSkill.findUnique({
+      where: { slug: req.params.slug },
+      select: { id: true, slug: true, name: true },
+    });
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const tickerConfigs = await prisma.htmlIncrementalSkillTickerConfig.findMany({
+      where: { skill_id: skill.id, is_active: true },
+      orderBy: { ticker: 'asc' },
+    });
+    res.json({ count: tickerConfigs.length, tickerConfigs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/html-incremental-skills/:slug/ticker-configs/:ticker
+// Gets effective config for a ticker. If customized, returns { is_custom: true, config: tickerConfig }.
+// If not customized, resolves tier fallback and returns { is_custom: false, source_tier, base_config_key, config }.
+router.get('/:slug/ticker-configs/:ticker', async (req, res, next) => {
+  try {
+    const skill = await prisma.htmlIncrementalSkill.findUnique({
+      where: { slug: req.params.slug },
+    });
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const ticker = req.params.ticker.toUpperCase();
+    const customConfig = await prisma.htmlIncrementalSkillTickerConfig.findUnique({
+      where: { skill_ticker_config_key: { skill_id: skill.id, ticker } },
+    });
+
+    if (customConfig && customConfig.is_active) {
+      return res.json({
+        is_custom: true,
+        ticker,
+        config: customConfig,
+      });
+    }
+
+    // Resolve tier fallback
+    const tierKey = await resolveConfigKeyForTicker(ticker);
+    const tierRecord = await prisma.tierClassification.findUnique({ where: { company: ticker } });
+    let tierConfig = null;
+    if (tierKey) {
+      tierConfig = await prisma.htmlIncrementalSkillConfig.findUnique({
+        where: { skill_id_key: { skill_id: skill.id, key: tierKey } },
+      });
+    }
+
+    res.json({
+      is_custom: false,
+      ticker,
+      source_tier: tierRecord?.tier ?? 'Unknown',
+      base_config_key: tierKey ?? null,
+      config: tierConfig ? defaultConfigFieldsFromSkill(tierConfig) : defaultConfigFieldsFromSkill(skill),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/html-incremental-skills/:slug/ticker-configs/:ticker
+// Creates or updates a ticker config override. If it doesn't exist yet, automatically clones the tier-mapped base config
+// and applies the incoming updates on top of it.
+router.put('/:slug/ticker-configs/:ticker', async (req, res, next) => {
+  try {
+    const ticker = req.params.ticker.toUpperCase();
+    const result = await upsertTickerSkillConfig(req.params.slug, ticker, req.body);
+    res.json({
+      success: true,
+      created: result.created,
+      ticker,
+      config: result.config,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/html-incremental-skills/:slug/ticker-configs/:ticker
+// Deactivates/removes the ticker config override so the ticker immediately falls back to tier config.
+router.delete('/:slug/ticker-configs/:ticker', async (req, res, next) => {
+  try {
+    const skill = await prisma.htmlIncrementalSkill.findUnique({
+      where: { slug: req.params.slug },
+      select: { id: true },
+    });
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    const ticker = req.params.ticker.toUpperCase();
+    await prisma.htmlIncrementalSkillTickerConfig.deleteMany({
+      where: { skill_id: skill.id, ticker },
+    });
+
+    res.json({
+      success: true,
+      ticker,
+      message: 'Custom ticker config removed. Reverted to tier fallback.',
+    });
+  } catch (err) {
     next(err);
   }
 });
