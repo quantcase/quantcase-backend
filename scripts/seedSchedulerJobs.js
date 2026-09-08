@@ -97,7 +97,7 @@ const JOBS = [
   {
     slug:            'technicals-daily-batch',
     name:            'Technicals Batch Analysis (Tue/Thu)',
-    description:     'Runs technical analysis skill on all stocks (excluding indices) fetched in the latest Prowess batch. Scheduled on Tuesdays and Thursdays at 8:45 PM IST (after 8:30 PM prowess-daily-batch).',
+    description:     'Runs technical analysis skill on a fixed set of stocks (from technicalAnalysisBulkList.csv) after the Prowess batch. Scheduled on Tuesdays and Thursdays at 8:45 PM IST (after 8:30 PM prowess-daily-batch).',
     job_type:        'technicals_daily_batch',
     cron_expression: '45 20 * * 2,4', // 8:45 PM IST Tuesdays & Thursdays
     is_active:       true,

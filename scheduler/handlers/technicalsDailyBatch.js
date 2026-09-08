@@ -2,12 +2,34 @@
 
 /**
  * Technical analysis daily batch handler.
- * Runs the technical-intelligence skill on all stocks (excluding indices)
- * fetched in the latest daily Prowess batch.
+ * Runs the technical-intelligence skill on a fixed set of stocks
+ * (defined in lib/technicalAnalysisBulkList.csv) after the daily Prowess batch.
  */
 
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../../config/prisma');
 const { bulkEnqueueTechnicals } = require('../../services/admin.technicals.service');
+
+const DEFAULT_LIST_PATH = path.resolve(__dirname, '../../lib/technicalAnalysisBulkList.csv');
+
+/**
+ * Loads the fixed list of stock symbols from CSV.
+ * Normalizes by trimming, uppercase, removing comments and blank lines,
+ * and deduplicating while preserving order.
+ */
+function loadBulkStockList(filePath = DEFAULT_LIST_PATH) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Technical analysis bulk list not found at: ${filePath}`);
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+  const tickers = content
+    .split(/\r?\n/)
+    .map((line) => line.trim().toUpperCase())
+    .filter((line) => line && !line.startsWith('#'));
+
+  return [...new Set(tickers)];
+}
 
 async function resolveLatestDailyBatch(batchToken) {
   if (batchToken) {
@@ -38,9 +60,9 @@ async function fallbackResolveStockSymbols(batchRequest) {
   const endOfDay = new Date(batchDate);
   endOfDay.setUTCHours(23, 59, 59, 999);
 
-  const rows = await prisma.nseEquityNew.findMany({
+  const rows = await prisma.nse_equity_new.findMany({
     where: {
-      updated_at: { gte: startOfDay, lte: endOfDay },
+      updatedAt: { gte: startOfDay, lte: endOfDay },
     },
     select: { symbol: true },
     distinct: ['symbol'],
@@ -55,24 +77,33 @@ async function run(config = {}) {
   const force = config.force ?? true;
   const batchRequest = await resolveLatestDailyBatch(config.batch_token);
 
-  if (!batchRequest) {
+  if (!batchRequest && config.require_batch !== false) {
     console.log('[technicals-daily-batch] No completed daily Prowess batch found.');
     return { records_processed: 0, status: 'skipped', reason: 'no_batch_found' };
   }
 
-  let stockSymbols = batchRequest.result?.stockSymbols;
+  const batchToken = batchRequest?.token || config.batch_token || null;
 
-  if (!Array.isArray(stockSymbols) || stockSymbols.length === 0) {
-    console.log(`[technicals-daily-batch] Batch ${batchRequest.token} has no result.stockSymbols, falling back to nse_equity_new...`);
-    stockSymbols = await fallbackResolveStockSymbols(batchRequest);
+  let stockSymbols;
+  if (Array.isArray(config.tickers) && config.tickers.length > 0) {
+    stockSymbols = [...new Set(config.tickers.map((s) => String(s).trim().toUpperCase()).filter(Boolean))];
+  } else if (config.use_batch_symbols) {
+    stockSymbols = batchRequest?.result?.stockSymbols;
+    if (!Array.isArray(stockSymbols) || stockSymbols.length === 0) {
+      console.log(`[technicals-daily-batch] Batch ${batchToken} has no result.stockSymbols, falling back to nse_equity_new...`);
+      stockSymbols = batchRequest ? await fallbackResolveStockSymbols(batchRequest) : [];
+    }
+  } else {
+    const listPath = config.list_path || DEFAULT_LIST_PATH;
+    stockSymbols = loadBulkStockList(listPath);
   }
 
   if (!stockSymbols || stockSymbols.length === 0) {
-    console.log(`[technicals-daily-batch] No stocks found for batch ${batchRequest.token}.`);
-    return { records_processed: 0, token: batchRequest.token, status: 'skipped', reason: 'no_stocks_found' };
+    console.log(`[technicals-daily-batch] No stocks found for technicals batch (batch: ${batchToken}).`);
+    return { records_processed: 0, token: batchToken, status: 'skipped', reason: 'no_stocks_found' };
   }
 
-  console.log(`[technicals-daily-batch] Enqueuing ${stockSymbols.length} stocks for technicals analysis from batch ${batchRequest.token} (force=${force})...`);
+  console.log(`[technicals-daily-batch] Enqueuing ${stockSymbols.length} stocks from bulk list for technicals analysis (batch: ${batchToken}, force=${force})...`);
 
   // Enqueue via bulkEnqueueTechnicals with skipLimit: true
   const result = await bulkEnqueueTechnicals({
@@ -89,10 +120,10 @@ async function run(config = {}) {
 
   return {
     records_processed: enqueuedCount,
-    token: batchRequest.token,
+    token: batchToken,
     total_stocks: stockSymbols.length,
     counts: result.counts,
   };
 }
 
-module.exports = { run };
+module.exports = { run, loadBulkStockList, DEFAULT_LIST_PATH };
