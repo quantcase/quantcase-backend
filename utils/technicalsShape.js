@@ -75,18 +75,26 @@ function expandTechnicalsInsight(raw, taResult, previousScore = null) {
   }
   delete di.horizonNote;
 
-  // actionableInsights[] -> the three documented sibling objects
+  // actionableInsights[] -> both the array and the documented sibling objects
   if (Array.isArray(di.actionableInsights)) {
     const pick = (h) => {
       const m = di.actionableInsights.find((a) => a?.horizon === h);
       return m
-        ? { new_position: m.new_position ?? null, existing_position: m.existing_position ?? null, watch_for: m.watch_for ?? null }
+        ? {
+            horizon:           m.horizon ?? h,
+            new_position:      m.new_position ?? null,
+            existing_position: m.existing_position ?? null,
+            watch_for:         m.watch_for ?? null,
+            idealEntry:        m.idealEntry ?? null,
+            stopLoss:          m.stopLoss ?? null,
+            target:            m.target ?? null,
+          }
         : null;
     };
     di.actionableInsight            = pick('swing');
     di.actionableInsight_positional = pick('positional');
     di.actionableInsight_investor   = pick('investor');
-    delete di.actionableInsights;
+    di.actionableInsights           = [di.actionableInsight, di.actionableInsight_positional, di.actionableInsight_investor].filter(Boolean);
   }
 
   // Re-nest the flattened scalars
@@ -122,6 +130,8 @@ function expandTechnicalsInsight(raw, taResult, previousScore = null) {
   di.breakoutQuality = di.breakoutQuality ?? null;
   di.directionFlag   = di.directionFlag ?? null;
   di.previousScore   = di.previousScore ?? previousScore ?? null;
+  di.bottomLine      = di.bottomLine ?? null;
+  di.priceAnchors    = di.priceAnchors ?? null;
 
   return {
     decisionIntelligence: di,
