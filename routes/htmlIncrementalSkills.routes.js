@@ -17,6 +17,8 @@ const {
   validateLensJsonCompleteness,
   EXPECTED_KEYS,
   SLUG_TO_NAME,
+  parsePeriodRank,
+  selectLatestPeriodOutput,
 } = require('../services/lensValidation.service');
 const { resolveConfigKeyForTicker } = require('../services/companyGroups');
 const { resolveLatestCall } = require('../services/pipelineDispatch/l2MultiDispatch.service');
@@ -42,7 +44,7 @@ router.get('/', async (req, res, next) => {
 // ── JSON Completeness Validation & Failure Reporting ────────────────────────
 
 // GET /api/html-incremental-skills/validation/overview
-// Returns completeness distribution (0 to 10 complete lenses vs number of tickers)
+// Returns completeness distribution (0 to 10 complete lenses vs number of tickers) based on latest fiscal timeframe
 router.get('/validation/overview', async (req, res, next) => {
   try {
     const targetSlugs = Object.keys(SLUG_TO_NAME);
@@ -53,53 +55,50 @@ router.get('/validation/overview', async (req, res, next) => {
     const skillIdToSlug = Object.fromEntries(targetSkills.map(s => [s.id, s.slug]));
     const targetSkillIds = targetSkills.map(s => s.id);
 
+    const allOutputs = await prisma.htmlIncrementalSkillOutput.findMany({
+      where: { skill_id: { in: targetSkillIds } },
+      select: {
+        id: true,
+        ticker: true,
+        skill_id: true,
+        fiscal_year: true,
+        quarter: true,
+        is_historic: true,
+        is_complete: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
+
+    const tickerMap = new Map();
+    for (const out of allOutputs) {
+      const slug = skillIdToSlug[out.skill_id];
+      if (!slug) continue;
+      if (!tickerMap.has(out.ticker)) tickerMap.set(out.ticker, new Map());
+      const slugMap = tickerMap.get(out.ticker);
+      if (!slugMap.has(slug)) slugMap.set(slug, []);
+      slugMap.get(slug).push(out);
+    }
+
     const distinctTickers = await prisma.htmlIncrementalSkillOutput.findMany({
       select: { ticker: true },
       distinct: ['ticker'],
     });
     const tickers = distinctTickers.map(t => t.ticker).filter(Boolean);
 
-    const tickerCompleteness = new Map();
-    for (const ticker of tickers) {
-      const lensMap = new Map();
-      for (const slug of targetSlugs) lensMap.set(slug, false);
-      tickerCompleteness.set(ticker, lensMap);
-    }
-
-    const BATCH_SIZE = 50;
-    for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
-      const batch = tickers.slice(i, i + BATCH_SIZE);
-      const latestOutputs = await prisma.htmlIncrementalSkillOutput.findMany({
-        where: { ticker: { in: batch }, skill_id: { in: targetSkillIds } },
-        orderBy: { updated_at: 'desc' },
-        distinct: ['ticker', 'skill_id'],
-        select: {
-          ticker: true,
-          skill_id: true,
-          is_complete: true,
-          extracted_json: true,
-        },
-      });
-
-      for (const out of latestOutputs) {
-        const slug = skillIdToSlug[out.skill_id];
-        if (!slug) continue;
-        let isComplete = out.is_complete;
-        if (isComplete === null || isComplete === undefined) {
-          isComplete = validateLensJsonCompleteness(slug, out.extracted_json).is_complete;
-        }
-        const m = tickerCompleteness.get(out.ticker);
-        if (m) m.set(slug, isComplete);
-      }
-    }
-
     const distribution = {};
     for (let count = 0; count <= targetSlugs.length; count++) {
       distribution[count] = 0;
     }
 
-    for (const [, lensMap] of tickerCompleteness) {
-      const completeCount = Array.from(lensMap.values()).filter(Boolean).length;
+    for (const ticker of tickers) {
+      const slugMap = tickerMap.get(ticker) || new Map();
+      let completeCount = 0;
+      for (const slug of targetSlugs) {
+        const outs = slugMap.get(slug);
+        const best = selectLatestPeriodOutput(outs);
+        if (best && best.is_complete) completeCount++;
+      }
       distribution[completeCount] = (distribution[completeCount] || 0) + 1;
     }
 
@@ -118,7 +117,7 @@ router.get('/validation/overview', async (req, res, next) => {
 });
 
 // GET /api/html-incremental-skills/validation/matrix
-// Returns flattened ticker x lens completeness table
+// Returns flattened ticker x lens completeness table based on latest fiscal timeframe
 router.get('/validation/matrix', async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page ?? '1', 10));
@@ -147,36 +146,41 @@ router.get('/validation/matrix', async (req, res, next) => {
     });
     const tierMap = new Map(classifications.map(c => [c.company, c.tier]));
 
-    const matrix = [];
-    const latestOutputs = await prisma.htmlIncrementalSkillOutput.findMany({
+    const outputs = await prisma.htmlIncrementalSkillOutput.findMany({
       where: { ticker: { in: pageTickers }, skill_id: { in: targetSkillIds } },
-      orderBy: { updated_at: 'desc' },
-      distinct: ['ticker', 'skill_id'],
       select: {
+        id: true,
         ticker: true,
         skill_id: true,
+        fiscal_year: true,
+        quarter: true,
+        is_historic: true,
         is_complete: true,
-        extracted_json: true,
+        created_at: true,
+        updated_at: true,
       },
     });
 
     const outputsByTicker = new Map();
-    for (const out of latestOutputs) {
+    for (const out of outputs) {
       if (!outputsByTicker.has(out.ticker)) outputsByTicker.set(out.ticker, new Map());
-      outputsByTicker.get(out.ticker).set(skillIdToSlug[out.skill_id], out);
+      const slug = skillIdToSlug[out.skill_id];
+      if (!slug) continue;
+      const slugMap = outputsByTicker.get(out.ticker);
+      if (!slugMap.has(slug)) slugMap.set(slug, []);
+      slugMap.get(slug).push(out);
     }
 
+    const matrix = [];
     for (const ticker of pageTickers) {
-      const outMap = outputsByTicker.get(ticker) || new Map();
+      const slugMap = outputsByTicker.get(ticker) || new Map();
       const completeness = {};
       let completeCount = 0;
 
       for (const slug of targetSlugs) {
-        const out = outMap.get(slug);
-        let isComplete = false;
-        if (out) {
-          isComplete = out.is_complete ?? validateLensJsonCompleteness(slug, out.extracted_json).is_complete;
-        }
+        const outs = slugMap.get(slug);
+        const best = selectLatestPeriodOutput(outs);
+        const isComplete = Boolean(best && best.is_complete);
         completeness[slug] = isComplete;
         if (isComplete) completeCount++;
       }
@@ -203,7 +207,7 @@ router.get('/validation/matrix', async (req, res, next) => {
 });
 
 // GET /api/html-incremental-skills/validation/failed
-// Returns failed lenses per ticker with tier metadata
+// Returns failed lenses per ticker with tier metadata based on latest fiscal timeframe
 router.get('/validation/failed', async (req, res, next) => {
   try {
     const { completeCount, tier, slug } = req.query;
@@ -237,60 +241,62 @@ router.get('/validation/failed', async (req, res, next) => {
     const tierMap = new Map(classifications.map(c => [c.company, c.tier]));
 
     const failedResults = [];
-    const BATCH_SIZE = 50;
+    const BATCH_SIZE = 100;
 
     for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
       const batch = tickers.slice(i, i + BATCH_SIZE);
-      const latestOutputs = await prisma.htmlIncrementalSkillOutput.findMany({
+      const outputs = await prisma.htmlIncrementalSkillOutput.findMany({
         where: { ticker: { in: batch }, skill_id: { in: targetSkillIds } },
-        orderBy: { updated_at: 'desc' },
-        distinct: ['ticker', 'skill_id'],
         select: {
           id: true,
           ticker: true,
           skill_id: true,
+          fiscal_year: true,
+          quarter: true,
+          is_historic: true,
           is_complete: true,
           missing_keys: true,
           completeness_score: true,
-          extracted_json: true,
+          created_at: true,
           updated_at: true,
         },
       });
 
       const outputsByTicker = new Map();
-      for (const out of latestOutputs) {
+      for (const out of outputs) {
         if (!outputsByTicker.has(out.ticker)) outputsByTicker.set(out.ticker, new Map());
-        outputsByTicker.get(out.ticker).set(skillIdToSlug[out.skill_id], out);
+        const sSlug = skillIdToSlug[out.skill_id];
+        if (!sSlug) continue;
+        const slugMap = outputsByTicker.get(out.ticker);
+        if (!slugMap.has(sSlug)) slugMap.set(sSlug, []);
+        slugMap.get(sSlug).push(out);
       }
 
       for (const tickerName of batch) {
-        const outMap = outputsByTicker.get(tickerName) || new Map();
+        const slugMap = outputsByTicker.get(tickerName) || new Map();
         const tickerTier = tierMap.get(tickerName) || 'Unknown';
 
         const completeList = [];
         const failedList = [];
 
         for (const s of targetSlugs) {
-          const out = outMap.get(s);
-          if (!out) {
+          const outs = slugMap.get(s);
+          const best = selectLatestPeriodOutput(outs);
+          if (!best) {
             failedList.push({
               slug: s,
               lens_name: SLUG_TO_NAME[s] || s,
+              fiscal_year: null,
+              quarter: null,
+              is_historic: null,
               missing_keys: ['no_output_generated'],
               completeness_score: 0,
               updated_at: null,
             });
           } else {
-            let isComplete = out.is_complete;
-            let missingKeys = out.missing_keys || [];
-            let completenessScore = out.completeness_score;
-
-            if (isComplete === null || isComplete === undefined) {
-              const val = validateLensJsonCompleteness(s, out.extracted_json);
-              isComplete = val.is_complete;
-              missingKeys = val.missing_keys;
-              completenessScore = val.completeness_score;
-            }
+            const isComplete = Boolean(best.is_complete);
+            const missingKeys = best.missing_keys || [];
+            const completenessScore = best.completeness_score;
 
             if (isComplete) {
               completeList.push(s);
@@ -298,9 +304,12 @@ router.get('/validation/failed', async (req, res, next) => {
               failedList.push({
                 slug: s,
                 lens_name: SLUG_TO_NAME[s] || s,
+                fiscal_year: best.fiscal_year,
+                quarter: best.quarter,
+                is_historic: best.is_historic,
                 missing_keys: missingKeys,
                 completeness_score: completenessScore,
-                updated_at: out.updated_at,
+                updated_at: best.updated_at,
               });
             }
           }
@@ -319,6 +328,9 @@ router.get('/validation/failed', async (req, res, next) => {
             complete_lenses_count: completeList.length,
             failed_lens: failed.slug,
             lens_name: failed.lens_name,
+            fiscal_year: failed.fiscal_year,
+            quarter: failed.quarter,
+            is_historic: failed.is_historic,
             missing_keys: failed.missing_keys,
             completeness_score: failed.completeness_score,
             updated_at: failed.updated_at,
@@ -337,14 +349,20 @@ router.get('/validation/failed', async (req, res, next) => {
 });
 
 // POST /api/html-incremental-skills/validation/retry-failed
-// Batch dispatches runs for failed lenses matching criteria
+// Batch dispatches runs for failed lenses matching criteria based on latest fiscal timeframe
 router.post('/validation/retry-failed', async (req, res, next) => {
   try {
-    const { items, completeCount, tier, slug, historic = false, force = true } = req.body;
+    const { items, completeCount, tier, slug, historic, force = true } = req.body;
 
     let targets = [];
+
     if (Array.isArray(items) && items.length > 0) {
-      targets = items; // [{ ticker, slug }]
+      targets = items.map(item => ({
+        ticker: item.ticker,
+        slug: item.slug,
+        callId: item.callId,
+        historic: item.historic !== undefined ? item.historic : historic,
+      }));
     } else {
       const targetSlugs = slug ? [slug] : Object.keys(SLUG_TO_NAME);
       const targetSkills = await prisma.htmlIncrementalSkill.findMany({
@@ -363,54 +381,91 @@ router.post('/validation/retry-failed', async (req, res, next) => {
         tickers = distinctTickers.map(t => t.ticker).filter(Boolean);
       }
 
-      for (const ticker of tickers) {
-        const latestOutputs = await prisma.htmlIncrementalSkillOutput.findMany({
-          where: { ticker, skill_id: { in: targetSkillIds } },
-          orderBy: { updated_at: 'desc' },
-          distinct: ['skill_id'],
-          select: { skill_id: true, is_complete: true, extracted_json: true },
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+        const batch = tickers.slice(i, i + BATCH_SIZE);
+        const outputs = await prisma.htmlIncrementalSkillOutput.findMany({
+          where: { ticker: { in: batch }, skill_id: { in: targetSkillIds } },
+          select: {
+            id: true,
+            ticker: true,
+            skill_id: true,
+            call_id: true,
+            fiscal_year: true,
+            quarter: true,
+            is_historic: true,
+            is_complete: true,
+            created_at: true,
+            updated_at: true,
+          },
         });
-        const outMap = new Map(latestOutputs.map(o => [skillIdToSlug[o.skill_id], o]));
-        const completeList = [];
-        const candidateFailed = [];
 
-        for (const s of targetSlugs) {
-          const out = outMap.get(s);
-          const isComplete = out ? (out.is_complete ?? validateLensJsonCompleteness(s, out.extracted_json).is_complete) : false;
-          if (isComplete) {
-            completeList.push(s);
-          } else {
-            candidateFailed.push({ ticker, slug: s });
-          }
+        const outputsByTicker = new Map();
+        for (const out of outputs) {
+          if (!outputsByTicker.has(out.ticker)) outputsByTicker.set(out.ticker, new Map());
+          const sSlug = skillIdToSlug[out.skill_id];
+          if (!sSlug) continue;
+          const slugMap = outputsByTicker.get(out.ticker);
+          if (!slugMap.has(sSlug)) slugMap.set(sSlug, []);
+          slugMap.get(sSlug).push(out);
         }
 
-        if (completeCount !== undefined) {
-          if (completeList.length !== parseInt(completeCount, 10)) {
-            continue;
+        for (const ticker of batch) {
+          const slugMap = outputsByTicker.get(ticker) || new Map();
+          const completeList = [];
+          const candidateFailed = [];
+
+          for (const s of targetSlugs) {
+            const outs = slugMap.get(s);
+            const best = selectLatestPeriodOutput(outs);
+            const isComplete = Boolean(best && best.is_complete);
+            if (isComplete) {
+              completeList.push(s);
+            } else {
+              candidateFailed.push({
+                ticker,
+                slug: s,
+                callId: best?.call_id,
+                historic: historic !== undefined ? historic : (best?.is_historic ?? false),
+              });
+            }
           }
+
+          if (completeCount !== undefined) {
+            if (completeList.length !== parseInt(completeCount, 10)) {
+              continue;
+            }
+          }
+          targets.push(...candidateFailed);
         }
-        targets.push(...candidateFailed);
       }
     }
 
     const queued = [];
     const errors = [];
 
-    for (const { ticker, slug: skillSlug } of targets) {
+    for (const target of targets) {
+      const { ticker, slug: skillSlug } = target;
       try {
-        const call = await resolveLatestCall(ticker);
-        if (!call) {
-          errors.push({ ticker, slug: skillSlug, error: 'No source calls found' });
-          continue;
+        let callId = target.callId;
+        if (!callId) {
+          const call = await resolveLatestCall(ticker);
+          if (!call) {
+            errors.push({ ticker, slug: skillSlug, error: 'No source calls found' });
+            continue;
+          }
+          callId = call.id;
         }
+
+        const jobHistoric = target.historic !== undefined ? target.historic : false;
         const job = await addHtmlIncrementalSkillJob({
           slug: skillSlug,
           ticker,
-          callId: call.id,
-          historic,
+          callId,
+          historic: jobHistoric,
           force,
         });
-        queued.push({ ticker, slug: skillSlug, jobId: job.id });
+        queued.push({ ticker, slug: skillSlug, jobId: job.id, historic: jobHistoric });
       } catch (err) {
         errors.push({ ticker, slug: skillSlug, error: err.message });
       }

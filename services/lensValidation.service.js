@@ -217,6 +217,46 @@ function validateLensJsonCompleteness(skillSlug, jsonValue) {
   };
 }
 
+/**
+ * Parses fiscal year and quarter into a comparable numeric rank.
+ * Handles 'FY2026', 'FY26', '2026', 'Q1'..'Q4'.
+ */
+function parsePeriodRank(fiscalYear, quarter) {
+  if (!fiscalYear) return -1;
+  const match = String(fiscalYear).match(/\d+/);
+  const year = match ? parseInt(match[0], 10) : 0;
+  const fullYear = year < 100 ? 2000 + year : year;
+  const qMap = { Q1: 1, Q2: 2, Q3: 3, Q4: 4 };
+  const qNum = quarter ? (qMap[String(quarter).toUpperCase()] || 0) : 0;
+  return fullYear * 10 + qNum;
+}
+
+/**
+ * Selects the output representing the latest timeframe for a ticker/lens.
+ * Prioritizes:
+ *  1. Highest fiscal period rank (e.g. FY27 Q1 > FY26 Q4 > FY26 Q3)
+ *  2. For same fiscal period, incremental (is_historic: false) over historic (is_historic: true)
+ *  3. Most recent created_at / updated_at timestamp as tie-breaker
+ */
+function selectLatestPeriodOutput(outputs) {
+  if (!outputs || outputs.length === 0) return null;
+  if (outputs.length === 1) return outputs[0];
+
+  return outputs.reduce((best, cur) => {
+    const curRank = parsePeriodRank(cur.fiscal_year, cur.quarter);
+    const bestRank = parsePeriodRank(best.fiscal_year, best.quarter);
+    if (curRank !== bestRank) {
+      return curRank > bestRank ? cur : best;
+    }
+    if (cur.is_historic !== best.is_historic) {
+      return !cur.is_historic ? cur : best;
+    }
+    const curTime = new Date(cur.created_at || cur.updated_at || 0).getTime();
+    const bestTime = new Date(best.created_at || best.updated_at || 0).getTime();
+    return curTime > bestTime ? cur : best;
+  });
+}
+
 module.exports = {
   EXPECTED_KEYS,
   SLUG_TO_NAME,
@@ -225,4 +265,7 @@ module.exports = {
   keyVariants,
   hasExpectedKey,
   validateLensJsonCompleteness,
+  parsePeriodRank,
+  selectLatestPeriodOutput,
 };
+
