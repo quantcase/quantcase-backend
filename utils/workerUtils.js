@@ -61,7 +61,8 @@ function parseJson(responseText) {
  * @param {{ vertex?: boolean }} [opts]
  */
 async function llmStream(params, opts = {}) {
-  const useVertex = Boolean(opts.vertex) && isGeminiModel(params.model) && vertexEnabled();
+  const routeVertex = opts.vertex !== undefined ? Boolean(opts.vertex) : true;
+  const useVertex = routeVertex && isGeminiModel(params.model) && vertexEnabled();
 
   if (!useVertex) {
     const openRouterParams = { ...params, stream: true };
@@ -105,8 +106,8 @@ async function llmStream(params, opts = {}) {
   for (let i = 0; i < candidates.length; i++) {
     const model = candidates[i];
     let maxCeiling = 8192;
-    // gemini-3.5-flash and flash-lite DO support up to 65535 output tokens.
-    if (model.includes('3.5-flash') || model.includes('flash-lite')) {
+    // gemini-3.5-flash, gemini-2.5-flash, and flash-lite DO support up to 65535 output tokens.
+    if (model.includes('3.5-flash') || model.includes('2.5-flash') || model.includes('flash-lite') || model.includes('gemini-2.5')) {
       maxCeiling = 65535;
     }
     const maxTokens = Math.min(params.max_tokens ?? maxCeiling, maxCeiling);
@@ -120,7 +121,14 @@ async function llmStream(params, opts = {}) {
     // context this can exhaust the entire max_tokens budget, causing Vertex to error:
     // "model output must contain either output text or tool calls, these cannot both
     // be empty". Disabling thinking ensures all tokens go to actual output.
-    const body  = { ...params, model, messages, max_tokens: maxTokens, stream: true, thinking: { type: 'disabled' } };
+    // For gemini-2.5-flash, thinking is preserved when not explicitly disabled so
+    // that mathematical trade levels, stops, and targets calculate accurately.
+    const body = { ...params, model, messages, max_tokens: maxTokens, stream: true };
+    if (params.thinking !== undefined) {
+      body.thinking = params.thinking;
+    } else if (model.includes('3.5-flash')) {
+      body.thinking = { type: 'disabled' };
+    }
     try {
       return await runChatStream(client, body, reqOpts, `Vertex(${model})`);
     } catch (err) {
@@ -246,4 +254,4 @@ function logUsage(tag, usage) {
   wlog.cost(`[${tag}] tokens: ${prompt_tokens ?? '?'} in / ${completion_tokens ?? '?'} out / ${total_tokens ?? '?'} total${costStr}`);
 }
 
-module.exports = { parseJson, llmStream, logUsage, wlog, applyMultiplier, computePeriodType };
+module.exports = { parseJson, llmStream, logUsage, wlog, applyMultiplier, computePeriodType, isGeminiModel };

@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const OpenAI = require('openai');
 const { GoogleAuth } = require('google-auth-library');
 const env = require('./env');
@@ -55,7 +57,14 @@ function getVertexClient() {
 
 /** Fetch a valid GCP access token. google-auth-library caches and refreshes it. */
 async function getVertexAccessToken() {
-  if (!_auth) _auth = new GoogleAuth({ scopes: SCOPE });
+  if (!_auth) {
+    const keyFilename = process.env.GOOGLE_APPLICATION_CREDENTIALS || path.resolve(__dirname, '../qc-gcp-ai.json');
+    const authOpts = { scopes: SCOPE };
+    if (fs.existsSync(keyFilename)) {
+      authOpts.keyFilename = keyFilename;
+    }
+    _auth = new GoogleAuth(authOpts);
+  }
   const token = await _auth.getAccessToken();
   if (!token) {
     throw new Error('[vertexLlm] Could not obtain a GCP access token — check ADC ' +

@@ -3,7 +3,7 @@
 const { Worker } = require('bullmq');
 const connection         = require('../config/redis');
 const prisma             = require('../config/prisma');
-const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
+const { llmStream, parseJson, logUsage, isGeminiModel } = require('../utils/workerUtils');
 const { loadSkillConfig }      = require('../utils/skillConfig');
 const technicalAnalysis        = require('../lib/technicalAnalysis');
 const { decisionIntelligencePrompt } = require('../prompts/decision_intelligence');
@@ -49,6 +49,7 @@ async function processTechnicalsJob(job) {
 
     const { text: responseText, usage } = await llmStream(
       { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }], ...(outputSchema && { response_format: outputSchema }) },
+      { vertex: isGeminiModel(model) }
     );
     logUsage('Technicals', usage);
     await job.updateProgress(85);
@@ -106,3 +107,4 @@ worker.on('error',     err      => console.error('[technicals] Worker error:', e
 console.log('Technicals analysis worker ready');
 
 module.exports = worker;
+module.exports.processTechnicalsJob = processTechnicalsJob;
