@@ -16,6 +16,12 @@ module.exports = {
   redisPort:        parseInt(process.env.REDIS_PORT) || 6379,
   redisPassword:    process.env.REDIS_PASSWORD || undefined,
 
+  // Cache Redis (dedicated instance)
+  cacheRedisHost:     process.env.CACHE_REDIS_HOST || process.env.REDIS_HOST || 'localhost',
+  cacheRedisPort:     parseInt(process.env.CACHE_REDIS_PORT, 10) || parseInt(process.env.REDIS_PORT, 10) || 6379,
+  cacheRedisPassword: process.env.CACHE_REDIS_PASSWORD || undefined,
+  cacheRedisEnabled:  process.env.CACHE_REDIS_ENABLED !== 'false',
+
   // LLM APIs
   claudeApiKey:     process.env.CLAUDE_API_KEY,
   openaiApiKey:     process.env.OPENAI_API_KEY,

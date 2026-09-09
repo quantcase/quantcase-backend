@@ -17,6 +17,7 @@ const prisma    = require('../config/prisma');
 const jobQueue  = require('../lib/jobQueue');
 const { TECHNICALS_QUEUE, technicalsJobId, ensureTechnicalsJob, inFlightTechnicalsJob } = require('../lib/technicalsQueue');
 const tickerMetrics = require('../services/tickerMetrics.service');
+const cache         = require('../lib/cache');
 
 // ── Cache helpers ────────────────────────────────────────────────────────────
 
@@ -135,6 +136,15 @@ async function getTechnicals(req, res, next) {
   try {
     const symbol      = req.params.symbol.toUpperCase();
     const forceRefresh = req.query.refresh === '1';
+    const cacheKey = `qc:stock:${symbol}:technicals`;
+
+    if (!forceRefresh) {
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+    }
+
     const result = await technicalAnalysis.analyze(symbol);
 
     const dbInsight = forceRefresh ? null : await prisma.aiInsight.findFirst({
@@ -183,6 +193,10 @@ async function getTechnicals(req, res, next) {
         delete bucket.growthWatchout;
         delete bucket.valueWatchout;
       }
+    }
+
+    if (result.insightStatus === 'ready') {
+      cache.set(cacheKey, result, 86400).catch(() => {});
     }
 
     res.json(result);
@@ -258,6 +272,13 @@ async function getTechnicalsStatus(req, res, next) {
 async function getTickerInfo(req, res, next) {
   try {
     const sym = req.params.symbol.toUpperCase();
+    const cacheKey = `qc:stock:${sym}:info`;
+
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      setCacheTillMidnightIst(res);
+      return res.json(cached);
+    }
 
     // ── 1. Company identity from osc_identity.csv ──────────────────────────
     const { rows: idRows } = loadPeerIdentity();
@@ -859,8 +880,7 @@ async function getTickerInfo(req, res, next) {
     const interestCoverage_override = kpiValAny('RET_PFT_PAT_OVERVIEW');
     const interestCoverageGrowth_override = kpiYoyAny('RET_PFT_PAT_OVERVIEW');
 
-    setCacheTillMidnightIst(res);
-    res.json({
+    const responsePayload = {
       symbol: sym,
 
       company: {
@@ -1023,7 +1043,11 @@ async function getTickerInfo(req, res, next) {
         net_debt_ebitda:   netDebtEbitda,
       },
 
-    });
+    };
+
+    cache.set(cacheKey, responsePayload, 86400).catch(() => {});
+    setCacheTillMidnightIst(res);
+    res.json(responsePayload);
   } catch (err) {
     next(err);
   }
@@ -1085,6 +1109,16 @@ async function getFinancials(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
     const reportType = req.query.reportType;
+    const forceRefresh = req.query.refresh === '1';
+    const cacheKey = `qc:stock:${symbol}:financials:${reportType || 'all'}`;
+
+    if (!forceRefresh) {
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+    }
+
     const result = await financials.analyze(symbol, reportType);
 
     const dbInsight = await prisma.aiInsight.findFirst({
@@ -1112,6 +1146,7 @@ async function getFinancials(req, res, next) {
       }
     }
 
+    cache.set(cacheKey, result, 7 * 86400).catch(() => {});
     res.json(result);
   } catch (err) {
     next(err);
@@ -1156,6 +1191,14 @@ async function getPrices(req, res, next) {
     const symbol = req.params.symbol.toUpperCase();
 
     const years = Math.max(1, Math.min(5, parseInt(req.query.years, 10) || 2));
+    const cacheKey = `qc:stock:${symbol}:prices:${years}:${req.query.from || ''}:${req.query.to || ''}`;
+
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      setCacheTillMidnightIst(res);
+      return res.json(cached);
+    }
+
     const period1 = req.query.from
       ? new Date(req.query.from)
       : new Date(Date.now() - years * 365 * 24 * 60 * 60 * 1000); // default: 2 years
@@ -1203,8 +1246,10 @@ async function getPrices(req, res, next) {
       Object.assign(indicators, { crsStockVsNifty: [], crsStockVsSector: [], crsSectorVsNifty: [] });
     }
 
+    const payload = { symbol, count: prices.length, prices, indicators };
+    cache.set(cacheKey, payload, 86400).catch(() => {});
     setCacheTillMidnightIst(res);
-    res.json({ symbol, count: prices.length, prices, indicators });
+    res.json(payload);
   } catch (err) {
     next(err);
   }
@@ -1232,6 +1277,13 @@ async function getWyckoff(req, res, next) {
     const includeBars = req.query.includeBars !== 'false';
     const minPctRaw = parseFloat(req.query.minPct);
     const minPct = Number.isFinite(minPctRaw) ? minPctRaw : null;
+    const cacheKey = `qc:stock:${symbol}:wyckoff:${chartYears}:${includeBars}:${minPct ?? 'auto'}`;
+
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      setCacheTillMidnightIst(res);
+      return res.json(cached);
+    }
 
     const allBars = await fetchWyckoffBars(prisma, symbol);
     if (allBars.length === 0) {
@@ -1253,6 +1305,7 @@ async function getWyckoff(req, res, next) {
       splits,
     });
 
+    cache.set(cacheKey, payload, 86400).catch(() => {});
     setCacheTillMidnightIst(res);
     res.json(payload);
   } catch (err) {
@@ -1274,6 +1327,13 @@ async function getWyckoff(req, res, next) {
 async function getPeers(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
+    const cacheKey = `qc:stock:${symbol}:peers`;
+
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      setCacheTillMidnightIst(res);
+      return res.json(cached);
+    }
 
     // ── 1. Find subject company in identity CSV ──────────────────────────────
     const { rows: idRows } = loadPeerIdentity();
@@ -1309,8 +1369,7 @@ async function getPeers(req, res, next) {
       return (b.marketCapCr ?? 0) - (a.marketCapCr ?? 0);
     });
 
-    setCacheTillMidnightIst(res);
-    res.json({
+    const payload = {
       symbol,
       basicIndustry: subjectBasicInd,
       industryGroup: subjectIndGrp,
@@ -1318,7 +1377,11 @@ async function getPeers(req, res, next) {
       yearAgoQuarter,
       count: peers.length,
       peers,
-    });
+    };
+
+    cache.set(cacheKey, payload, 86400).catch(() => {});
+    setCacheTillMidnightIst(res);
+    res.json(payload);
   } catch (err) {
     next(err);
   }

@@ -2,6 +2,7 @@
 
 const asyncHandler = require('../middleware/asyncHandler');
 const prisma = require('../config/prisma');
+const cache  = require('../lib/cache');
 const postHtmlAnalysisService = require('../services/postHtmlAnalysis.service');
 
 const { L3_TYPES, L4_TYPE } = postHtmlAnalysisService;
@@ -86,7 +87,9 @@ const getPostHtmlAnalysis = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, error: `Invalid type(s) for layer_id=${layerId}. Valid values: ${allowedTypes.join(', ')}` });
   }
 
-  const rows = await postHtmlAnalysisService.getPostHtmlAnalysis(ticker, layerId, types);
+  const sortedTypes = types.slice().sort().join(',');
+  const cacheKey = `qc:analysis:${ticker.toUpperCase()}:${layerId}:${sortedTypes}`;
+  const rows = await cache.getOrSet(cacheKey, 7 * 86400, () => postHtmlAnalysisService.getPostHtmlAnalysis(ticker, layerId, types));
   res.json({ success: true, data: { ticker, layer_id: layerId, results: rows } });
 });
 

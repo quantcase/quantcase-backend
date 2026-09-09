@@ -6,6 +6,7 @@ const path     = require('path');
 const { port }     = require('./config/env');
 const prisma       = require('./config/prisma');
 const jobQueue     = require('./lib/jobQueue');
+const cache        = require('./lib/cache');
 const router       = require('./routes/index');
 const notFound     = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
@@ -66,6 +67,7 @@ app.listen(port, () => {
 const shutdown = async (signal) => {
   console.log(`${signal} signal received: closing HTTP server`);
   await jobQueue.close();
+  await cache.close();
   await prisma.$disconnect();
   console.log('Database and queue connections closed');
   process.exit(0);

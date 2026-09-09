@@ -14,16 +14,15 @@
  */
 
 const prisma = require('../../config/prisma');
+const cache  = require('../../lib/cache');
 
-const CACHE_TTL_MS = 45 * 1000;
+const CACHE_TTL_SECONDS = 45;
 
 // DB symbol (Prowess's own "Index Name" casing) → frontend-facing short code.
 const INDEX_SYMBOL_MAP = {
   'Nifty 50':   'NIFTY',
   'Bse Sensex': 'SENSEX',
 };
-
-let _cache = null; // { at: epochMs, payload }
 
 async function computeIndices() {
   const dbSymbols = Object.keys(INDEX_SYMBOL_MAP);
@@ -45,15 +44,10 @@ async function computeIndices() {
 }
 
 async function getMarketIndices() {
-  const now = Date.now();
-  if (_cache && now - _cache.at < CACHE_TTL_MS) {
-    return _cache.payload;
-  }
-
-  const indices = await computeIndices();
-  const payload = { indices, as_of: new Date(now).toISOString() };
-  _cache = { at: now, payload };
-  return payload;
+  return cache.getOrSet('qc:market:indices', CACHE_TTL_SECONDS, async () => {
+    const indices = await computeIndices();
+    return { indices, as_of: new Date().toISOString() };
+  });
 }
 
 module.exports = { getMarketIndices };

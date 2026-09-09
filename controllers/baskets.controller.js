@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma = require('../config/prisma');
+const cache  = require('../lib/cache');
 const peerIdentity = require('../lib/peerIdentity');
 const { resolveMetric, resolveTechnicalIndicators } = require('../utils/formulaRegistry/index');
 const { fetchMarketSnapshots, fetchOhlcvBars, fetchPeTimeSeriesBatch } = require('../utils/formulaRegistry/dataFetcherMarket');
@@ -821,7 +822,7 @@ async function getBasketStocks(req, res) {
 
   let stocks;
   try {
-    stocks = await runScreener(basketId);
+    stocks = await cache.getOrSet(`qc:basket:${basketId}`, 86400, () => runScreener(basketId));
   } catch (err) {
     console.error(`[baskets] screener '${basketId}' failed:`, err);
     return res.status(500).json({ error: 'Screener failed', detail: err.message });

@@ -3,6 +3,7 @@
 const { Worker } = require('bullmq');
 const connection = require('../config/redis');
 const prisma = require('../config/prisma');
+const cache  = require('../lib/cache');
 const { llmStream, parseJson, logUsage } = require('../utils/workerUtils');
 const { computeSourceHash } = require('../utils/sourceHash');
 const { postHtmlAnalysisPrompt } = require('../prompts/post_html_analysis');
@@ -127,6 +128,8 @@ async function processPostHtmlAnalysisJob(job) {
       },
     });
     console.log(`[PostHtmlAnalysis] post_html_analysis upserted for ${ticker}/${layerId}/${type}`);
+    cache.delByPattern(`qc:analysis:${ticker.toUpperCase()}:*`).catch(() => {});
+    cache.del(`qc:stock:${ticker.toUpperCase()}:info`).catch(() => {});
 
     await prisma.job.update({
       where: { bullmqId: job.id },

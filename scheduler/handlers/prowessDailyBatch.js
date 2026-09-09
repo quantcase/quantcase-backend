@@ -40,6 +40,26 @@ async function run(_config = {}) {
   const totalRowsIngested = resolved.result?.totalRowsIngested ?? 0;
   console.log(`[prowess-daily-batch] token=${token} completed, ingested ${totalRowsIngested} rows`);
 
+  // Invalidate daily caches after new market data is ingested
+  if (totalRowsIngested > 0) {
+    try {
+      const cache = require('../../lib/cache');
+      const deletedCounts = await Promise.all([
+        cache.delByPattern('qc:stock:*:info'),
+        cache.delByPattern('qc:stock:*:prices*'),
+        cache.delByPattern('qc:stock:*:wyckoff*'),
+        cache.delByPattern('qc:stock:*:peers'),
+        cache.delByPattern('qc:basket:*'),
+        cache.delByPattern('qc:tickers:*'),
+        cache.del('qc:market:indices'),
+      ]);
+      const totalKeys = deletedCounts.reduce((s, c) => s + (typeof c === 'number' ? c : 0), 0);
+      console.log(`[prowess-daily-batch] Invalidate daily caches completed (${totalKeys} keys cleared)`);
+    } catch (cacheErr) {
+      console.warn('[prowess-daily-batch] Cache invalidation warning:', cacheErr.message);
+    }
+  }
+
   // On Tuesdays (2) and Thursdays (4) in Asia/Kolkata, auto-trigger technicals batch
   const istDateStr = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
   const istDay = new Date(istDateStr).getDay();

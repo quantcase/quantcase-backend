@@ -3,6 +3,7 @@
 const { Worker } = require('bullmq');
 const connection         = require('../config/redis');
 const prisma             = require('../config/prisma');
+const cache              = require('../lib/cache');
 const { llmStream, parseJson, logUsage, isGeminiModel } = require('../utils/workerUtils');
 const { loadSkillConfig }      = require('../utils/skillConfig');
 const technicalAnalysis        = require('../lib/technicalAnalysis');
@@ -67,6 +68,7 @@ async function processTechnicalsJob(job) {
       update: { insight, updated_at: new Date() },
     });
     console.log(`[Technicals] Decision intelligence saved for ${symbol}`);
+    cache.del(`qc:stock:${symbol}:technicals`).catch(() => {});
 
     await prisma.job.update({
       where: { bullmqId: job.id },

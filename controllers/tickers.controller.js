@@ -1,6 +1,7 @@
 'use strict';
 
 const tickerMetrics = require('../services/tickerMetrics.service');
+const cache         = require('../lib/cache');
 
 const MAX_TICKERS = 100;
 
@@ -50,17 +51,28 @@ async function getTickers(req, res, next) {
       });
     }
 
+    const sortedKey = tickers.slice().sort().join(',');
+    const cacheKey = `qc:tickers:${sortedKey}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      setCacheTillMidnightIst(res);
+      return res.json(cached);
+    }
+
     const { tickers: rows, notFound } = await tickerMetrics.getMetricsForTickers(tickers);
     const { latestQuarter, yearAgoQuarter } = await tickerMetrics.getQuarterLabels();
 
-    setCacheTillMidnightIst(res);
-    res.json({
+    const payload = {
       count: rows.length,
       latestQuarter,
       yearAgoQuarter,
       notFound,
       tickers: rows,
-    });
+    };
+
+    cache.set(cacheKey, payload, 86400).catch(() => {});
+    setCacheTillMidnightIst(res);
+    res.json(payload);
   } catch (err) {
     next(err);
   }

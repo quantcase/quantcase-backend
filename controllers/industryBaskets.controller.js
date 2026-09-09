@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma         = require('../config/prisma');
+const cache          = require('../lib/cache');
 const classification = require('../config/iitClassification.json');
 
 // ── Industry basket definitions ───────────────────────────────────────────────
@@ -185,66 +186,70 @@ function aggregateBasketMetrics(clusterRows) {
  * No pagination — the full list is small (8 baskets).
  */
 async function getIndustryBaskets(req, res) {
-  // Resolve latest scoring week
-  const latestRow = await prisma.iitClusterScore.findFirst({
-    orderBy: { week_date: 'desc' },
-    select:  { week_date: true },
-  });
-
-  const weekDate = latestRow?.week_date ?? null;
-  const asOfDate = weekDate ? weekDate.toISOString().slice(0, 10) : null;
-
-  // Pull all cluster scores for the latest week in one query
-  let clusterMap = {};
-  if (weekDate) {
-    const rows = await prisma.iitClusterScore.findMany({
-      where: { week_date: weekDate },
-      select: {
-        basic_industry:  true,
-        composite_score: true,
-        velocity_3w:     true,
-        breadth_pct:     true,
-        stock_count:     true,
-        rank:            true,
-      },
+  const data = await cache.getOrSet('qc:iit:industry-baskets', 86400, async () => {
+    // Resolve latest scoring week
+    const latestRow = await prisma.iitClusterScore.findFirst({
+      orderBy: { week_date: 'desc' },
+      select:  { week_date: true },
     });
-    for (const row of rows) {
-      clusterMap[row.basic_industry] = row;
+
+    const weekDate = latestRow?.week_date ?? null;
+    const asOfDate = weekDate ? weekDate.toISOString().slice(0, 10) : null;
+
+    // Pull all cluster scores for the latest week in one query
+    let clusterMap = {};
+    if (weekDate) {
+      const rows = await prisma.iitClusterScore.findMany({
+        where: { week_date: weekDate },
+        select: {
+          basic_industry:  true,
+          composite_score: true,
+          velocity_3w:     true,
+          breadth_pct:     true,
+          stock_count:     true,
+          rank:            true,
+        },
+      });
+      for (const row of rows) {
+        clusterMap[row.basic_industry] = row;
+      }
     }
-  }
 
-  const baskets = INDUSTRY_BASKETS.map(basket => {
-    const matchedRows = basket.industries
-      .map(ind => clusterMap[ind])
-      .filter(Boolean);
+    const baskets = INDUSTRY_BASKETS.map(basket => {
+      const matchedRows = basket.industries
+        .map(ind => clusterMap[ind])
+        .filter(Boolean);
 
-    const metrics = aggregateBasketMetrics(matchedRows);
-    const signal  = metrics
-      ? deriveSignal(metrics.composite_score, metrics.velocity_3w)
-      : 'WAIT';
+      const metrics = aggregateBasketMetrics(matchedRows);
+      const signal  = metrics
+        ? deriveSignal(metrics.composite_score, metrics.velocity_3w)
+        : 'WAIT';
+
+      return {
+        id:          basket.id,
+        title:       basket.title,
+        etfTicker:   basket.etfTicker,
+        description: basket.description,
+        category:    basket.category,
+        industries:  basket.industries,
+        signal,
+        metrics,
+      };
+    });
+
+    // Summary counts for the footer
+    const buys   = baskets.filter(b => b.signal === 'BUY').length;
+    const waits  = baskets.filter(b => b.signal === 'WAIT').length;
+    const avoids = baskets.filter(b => b.signal === 'AVOID').length;
 
     return {
-      id:          basket.id,
-      title:       basket.title,
-      etfTicker:   basket.etfTicker,
-      description: basket.description,
-      category:    basket.category,
-      industries:  basket.industries,
-      signal,
-      metrics,
+      as_of_date: asOfDate,
+      summary: { buy: buys, wait: waits, avoid: avoids },
+      baskets,
     };
   });
 
-  // Summary counts for the footer
-  const buys   = baskets.filter(b => b.signal === 'BUY').length;
-  const waits  = baskets.filter(b => b.signal === 'WAIT').length;
-  const avoids = baskets.filter(b => b.signal === 'AVOID').length;
-
-  res.json({
-    as_of_date: asOfDate,
-    summary: { buy: buys, wait: waits, avoid: avoids },
-    baskets,
-  });
+  res.json(data);
 }
 
 /**
