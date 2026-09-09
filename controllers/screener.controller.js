@@ -1155,9 +1155,10 @@ async function getPrices(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
 
+    const years = Math.max(1, Math.min(5, parseInt(req.query.years, 10) || 2));
     const period1 = req.query.from
       ? new Date(req.query.from)
-      : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000); // default: 1 year
+      : new Date(Date.now() - years * 365 * 24 * 60 * 60 * 1000); // default: 2 years
     const period2 = req.query.to ? new Date(req.query.to) : new Date();
 
     const rows = await prisma.nse_equity_new.findMany({
