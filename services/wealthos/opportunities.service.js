@@ -152,4 +152,53 @@ async function updateOpportunity(orgId, oppId, data, wealthRole = null, rmProfil
   return updated;
 }
 
-module.exports = { listOpportunities, createOpportunity, updateOpportunity };
+async function getOpportunitiesSummary(orgId, wealthRole = null, rmProfileId = null) {
+  const where = { org_id: orgId, status: 'open' };
+  if (wealthRole === 'rm' && rmProfileId) {
+    where.rm_profile_id = rmProfileId;
+  }
+
+  const opps = await prisma.wealthOpportunity.findMany({
+    where,
+    select: {
+      id: true,
+      category: true,
+      fit_score: true,
+      indicative_value_cr: true,
+      client_id: true,
+    },
+  });
+
+  const totalCount = opps.length;
+  let totalAumCr = 0;
+  let highReceptivityCount = 0;
+  let idleCashCr = 0;
+  const idleCashClients = new Set();
+  let coverageGapsCount = 0;
+
+  for (const opp of opps) {
+    const val = Number(opp.indicative_value_cr) || 0;
+    totalAumCr += val;
+    if (opp.category === 'client_asked' || opp.category === 'life_event' || (opp.fit_score && opp.fit_score >= 80)) {
+      highReceptivityCount++;
+    }
+    if (opp.category === 'idle_cash') {
+      idleCashCr += val;
+      if (opp.client_id) idleCashClients.add(opp.client_id);
+    }
+    if (opp.category === 'rebalance' || opp.category === 'coverage_gap') {
+      coverageGapsCount++;
+    }
+  }
+
+  return {
+    total_count: totalCount,
+    total_aum_cr: Number(totalAumCr.toFixed(2)),
+    high_receptivity_count: highReceptivityCount,
+    idle_cash_cr: Number(idleCashCr.toFixed(2)),
+    idle_cash_clients_count: idleCashClients.size,
+    coverage_gaps_count: coverageGapsCount,
+  };
+}
+
+module.exports = { listOpportunities, getOpportunitiesSummary, createOpportunity, updateOpportunity };

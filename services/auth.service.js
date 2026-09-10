@@ -167,6 +167,7 @@ async function getFullProfile(userId) {
     display_name:    user.display_name,
     display_picture: user.display_picture,
     created_at:      user.created_at,
+    onboarding_completed: user.profile?.onboarding_completed ?? (user.account_type === 'manager' || user.account_type === 'admin'),
     profile: user.profile
       ? {
           full_name:            user.profile.full_name,

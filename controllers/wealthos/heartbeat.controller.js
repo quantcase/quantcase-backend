@@ -1,7 +1,17 @@
-'use strict';
-
+const prisma       = require('../../config/prisma');
 const asyncHandler = require('../../middleware/asyncHandler');
 const service      = require('../../services/wealthos/heartbeat.service');
+
+const getUserHeartbeat = asyncHandler(async (req, res) => {
+  const orgId = req.wealthOrg.id;
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.sub },
+    select: { id: true, display_name: true, email: true },
+  });
+
+  const data = await service.getUserHeartbeat(orgId, req.wealthMember, user, req.query);
+  res.json({ success: true, data });
+});
 
 const getRmHeartbeat = asyncHandler(async (req, res) => {
   const orgId = req.wealthOrg.id;
@@ -21,8 +31,12 @@ const getRmHeartbeat = asyncHandler(async (req, res) => {
 
 const getCioHeartbeat = asyncHandler(async (req, res) => {
   const orgId = req.wealthOrg.id;
-  const data = await service.getCioHeartbeat(orgId, req.query);
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.sub },
+    select: { id: true, display_name: true, email: true },
+  });
+  const data = await service.getCioHeartbeat(orgId, req.wealthMember, user, req.query);
   res.json({ success: true, data });
 });
 
-module.exports = { getRmHeartbeat, getCioHeartbeat };
+module.exports = { getUserHeartbeat, getRmHeartbeat, getCioHeartbeat };

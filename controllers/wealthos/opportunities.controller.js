@@ -31,11 +31,20 @@ const updateOpportunity = asyncHandler(async (req, res) => {
     orgId,
     req.params.oppId,
     req.body,
-    req.wealthRole,
     req.wealthRmProfile?.id,
     req.wealthMember.id
   );
   res.json({ success: true, data: opp });
 });
 
-module.exports = { listOpportunities, createOpportunity, updateOpportunity };
+const getOpportunitiesSummary = asyncHandler(async (req, res) => {
+  const orgId = req.wealthOrg.id;
+  const summary = await service.getOpportunitiesSummary(
+    orgId,
+    req.wealthRole,
+    req.wealthRmProfile?.id
+  );
+  res.json({ success: true, data: summary });
+});
+
+module.exports = { listOpportunities, getOpportunitiesSummary, createOpportunity, updateOpportunity };

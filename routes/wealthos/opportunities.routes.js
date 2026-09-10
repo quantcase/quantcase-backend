@@ -37,6 +37,7 @@ const createOpportunitySchema = z.object({
 const updateOpportunitySchema = createOpportunitySchema.partial();
 
 router.get('/',          validate(listOpportunitiesSchema, 'query'),   ctrl.listOpportunities);
+router.get('/summary',  ctrl.getOpportunitiesSummary);
 router.post('/',         validate(createOpportunitySchema, 'body'),    ctrl.createOpportunity);
 router.put('/:oppId',    validate(updateOpportunitySchema, 'body'),    ctrl.updateOpportunity);
 
