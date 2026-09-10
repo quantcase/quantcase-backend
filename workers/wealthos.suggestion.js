@@ -43,7 +43,7 @@ async function processSuggestionJob(job) {
   for (const s of suggestions) {
     const clientEntry  = clients.find(c => c.clientId === s.client_id);
     const allowedSymbols = clientEntry?.portfolioData?.holdings
-      ? clientEntry.portfolioData.holdings.map(h => h.symbol).filter(Boolean)
+      ? clientEntry.portfolioData.holdings.map(h => h.ticker || h.symbol).filter(Boolean)
       : [];
 
     const { valid, violations } = validateSuggestionOutput(s, allowedSymbols);

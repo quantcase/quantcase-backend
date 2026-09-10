@@ -141,6 +141,13 @@ async function getFullProfile(userId) {
       profile: true,
       subscription: true,
       smallcase_user: { include: { _count: { select: { holdings: true } } } },
+      wealth_memberships: {
+        where: { is_active: true },
+        include: {
+          org: true,
+          rm_profile: true,
+        },
+      },
     },
   });
 
@@ -189,6 +196,26 @@ async function getFullProfile(userId) {
           holdings_count: user.smallcase_user._count.holdings,
         }
       : { is_connected: false, broker: null, last_synced_at: null, holdings_count: 0 },
+    wealth_memberships: user.wealth_memberships
+      ? user.wealth_memberships.map((m) => ({
+          id:         m.id,
+          org_id:     m.org_id,
+          org_name:   m.org?.name || null,
+          org_slug:   m.org?.slug || null,
+          role:       m.role,
+          joined_at:  m.joined_at,
+          rm_profile: m.rm_profile
+            ? {
+                id:                m.rm_profile.id,
+                display_name:      m.rm_profile.display_name,
+                team:              m.rm_profile.team,
+                performance_score: m.rm_profile.performance_score,
+                target_aum_cr:     m.rm_profile.target_aum_cr,
+                total_aum_cr:      m.rm_profile.total_aum_cr,
+              }
+            : null,
+        }))
+      : [],
   };
 }
 

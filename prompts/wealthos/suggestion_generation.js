@@ -38,7 +38,7 @@ function buildDataBlock(clients) {
   const clientSummaries = clients.map(c => {
     const holdings = c.portfolioData?.holdings ?? [];
     const symbolList = Array.isArray(holdings)
-      ? holdings.map(h => h.symbol).filter(Boolean).join(', ')
+      ? holdings.map(h => h.ticker || h.symbol || h.scheme_name).filter(Boolean).join(', ')
       : 'No holdings data';
 
     return {
@@ -51,7 +51,7 @@ function buildDataBlock(clients) {
       days_since_contact: c.components.daysSinceContact != null
         ? `${Math.round(c.components.daysSinceContact * 90)} days`
         : 'Unknown',
-      portfolio_value:    c.portfolioData?.total_value ?? null,
+      portfolio_value_cr: c.portfolioData?.total_value_cr ?? c.portfolioData?.total_value ?? null,
       portfolio_risk:     c.portfolioData?.risk_score ?? null,
       holdings,
       allowed_symbols:    symbolList,

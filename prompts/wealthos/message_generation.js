@@ -36,7 +36,7 @@ Generate the message now. Return JSON with fields: subject (string or null), bod
 function buildDataBlock(client, portfolio, recentInteractions, channel, context) {
   const holdings = portfolio?.holdings ?? [];
   const symbolList = Array.isArray(holdings)
-    ? holdings.map(h => h.symbol).filter(Boolean).join(', ')
+    ? holdings.map(h => h.ticker || h.symbol || h.scheme_name).filter(Boolean).join(', ')
     : 'none';
 
   const recentSummaries = recentInteractions.map(i => ({
@@ -46,6 +46,8 @@ function buildDataBlock(client, portfolio, recentInteractions, channel, context)
     date:      i.timestamp,
   }));
 
+  const totalVal = portfolio?.total_value_cr ?? portfolio?.total_value;
+
   return `CLIENT:
 - Name: ${client.name}
 - Segment: ${client.segment}
@@ -54,7 +56,7 @@ function buildDataBlock(client, portfolio, recentInteractions, channel, context)
 - Churn Probability: ${(client.churn_probability * 100).toFixed(0)}%
 
 PORTFOLIO:
-- Total Value: ${portfolio?.total_value != null ? `₹${portfolio.total_value} Cr` : 'Not available'}
+- Total Value: ${totalVal != null ? `₹${totalVal} Cr` : 'Not available'}
 - Risk Score: ${portfolio?.risk_score ?? 'N/A'} / 10
 - Holdings: ${symbolList || 'No holdings data'}
 - Allowed Symbols: ${symbolList || 'none'}

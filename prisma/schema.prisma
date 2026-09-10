@@ -1140,85 +1140,326 @@ model IitClusterScore {
   @@map("iit_cluster_scores")
 }
 
-// ─── WealthOS ─────────────────────────────────────────────────────────────────
+// ─── WealthOS / CRM Domain (Isolated) ─────────────────────────────────────────
 
-model WealthRmUser {
-  id                String              @id @default(uuid())
-  name              String
-  email             String?             @unique
+model WealthOrganisation {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  is_active   Boolean   @default(true)
+  settings    Json      @default("{}")
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  members     WealthOrgMember[]
+  rm_profiles WealthRmProfile[]
+  clients     WealthClient[]
+  models      WealthApprovedModel[]
+  campaigns   WealthCampaign[]
+  audit_logs  WealthAuditLog[]
+  imports     WealthDataImport[]
+
+  @@map("wealth_organisations")
+}
+
+model WealthOrgMember {
+  id          String        @id @default(uuid())
+  org_id      String
+  user_id     String
+  role        WealthOrgRole @default(rm)
+  is_active   Boolean       @default(true)
+  joined_at   DateTime      @default(now())
+  created_at  DateTime      @default(now())
+  updated_at  DateTime      @updatedAt
+
+  org         WealthOrganisation @relation(fields: [org_id], references: [id], onDelete: Cascade)
+  user        User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  rm_profile  WealthRmProfile?
+
+  @@unique([org_id, user_id])
+  @@index([org_id, role])
+  @@map("wealth_org_members")
+}
+
+model WealthRmProfile {
+  id                String       @id @default(uuid())
+  org_id            String
+  member_id         String       @unique
+  display_name      String
+  email             String?
+  phone             String?
   team              String?
-  performance_score Float               @default(0)
-  created_at        DateTime            @default(now())
-  updated_at        DateTime            @updatedAt
-  actions           WealthAction[]
-  clients           WealthClient[]
-  interactions      WealthInteraction[]
+  performance_score Float        @default(0)
+  target_aum_cr     Float?
+  total_aum_cr      Float        @default(0)
+  notes             String?
+  created_at        DateTime     @default(now())
+  updated_at        DateTime     @updatedAt
 
+  org               WealthOrganisation  @relation(fields: [org_id], references: [id], onDelete: Cascade)
+  member            WealthOrgMember     @relation(fields: [member_id], references: [id], onDelete: Cascade)
+  clients           WealthClient[]
+  tasks             WealthTask[]
+  interactions      WealthInteraction[]
+  opportunities     WealthOpportunity[]
+  actions           WealthAction[]
+
+  @@index([org_id])
   @@index([team])
-  @@map("wealth_rm_users")
+  @@map("wealth_rm_profiles")
 }
 
 model WealthClient {
-  id                String                     @id @default(uuid())
+  id                String              @id @default(uuid())
+  org_id            String
+  rm_profile_id     String?
   name              String
   email             String?
   phone             String?
-  rm_id             String?
+  city              String?
+  date_of_birth     DateTime?           @db.Date
+  pan_number        String?
+  aum_cr            Float               @default(0)
   segment           WealthClientSegment
   risk_profile      WealthRiskProfile
-  engagement_score  Float                      @default(0)
-  churn_probability Float                      @default(0)
+  lifecycle_status  WealthClientStatus  @default(prospect)
+  kyc_status        WealthKycStatus     @default(not_started)
+  source            WealthClientSource?
+  engagement_score  Float               @default(0)
+  churn_probability Float               @default(0)
   last_contact_at   DateTime?
+  family_members    Json?
+  tags              String[]            @default([])
   metadata          Json?
-  created_at        DateTime                   @default(now())
-  updated_at        DateTime                   @updatedAt
-  actions           WealthAction[]
-  model_mappings    WealthClientModelMapping[]
-  rm                WealthRmUser?              @relation(fields: [rm_id], references: [id])
-  feature_store     WealthFeatureStore[]
-  interactions      WealthInteraction[]
-  portfolio         WealthPortfolio?
-  suggestions       WealthSuggestion[]
+  created_at        DateTime            @default(now())
+  updated_at        DateTime            @updatedAt
 
-  @@index([rm_id])
-  @@index([segment])
+  org               WealthOrganisation         @relation(fields: [org_id], references: [id], onDelete: Cascade)
+  rm                WealthRmProfile?           @relation(fields: [rm_profile_id], references: [id], onDelete: SetNull)
+  portfolio         WealthPortfolio?
+  snapshots         WealthPortfolioSnapshot[]
+  interactions      WealthInteraction[]
+  suggestions       WealthSuggestion[]
+  opportunities     WealthOpportunity[]
+  actions           WealthAction[]
+  tasks             WealthTask[]
+  notes             WealthClientNote[]
+  model_mappings    WealthClientModelMapping[]
+  campaigns         WealthCampaignRecipient[]
+  feature_store     WealthFeatureStore[]
+
+  @@index([org_id])
+  @@index([rm_profile_id])
+  @@index([org_id, lifecycle_status])
+  @@index([org_id, segment])
   @@index([churn_probability])
   @@index([last_contact_at])
   @@map("wealth_clients")
 }
 
 model WealthPortfolio {
-  id                  String       @id @default(uuid())
-  client_id           String       @unique
-  total_value         Float        @default(0)
-  risk_score          Float        @default(0)
-  last_rebalance_date DateTime?
-  holdings            Json?
-  created_at          DateTime     @default(now())
-  updated_at          DateTime     @updatedAt
-  client              WealthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  id                  String          @id @default(uuid())
+  client_id           String          @unique
+  total_value_cr      Float           @default(0)
+  equity_value_cr     Float?
+  debt_value_cr       Float?
+  mf_value_cr         Float?
+  reit_value_cr       Float?
+  alt_value_cr        Float?
+  cash_value_cr       Float?
+  risk_score          Float?
+  last_rebalance_date DateTime?       @db.Date
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+
+  client              WealthClient    @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  holdings            WealthHolding[]
 
   @@index([client_id])
   @@map("wealth_portfolios")
 }
 
+model WealthHolding {
+  id               String               @id @default(uuid())
+  portfolio_id     String
+  ticker           String?
+  isin             String?
+  scheme_name      String?
+  amfi_code        String?
+  asset_class      WealthAssetClass
+  quantity         Float?
+  avg_price        Float?
+  current_value_cr Float?
+  weight_pct       Float?
+  as_of_date       DateTime             @db.Date
+  created_at       DateTime             @default(now())
+  updated_at       DateTime             @updatedAt
+
+  portfolio        WealthPortfolio      @relation(fields: [portfolio_id], references: [id], onDelete: Cascade)
+  alerts           WealthHoldingAlert[]
+
+  @@index([portfolio_id])
+  @@index([ticker])
+  @@index([asset_class])
+  @@map("wealth_holdings")
+}
+
+model WealthHoldingAlert {
+  id           String                 @id @default(uuid())
+  holding_id   String
+  alert_type   WealthHoldingAlertType
+  severity     WealthAlertSeverity    @default(medium)
+  message      String?
+  threshold    Float?
+  actual_value Float?
+  is_resolved  Boolean                @default(false)
+  resolved_at  DateTime?
+  created_at   DateTime               @default(now())
+  updated_at   DateTime               @updatedAt
+
+  holding      WealthHolding          @relation(fields: [holding_id], references: [id], onDelete: Cascade)
+
+  @@index([holding_id])
+  @@index([is_resolved])
+  @@map("wealth_holding_alerts")
+}
+
+model WealthPortfolioSnapshot {
+  id              String       @id @default(uuid())
+  client_id       String
+  snapshot_date   DateTime     @db.Date
+  total_value_cr  Float
+  equity_value_cr Float?
+  debt_value_cr   Float?
+  mf_value_cr     Float?
+  reit_value_cr   Float?
+  alt_value_cr    Float?
+  cash_value_cr   Float?
+  risk_score      Float?
+  created_at      DateTime     @default(now())
+
+  client          WealthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@unique([client_id, snapshot_date])
+  @@index([client_id, snapshot_date])
+  @@map("wealth_portfolio_snapshots")
+}
+
 model WealthInteraction {
-  id         String                @id @default(uuid())
-  client_id  String
-  rm_id      String?
-  type       WealthInteractionType
-  summary    String?
-  sentiment  String?
-  timestamp  DateTime              @default(now())
-  metadata   Json?
-  created_at DateTime              @default(now())
-  client     WealthClient          @relation(fields: [client_id], references: [id], onDelete: Cascade)
-  rm         WealthRmUser?         @relation(fields: [rm_id], references: [id])
+  id               String                      @id @default(uuid())
+  org_id           String
+  client_id        String
+  rm_profile_id    String?
+  type             WealthInteractionType
+  summary          String?
+  sentiment        WealthInteractionSentiment?
+  outcome          WealthInteractionOutcome?
+  duration_minutes Int?
+  is_pinned        Boolean                     @default(false)
+  follow_up_date   DateTime?
+  timestamp        DateTime                    @default(now())
+  metadata         Json?
+  created_at       DateTime                    @default(now())
+
+  client           WealthClient                @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  rm               WealthRmProfile?            @relation(fields: [rm_profile_id], references: [id], onDelete: SetNull)
+  attachments      WealthInteractionAttachment[]
+  tasks            WealthTask[]
 
   @@index([client_id])
-  @@index([rm_id])
-  @@index([timestamp])
+  @@index([rm_profile_id])
+  @@index([org_id, timestamp])
   @@map("wealth_interactions")
+}
+
+model WealthInteractionAttachment {
+  id             String            @id @default(uuid())
+  interaction_id String
+  file_name      String
+  file_url       String
+  file_type      String
+  file_size_kb   Int?
+  created_at     DateTime          @default(now())
+
+  interaction    WealthInteraction @relation(fields: [interaction_id], references: [id], onDelete: Cascade)
+
+  @@index([interaction_id])
+  @@map("wealth_interaction_attachments")
+}
+
+model WealthTask {
+  id                    String            @id @default(uuid())
+  org_id                String
+  client_id             String?
+  rm_profile_id         String?
+  created_by_member_id  String?
+  title                 String
+  description           String?
+  task_type             WealthTaskType
+  status                WealthTaskStatus  @default(open)
+  due_date              DateTime?
+  completed_at          DateTime?
+  linked_interaction_id String?
+  created_at            DateTime          @default(now())
+  updated_at            DateTime          @updatedAt
+
+  client                WealthClient?      @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  rm                    WealthRmProfile?   @relation(fields: [rm_profile_id], references: [id], onDelete: SetNull)
+  linked_interaction    WealthInteraction? @relation(fields: [linked_interaction_id], references: [id], onDelete: SetNull)
+
+  @@index([org_id, status])
+  @@index([rm_profile_id, due_date])
+  @@index([client_id])
+  @@map("wealth_tasks")
+}
+
+model WealthOpportunity {
+  id                  String                    @id @default(uuid())
+  org_id              String
+  client_id           String
+  rm_profile_id       String?
+  category            WealthOpportunityCategory
+  sub_category        String?
+  headline            String
+  evidence            String?
+  source_type         WealthOppSourceType
+  source_ref          String?
+  fit_score           Float                     @default(0)
+  indicative_value_cr Float?
+  status              WealthOppStatus           @default(open)
+  dismissed_at        DateTime?
+  dismissed_by        String?
+  converted_at        DateTime?
+  ai_job_id           String?
+  talking_points      Json?
+  created_at          DateTime                  @default(now())
+  updated_at          DateTime                  @updatedAt
+
+  client              WealthClient              @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  rm                  WealthRmProfile?          @relation(fields: [rm_profile_id], references: [id], onDelete: SetNull)
+
+  @@index([org_id, status])
+  @@index([rm_profile_id, status])
+  @@index([client_id])
+  @@index([fit_score])
+  @@map("wealth_opportunities")
+}
+
+model WealthClientNote {
+  id               String       @id @default(uuid())
+  org_id           String
+  client_id        String
+  author_member_id String
+  content          String
+  is_pinned        Boolean      @default(false)
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+
+  client           WealthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@index([client_id])
+  @@index([org_id, created_at])
+  @@map("wealth_client_notes")
 }
 
 model WealthSuggestion {
@@ -1254,7 +1495,7 @@ model WealthAction {
   outcome       String?
   created_at    DateTime          @default(now())
   client        WealthClient      @relation(fields: [client_id], references: [id], onDelete: Cascade)
-  rm            WealthRmUser?     @relation(fields: [rm_id], references: [id])
+  rm            WealthRmProfile?  @relation(fields: [rm_id], references: [id])
   suggestion    WealthSuggestion? @relation(fields: [suggestion_id], references: [id])
 
   @@index([client_id])
@@ -1264,15 +1505,24 @@ model WealthAction {
 }
 
 model WealthApprovedModel {
-  id              String                     @id @default(uuid())
-  name            String
-  description     String?
-  model_type      WealthModelType
-  data            Json?
-  created_at      DateTime                   @default(now())
-  updated_at      DateTime                   @updatedAt
-  client_mappings WealthClientModelMapping[]
+  id                String                     @id @default(uuid())
+  org_id            String
+  name              String
+  description       String?
+  model_type        WealthModelType
+  version           String                     @default("1.0")
+  min_investment_cr Float?
+  is_published      Boolean                    @default(false)
+  approved_by       String?
+  approved_at       DateTime?
+  data              Json?
+  created_at        DateTime                   @default(now())
+  updated_at        DateTime                   @updatedAt
 
+  org               WealthOrganisation         @relation(fields: [org_id], references: [id], onDelete: Cascade)
+  client_mappings   WealthClientModelMapping[]
+
+  @@index([org_id])
   @@index([model_type])
   @@map("wealth_approved_models")
 }
@@ -1282,6 +1532,7 @@ model WealthClientModelMapping {
   client_id   String
   model_id    String
   assigned_at DateTime            @default(now())
+
   client      WealthClient        @relation(fields: [client_id], references: [id], onDelete: Cascade)
   model       WealthApprovedModel @relation(fields: [model_id], references: [id], onDelete: Cascade)
 
@@ -1291,16 +1542,79 @@ model WealthClientModelMapping {
   @@map("wealth_client_model_mappings")
 }
 
+model WealthCampaign {
+  id               String                    @id @default(uuid())
+  org_id           String
+  created_by       String
+  name             String
+  campaign_type    WealthCampaignType
+  target_segment   WealthClientSegment?
+  target_rm_id     String?
+  status           WealthCampaignStatus      @default(draft)
+  message_template String?
+  scheduled_at     DateTime?
+  sent_at          DateTime?
+  client_count     Int                       @default(0)
+  created_at       DateTime                  @default(now())
+  updated_at       DateTime                  @updatedAt
+
+  org              WealthOrganisation        @relation(fields: [org_id], references: [id], onDelete: Cascade)
+  recipients       WealthCampaignRecipient[]
+
+  @@index([org_id, status])
+  @@map("wealth_campaigns")
+}
+
+model WealthCampaignRecipient {
+  id          String         @id @default(uuid())
+  campaign_id String
+  client_id   String
+  status      String         @default("pending")
+  sent_at     DateTime?
+
+  campaign    WealthCampaign @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+  client      WealthClient   @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@unique([campaign_id, client_id])
+  @@index([campaign_id])
+  @@map("wealth_campaign_recipients")
+}
+
+model WealthDataImport {
+  id           String             @id @default(uuid())
+  org_id       String
+  initiated_by String
+  entity_type  WealthImportEntity
+  file_name    String
+  file_url     String?
+  status       WealthImportStatus @default(pending)
+  total_rows   Int?
+  success_rows Int?
+  error_rows   Int?
+  errors       Json?
+  created_at   DateTime           @default(now())
+  completed_at DateTime?
+
+  org          WealthOrganisation @relation(fields: [org_id], references: [id], onDelete: Cascade)
+
+  @@index([org_id])
+  @@index([status])
+  @@map("wealth_data_imports")
+}
+
 model WealthAuditLog {
-  id           String   @id @default(uuid())
+  id           String             @id @default(uuid())
+  org_id       String
   entity_type  String
   entity_id    String
   action       String
   performed_by String?
-  timestamp    DateTime @default(now())
+  timestamp    DateTime           @default(now())
   payload      Json?
 
-  @@index([entity_type, entity_id])
+  org          WealthOrganisation @relation(fields: [org_id], references: [id], onDelete: Cascade)
+
+  @@index([org_id, entity_type, entity_id])
   @@index([performed_by])
   @@index([timestamp])
   @@map("wealth_audit_logs")
@@ -1353,6 +1667,7 @@ model User {
   smallcase_user    SmallcaseUser?
   error_reports     ErrorReport[]
   journals          Journal[]
+  wealth_memberships WealthOrgMember[]
 
   @@index([email])
   @@index([mobile])
@@ -1958,6 +2273,12 @@ enum AccountType {
   investor
 }
 
+enum WealthOrgRole {
+  super_admin
+  cio
+  rm
+}
+
 enum WealthClientSegment {
   HNI
   UHNI
@@ -1972,12 +2293,124 @@ enum WealthRiskProfile {
   aggressive
 }
 
+enum WealthClientStatus {
+  prospect
+  onboarding
+  active
+  dormant
+  churned
+}
+
+enum WealthKycStatus {
+  not_started
+  pending
+  complete
+  expired
+}
+
+enum WealthClientSource {
+  referral
+  walk_in
+  digital
+  inherited
+  cold_outreach
+}
+
+enum WealthAssetClass {
+  equity
+  debt
+  mutual_fund
+  etf
+  pms
+  aif
+  reit
+  real_estate
+  gold
+  cash
+  other
+}
+
+enum WealthHoldingAlertType {
+  critical_drift
+  overweight
+  underweight
+  rebalance_due
+  policy_breach
+  value_below_threshold
+}
+
+enum WealthAlertSeverity {
+  low
+  medium
+  high
+  critical
+}
+
 enum WealthInteractionType {
   call
   email
-  whatsapp
   meeting
   sms
+  whatsapp
+  whatsapp_note
+}
+
+enum WealthInteractionSentiment {
+  positive
+  neutral
+  negative
+}
+
+enum WealthInteractionOutcome {
+  positive
+  neutral
+  negative
+  needs_follow_up
+  no_show
+}
+
+enum WealthTaskType {
+  call
+  meeting
+  email
+  portfolio_review
+  document_collection
+  compliance
+  other
+}
+
+enum WealthTaskStatus {
+  open
+  in_progress
+  done
+  cancelled
+  overdue
+}
+
+enum WealthOpportunityCategory {
+  client_asked
+  life_event
+  idle_cash
+  coverage_gap
+  rebalance
+  tax_saving
+  new_product
+  estate_planning
+}
+
+enum WealthOppSourceType {
+  ai_generated
+  interaction_note
+  life_event_trigger
+  portfolio_alert
+  manual
+}
+
+enum WealthOppStatus {
+  open
+  actioned
+  dismissed
+  expired
 }
 
 enum WealthSuggestionPriority {
@@ -1999,6 +2432,37 @@ enum WealthModelType {
   structured
   pms
   aif
+}
+
+enum WealthCampaignType {
+  email_blast
+  portfolio_review_invite
+  tax_brief
+  sweep_proposal
+  market_update
+}
+
+enum WealthCampaignStatus {
+  draft
+  scheduled
+  sending
+  sent
+  cancelled
+}
+
+enum WealthImportEntity {
+  clients
+  holdings
+  interactions
+  portfolio_snapshot
+}
+
+enum WealthImportStatus {
+  pending
+  processing
+  completed
+  completed_with_errors
+  failed
 }
 
 enum SubscriptionPlan {

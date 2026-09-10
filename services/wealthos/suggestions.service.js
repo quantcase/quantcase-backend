@@ -3,12 +3,14 @@
 const prisma    = require('../../config/prisma');
 const jobQueue  = require('../../lib/jobQueue');
 const { computePriorityScore } = require('./scoring.service');
-const { writeAuditLog }        = require('./clients.service');
+const { writeAuditLog, getClientById } = require('./clients.service');
 
 const MAX_CLIENTS_PER_JOB = 20;
 
-async function listSuggestionsForClient(clientId, filters = {}) {
-  const where = { client_id: clientId };
+async function listSuggestionsForClient(orgId, clientId, filters = {}) {
+  await getClientById(orgId, clientId);
+
+  const where = { client_id: clientId, client: { org_id: orgId } };
   if (filters.status)   where.status   = filters.status;
   if (filters.priority) where.priority = filters.priority;
 
@@ -18,18 +20,25 @@ async function listSuggestionsForClient(clientId, filters = {}) {
   });
 }
 
-async function enqueueSuggestionGeneration(clientIds, rmId) {
-  // Resolve client list — either from explicit ids or from rmId
+async function enqueueSuggestionGeneration(orgId, clientIds, rmProfileId) {
   let clients;
   if (clientIds && clientIds.length > 0) {
     clients = await prisma.wealthClient.findMany({
-      where:   { id: { in: clientIds } },
-      include: { portfolio: true },
+      where:   { id: { in: clientIds }, org_id: orgId },
+      include: {
+        portfolio: {
+          include: { holdings: true },
+        },
+      },
     });
   } else {
     clients = await prisma.wealthClient.findMany({
-      where:   { rm_id: rmId },
-      include: { portfolio: true },
+      where:   { rm_profile_id: rmProfileId, org_id: orgId },
+      include: {
+        portfolio: {
+          include: { holdings: true },
+        },
+      },
     });
   }
 
@@ -40,20 +49,28 @@ async function enqueueSuggestionGeneration(clientIds, rmId) {
   }
 
   // Score each client and build job payload entries
-  const clientPayloads = clients.map(client => {
+  const clientPayloads = clients.map((client) => {
     const { score, components, priority } = computePriorityScore(client, client.portfolio);
     return {
       clientId:      client.id,
       clientData:    {
-        id:               client.id,
-        name:             client.name,
-        segment:          client.segment,
-        risk_profile:     client.risk_profile,
-        engagement_score: client.engagement_score,
-        churn_probability:client.churn_probability,
-        last_contact_at:  client.last_contact_at,
+        id:                client.id,
+        name:              client.name,
+        segment:           client.segment,
+        risk_profile:      client.risk_profile,
+        engagement_score:  client.engagement_score,
+        churn_probability: client.churn_probability,
+        last_contact_at:   client.last_contact_at,
       },
-      portfolioData: client.portfolio ?? null,
+      portfolioData: client.portfolio
+        ? {
+            id:                  client.portfolio.id,
+            total_value_cr:      client.portfolio.total_value_cr,
+            risk_score:          client.portfolio.risk_score,
+            last_rebalance_date: client.portfolio.last_rebalance_date,
+            holdings:            client.portfolio.holdings || [],
+          }
+        : null,
       score,
       components,
       priority,
@@ -66,8 +83,9 @@ async function enqueueSuggestionGeneration(clientIds, rmId) {
     const batch = clientPayloads.slice(i, i + MAX_CLIENTS_PER_JOB);
     const job   = await jobQueue.addJob('wealthos_suggestion', {
       type:    'wealthos_suggestion',
+      orgId,
       clients: batch,
-      rmId:    rmId ?? null,
+      rmId:    rmProfileId ?? null,
     });
     jobs.push({ id: job.id, status: 'pending', clientCount: batch.length });
   }
@@ -75,8 +93,14 @@ async function enqueueSuggestionGeneration(clientIds, rmId) {
   return jobs;
 }
 
-async function updateSuggestionStatus(suggestionId, status, rmId) {
-  const suggestion = await prisma.wealthSuggestion.findUnique({ where: { id: suggestionId } });
+async function updateSuggestionStatus(orgId, suggestionId, status, rmProfileId) {
+  const suggestion = await prisma.wealthSuggestion.findFirst({
+    where: {
+      id:     suggestionId,
+      client: { org_id: orgId },
+    },
+  });
+
   if (!suggestion) {
     const err = new Error('Suggestion not found');
     err.status = 404;
@@ -88,15 +112,15 @@ async function updateSuggestionStatus(suggestionId, status, rmId) {
     data:  { status, updated_at: new Date() },
   });
 
-  await writeAuditLog('suggestion', suggestionId, status, rmId, { status });
+  await writeAuditLog(orgId, 'suggestion', suggestionId, status, rmProfileId, { status });
 
-  // If the RM acted on a suggestion, log it as an action
+  // If acted upon, record action
   if (status === 'used') {
     await prisma.wealthAction.create({
       data: {
         suggestion_id: suggestionId,
         client_id:     suggestion.client_id,
-        rm_id:         rmId ?? null,
+        rm_id:         rmProfileId ?? null,
         action_type:   'used_suggestion',
         content:       suggestion.message ?? null,
       },
