@@ -10,6 +10,7 @@ const { upsertNewKpis }                  = require('../services/db/kpis.db');
 const { loadSkillConfig }                = require('../utils/skillConfig');
 const { computeSourceHash, computePromptVersion } = require('../utils/sourceHash');
 const { downloadPdfCached }              = require('../utils/pdfCache');
+const identity                           = require('../services/dashboard/identity');
 
 const SKILL_SLUG      = 'summarization-v2-annual-report';
 const FISCAL_YEAR_END = process.env.FISCAL_YEAR_END || '03-31';
@@ -49,12 +50,12 @@ function pdfContent(base64) {
   return { type: 'file', file: { file_data: `data:application/pdf;base64,${base64}` } };
 }
 
-// ─── KPI reference ────────────────────────────────────────────────────────────
+const MAX_EXISTING_KPIS = 200;
 
 async function getExistingKpisForPrompt(basicIndustry) {
   const transcriptWhere = basicIndustry
     ? { source: 'transcript', industry: { has: basicIndustry } }
-    : { source: 'transcript' };
+    : null;
   const [qeKpis, transcriptKpis] = await Promise.all([
     // Raw leaves only -- a computed/formula Kpi (STOCK_CAGR_3Y, TTM_EBITDA,
     // REV_CAGR_5Y, ...) is a derived ratio, never something a transcript
@@ -63,11 +64,14 @@ async function getExistingKpisForPrompt(basicIndustry) {
     // never actually appear as an extractable raw value. registry_enabled
     // is deliberately NOT filtered on -- that flag belongs to the
     // formulaRegistry/resolver pipeline, unrelated to this one.
-    prisma.kpi.findMany({ where: { source: 'QE', formula_expression: null } }),
-    prisma.kpi.findMany({ where: transcriptWhere }),
+    prisma.kpi.findMany({ where: { source: 'QE', formula_expression: null }, take: MAX_EXISTING_KPIS }),
+    transcriptWhere
+      ? prisma.kpi.findMany({ where: transcriptWhere, take: MAX_EXISTING_KPIS })
+      : Promise.resolve([]),
   ]);
   return [...qeKpis, ...transcriptKpis]
     .filter(k => !/^new_kpis/i.test(k.abbr))
+    .slice(0, MAX_EXISTING_KPIS)
     .map(k => ({
       id:           k.id,
       abbr:         k.abbr,
@@ -158,6 +162,32 @@ function derivePriorArFyEnd(arFyEnd) {
   return `${year - 1}-${FISCAL_YEAR_END}`;
 }
 
+// ─── Resolve basic industry with multi-tier fallback ──────────────────────────
+
+async function resolveBasicIndustry(company) {
+  if (!company) return null;
+
+  // 1. Look up from earnings_calls if available
+  const callMeta = await prisma.earnings_calls.findFirst({
+    where:  { company },
+    select: { basic_industry: true },
+  });
+  if (callMeta?.basic_industry) return callMeta.basic_industry;
+
+  // 2. In-memory master index (lib/osc_identity.csv)
+  const idMeta = identity.lookup(company);
+  if (idMeta?.basicIndustry) return idMeta.basicIndustry;
+
+  // 3. Screener ticker table fallback
+  const screenTicker = await prisma.screenTicker.findFirst({
+    where:  { ticker: company },
+    select: { basicIndustry: true },
+  });
+  if (screenTicker?.basicIndustry) return screenTicker.basicIndustry;
+
+  return null;
+}
+
 // ─── Job processor ────────────────────────────────────────────────────────────
 // Each job = one PDF chunk (page range). The dispatcher in jobs.service.js
 // splits the annual report PDF into chunks and enqueues N jobs sharing one lineageId.
@@ -187,12 +217,8 @@ async function processSummarizationV2AnnualReportJob(job) {
   const report = await prisma.annual_reports.findUnique({ where: { id: BigInt(reportId) } });
   if (!report) throw new Error(`Annual report ${reportId} not found`);
 
-  // Look up basic_industry from earnings_calls using company name
-  const callMeta = await prisma.earnings_calls.findFirst({
-    where:  { company: report.company },
-    select: { basic_industry: true },
-  });
-  const basicIndustry = callMeta?.basic_industry ?? null;
+  // Look up basic_industry with multi-tier fallback (earnings_calls -> identity index -> screenTicker)
+  const basicIndustry = await resolveBasicIndustry(report.company);
 
   const existingKpis = await getExistingKpisForPrompt(basicIndustry);
   wlog.info(`[${SKILL_SLUG}] ${existingKpis.length} KPIs loaded`);
