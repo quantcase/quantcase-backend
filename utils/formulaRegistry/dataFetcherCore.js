@@ -39,8 +39,9 @@ function _matchProwessName(companyName) {
   let best = null, bestScore = 0;
   for (const name of names) {
     const normC = _normName(name);
-    if (!normC.includes(words[0])) continue;
-    const matchCount = words.filter(w => normC.includes(w)).length;
+    const targetWords = normC.split(' ');
+    if (!targetWords.includes(words[0])) continue;
+    const matchCount = words.filter(w => targetWords.includes(w)).length;
     const score      = matchCount / words.length;
     if (score > bestScore && score >= 0.5) {
       bestScore = score;
@@ -63,15 +64,15 @@ const _nameCache = new Map();
 async function resolveProwessName(prisma, ticker) {
   if (_nameCache.has(ticker)) return _nameCache.get(ticker);
 
-  const ec = await prisma.earnings_calls.findFirst({
-    where:  { company: ticker },
-    select: { company_name: true },
-  });
-  let prowessName = ec?.company_name ? _matchProwessName(ec.company_name) : null;
+  const identityMap = loadIdentityMap();
+  let prowessName = identityMap[ticker] ?? null;
 
   if (!prowessName) {
-    const identityMap = loadIdentityMap();
-    prowessName = identityMap[ticker] ?? null;
+    const ec = await prisma.earnings_calls.findFirst({
+      where:  { company: ticker },
+      select: { company_name: true },
+    });
+    prowessName = ec?.company_name ? _matchProwessName(ec.company_name) : null;
   }
 
   _nameCache.set(ticker, prowessName);
@@ -94,18 +95,28 @@ async function warmProwessNameCache(prisma, tickers) {
   const uncached = [...new Set(tickers)].filter(t => !_nameCache.has(t));
   if (!uncached.length) return;
 
+  const identityMap = loadIdentityMap();
+  const needEc = [];
+  for (const ticker of uncached) {
+    const fromMap = identityMap[ticker];
+    if (fromMap) {
+      _nameCache.set(ticker, fromMap);
+    } else {
+      needEc.push(ticker);
+    }
+  }
+  if (!needEc.length) return;
+
   const rows = await prisma.earnings_calls.findMany({
-    where:    { company: { in: uncached } },
+    where:    { company: { in: needEc } },
     select:   { company: true, company_name: true },
     distinct: ['company'],
   });
   const nameByTicker = new Map(rows.map(r => [r.company, r.company_name]));
 
-  const identityMap = loadIdentityMap();
-  for (const ticker of uncached) {
+  for (const ticker of needEc) {
     const companyName = nameByTicker.get(ticker);
-    let prowessName = companyName ? _matchProwessName(companyName) : null;
-    if (!prowessName) prowessName = identityMap[ticker] ?? null;
+    const prowessName = companyName ? _matchProwessName(companyName) : null;
     _nameCache.set(ticker, prowessName);
   }
 }

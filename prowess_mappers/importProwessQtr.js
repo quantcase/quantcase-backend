@@ -26,17 +26,22 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const path = require('path');
 const { ProwessUploader } = require('./ProwessUploader');
 
-const csvArg  = process.argv.find(a => a.startsWith('--csv='));
-const csvPath = csvArg
+const csvArg   = process.argv.find(a => a.startsWith('--csv='));
+const srcArg   = process.argv.find(a => a.startsWith('--source-type=') || a.startsWith('--source_type='));
+const limitArg = process.argv.find(a => a.startsWith('--limit='));
+const csvPath  = csvArg
   ? path.resolve(csvArg.split('=')[1])
   : path.join(__dirname, '../tmp/quartely_2025-2026.csv');
+const sourceType = srcArg ? srcArg.split('=')[1].toUpperCase() : undefined;
 
 new ProwessUploader({
   table:          'prowess_values_new',
   constraintName: 'pnv_call_kpi_unique',
   csvPath,
+  sourceType,
   doInsert: process.argv.includes('--insert'),
   doClear:  process.argv.includes('--clear'),
+  rowLimit: limitArg ? parseInt(limitArg.split('=')[1], 10) : undefined,
 }).run('quarterly').catch(err => {
   console.error('\n✗ Error:', err.message);
   process.exit(1);

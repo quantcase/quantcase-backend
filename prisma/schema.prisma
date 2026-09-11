@@ -1174,7 +1174,8 @@ model WealthOrgMember {
 
   org         WealthOrganisation @relation(fields: [org_id], references: [id], onDelete: Cascade)
   user        User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  rm_profile  WealthRmProfile?
+  rm_profile  WealthRmProfile?   @relation("MemberProfile")
+  managed_rms WealthRmProfile[]  @relation("CioRms")
 
   @@unique([org_id, user_id])
   @@index([org_id, role])
@@ -1182,22 +1183,24 @@ model WealthOrgMember {
 }
 
 model WealthRmProfile {
-  id                String       @id @default(uuid())
+  id                String              @id @default(uuid())
   org_id            String
-  member_id         String       @unique
+  member_id         String              @unique
+  cio_member_id     String?
   display_name      String
   email             String?
   phone             String?
   team              String?
-  performance_score Float        @default(0)
+  performance_score Float               @default(0)
   target_aum_cr     Float?
-  total_aum_cr      Float        @default(0)
+  total_aum_cr      Float               @default(0)
   notes             String?
-  created_at        DateTime     @default(now())
-  updated_at        DateTime     @updatedAt
+  created_at        DateTime            @default(now())
+  updated_at        DateTime            @updatedAt
 
   org               WealthOrganisation  @relation(fields: [org_id], references: [id], onDelete: Cascade)
-  member            WealthOrgMember     @relation(fields: [member_id], references: [id], onDelete: Cascade)
+  member            WealthOrgMember     @relation("MemberProfile", fields: [member_id], references: [id], onDelete: Cascade)
+  cio_member        WealthOrgMember?    @relation("CioRms", fields: [cio_member_id], references: [id], onDelete: SetNull)
   clients           WealthClient[]
   tasks             WealthTask[]
   interactions      WealthInteraction[]
@@ -1205,6 +1208,7 @@ model WealthRmProfile {
   actions           WealthAction[]
 
   @@index([org_id])
+  @@index([cio_member_id])
   @@index([team])
   @@map("wealth_rm_profiles")
 }

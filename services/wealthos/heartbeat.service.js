@@ -188,6 +188,13 @@ async function getCioHeartbeat(orgId, cioMember, cioUser, filters = {}) {
   const rmWhere = { org_id: orgId };
   if (filters.rm_id) {
     rmWhere.id = filters.rm_id;
+  } else if (cioMember?.id) {
+    const assignedCount = await prisma.wealthRmProfile.count({
+      where: { org_id: orgId, cio_member_id: cioMember.id },
+    });
+    if (assignedCount > 0) {
+      rmWhere.cio_member_id = cioMember.id;
+    }
   }
 
   const rms = await prisma.wealthRmProfile.findMany({
@@ -222,8 +229,12 @@ async function getCioHeartbeat(orgId, cioMember, cioUser, filters = {}) {
   let totalAlerts = 0;
 
   // Level 0: CIO Node (Logged in CIO at Center)
-  const cioName = cioUser?.display_name || 'Vikramaditya Singhania';
+  const cioName = cioUser?.display_name || 'Chief Investment Officer';
   const cioNodeId = `cio-${cioMember?.id || 'desk'}`;
+  const cioTeam = cioUser?.email?.includes('devika')
+    ? 'Global & Alternative Strategies'
+    : 'Core Strategies & Equities';
+
   nodes.push({
     id:          cioNodeId,
     type:        'cio',
@@ -233,7 +244,7 @@ async function getCioHeartbeat(orgId, cioMember, cioUser, filters = {}) {
     initials:    getInitials(cioName),
     title:       'Chief Investment Officer',
     aum_cr:      0, // computed below
-    team:        `${org.name} Investment Committee`,
+    team:        `${cioTeam} · ${org.name}`,
     raw_id:      cioMember?.id || org.id,
     alert_count: 0,
   });
@@ -461,40 +472,81 @@ async function getAdminHeartbeat(orgId, adminMember, adminUser, filters = {}) {
   });
 
   // Level 1: CIO Desk(s)
-  const defaultCioMember = cioMembers[0];
-  const cioName = defaultCioMember?.user?.display_name || 'Vikramaditya Singhania';
-  const cioNodeId = `cio-${defaultCioMember?.id || 'cio-desk'}`;
+  const cioNodesMap = new Map();
 
-  nodes.push({
-    id:          cioNodeId,
-    type:        'cio',
-    role:        'cio',
-    stage:       1,
-    parent_id:   adminNodeId,
-    label:       cioName,
-    initials:    getInitials(cioName),
-    title:       'Chief Investment Officer',
-    aum_cr:      0,
-    team:        'Investment Committee',
-    alert_count: 0,
-    raw_id:      defaultCioMember?.id || 'cio',
-  });
+  if (cioMembers.length === 0) {
+    const defaultCioNodeId = 'cio-desk';
+    nodes.push({
+      id:          defaultCioNodeId,
+      type:        'cio',
+      role:        'cio',
+      stage:       1,
+      parent_id:   adminNodeId,
+      label:       'Chief Investment Officer',
+      initials:    'CI',
+      title:       'Chief Investment Officer',
+      aum_cr:      0,
+      team:        'Investment Committee',
+      alert_count: 0,
+      raw_id:      'cio-desk',
+    });
+    edges.push({
+      source: adminNodeId,
+      target: defaultCioNodeId,
+      type:   'admin_to_cio',
+    });
+    cioNodesMap.set('default', defaultCioNodeId);
+  } else {
+    cioMembers.forEach((cioMember, idx) => {
+      const cioName = cioMember.user?.display_name || `CIO Desk ${idx + 1}`;
+      const cioNodeId = `cio-${cioMember.id}`;
+      const cioTeam = cioMember.user?.email?.includes('devika')
+        ? 'Global & Alternative Strategies'
+        : 'Core Strategies & Equities';
 
-  edges.push({
-    source: adminNodeId,
-    target: cioNodeId,
-    type:   'admin_to_cio',
-  });
+      nodes.push({
+        id:          cioNodeId,
+        type:        'cio',
+        role:        'cio',
+        stage:       1,
+        parent_id:   adminNodeId,
+        label:       cioName,
+        initials:    getInitials(cioName),
+        title:       'Chief Investment Officer',
+        aum_cr:      0,
+        team:        cioTeam,
+        alert_count: 0,
+        raw_id:      cioMember.id,
+      });
+      edges.push({
+        source: adminNodeId,
+        target: cioNodeId,
+        type:   'admin_to_cio',
+      });
+      cioNodesMap.set(cioMember.id, cioNodeId);
+    });
+  }
 
   // Level 2: RMs
-  for (const rm of rms) {
+  const cioIdList = Array.from(cioNodesMap.values());
+  const cioAumMap = new Map();
+  const cioAlertMap = new Map();
+
+  for (let rmIdx = 0; rmIdx < rms.length; rmIdx++) {
+    const rm = rms[rmIdx];
     const rmNodeId = `rm-${rm.id}`;
     let rmAlertCount = 0;
     firmAum += rm.total_aum_cr || 0;
     firmClients += rm.clients.length;
 
+    // Determine parent CIO node id: match by cio_member_id or distribute evenly
+    let parentCioNodeId = rm.cio_member_id ? cioNodesMap.get(rm.cio_member_id) : null;
+    if (!parentCioNodeId) {
+      parentCioNodeId = cioIdList[rmIdx % cioIdList.length];
+    }
+
     edges.push({
-      source: cioNodeId,
+      source: parentCioNodeId,
       target: rmNodeId,
       type:   'cio_to_rm',
     });
@@ -584,7 +636,7 @@ async function getAdminHeartbeat(orgId, adminMember, adminUser, filters = {}) {
       type:         'rm',
       role:         'rm',
       stage:        2,
-      parent_id:    cioNodeId,
+      parent_id:    parentCioNodeId,
       label:        rm.display_name,
       initials:     getInitials(rm.display_name),
       title:        'Relationship Manager',
@@ -594,17 +646,22 @@ async function getAdminHeartbeat(orgId, adminMember, adminUser, filters = {}) {
       client_count: rm.clients.length,
       raw_id:       rm.id,
     });
+
+    // Accumulate AUM and alerts to parent CIO
+    cioAumMap.set(parentCioNodeId, (cioAumMap.get(parentCioNodeId) || 0) + (rm.total_aum_cr || 0));
+    cioAlertMap.set(parentCioNodeId, (cioAlertMap.get(parentCioNodeId) || 0) + rmAlertCount);
   }
 
   // Update aggregated center and cio node properties
   nodes[0].aum_cr = firmAum;
   nodes[0].alert_count = totalAlerts;
 
-  const cioNode = nodes.find(n => n.id === cioNodeId);
-  if (cioNode) {
-    cioNode.aum_cr = firmAum;
-    cioNode.alert_count = totalAlerts;
-  }
+  nodes.forEach((n) => {
+    if (n.type === 'cio') {
+      n.aum_cr = Math.round((cioAumMap.get(n.id) || 0) * 100) / 100;
+      n.alert_count = cioAlertMap.get(n.id) || 0;
+    }
+  });
 
   return {
     meta: {

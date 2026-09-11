@@ -134,12 +134,14 @@ class ProwessUploader {
    * @param {string}  [opts.constraintName] - UNIQUE constraint name (defaults to <table>_call_kpi_unique)
    * @param {number}  [opts.rowLimit]        - Cap data rows processed (for smoke-testing)
    */
-  constructor({ table, csvPath, doInsert, doClear, constraintName, rowLimit }) {
+  constructor({ table, csvPath, doInsert, doClear, constraintName, rowLimit, sourceType, companyFilter }) {
     this.table          = table;
     this.csvPath        = csvPath;
     this.doInsert       = doInsert;
     this.doClear        = doClear;
     this.rowLimit       = rowLimit ?? Infinity;
+    this.sourceType     = sourceType ? sourceType.toUpperCase() : null;
+    this.companyFilter  = companyFilter && companyFilter.length ? new Set(companyFilter.map(c => c.trim().toLowerCase())) : null;
     this._constraint    = constraintName ?? `${table}_call_kpi_unique`;
     this._idxPrefix     = this._constraint.replace('_call_kpi_unique', '');
     this.prisma         = new PrismaClient();
@@ -438,7 +440,10 @@ class ProwessUploader {
     const unitRow    = records[3];
     const yearRow    = records[4];
     const headers    = records[5];
-    const dataRows   = records.slice(6).filter(r => (r[0] || '').trim()).slice(0, this.rowLimit);
+    const dataRows   = records.slice(6).filter(r => {
+      const name = (r[0] || '').trim();
+      return name && (!this.companyFilter || this.companyFilter.has(name.toLowerCase()));
+    }).slice(0, this.rowLimit);
 
     console.log(`  Companies : ${dataRows.length}${this.rowLimit < Infinity ? ` (limited to ${this.rowLimit})` : ''}`);
     console.log(`  Columns   : ${headers.length}`);
@@ -446,8 +451,8 @@ class ProwessUploader {
     // 2. One file = one section (Consolidated or Standalone) -- see
     // detectSectionType's docblock for why this fails loudly instead of
     // guessing when both labels are present.
-    const sourceType = this.detectSectionType(sectionRow);
-    if (!sourceType) throw new Error('Could not determine section type ("Consolidated"/"Standalone") from row 3.');
+    const sourceType = this.sourceType || this.detectSectionType(sectionRow);
+    if (!sourceType) throw new Error('Could not determine section type ("Consolidated"/"Standalone") from row 3, and no --source-type was provided.');
     console.log(`  Section : ${sourceType === 'C' ? 'Consolidated' : 'Standalone'}`);
 
     // 3. Detect fiscal-year blocks (day-block convention -- the same ~20
@@ -623,17 +628,22 @@ class ProwessUploader {
     const unitRow  = records[3];
     const yearRow  = records[4];
     const headers  = records[5];
-    const dataRows = records.slice(6).filter(r => (r[0] || '').trim()).slice(0, this.rowLimit);
+    const dataRows = records.slice(6).filter(r => {
+      const name = (r[0] || '').trim();
+      return name && (!this.companyFilter || this.companyFilter.has(name.toLowerCase()));
+    }).slice(0, this.rowLimit);
 
     console.log(`  Companies : ${dataRows.length}${this.rowLimit < Infinity ? ` (limited to ${this.rowLimit})` : ''}`);
     console.log(`  Columns   : ${headers.length}`);
 
-    const sectionLabel = (records[2][1] || '').trim();
-    if (!sectionLabel.toLowerCase().includes('standalone')) {
-      console.warn(`  WARNING: expected "Standalone" in row 2, got: "${sectionLabel}"`);
+    // 2. Section type detection ('Consolidated' -> 'C', 'Standalone' -> 'S')
+    const sourceType = this.sourceType || this.detectSectionType(records[2]);
+    if (!sourceType) {
+      throw new Error('Could not determine section type ("Consolidated"/"Standalone") from row 3, and no --source-type was provided.');
     }
+    console.log(`  Section   : ${sourceType === 'C' ? 'Consolidated (C)' : 'Standalone (S)'}`);
 
-    // 2. Detect quarter blocks and parse their labels
+    // 3. Detect quarter blocks and parse their labels
     const blocks = this.detectLabelBlocks(yearRow);
     if (!blocks.length) throw new Error('No quarter blocks found in row 4.');
     for (const b of blocks) {
@@ -642,14 +652,14 @@ class ProwessUploader {
     }
     console.log(`  Quarters  : ${blocks.length} (${blocks.map(b => b.label).join(', ')})`);
 
-    // 3. Unit lookup + per-block column maps
+    // 4. Unit lookup + per-block column maps
     const colUnitByIdx = {};
     for (let i = 0; i < unitRow.length; i++) {
       colUnitByIdx[i] = CSV_UNIT_MAP[(unitRow[i] || '').trim()] ?? null;
     }
     for (const b of blocks) b.colMap = this.buildColMap(headers, b.start, b.end);
 
-    // 4. Resolve columns (first block) dynamically against
+    // 5. Resolve columns (first block) dynamically against
     // kpis.abbr/quarterly_prowess_name -- no hardcoded map or required-column
     // gate any more (see the comment above QTR_STATEMENT_MAP).
     const firstBlockHeaders = Object.keys(blocks[0].colMap);
@@ -666,7 +676,7 @@ class ProwessUploader {
     }
     const effectiveColMap = dynamicMap;
 
-    // 5. Build all rows
+    // 6. Build all rows
     console.log('Building rows…');
     const allRows = [];
     for (const dataRow of dataRows) {
@@ -680,7 +690,7 @@ class ProwessUploader {
         const hasAny = Object.values(block.colMap).some(idx => (dataRow[idx] || '').trim());
         if (!hasAny) continue;
 
-        const callId = `prowess_qtr_${this.normalizeName(company)}_${fiscalYear}_${quarter}_S`;
+        const callId = `prowess_qtr_${this.normalizeName(company)}_${fiscalYear}_${quarter}_${sourceType}`;
 
         for (const [colName, abbr] of Object.entries(effectiveColMap)) {
           const idx = block.colMap[colName];
@@ -694,7 +704,7 @@ class ProwessUploader {
           const mult = UNIT_MULTIPLIER[unit] ?? 1;
 
           allRows.push({
-            callId, company, source_type: 'S',
+            callId, company, source_type: sourceType,
             fiscal_year: fiscalYear, quarter, call_date: endDate,
             kpi_abbr:    abbr,
             value:       parseFloat((num * mult).toFixed(4)),
