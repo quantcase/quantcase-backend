@@ -776,6 +776,7 @@ class ProwessUploader {
     const report = {
       mode: 'quarterly', table, inserted: false,
       companiesInCsv: dataRows.length, columnsInCsv: headers.length,
+      sourceType,
       quarters: blocks.map(b => b.label),
       dynamicIndicatorsMatched: dynamicMap, unmatchedColumns: unmatched,
       totalRows: finalRows.length, rowsByQuarter: byQtr, rowsByKpi: byAbbr,
