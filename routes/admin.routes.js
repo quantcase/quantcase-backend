@@ -170,6 +170,10 @@ router.use('/prowess/batch', prowessBatchRouter);
 
 router.use('/prowess/coverage', prowessCoverageRouter);
 
+// ─── Ticker Processing Status / Ticker Completeness Matrix ────────────────
+const tickerStatusRouter = require('./admin.tickerStatus.routes');
+router.use('/ticker-status', tickerStatusRouter);
+
 // ─── Invites (invite-only registration) ─────────────────────────────────────
 
 router.use('/invites', invitesRouter);
