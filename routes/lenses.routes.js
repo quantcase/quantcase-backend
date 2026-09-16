@@ -2,6 +2,7 @@
 
 const { Router } = require('express');
 const prisma = require('../config/prisma');
+const cache  = require('../lib/cache');
 const {
   composeLens,
   composeAllLenses,
@@ -16,19 +17,33 @@ const router = Router();
 // GET /api/lenses?ticker=&category= — lens scores grouped by category for the latest available quarter
 router.get('/', async (req, res, next) => {
   try {
-    const { ticker, category } = req.query;
+    const { ticker, category, refresh } = req.query;
     if (!ticker) return res.status(400).json({ error: 'ticker is required' });
+
+    const sym = ticker.toUpperCase();
+    const cacheKey = `qc:lenses:${sym}:${category || 'all'}`;
+
+    if (refresh === '1') {
+      await cache.del(cacheKey);
+    } else {
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+    }
 
     // Resolve the call_id with the most recently computed non-stale score for this ticker
     const latest = await prisma.lensScore.findFirst({
-      where:   { ticker, is_stale: false },
+      where:   { ticker: sym, is_stale: false },
       select:  { call_id: true },
       orderBy: { computed_at: 'desc' },
     });
-    if (!latest) return res.json({ ticker, callId: null, categories: {} });
+    if (!latest) return res.json({ ticker: sym, callId: null, categories: {} });
 
     const result = await getLensesByCategory(latest.call_id, category);
-    res.json({ ...result, ticker });
+    const payload = { ...result, ticker: sym };
+    cache.set(cacheKey, payload, 7 * 86400).catch(() => {});
+    res.json(payload);
   } catch (err) {
     next(err);
   }

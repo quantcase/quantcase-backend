@@ -49,6 +49,10 @@ const enqueuePostHtmlAnalysis = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, error: `Invalid types for layer_id=${layerId}. Valid values: ${allowedTypes.join(', ')}` });
   }
 
+  if (forceRefresh) {
+    await cache.delByPattern(`qc:analysis:${ticker.toUpperCase()}:*`);
+  }
+
   const jobs = await postHtmlAnalysisService.enqueuePostHtmlAnalysis(ticker, validTypes, layerId, {
     forceRefresh: !!forceRefresh,
     fiscal_year: fiscal_year || undefined,
@@ -69,7 +73,7 @@ const enqueuePostHtmlAnalysis = asyncHandler(async (req, res) => {
  * Returns stored PostHtmlAnalysis results.
  */
 const getPostHtmlAnalysis = asyncHandler(async (req, res) => {
-  const { ticker, layer_id, type } = req.query;
+  const { ticker, layer_id, type, refresh } = req.query;
   if (!ticker) return res.status(400).json({ success: false, error: 'ticker is required' });
 
   const layerId = String(layer_id || 'l3').trim().toLowerCase();
@@ -89,6 +93,11 @@ const getPostHtmlAnalysis = asyncHandler(async (req, res) => {
 
   const sortedTypes = types.slice().sort().join(',');
   const cacheKey = `qc:analysis:${ticker.toUpperCase()}:${layerId}:${sortedTypes}`;
+
+  if (refresh === '1') {
+    await cache.del(cacheKey);
+  }
+
   const rows = await cache.getOrSet(cacheKey, 7 * 86400, () => postHtmlAnalysisService.getPostHtmlAnalysis(ticker, layerId, types));
   res.json({ success: true, data: { ticker, layer_id: layerId, results: rows } });
 });

@@ -130,6 +130,8 @@ async function processPostHtmlAnalysisJob(job) {
     console.log(`[PostHtmlAnalysis] post_html_analysis upserted for ${ticker}/${layerId}/${type}`);
     cache.delByPattern(`qc:analysis:${ticker.toUpperCase()}:*`).catch(() => {});
     cache.del(`qc:stock:${ticker.toUpperCase()}:info`).catch(() => {});
+    cache.delByPattern('qc:peers:industry:*').catch(() => {});
+    cache.delByPattern('qc:stock:*:peers').catch(() => {});
 
     await prisma.job.update({
       where: { bullmqId: job.id },
