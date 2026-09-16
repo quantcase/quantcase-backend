@@ -75,9 +75,11 @@ function roundTo(v, decimals) {
  * completely disconnected, non-registry `computeRoce` formula).
  */
 async function _resolvePeerColumns(resCtx, config) {
+  if (!resCtx || !config || !Array.isArray(config.items)) return {};
   const out = {};
-  for (const item of config.items) {
-    if (item.company_group_slug && !(await resCtx.isCompanyInGroup(item.company_group_slug))) continue;
+  await Promise.all(config.items.map(async (item) => {
+    if (!item.kpi_abbr) return;
+    if (item.company_group_slug && !(await resCtx.isCompanyInGroup(item.company_group_slug))) return;
     const mapping = PEER_COLUMN_MAP[item.kpi_abbr];
     let freq = mapping?.frequency;
     if (!freq) {
@@ -95,7 +97,7 @@ async function _resolvePeerColumns(resCtx, config) {
     if (mapping?.field) {
       out[mapping.field] = val;
     }
-  }
+  }));
   return out;
 }
 
@@ -155,13 +157,12 @@ async function getMetricsForTickers(symbols) {
     };
   }
 
-  const tickers = [];
-  for (const sym of known) {
-    const idRow  = symbolIndex[sym];
-    const resCtx = resCtxMap.get(sym);
+  const tickers = await Promise.all(known.map(async (sym) => {
+    const idRow     = symbolIndex[sym];
+    const resCtx    = resCtxMap.get(sym);
     const columns   = config ? await _resolvePeerColumns(resCtx, config) : {};
     const modScores = modScoresMap[sym] || {};
-    const snap = snapshots[sym] || {};
+    const snap      = snapshots[sym] || {};
 
     let peType = null;
     if (snap.pe != null) {
@@ -172,7 +173,7 @@ async function getMetricsForTickers(symbols) {
       peType = 'standalone';
     }
 
-    tickers.push({
+    return {
       symbol: sym,
       name:          (idRow[ID_COL_NAME] || '').trim(),
       basicIndustry: (idRow[ID_COL_NSE_BASIC_IND] || '').trim() || null,
@@ -191,36 +192,51 @@ async function getMetricsForTickers(symbols) {
       management:    modScores.management  ?? null,
       opportunity:   modScores.opportunity ?? null,
       deal:          modScores.deal        ?? null,
-    });
-  }
+    };
+  }));
 
   return { tickers, notFound };
 }
 
+let _quarterLabelsCache = null;
+let _quarterLabelsExpiry = 0;
+const LABELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour in-memory cache
+
 /**
- * Latest and year-ago quarter labels the metrics are drawn from — a single,
- * DB-derived representative label across the whole company universe
- * (replaces the old CSV's own fixed 8-quarter column structure, which was
- * implicitly the same "one global label" idea). "Year ago" is 4 positions
- * back in the distinct sorted period list, matching the old CSV's positional
- * LATEST-4 semantics.
+ * Latest and year-ago quarter labels the metrics are drawn from.
+ * Uses a fast grouped query with 1-hour in-memory cache to avoid heavy full table scans.
  */
 async function getQuarterLabels() {
-  const rows = await prisma.prowessValueNew.findMany({
-    where:    { callId: { startsWith: 'prowess_qtr_' } },
-    select:   { fiscal_year: true, quarter: true },
-    distinct: ['fiscal_year', 'quarter'],
-  });
-  const sorted = [...new Set(rows.map((r) => `${r.fiscal_year}|${r.quarter}`))].sort();
-  const fmt = (key) => {
-    if (!key) return null;
-    const [fy, q] = key.split('|');
-    return `${q} ${fy}`;
-  };
-  return {
-    latestQuarter:  fmt(sorted.at(-1)),
-    yearAgoQuarter: sorted.length > 4 ? fmt(sorted.at(-5)) : null,
-  };
+  const now = Date.now();
+  if (_quarterLabelsCache && now < _quarterLabelsExpiry) {
+    return _quarterLabelsCache;
+  }
+
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT fiscal_year, quarter
+      FROM prowess_values_new
+      WHERE call_id LIKE 'prowess_qtr_%'
+        AND fiscal_year IS NOT NULL
+        AND quarter IS NOT NULL
+      GROUP BY fiscal_year, quarter
+    `;
+    const sorted = [...new Set(rows.map((r) => `${r.fiscal_year}|${r.quarter}`))].sort();
+    const fmt = (key) => {
+      if (!key) return null;
+      const [fy, q] = key.split('|');
+      return `${q} ${fy}`;
+    };
+    _quarterLabelsCache = {
+      latestQuarter:  fmt(sorted.at(-1)),
+      yearAgoQuarter: sorted.length > 4 ? fmt(sorted.at(-5)) : null,
+    };
+    _quarterLabelsExpiry = now + LABELS_CACHE_TTL_MS;
+    return _quarterLabelsCache;
+  } catch (err) {
+    if (_quarterLabelsCache) return _quarterLabelsCache;
+    throw err;
+  }
 }
 
 module.exports = { getMetricsForTickers, getQuarterLabels };
