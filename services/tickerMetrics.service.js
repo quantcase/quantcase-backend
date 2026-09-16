@@ -3,7 +3,7 @@
 const peerIdentity = require('../lib/peerIdentity');
 const prisma = require('../config/prisma');
 const { createMultiCompanyResolutionContext, resolveMetric } = require('../utils/formulaRegistry');
-const { fetchMarketSnapshots } = require('../utils/formulaRegistry/dataFetcherMarket');
+const { fetchMarketSnapshots, DAILY_SERIES_FIELDS } = require('../utils/formulaRegistry/dataFetcherMarket');
 
 // Identity CSV column indices (0-based) — company name/industry classification,
 // not a fundamentals source, so this stays untouched (same CSV screener.
@@ -41,7 +41,7 @@ const PEER_COLUMN_MAP = {
   PAT_CAGR:      { field: 'qtrProfitVar', frequency: 'quarterly' },
   REV_OP:        { field: 'salesQtrCr',   frequency: 'quarterly' },
   REV_CAGR:      { field: 'qtrSalesVar',  frequency: 'quarterly' },
-  ROCE:          { field: 'roce',         frequency: 'annual' },
+  ROCE:          { field: 'roce',         frequency: 'quarterly' },
 };
 
 let _symbolIndex = null; // { SYMBOL: idRow }
@@ -77,12 +77,24 @@ function roundTo(v, decimals) {
 async function _resolvePeerColumns(resCtx, config) {
   const out = {};
   for (const item of config.items) {
-    const mapping = PEER_COLUMN_MAP[item.kpi_abbr];
-    if (!mapping) continue; // unmapped item -- skip rather than silently guess a field name
     if (item.company_group_slug && !(await resCtx.isCompanyInGroup(item.company_group_slug))) continue;
-    const res = await resolveMetric(item.kpi_abbr, resCtx, { frequency: mapping.frequency });
+    const mapping = PEER_COLUMN_MAP[item.kpi_abbr];
+    let freq = mapping?.frequency;
+    if (!freq) {
+      freq = DAILY_SERIES_FIELDS && DAILY_SERIES_FIELDS[item.kpi_abbr] ? 'daily' : 'quarterly';
+    }
+    let res = await resolveMetric(item.kpi_abbr, resCtx, { frequency: freq });
+    if (res.value == null && (freq === 'quarterly' || freq === 'annual')) {
+      const altFreq = freq === 'quarterly' ? 'annual' : 'quarterly';
+      const altRes = await resolveMetric(item.kpi_abbr, resCtx, { frequency: altFreq });
+      if (altRes.value != null) res = altRes;
+    }
     const decimals = item.decimal_places ?? config.decimal_places;
-    out[mapping.field] = roundTo(res.value, decimals);
+    const val = roundTo(res.value, decimals);
+    out[item.kpi_abbr] = val;
+    if (mapping?.field) {
+      out[mapping.field] = val;
+    }
   }
   return out;
 }
@@ -117,7 +129,7 @@ async function getMetricsForTickers(symbols) {
   if (known.length === 0) return { tickers: [], notFound };
 
   const [config, resCtxMap, modScoreRows, snapshots] = await Promise.all([
-    prisma.screenConfig.findUnique({ where: { key: PEERS_CONFIG_KEY }, include: { items: true } }),
+    prisma.screenConfig.findUnique({ where: { key: PEERS_CONFIG_KEY }, include: { items: { orderBy: { display_order: 'asc' } } } }),
     createMultiCompanyResolutionContext({ symbols: known }),
     // Use post_html_analysis (l3) — the active MOD-score pipeline — instead of
     // the legacy ai_insights table which is rarely refreshed and often empty.
