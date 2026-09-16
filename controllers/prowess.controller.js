@@ -1,6 +1,7 @@
 'use strict';
 
 const { r2, loadIdentityMap } = require('../lib/prowess');
+const cache = require('../lib/cache');
 
 const prisma = require('../config/prisma');
 const { fetchMonthlyOhlcv } = require('../utils/formulaRegistry/dataFetcherMarket');
@@ -120,6 +121,17 @@ async function getCharts(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
     const reportType = req.query.reportType;
+    const forceRefresh = req.query.refresh === '1';
+    const cacheKey = `qc:stock:${symbol}:charts:${reportType || 'all'}`;
+
+    if (forceRefresh) {
+      await cache.del(cacheKey);
+    } else {
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+    }
 
     const companyName = await resolveProwessName(prisma, symbol);
     if (!companyName) {
@@ -202,7 +214,7 @@ async function getCharts(req, res, next) {
       _buildChartGroup('charts.mcap-sales', resCtx),
     ]);
 
-    res.json({
+    const payload = {
       company: companyName,
       symbol,
       quarter: quarterLabel,
@@ -214,7 +226,10 @@ async function getCharts(req, res, next) {
         priceToBookGroup,
         mcSalesGroup,
       ].filter(Boolean),
-    });
+    };
+
+    cache.set(cacheKey, payload, 7 * 86400).catch(() => {});
+    res.json(payload);
   } catch (err) {
     next(err);
   }
@@ -244,6 +259,17 @@ async function getCharts(req, res, next) {
 async function getShareholding(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
+    const forceRefresh = req.query.refresh === '1';
+    const cacheKey = `qc:stock:${symbol}:shareholding`;
+
+    if (forceRefresh) {
+      await cache.del(cacheKey);
+    } else {
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+    }
 
     const identityMap = loadIdentityMap();
     const companyName = identityMap[symbol];
@@ -334,12 +360,15 @@ async function getShareholding(req, res, next) {
       },
     ];
 
-    res.json({
+    const payload = {
       company: companyName,
       symbol,
       quarters,
       sections,
-    });
+    };
+
+    cache.set(cacheKey, payload, 7 * 86400).catch(() => {});
+    res.json(payload);
   } catch (err) {
     next(err);
   }

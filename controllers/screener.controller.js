@@ -138,7 +138,9 @@ async function getTechnicals(req, res, next) {
     const forceRefresh = req.query.refresh === '1';
     const cacheKey = `qc:stock:${symbol}:technicals`;
 
-    if (!forceRefresh) {
+    if (forceRefresh) {
+      await cache.del(cacheKey);
+    } else {
       const cached = await cache.get(cacheKey);
       if (cached) {
         return res.json(cached);
@@ -175,28 +177,13 @@ async function getTechnicals(req, res, next) {
       }
     }
 
-    // Strip joined watchout strings from ruleEngine — decisionIntelligence has distilled versions
-    if (result.ruleEngine) {
-      const re = result.ruleEngine;
-      const buckets = [
-        re.structureEngine?.marketStructure,
-        re.structureEngine?.participation,
-        re.structureEngine?.priceStructure,
-        re.trendEngine?.trendQuality,
-        re.timingEngine?.momentum,
-        re.timingEngine?.volatility,
-        re.dominanceEngine?.leadership?.vsNifty,
-        re.dominanceEngine?.leadership?.vsSector,
-      ];
-      for (const bucket of buckets) {
-        if (!bucket) continue;
-        delete bucket.growthWatchout;
-        delete bucket.valueWatchout;
-      }
-    }
+    // Preserve growthWatchout & valueWatchout for indicator pill tooltips in DecisionIntelligenceBanner
 
     if (result.insightStatus === 'ready') {
       cache.set(cacheKey, result, 86400).catch(() => {});
+    } else {
+      // Cache the raw indicators with a shorter TTL (5 mins) so rapid poll requests don't hammer analyze()
+      cache.set(cacheKey, result, 300).catch(() => {});
     }
 
     res.json(result);
@@ -1110,10 +1097,14 @@ async function getFinancials(req, res, next) {
     const symbol = req.params.symbol.toUpperCase();
     const reportType = req.query.reportType;
     const forceRefresh = req.query.refresh === '1';
-    const cacheKey = `qc:stock:${symbol}:financials:${reportType || 'all'}`;
+    const cacheKey = `qc:stock:${symbol}:financials`;
 
-    if (!forceRefresh) {
-      const cached = await cache.get(cacheKey);
+    if (forceRefresh) {
+      await cache.del(cacheKey);
+      // Clean up legacy fragmented keys as well
+      cache.del([`${cacheKey}:all`, `${cacheKey}:C`, `${cacheKey}:S`]).catch(() => {});
+    } else {
+      const cached = await cache.get(cacheKey) || await cache.get(`${cacheKey}:${reportType || 'all'}`);
       if (cached) {
         return res.json(cached);
       }
@@ -1327,12 +1318,15 @@ async function getWyckoff(req, res, next) {
 async function getPeers(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
+    const forceRefresh = req.query.refresh === '1';
     const cacheKey = `qc:stock:${symbol}:peers`;
 
-    const cached = await cache.get(cacheKey);
-    if (cached) {
-      setCacheTillMidnightIst(res);
-      return res.json(cached);
+    if (!forceRefresh) {
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        setCacheTillMidnightIst(res);
+        return res.json(cached);
+      }
     }
 
     // ── 1. Find subject company in identity CSV ──────────────────────────────
@@ -1344,6 +1338,49 @@ async function getPeers(req, res, next) {
 
     const subjectBasicInd  = (subjectRow[ID_COL_NSE_BASIC_IND] || '').trim();
     const subjectIndGrp    = (subjectRow[ID_COL_INDUSTRY_GRP]  || '').trim();
+    const industryCacheKey = `qc:peers:industry:${subjectBasicInd}`;
+
+    const screenConfig = await prisma.screenConfig.findUnique({
+      where: { key: 'peers.columns' },
+      include: { items: { orderBy: { display_order: 'asc' } } },
+    });
+    const columns = screenConfig?.items?.map((it) => ({
+      key: it.kpi_abbr,
+      label: it.label,
+      decimalPlaces: it.decimal_places ?? screenConfig.decimal_places ?? 2,
+      displayOrder: it.display_order,
+    })) || [];
+
+    if (forceRefresh) {
+      await Promise.all([
+        cache.del(cacheKey),
+        cache.del(industryCacheKey),
+      ]);
+    } else {
+      // Fast path: check if another ticker in this basicIndustry has already cached raw peer metrics
+      const cachedIndustry = await cache.get(industryCacheKey);
+      if (cachedIndustry && Array.isArray(cachedIndustry.rawPeers)) {
+        const peers = cachedIndustry.rawPeers.map((t) => ({ ...t, isSubject: t.symbol === symbol }));
+        peers.sort((a, b) => {
+          if (a.isSubject) return -1;
+          if (b.isSubject) return 1;
+          return (b.marketCapCr ?? 0) - (a.marketCapCr ?? 0);
+        });
+        const payload = {
+          symbol,
+          basicIndustry: subjectBasicInd,
+          industryGroup: subjectIndGrp,
+          latestQuarter: cachedIndustry.latestQuarter,
+          yearAgoQuarter: cachedIndustry.yearAgoQuarter,
+          count: peers.length,
+          columns: cachedIndustry.columns || columns,
+          peers,
+        };
+        cache.set(cacheKey, payload, 86400).catch(() => {});
+        setCacheTillMidnightIst(res);
+        return res.json(payload);
+      }
+    }
 
     // ── 2. Find all peers in same basic industry ─────────────────────────────
     // Include subject itself so it appears in the table (highlighted by caller)
@@ -1359,6 +1396,15 @@ async function getPeers(req, res, next) {
     // ── 3. Build metric rows (shared with GET /api/tickers) ──────────────────
     const { tickers } = await tickerMetrics.getMetricsForTickers(nseSymbols);
     const { latestQuarter, yearAgoQuarter } = await tickerMetrics.getQuarterLabels();
+
+    // Cache industry-level raw metrics to serve all peers in this industry instantly
+    cache.set(industryCacheKey, {
+      subjectBasicInd,
+      latestQuarter,
+      yearAgoQuarter,
+      columns,
+      rawPeers: tickers,
+    }, 86400).catch(() => {});
 
     const peers = tickers.map((t) => ({ ...t, isSubject: t.symbol === symbol }));
 
@@ -1376,6 +1422,7 @@ async function getPeers(req, res, next) {
       latestQuarter,
       yearAgoQuarter,
       count: peers.length,
+      columns,
       peers,
     };
 

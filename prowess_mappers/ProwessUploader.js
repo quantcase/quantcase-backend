@@ -13,6 +13,8 @@ const CSV_UNIT_MAP = {
   '((%))':        '%',   // quarterly CSV variant
   'Times':        'x',
   'Indian Rupee': 'Rs',
+  'CA':           'x',
+  'Nos':          'x',
 };
 
 const UNIT_MULTIPLIER = { Cr: 10_000_000, '%': 1, x: 1, Rs: 1 };
@@ -700,10 +702,17 @@ class ProwessUploader {
           const num = parseFloat(raw);
           if (isNaN(num)) continue;
 
-          const unit = colUnitByIdx[idx] ?? 'Cr';
+          let unit = colUnitByIdx[idx] ?? 'Cr';
+          if (abbr === 'PRICE_BOOK_OVERVIEW' || abbr === 'PEG_OVERVIEW' || colName === 'PEG' || colName.includes('Price to Book')) {
+            unit = 'x';
+          } else if (abbr === 'CFO_PAT_OVERVIEW' || colName === 'CFO to Pat conversion') {
+            unit = '%';
+          } else if (abbr === 'EPS') {
+            unit = 'Rs';
+          }
           const mult = UNIT_MULTIPLIER[unit] ?? 1;
 
-          allRows.push({
+          const rowObj = {
             callId, company, source_type: sourceType,
             fiscal_year: fiscalYear, quarter, call_date: endDate,
             kpi_abbr:    abbr,
@@ -715,7 +724,15 @@ class ProwessUploader {
             source:      'QE',
             source_path: `prowess/${path.basename(csvPath)}`,
             statement:   QTR_STATEMENT_MAP[abbr] ?? null,
-          });
+          };
+          allRows.push(rowObj);
+
+          if (abbr === 'ROCE_OVERVIEW') {
+            allRows.push({
+              ...rowObj,
+              kpi_abbr: 'ROCE',
+            });
+          }
         }
       }
     }
