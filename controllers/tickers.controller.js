@@ -59,8 +59,10 @@ async function getTickers(req, res, next) {
       return res.json(cached);
     }
 
-    const { tickers: rows, notFound } = await tickerMetrics.getMetricsForTickers(tickers);
-    const { latestQuarter, yearAgoQuarter } = await tickerMetrics.getQuarterLabels();
+    const [{ tickers: rows, notFound }, { latestQuarter, yearAgoQuarter }] = await Promise.all([
+      tickerMetrics.getMetricsForTickers(tickers),
+      tickerMetrics.getQuarterLabels(),
+    ]);
 
     const payload = {
       count: rows.length,

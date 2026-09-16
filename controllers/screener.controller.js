@@ -1359,12 +1359,14 @@ async function getPeers(req, res, next) {
     } else {
       // Fast path: check if another ticker in this basicIndustry has already cached raw peer metrics
       const cachedIndustry = await cache.get(industryCacheKey);
-      if (cachedIndustry && Array.isArray(cachedIndustry.rawPeers)) {
+      if (cachedIndustry && Array.isArray(cachedIndustry.rawPeers) && Array.isArray(cachedIndustry.columns) && cachedIndustry.columns.length > 0) {
         const peers = cachedIndustry.rawPeers.map((t) => ({ ...t, isSubject: t.symbol === symbol }));
         peers.sort((a, b) => {
           if (a.isSubject) return -1;
           if (b.isSubject) return 1;
-          return (b.marketCapCr ?? 0) - (a.marketCapCr ?? 0);
+          const bMcap = b.MCAP_SNAPSHOT ?? b.marketCapCr ?? 0;
+          const aMcap = a.MCAP_SNAPSHOT ?? a.marketCapCr ?? 0;
+          return bMcap - aMcap;
         });
         const payload = {
           symbol,
@@ -1394,8 +1396,10 @@ async function getPeers(req, res, next) {
     }
 
     // ── 3. Build metric rows (shared with GET /api/tickers) ──────────────────
-    const { tickers } = await tickerMetrics.getMetricsForTickers(nseSymbols);
-    const { latestQuarter, yearAgoQuarter } = await tickerMetrics.getQuarterLabels();
+    const [{ tickers }, { latestQuarter, yearAgoQuarter }] = await Promise.all([
+      tickerMetrics.getMetricsForTickers(nseSymbols),
+      tickerMetrics.getQuarterLabels(),
+    ]);
 
     // Cache industry-level raw metrics to serve all peers in this industry instantly
     cache.set(industryCacheKey, {
@@ -1412,7 +1416,9 @@ async function getPeers(req, res, next) {
     peers.sort((a, b) => {
       if (a.isSubject) return -1;
       if (b.isSubject) return 1;
-      return (b.marketCapCr ?? 0) - (a.marketCapCr ?? 0);
+      const bMcap = b.MCAP_SNAPSHOT ?? b.marketCapCr ?? 0;
+      const aMcap = a.MCAP_SNAPSHOT ?? a.marketCapCr ?? 0;
+      return bMcap - aMcap;
     });
 
     const payload = {
