@@ -45,10 +45,14 @@ async function run(_config = {}) {
     try {
       const cache = require('../../lib/cache');
       const deletedCounts = await Promise.all([
+        cache.delByPattern('qc:stock:*:financials*'),
+        cache.delByPattern('qc:stock:*:charts:*'),
+        cache.delByPattern('qc:stock:*:shareholding*'),
+        cache.delByPattern('qc:peers:industry:*'),
+        cache.delByPattern('qc:stock:*:peers'),
         cache.delByPattern('qc:stock:*:info'),
         cache.delByPattern('qc:stock:*:prices*'),
         cache.delByPattern('qc:stock:*:wyckoff*'),
-        cache.delByPattern('qc:stock:*:peers'),
         cache.delByPattern('qc:basket:*'),
         cache.delByPattern('qc:tickers:*'),
         cache.del('qc:market:indices'),

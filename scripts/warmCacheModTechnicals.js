@@ -143,25 +143,7 @@ async function warmTechnicals(symbol) {
       result.insightStatus = 'generating';
     }
 
-    // Strip joined watchout strings from ruleEngine (matching screener.controller.js)
-    if (result.ruleEngine) {
-      const re = result.ruleEngine;
-      const buckets = [
-        re.structureEngine?.marketStructure,
-        re.structureEngine?.participation,
-        re.structureEngine?.priceStructure,
-        re.trendEngine?.trendQuality,
-        re.timingEngine?.momentum,
-        re.timingEngine?.volatility,
-        re.dominanceEngine?.leadership?.vsNifty,
-        re.dominanceEngine?.leadership?.vsSector,
-      ];
-      for (const bucket of buckets) {
-        if (!bucket) continue;
-        delete bucket.growthWatchout;
-        delete bucket.valueWatchout;
-      }
-    }
+    // Preserve growthWatchout & valueWatchout for indicator pill tooltips in DecisionIntelligenceBanner
 
     if (result.insightStatus === 'ready') {
       await cache.set(cacheKey, result, 86400); // 24 hours TTL
@@ -240,12 +222,17 @@ async function checkRedisStatus() {
 
     // Scan patterns
     const patterns = [
+      { name: 'Financials (qc:stock:*:financials*)', pattern: 'qc:stock:*:financials*' },
+      { name: 'Charts (qc:stock:*:charts:*)', pattern: 'qc:stock:*:charts:*' },
+      { name: 'Shareholding (qc:stock:*:shareholding*)', pattern: 'qc:stock:*:shareholding*' },
+      { name: 'Peers (qc:stock:*:peers & qc:peers:*)', pattern: 'qc:*peers*' },
       { name: 'MOD Analysis (qc:analysis:*)', pattern: 'qc:analysis:*' },
-      { name: 'Technicals (qc:stock:*:technicals)', pattern: 'qc:stock:*:technicals' },
+      { name: 'Lenses (qc:lenses:*)', pattern: 'qc:lenses:*' },
+      { name: 'Technicals (qc:stock:*:technicals)', pattern: 'qc:stock:*:technicals*' },
       { name: 'Prices Series (qc:stock:*:prices:*)', pattern: 'qc:stock:*:prices:*' },
       { name: 'Company Info (qc:stock:*:info)', pattern: 'qc:stock:*:info' },
       { name: 'Tickers List (qc:tickers:*)', pattern: 'qc:tickers:*' },
-      { name: 'Baskets (qc:baskets:*)', pattern: 'qc:baskets:*' },
+      { name: 'Baskets (qc:basket:*)', pattern: 'qc:basket:*' },
     ];
 
     console.log(`\nCache Key Counts:`);

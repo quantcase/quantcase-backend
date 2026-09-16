@@ -23,6 +23,7 @@ const prowessCoverageRouter  = require('./admin.prowessCoverage.routes');
 const invitesRouter          = require('./admin.invites.routes');
 const errorReportsRouter     = require('./admin.errorReports.routes');
 const technicalsRouter       = require('./admin.technicals.routes');
+const cacheRouter            = require('./admin.cache.routes');
 
 // ─── Existing admin routes ────────────────────────────────────────────────────
 
@@ -182,5 +183,9 @@ router.use('/error-reports', errorReportsRouter);
 // insight for many tickers — feeds the admin technicals dashboard) ──────────
 
 router.use('/technicals', technicalsRouter);
+
+// ─── Cache Management (stats, selective invalidation, warming) ───────────
+
+router.use('/cache', cacheRouter);
 
 module.exports = router;
