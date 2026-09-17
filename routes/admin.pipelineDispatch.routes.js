@@ -93,4 +93,16 @@ router.post( '/l2-compressed-multi/run',         validate(l2MultiOptionsSchema, 
 router.post( '/l2-compressed-multi/regenerate-html', validate(l2MultiOptionsSchema, 'body'), pipelineDispatchController.regenerateHtmlL2CompressedMulti);
 router.get(  '/l2-compressed-multi/runs',        pipelineDispatchController.getL2CompressedMultiRuns);
 
+// ─── Lens Tier Configs Management ──────────────────────────────────────────
+
+const bulkUpdateTierSchema = z.object({
+  tierKey: z.string(),
+  slugs:   z.array(z.string()).optional(),
+  updates: z.record(z.any()),
+});
+
+router.get(  '/lens-tier-configs', pipelineDispatchController.getLensTierConfigs);
+router.put(  '/lens-tier-configs/:tierKey/:slug', pipelineDispatchController.updateLensTierConfig);
+router.post( '/lens-tier-configs/bulk-update', validate(bulkUpdateTierSchema, 'body'), pipelineDispatchController.bulkUpdateLensTierConfigs);
+
 module.exports = router;

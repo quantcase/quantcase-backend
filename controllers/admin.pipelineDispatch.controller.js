@@ -349,9 +349,216 @@ const getL2CompressedMultiRuns = async (req, res, next) => {
   }
 };
 
+// ─── Lens Tier Configs Management ──────────────────────────────────────────
+
+const PREFERRED_LENS_ORDER = [
+  'capital-allocation',
+  'customer-distribution',
+  'competition',
+  'disclosure-honesty',
+  'guidance-credibility',
+  'earning-quality',
+  'earnings-forecast',
+  'financial-strength',
+  'promoter-activity',
+  'industry-analysis',
+];
+
+const ALLOWED_CONFIG_FIELDS = [
+  'name', 'data_extraction_prompt', 'html_template_prompt', 'extraction_model', 'fact_validation_model',
+  'html_template_model', 'visual_qa_model', 'enable_data_validation', 'data_validation_loops',
+  'use_template_engine', 'html_template_filename', 'enable_html_validation',
+  'transcript_signal_types', 'ppt_signal_types', 'annual_report_signal_types', 'market_data_signal_types',
+  'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'max_market_data_months',
+  'historic_max_transcript_qtrs', 'historic_max_ppt_qtrs', 'historic_max_annual_report_years',
+  'historic_max_market_data_months', 'max_tokens', 'strip_html', 'is_active',
+];
+
+// GET /admin/pipeline-dispatch/lens-tier-configs
+const getLensTierConfigs = async (req, res, next) => {
+  try {
+    const skills = await prisma.htmlIncrementalSkill.findMany({
+      where: { is_active: true },
+      select: { id: true, slug: true, name: true, category: true },
+    });
+
+    skills.sort((a, b) => {
+      const idxA = PREFERRED_LENS_ORDER.indexOf(a.slug);
+      const idxB = PREFERRED_LENS_ORDER.indexOf(b.slug);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    const configs = await prisma.htmlIncrementalSkillConfig.findMany({
+      where: {
+        is_active: true,
+        skill_id: { in: skills.map(s => s.id) },
+      },
+      orderBy: [{ key: 'asc' }, { skill_id: 'asc' }],
+    });
+
+    const KNOWN_VARIANTS = {
+      t1: 'Full (T1) — transcript + ppt + annual report',
+      t2: 'No Transcript (T2) — ppt + annual report only',
+      t3: 'Annual Report Only (T3)',
+    };
+
+    const keyMap = new Map();
+    for (const c of configs) {
+      if (!keyMap.has(c.key)) {
+        keyMap.set(c.key, {
+          key: c.key,
+          name: KNOWN_VARIANTS[c.key] || c.name || c.key,
+          lensCount: 0,
+        });
+      }
+      keyMap.get(c.key).lensCount++;
+    }
+
+    const tiers = Array.from(keyMap.values()).sort((a, b) => {
+      const order = { t1: 1, t2: 2, t3: 3 };
+      const ordA = order[a.key] || 99;
+      const ordB = order[b.key] || 99;
+      if (ordA !== ordB) return ordA - ordB;
+      return a.key.localeCompare(b.key);
+    });
+
+    const skillIdToSlug = new Map(skills.map(s => [s.id, s.slug]));
+    const configsByTier = {};
+    for (const tier of tiers) {
+      configsByTier[tier.key] = {};
+    }
+    for (const c of configs) {
+      const slug = skillIdToSlug.get(c.skill_id);
+      if (slug && configsByTier[c.key]) {
+        configsByTier[c.key][slug] = c;
+      }
+    }
+
+    res.json({
+      tiers,
+      lenses: skills,
+      configs: configsByTier,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// PUT /admin/pipeline-dispatch/lens-tier-configs/:tierKey/:slug
+const updateLensTierConfig = async (req, res, next) => {
+  try {
+    const { tierKey, slug } = req.params;
+    const skill = await prisma.htmlIncrementalSkill.findUnique({
+      where: { slug },
+      select: { id: true, slug: true, name: true },
+    });
+    if (!skill) return res.status(404).json({ error: `Skill '${slug}' not found` });
+
+    const existing = await prisma.htmlIncrementalSkillConfig.findUnique({
+      where: { skill_id_key: { skill_id: skill.id, key: tierKey } },
+    });
+    if (!existing) return res.status(404).json({ error: `Config for key '${tierKey}' and skill '${slug}' not found` });
+
+    const data = {};
+    for (const field of ALLOWED_CONFIG_FIELDS) {
+      if (req.body[field] !== undefined) data[field] = req.body[field];
+    }
+
+    if (req.body.model !== undefined) {
+      data.extraction_model = req.body.model;
+      data.fact_validation_model = req.body.model;
+      data.html_template_model = req.body.model;
+      data.visual_qa_model = req.body.model;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+
+    const updated = await prisma.htmlIncrementalSkillConfig.update({
+      where: { id: existing.id },
+      data,
+    });
+
+    res.json({ success: true, config: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /admin/pipeline-dispatch/lens-tier-configs/bulk-update
+const bulkUpdateLensTierConfigs = async (req, res, next) => {
+  try {
+    const { tierKey, slugs, updates } = req.body;
+    if (!tierKey) return res.status(400).json({ error: 'tierKey is required' });
+    if (!updates || typeof updates !== 'object' || Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'updates object is required and must not be empty' });
+    }
+
+    const ALLOWED_BULK_FIELDS = [
+      'extraction_model', 'fact_validation_model', 'html_template_model', 'visual_qa_model',
+      'max_transcript_qtrs', 'max_ppt_qtrs', 'max_annual_report_years', 'max_market_data_months',
+      'historic_max_transcript_qtrs', 'historic_max_ppt_qtrs', 'historic_max_annual_report_years',
+      'historic_max_market_data_months', 'enable_data_validation', 'data_validation_loops',
+      'enable_html_validation', 'max_tokens', 'strip_html',
+    ];
+
+    const cleanData = {};
+    for (const field of ALLOWED_BULK_FIELDS) {
+      if (updates[field] !== undefined) cleanData[field] = updates[field];
+    }
+    if (updates.model !== undefined) {
+      cleanData.extraction_model = updates.model;
+      cleanData.fact_validation_model = updates.model;
+      cleanData.html_template_model = updates.model;
+      cleanData.visual_qa_model = updates.model;
+    }
+
+    if (Object.keys(cleanData).length === 0) {
+      return res.status(400).json({ error: 'No supported bulk fields provided' });
+    }
+
+    const skillWhere = { is_active: true };
+    if (Array.isArray(slugs) && slugs.length > 0) {
+      skillWhere.slug = { in: slugs };
+    }
+    const skills = await prisma.htmlIncrementalSkill.findMany({
+      where: skillWhere,
+      select: { id: true, slug: true },
+    });
+    if (skills.length === 0) {
+      return res.status(404).json({ error: 'No matching skills found' });
+    }
+
+    const skillIds = skills.map(s => s.id);
+
+    const updateResult = await prisma.htmlIncrementalSkillConfig.updateMany({
+      where: {
+        skill_id: { in: skillIds },
+        key: tierKey,
+        is_active: true,
+      },
+      data: cleanData,
+    });
+
+    res.json({
+      success: true,
+      updatedCount: updateResult.count,
+      tierKey,
+      appliedFields: Object.keys(cleanData),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getL1MultiOptions, previewL1Multi, previewL1MultiCsv, runL1Multi, getL1MultiRuns,
   getL2MultiOptions, previewL2Multi, previewL2MultiCsv, runL2Multi, regenerateHtmlL2Multi, getL2MultiRuns,
   getL3MultiOptions, previewL3Multi, previewL3MultiCsv, runL3Multi, getL3MultiRuns,
   getL2CompressedMultiOptions, previewL2CompressedMulti, previewL2CompressedMultiCsv, runL2CompressedMulti, regenerateHtmlL2CompressedMulti, getL2CompressedMultiRuns,
+  getLensTierConfigs, updateLensTierConfig, bulkUpdateLensTierConfigs,
 };
