@@ -128,13 +128,20 @@ async function runL2CompressedMultiDispatch(slug, options = {}) {
     try {
       // Need a callId. But the route only requires callId if it's new. Wait, run route requires callId.
       // We must fetch the callId from the base output.
+      const whereClause = {
+        skill_id: skill.base_l2_skill_id,
+        ticker,
+        is_historic: historic,
+        extracted_json: { not: null }
+      };
+      if (options.fiscalYear) {
+        whereClause.fiscal_year = options.fiscalYear.trim().toUpperCase();
+        if (options.quarter) {
+          whereClause.quarter = options.quarter.trim().toUpperCase();
+        }
+      }
       const baseOutput = await prisma.htmlIncrementalSkillOutput.findFirst({
-        where: {
-          skill_id: skill.base_l2_skill_id,
-          ticker,
-          is_historic: historic,
-          extracted_json: { not: null }
-        },
+        where: whereClause,
         orderBy: { created_at: 'desc' },
         select: { call_id: true, fiscal_year: true, quarter: true }
       });

@@ -38,16 +38,18 @@ router.get(  '/l1-multi/runs',        pipelineDispatchController.getL1MultiRuns)
 // worker picks it up (see resolveRequiredConfigKey).
 
 const l2MultiOptionsSchema = z.object({
-  slug:      z.string(),
-  groupSlug: z.string().optional(),
-  tickers:   z.array(z.string()).optional(),
-  all:       z.boolean().optional(),
-  startFrom: z.string().optional(),
-  historic:  z.boolean().optional(),
-  force:     z.boolean().optional(),
+  slug:       z.string(),
+  groupSlug:  z.string().optional(),
+  tickers:    z.array(z.string()).optional(),
+  all:        z.boolean().optional(),
+  startFrom:  z.string().optional(),
+  historic:   z.boolean().optional(),
+  force:      z.boolean().optional(),
+  fiscalYear: z.string().optional(),
+  quarter:    z.string().optional(),
   // Preview-only — paginates the resolved ticker list. Ignored by /run.
-  page:      z.number().int().positive().optional(),
-  pageSize:  z.number().int().positive().optional(),
+  page:       z.number().int().positive().optional(),
+  pageSize:   z.number().int().positive().optional(),
 });
 
 router.get(  '/l2-multi/options',     pipelineDispatchController.getL2MultiOptions);

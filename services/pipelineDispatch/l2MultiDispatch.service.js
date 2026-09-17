@@ -93,13 +93,73 @@ async function resolveTickers(options) {
   return tickers;
 }
 
-// One job per ticker — its latest reporting period, by (fiscal_year, quarter).
-async function resolveLatestCall(ticker) {
+// One job per ticker — its target reporting period, by (fiscal_year, quarter) or latest.
+async function resolveLatestCall(ticker, { fiscalYear, quarter } = {}) {
   const tierRecord = await prisma.tierClassification.findUnique({
     where: { company: ticker }
   });
 
   const tier = tierRecord ? tierRecord.tier : 'Tier 0';
+
+  if (fiscalYear) {
+    const fyNormalized = fiscalYear.trim().toUpperCase();
+    const qNormalized = quarter ? quarter.trim().toUpperCase() : null;
+
+    if (tier === 'Tier 3') {
+      const report = await prisma.annual_reports.findFirst({
+        where: { company: ticker, fiscal_year: fyNormalized },
+        orderBy: { id: 'desc' },
+      });
+      if (report) {
+        return { id: report.id.toString(), fiscal_year: report.fiscal_year, quarter: null };
+      }
+      const call = await prisma.earnings_calls.findFirst({
+        where: {
+          company: ticker,
+          fiscal_year: fyNormalized,
+          ...(qNormalized ? { quarter: qNormalized } : {}),
+        },
+        orderBy: [{ quarter: 'desc' }],
+        select: { id: true, fiscal_year: true, quarter: true },
+      });
+      if (call) return call;
+      return null;
+    }
+
+    const call = await prisma.earnings_calls.findFirst({
+      where: {
+        company: ticker,
+        fiscal_year: fyNormalized,
+        ...(qNormalized ? { quarter: qNormalized } : {}),
+      },
+      orderBy: [{ quarter: 'desc' }],
+      select: { id: true, fiscal_year: true, quarter: true },
+    });
+    if (call) return call;
+
+    const report = await prisma.annual_reports.findFirst({
+      where: { company: ticker, fiscal_year: fyNormalized },
+      orderBy: { id: 'desc' },
+    });
+    if (report) {
+      return { id: report.id.toString(), fiscal_year: report.fiscal_year, quarter: null };
+    }
+
+    const sig = await prisma.transcriptSignalV2.findFirst({
+      where: {
+        ticker,
+        fiscal_year: fyNormalized,
+        ...(qNormalized ? { quarter: qNormalized } : {}),
+      },
+      orderBy: [{ quarter: 'desc' }],
+      select: { call_id: true, fiscal_year: true, quarter: true },
+    });
+    if (sig && sig.call_id) {
+      return { id: sig.call_id, fiscal_year: sig.fiscal_year, quarter: sig.quarter };
+    }
+
+    return null;
+  }
 
   if (tier === 'Tier 3') {
     const report = await prisma.annual_reports.findFirst({
@@ -354,15 +414,15 @@ async function previewL2MultiDispatchCsv(options = {}, res) {
 // CompanyGroup.config_key when the worker processes it (see
 // resolveRequiredConfigKey) — response shape below is unchanged from before.
 async function runL2MultiDispatch(options = {}) {
-  const { slug, historic = false, force = false } = options;
+  const { slug, historic = false, force = false, fiscalYear, quarter } = options;
   const tickers = await resolveTickers(options);
-  console.log(`[l2-multi-dispatch] slug=${slug} tickers=${tickers.length} historic=${!!historic} force=${!!force}`);
+  console.log(`[l2-multi-dispatch] slug=${slug} tickers=${tickers.length} historic=${!!historic} force=${!!force} fiscalYear=${fiscalYear || 'auto'} quarter=${quarter || 'auto'}`);
 
   const totals = { queued: 0, noSource: 0, failed: 0 };
   const perTicker = [];
 
   for (const ticker of tickers) {
-    const call = await resolveLatestCall(ticker);
+    const call = await resolveLatestCall(ticker, { fiscalYear, quarter });
     if (!call) {
       totals.noSource++;
       perTicker.push({ ticker, status: 'noSource' });

@@ -1197,14 +1197,19 @@ async function resolveSmaSeries(prices) {
 async function getPrices(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
+    const forceRefresh = req.query.refresh === '1';
 
     const years = Math.max(1, Math.min(5, parseInt(req.query.years, 10) || 2));
     const cacheKey = `qc:stock:${symbol}:prices:${years}:${req.query.from || ''}:${req.query.to || ''}`;
 
-    const cached = await cache.get(cacheKey);
-    if (cached) {
-      setCacheTillMidnightIst(res);
-      return res.json(cached);
+    if (forceRefresh) {
+      await cache.del(cacheKey);
+    } else {
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        setCacheTillMidnightIst(res);
+        return res.json(cached);
+      }
     }
 
     const period1 = req.query.from
@@ -1256,7 +1261,11 @@ async function getPrices(req, res, next) {
 
     const payload = { symbol, count: prices.length, prices, indicators };
     cache.set(cacheKey, payload, 86400).catch(() => {});
-    setCacheTillMidnightIst(res);
+    if (forceRefresh) {
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    } else {
+      setCacheTillMidnightIst(res);
+    }
     res.json(payload);
   } catch (err) {
     next(err);
@@ -1280,6 +1289,7 @@ async function getPrices(req, res, next) {
 async function getWyckoff(req, res, next) {
   try {
     const symbol = req.params.symbol.toUpperCase();
+    const forceRefresh = req.query.refresh === '1';
 
     const chartYears = Math.max(1, Math.min(20, parseInt(req.query.chartYears, 10) || 3));
     const includeBars = req.query.includeBars !== 'false';
@@ -1287,10 +1297,14 @@ async function getWyckoff(req, res, next) {
     const minPct = Number.isFinite(minPctRaw) ? minPctRaw : null;
     const cacheKey = `qc:stock:${symbol}:wyckoff:${chartYears}:${includeBars}:${minPct ?? 'auto'}`;
 
-    const cached = await cache.get(cacheKey);
-    if (cached) {
-      setCacheTillMidnightIst(res);
-      return res.json(cached);
+    if (forceRefresh) {
+      await cache.del(cacheKey);
+    } else {
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        setCacheTillMidnightIst(res);
+        return res.json(cached);
+      }
     }
 
     const allBars = await fetchWyckoffBars(prisma, symbol);
@@ -1314,7 +1328,11 @@ async function getWyckoff(req, res, next) {
     });
 
     cache.set(cacheKey, payload, 86400).catch(() => {});
-    setCacheTillMidnightIst(res);
+    if (forceRefresh) {
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    } else {
+      setCacheTillMidnightIst(res);
+    }
     res.json(payload);
   } catch (err) {
     next(err);
