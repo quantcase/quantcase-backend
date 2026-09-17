@@ -98,7 +98,7 @@ router.get(  '/l2-compressed-multi/runs',        pipelineDispatchController.getL
 const bulkUpdateTierSchema = z.object({
   tierKey: z.string(),
   slugs:   z.array(z.string()).optional(),
-  updates: z.record(z.any()),
+  updates: z.record(z.string(), z.any()),
 });
 
 router.get(  '/lens-tier-configs', pipelineDispatchController.getLensTierConfigs);
