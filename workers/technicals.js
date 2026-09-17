@@ -4,11 +4,8 @@ const { Worker } = require('bullmq');
 const connection         = require('../config/redis');
 const prisma             = require('../config/prisma');
 const cache              = require('../lib/cache');
-const { llmStream, parseJson, logUsage, isGeminiModel } = require('../utils/workerUtils');
-const { loadSkillConfig }      = require('../utils/skillConfig');
 const technicalAnalysis        = require('../lib/technicalAnalysis');
-const { decisionIntelligencePrompt } = require('../prompts/decision_intelligence');
-const { expandTechnicalsInsight }    = require('../utils/technicalsShape');
+const { computeRuleBasedTechnicals } = require('../lib/taRuleEngineScoring');
 
 // ─── Processor ───────────────────────────────────────────────────────────────
 
@@ -24,18 +21,15 @@ async function processTechnicalsJob(job) {
       update: { status: 'processing' },
       create: { callId: `technicals_${symbol}`, type: 'technicals_analysis', status: 'processing', bullmqId: job.id },
     });
-    await job.updateProgress(5);
+    await job.updateProgress(10);
 
     // Compute full TA result
     const taResult = await technicalAnalysis.analyze(symbol);
-    await job.updateProgress(30);
+    await job.updateProgress(40);
 
     if (!taResult?.ruleEngine) {
       throw new Error(`No ruleEngine data for symbol ${symbol}`);
     }
-
-    const { model, maxTokens, outputSchema, promptTemplate } = await loadSkillConfig('technical-intelligence');
-    await job.updateProgress(40);
 
     // Read the prior score BEFORE the upsert below overwrites it — this drives the
     // composite tag's direction flag (Tier/Band Rising/Falling). Null on first run.
@@ -45,22 +39,10 @@ async function processTechnicalsJob(job) {
     });
     const previousScore = prevRow?.insight?.scores?.final_score ?? null;
 
-    const prompt = decisionIntelligencePrompt(taResult, promptTemplate, previousScore);
-    console.log(`[Technicals] Prompt length for ${symbol}: ${prompt.length} chars`);
-
-    const { text: responseText, usage } = await llmStream(
-      { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }], ...(outputSchema && { response_format: outputSchema }) },
-      { vertex: isGeminiModel(model) }
-    );
-    logUsage('Technicals', usage);
-    await job.updateProgress(85);
-
-    if (!responseText) throw new Error('Empty response from LLM');
-
-    // The model returns a deliberately flat/compact shape (small compiled grammar);
-    // expand it back into the documented nested shape before persisting.
-    const insight = expandTechnicalsInsight(parseJson(responseText), taResult, previousScore);
-    await job.updateProgress(90);
+    // Run deterministic rule engine scoring (replaces Vertex AI LLM call)
+    const asOfDate = new Date().toISOString().slice(0, 10);
+    const { expanded: insight } = computeRuleBasedTechnicals(taResult, previousScore, { symbol, asOfDate });
+    await job.updateProgress(80);
 
     await prisma.aiInsight.upsert({
       where:  { ticker_type_fiscal_year_quarter: { ticker, type: 'technicals', fiscal_year: 'FY2024', quarter: 'Q4' } },

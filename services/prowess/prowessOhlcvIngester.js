@@ -30,7 +30,17 @@ async function upsertOhlcvBatch(rows) {
   await prisma.$executeRawUnsafe(`
     INSERT INTO nse_equity_new (symbol, company_name, datetime, open, high, low, close, volume, pe, eps, market_cap_cr, pct_change, pe_consolidated, pe_standalone, created_at, updated_at)
     VALUES ${values}
-    ON CONFLICT (symbol, datetime) DO NOTHING
+    ON CONFLICT (symbol, datetime) DO UPDATE SET
+      open            = COALESCE(EXCLUDED.open,            nse_equity_new.open),
+      high            = COALESCE(EXCLUDED.high,            nse_equity_new.high),
+      low             = COALESCE(EXCLUDED.low,             nse_equity_new.low),
+      close           = COALESCE(EXCLUDED.close,           nse_equity_new.close),
+      volume          = COALESCE(EXCLUDED.volume,          nse_equity_new.volume),
+      market_cap_cr   = COALESCE(EXCLUDED.market_cap_cr,   nse_equity_new.market_cap_cr),
+      pct_change      = COALESCE(EXCLUDED.pct_change,      nse_equity_new.pct_change),
+      pe_consolidated = COALESCE(EXCLUDED.pe_consolidated, nse_equity_new.pe_consolidated),
+      pe_standalone   = COALESCE(EXCLUDED.pe_standalone,   nse_equity_new.pe_standalone),
+      updated_at      = now()
   `, ...params);
 }
 

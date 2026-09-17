@@ -127,7 +127,8 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
   const fieldRow = headerRows[5];
 
   const fields = new Set(fieldRow);
-  const isValuation = !fields.has('Opening Price') && hasAnyPeField(fields);
+  const hasOpening = fields.has('Opening Price') || fields.has('Adjusted Opening Price');
+  const isValuation = !hasOpening && hasAnyPeField(fields);
 
   const dayMap = {};
   for (let col = 1; col < fieldRow.length; col++) {
@@ -135,10 +136,10 @@ function parseOhlcvRows(headerRows, dataRows, nameToSymbol, nameColIdx) {
     const field   = fieldRow[col];
     if (!dateStr || !field) continue;
     if (!dayMap[dateStr]) dayMap[dateStr] = {};
-    if      (field === 'Opening Price')          dayMap[dateStr].open      = col;
-    else if (field === 'High Price')             dayMap[dateStr].high      = col;
-    else if (field === 'Low Price')              dayMap[dateStr].low       = col;
-    else if (field === 'Closing Price')          dayMap[dateStr].close     = col;
+    if      (field === 'Opening Price' || field === 'Adjusted Opening Price') dayMap[dateStr].open      = col;
+    else if (field === 'High Price'    || field === 'Adjusted High Price')    dayMap[dateStr].high      = col;
+    else if (field === 'Low Price'     || field === 'Adjusted Low Price')     dayMap[dateStr].low       = col;
+    else if (field === 'Closing Price' || field === 'Adjusted Closing Price') dayMap[dateStr].close     = col;
     else if (field === 'EPS')                    dayMap[dateStr].eps       = col;
     // Deliberately NOT 'Number of Transactions' -- a trade *count*, not shares
     // traded, and some queries request both fields; mapping only one avoids
@@ -252,11 +253,11 @@ function parseOhlcvFlatRows(head, data, nameToSymbol) {
   const idx = {};
   for (let col = 0; col < fieldRow.length; col++) {
     const field = fieldRow[col];
-    if      (field === 'Date')                   idx.date      = col;
-    else if (field === 'Opening Price')          idx.open      = col;
-    else if (field === 'High Price')             idx.high      = col;
-    else if (field === 'Low Price')              idx.low       = col;
-    else if (field === 'Closing Price')          idx.close     = col;
+    if      (field === 'Date')                                                idx.date      = col;
+    else if (field === 'Opening Price' || field === 'Adjusted Opening Price') idx.open      = col;
+    else if (field === 'High Price'    || field === 'Adjusted High Price')    idx.high      = col;
+    else if (field === 'Low Price'     || field === 'Adjusted Low Price')     idx.low       = col;
+    else if (field === 'Closing Price' || field === 'Adjusted Closing Price') idx.close     = col;
     else if (field === 'EPS')                    idx.eps       = col;
     else if (field === 'Shares traded')          idx.vol       = col;
     else if (field === 'Traded Quantity')        idx.vol       = col;
@@ -274,7 +275,8 @@ function parseOhlcvFlatRows(head, data, nameToSymbol) {
   }
 
   const fields = new Set(fieldRow);
-  const isValuation = !fields.has('Opening Price') && hasAnyPeField(fields);
+  const hasOpening = fields.has('Opening Price') || fields.has('Adjusted Opening Price');
+  const isValuation = !hasOpening && hasAnyPeField(fields);
 
   const records = [];
   let skippedName = 0;

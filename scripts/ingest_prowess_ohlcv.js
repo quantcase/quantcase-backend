@@ -113,7 +113,8 @@ function parseFile(filePath, nameToSymbol) {
 
   // Detect format from field names in row 6
   const fields = new Set(fieldRow);
-  const isValuation = !fields.has('Opening Price') && fields.has('P/E');
+  const hasOpening = fields.has('Opening Price') || fields.has('Adjusted Opening Price');
+  const isValuation = !hasOpening && fields.has('P/E');
 
   // Build per-date column index map
   const dayMap = {};
@@ -122,12 +123,13 @@ function parseFile(filePath, nameToSymbol) {
     const field   = fieldRow[col];
     if (!dateStr || !field) continue;
     if (!dayMap[dateStr]) dayMap[dateStr] = {};
-    if      (field === 'Opening Price')          dayMap[dateStr].open      = col;
-    else if (field === 'High Price')             dayMap[dateStr].high      = col;
-    else if (field === 'Low Price')              dayMap[dateStr].low       = col;
-    else if (field === 'Closing Price')          dayMap[dateStr].close     = col;
+    if      (field === 'Opening Price' || field === 'Adjusted Opening Price') dayMap[dateStr].open      = col;
+    else if (field === 'High Price'    || field === 'Adjusted High Price')    dayMap[dateStr].high      = col;
+    else if (field === 'Low Price'     || field === 'Adjusted Low Price')     dayMap[dateStr].low       = col;
+    else if (field === 'Closing Price' || field === 'Adjusted Closing Price') dayMap[dateStr].close     = col;
     else if (field === 'Number of Transactions') dayMap[dateStr].vol       = col;
     else if (field === 'Shares traded')          dayMap[dateStr].vol       = col;
+    else if (field === 'Traded Quantity')        dayMap[dateStr].vol       = col;
     else if (field === 'P/E')                    dayMap[dateStr].pe        = col;
     else if (field === 'Market Capitalisation')  dayMap[dateStr].marketCap = col;
     else if (field === 'Enterprise value')       dayMap[dateStr].marketCap = col;

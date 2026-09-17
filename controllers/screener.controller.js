@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const csvParse = require('csv-parse/sync');
 const technicalAnalysis = require('../lib/technicalAnalysis');
+const { computeRuleBasedTechnicals } = require('../lib/taRuleEngineScoring');
 const financials = require('../lib/financials');
 const { fundamentalsIntelligencePrompt } = require('../prompts/fundamentals_intelligence');
 const { loadSkillConfig } = require('../utils/skillConfig');
@@ -162,18 +163,34 @@ async function getTechnicals(req, res, next) {
       // insight it just received is about to be superseded and can keep polling /status.
       result.insightJob = await inFlightTechnicalsJob(symbol);
     } else {
-      result.decisionIntelligence = null;
-      result.insightUpdatedAt     = null;
-      // Distinguish the states the frontend previously had to guess at: a null insight now
-      // always carries either 'generating' (keep polling) or 'failed' (stop polling).
+      // Compute rule-based insight directly on the fresh technical analysis result
       try {
-        const job = await ensureTechnicalsJob(symbol, { force: forceRefresh });
-        result.insightJob    = job;
-        result.insightStatus = job.status === 'failed' ? 'failed' : 'generating';
+        const prevRow = await prisma.aiInsight.findFirst({
+          where: { ticker: symbol, type: 'technicals' },
+          orderBy: [ { fiscal_year: 'desc' }, { quarter: 'desc' }, { updated_at: 'desc' } ],
+        });
+        const previousScore = prevRow?.insight?.scores?.final_score ?? null;
+        const asOfDate = new Date().toISOString().slice(0, 10);
+        const { expanded: insight } = computeRuleBasedTechnicals(result, previousScore, { symbol, asOfDate });
+
+        await prisma.aiInsight.upsert({
+          where:  { ticker_type_fiscal_year_quarter: { ticker: symbol, type: 'technicals', fiscal_year: 'FY2024', quarter: 'Q4' } },
+          create: { ticker: symbol, type: 'technicals', insight, fiscal_year: 'FY2024', quarter: 'Q4' },
+          update: { insight, updated_at: new Date() },
+        });
+
+        result.decisionIntelligence = insight;
+        result.insightStatus        = 'ready';
+        result.insightUpdatedAt     = new Date();
+        result.insightJob           = null;
+
+
       } catch (err) {
-        console.error('[getTechnicals] Failed to enqueue job:', err.message);
-        result.insightJob    = null;
-        result.insightStatus = 'failed';
+        console.error('[getTechnicals] Failed to compute rule-based insight inline:', err.message);
+        result.decisionIntelligence = null;
+        result.insightUpdatedAt     = null;
+        result.insightStatus        = 'failed';
+        result.insightJob           = null;
       }
     }
 
